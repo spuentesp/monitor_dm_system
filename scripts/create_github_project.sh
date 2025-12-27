@@ -52,8 +52,9 @@ OBJECTIVES=(
     "O5|World Evolution Over Time|Allow worlds and characters to change permanently based on play, not reset between sessions.|Timeline"
 )
 
-# Epics (SYSTEM.md → EPIC 1-8)
+# Epics (SYSTEM.md)
 EPICS=(
+    "EPIC 0|Data Layer Access|Canonical data/MCP interfaces for all stores and objects (DL-1..DL-14).|Data Layer"
     "EPIC 1|World & Multiverse Definition|Define worlds, universes, multiverses; store facts, locations, factions, rules of reality.|World/Canon"
     "EPIC 2|Knowledge & Memory Ingestion|Ingest lore, session summaries, player notes, transcripts; differentiate facts vs rumors.|Ingest"
     "EPIC 3|Character Creation & Identity|Persistent PCs/NPCs with stats, inventory, relationships, traits; reuse characters across stories.|Manage"
@@ -62,6 +63,7 @@ EPICS=(
     "EPIC 6|Session Tracking & Timeline|Record scenes/actions/outcomes; maintain world and character timelines; enable querying past events.|Timeline"
     "EPIC 7|Human GM Assistant Mode|Listen to/ingest live sessions; track improvisation; suggest hooks and consequences.|Co-Pilot"
     "EPIC 8|Planning & Meta-Narrative Tools|Plan arcs without railroading; model factions; simulate what-if scenarios.|Story"
+    "EPIC 9|Documentation|Publish and govern documentation (DOC-1).|Docs"
 )
 
 project_number_from_title() {
@@ -298,7 +300,7 @@ main() {
     # Ensure fields exist (this may create them).
     ensure_field "$project_id" "Status" "SINGLE_SELECT" "Todo" "In Progress" "Done" >/dev/null
     ensure_field "$project_id" "Category" "SINGLE_SELECT" "Objective" "Epic" "Use Case" >/dev/null
-    ensure_field "$project_id" "Area" "SINGLE_SELECT" "World/Canon" "Play" "Manage" "Query" "Ingest" "System" "Co-Pilot" "Story" "Rules" "Timeline" >/dev/null
+    ensure_field "$project_id" "Area" "SINGLE_SELECT" "Data Layer" "World/Canon" "Play" "Manage" "Query" "Ingest" "System" "Co-Pilot" "Story" "Rules" "Timeline" "Docs" >/dev/null
     ensure_field "$project_id" "ID" "TEXT" >/dev/null
 
     # Reload field metadata to get IDs and option IDs.
