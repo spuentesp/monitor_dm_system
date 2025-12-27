@@ -5,7 +5,7 @@ Tests the neo4j_tools universe operations with mocked Neo4j client.
 """
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from monitor_data.schemas.base import CanonLevel, Authority, ErrorResponse
@@ -174,7 +174,7 @@ def mock_client():
             "name": "Test Multiverse",
             "system_name": "Test System",
             "description": "A test multiverse",
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
     }
     
@@ -500,6 +500,77 @@ def test_delete_universe_unauthorized(mock_client):
     
     assert isinstance(result, ErrorResponse)
     assert result.code == "UNAUTHORIZED"
+
+
+# ============================================================================
+# Test Edge Cases and Exception Handling
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_create_universe_with_empty_optional_fields(mock_client):
+    """Test universe creation with None optional fields."""
+    client, multiverse_id = mock_client
+    
+    data = UniverseCreate(
+        multiverse_id=multiverse_id,
+        name="Minimal Universe",
+        description="A minimal universe",
+        genre=None,
+        tone=None,
+        tech_level=None,
+    )
+    
+    result = neo4j_tools.neo4j_create_universe("CanonKeeper", data)
+    
+    assert isinstance(result, UniverseResponse)
+    assert result.name == "Minimal Universe"
+    assert result.genre is None
+    assert result.tone is None
+    assert result.tech_level is None
+
+
+@pytest.mark.unit
+def test_update_universe_no_fields(mock_client):
+    """Test updating universe with no fields provided."""
+    client, multiverse_id = mock_client
+    
+    # Create a universe first
+    data = UniverseCreate(
+        multiverse_id=multiverse_id,
+        name="Test Universe",
+        description="A test universe",
+    )
+    
+    create_result = neo4j_tools.neo4j_create_universe("CanonKeeper", data)
+    assert isinstance(create_result, UniverseResponse)
+    
+    # Update with no fields - should return current state
+    update_data = UniverseUpdate()
+    result = neo4j_tools.neo4j_update_universe("CanonKeeper", create_result.id, update_data)
+    
+    assert isinstance(result, UniverseResponse)
+    assert result.name == "Test Universe"
+
+
+@pytest.mark.unit
+def test_list_universes_with_none_request(mock_client):
+    """Test listing universes with None request (uses defaults)."""
+    client, multiverse_id = mock_client
+    
+    # Create a universe
+    data = UniverseCreate(
+        multiverse_id=multiverse_id,
+        name="Test Universe",
+        description="A test universe",
+    )
+    neo4j_tools.neo4j_create_universe("CanonKeeper", data)
+    
+    # List with None request
+    result = neo4j_tools.neo4j_list_universes("Narrator", None)
+    
+    assert isinstance(result, ListUniversesResponse)
+    assert result.total >= 1
 
 
 # ============================================================================

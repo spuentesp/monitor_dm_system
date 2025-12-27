@@ -7,7 +7,7 @@ IMPORTS FROM: External libraries only
 MCP tools for interacting with Neo4j canonical graph database.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -73,7 +73,7 @@ def neo4j_create_universe(
         
         # Generate UUID for the new universe
         universe_id = uuid4()
-        created_at = datetime.utcnow()
+        created_at = datetime.now(timezone.utc)
         
         # First verify that the multiverse exists
         verify_query = """
