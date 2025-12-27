@@ -9,6 +9,11 @@ Welcome to the MONITOR documentation. This wiki flattens key references for easy
 - System Vision & Epics: `SYSTEM.md`
 - AI Agent Instructions: `CLAUDE.md`
 
+## Data Layer (Foundational)
+- `docs/DATA_LAYER_USE_CASES.md`
+- `docs/PHASE0_PLAN.md`
+- DL-1..DL-14: canonical data access + MCP interfaces
+
 ## Architecture
 - `Architecture - CONVERSATIONAL_LOOPS.md`
 - `Architecture - AGENT_ORCHESTRATION.md`

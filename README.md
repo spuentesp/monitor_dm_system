@@ -192,60 +192,18 @@ python -m services.agents.canonkeeper
 
 ---
 
-## Use Cases
+## Use Cases (Summary)
 
-### P-1: Start New Story
-
-```python
-# User selects "Start New Story"
-# → Orchestrator.run_main_loop()
-#   → Orchestrator.start_new_story()
-#     → neo4j_create_story()
-#     → mongodb_create_scene()
-#     → Orchestrator.run_scene_loop()
-```
-
-### P-3: User Turn in Active Scene
-
-```python
-# User inputs: "I attack the orc"
-# → Narrator.handle_user_input()
-#   → mongodb_append_turn()
-#   → Resolver.resolve_action()
-#     → mongodb_create_proposed_change(type="state_change", content={tag: "dead"})
-#   → Narrator.generate_response()
-#     → mongodb_append_turn(speaker="gm")
-```
-
-### P-8: End Scene (Canonization)
-
-```python
-# Scene ends (user or Orchestrator signals)
-# → CanonKeeper.canonize_scene()
-#   → mongodb_get_pending_proposals()
-#   → For each proposal:
-#       → evaluate_proposal()
-#       → If accepted:
-#           → neo4j_create_fact() / neo4j_create_event()
-#           → mongodb_evaluate_proposal(status="accepted")
-#   → mongodb_finalize_scene()
-#   → Indexer.embed_scene_summary()
-```
-
-### I-1: Upload Document
-
-```python
-# User uploads D&D Player's Handbook
-# → IngestPipeline.process_document()
-#   → neo4j_create_source()
-#   → mongodb_create_document()
-#   → Extract text → mongodb_create_snippet() × N
-#   → Indexer.embed_snippets() → qdrant
-#   → LLM extracts entities → mongodb_create_proposed_change() × M
-#   → User reviews proposals
-#   → CanonKeeper.evaluate_proposals()
-#     → Accepted → neo4j_create_entity()
-```
+- Data Layer (DL-1..DL-14): canonical data access and MCP interfaces (universes, entities, axioms, facts/events, relationships/state-tags, stories/scenes/turns, proposed changes, outlines/threads, memories, sources/docs/snippets/proposals, binaries, vectors, text search, MCP middleware).
+- Play (P-1..P-12): core gameplay loop.
+- Manage (M-1..M-30): world/entity administration.
+- Query (Q-1..Q-9): canon exploration (semantic + keyword).
+- Ingest (I-1..I-6): knowledge import, binaries.
+- System (SYS-1..SYS-10): lifecycle, backup/retention.
+- Co-Pilot (CF-1..CF-5): human GM assistant.
+- Story (ST-1..ST-5): planning/meta-narrative.
+- Rules (RS-1..RS-4): game systems.
+- Docs (DOC-1): publish docs to wiki.
 
 ### Q-1: Semantic Search
 
@@ -365,16 +323,16 @@ monitor2/
 
 ## Development Status
 
-**Current Phase**: Architecture & Documentation (Complete)
+**Current Phase**: Architecture & Documentation (Complete); Data Layer (Phase 0) defined
 
 - [x] Architecture documentation
 - [x] Ontology specification
 - [x] API specification
 - [x] MCP transport layer spec
-- [x] Validation schemas
+- [x] Validation schemas (docs)
 - [x] Infrastructure setup (Docker Compose)
 - [x] Implementation guide
-- [ ] Data layer implementation
+- [ ] Data layer implementation (DL-1..DL-14)
 - [ ] Agent implementation
 - [ ] Testing
 - [ ] CLI tool

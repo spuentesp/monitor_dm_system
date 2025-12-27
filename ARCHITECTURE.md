@@ -114,7 +114,7 @@ packages/
 
 | Benefit | Explanation |
 |---------|-------------|
-| **Clear boundaries** | Each layer has explicit responsibilities |
+| **Clear boundaries** | Each layer has explicit responsibilities (see DL-1..DL-14 for data access) |
 | **Testable** | Each layer can be tested in isolation |
 | **Replaceable** | CLI can be swapped for web UI without changing agents |
 | **Authority enforcement** | Data layer enforces who can write what |

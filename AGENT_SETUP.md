@@ -3,9 +3,9 @@
 This guide is for AI coding agents (ChatGPT/Codex, Claude Code, Copilot, etc.) working on MONITOR. Follow it to stay within boundaries, ship single-use-case changes, and pass CI.
 
 ## Before You Start
-- Read: `CLAUDE.md`, `ARCHITECTURE.md`, `STRUCTURE.md`, `docs/USE_CASES.md`, `CONTRIBUTING.md`.
+- Read: `CLAUDE.md`, `ARCHITECTURE.md`, `STRUCTURE.md`, `docs/USE_CASES.md`, `docs/DATA_LAYER_USE_CASES.md`, `docs/PHASE0_PLAN.md`, `CONTRIBUTING.md`.
 - Branch naming: `feature/<USECASE>-short-desc` or `bugfix/<USECASE>-short-desc` (e.g., `feature/P-6-answer-question`). CI enforces.
-- Reference a use-case ID (P-, M-, Q-, I-, SYS-, CF-, ST-, RS-) in commits and PR body. CI enforces.
+- Reference a use-case ID (DL-, P-, M-, Q-, I-, SYS-, CF-, ST-, RS-, DOC-) in commits and PR body. CI enforces.
 
 ## Local Checks (run all)
 ```

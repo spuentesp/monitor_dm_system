@@ -168,6 +168,7 @@ from monitor_cli.commands import ...
 | Topic | Read... |
 |-------|---------|
 | Product vision & epics | `SYSTEM.md` |
+| Data-layer epic (DL-1..DL-14) | `docs/USE_CASES.md` + `docs/DATA_LAYER_USE_CASES.md` |
 | Architecture overview | `ARCHITECTURE.md` |
 | Data model | `docs/ontology/ONTOLOGY.md` |
 | Database integration | `docs/architecture/DATABASE_INTEGRATION.md` |

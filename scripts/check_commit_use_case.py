@@ -15,7 +15,7 @@ import re
 import subprocess
 import sys
 
-USE_CASE_RE = re.compile(r"\b(?:P|M|Q|I|SYS|CF|ST|RS|DOC)-\d+\b")
+USE_CASE_RE = re.compile(r"\b(?:DL|P|M|Q|I|SYS|CF|ST|RS|DOC)-\d+\b")
 
 
 def git_commits(base: str) -> list[str]:

@@ -19,7 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-USE_CASE_RE = re.compile(r"\b(?:P|M|Q|I|SYS|CF|ST|RS|DOC)-\d+\b")
+USE_CASE_RE = re.compile(r"\b(?:DL|P|M|Q|I|SYS|CF|ST|RS|DOC)-\d+\b")
 
 
 def git_commit_messages(base: str) -> str:

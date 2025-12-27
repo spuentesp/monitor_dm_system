@@ -267,29 +267,33 @@ The system does **NOT**:
 
 | Epic | Use Cases | Coverage |
 |------|-----------|----------|
+| **EPIC 0** — Data Layer Access | DL-1 to DL-14 (canonical data/MCP interfaces) | Defined |
 | **EPIC 1** — World & Multiverse | M-1 to M-8 (hierarchy), M-23 to M-25 (axioms), M-30 (time) | Complete |
-| **EPIC 2** — Knowledge Ingestion | I-1 to I-5 | Complete |
+| **EPIC 2** — Knowledge Ingestion | I-1 to I-6 | Complete |
 | **EPIC 3** — Character & Identity | M-12 to M-22 (entities, characters, memories) | Complete |
 | **EPIC 4** — Autonomous GM | P-1 to P-8, P-11, P-12 (play loop) | Complete |
 | **EPIC 5** — Rules & Randomization | P-4, P-9, P-10, **RS-1 to RS-4** (game systems) | Complete |
 | **EPIC 6** — Session & Timeline | M-26 to M-30 (facts, scenes, time), Q-5 (timeline) | Complete |
 | **EPIC 7** — Human GM Assistant | CF-1 to CF-5 (co-pilot features) | Complete |
 | **EPIC 8** — Planning & Meta-Narrative | ST-1 to ST-5 (story planning) | Complete |
+| **EPIC 9** — Documentation | DOC-1 | Defined |
 
 ### Use Case Summary
 
 | Prefix | Name | Count | Epic |
 |--------|------|-------|------|
+| `DL-` | Data Layer | 14 | EPIC 0 |
 | `P-` | Play | 12 | EPIC 4, 5 |
 | `M-` | Manage | 30 | EPIC 1, 3, 6 |
-| `Q-` | Query | 8 | EPIC 6 |
-| `I-` | Ingest | 5 | EPIC 2 |
-| `SYS-` | System | 8 | — |
+| `Q-` | Query | 9 | EPIC 6 |
+| `I-` | Ingest | 6 | EPIC 2 |
+| `SYS-` | System | 10 | — |
 | `CF-` | Co-Pilot | 5 | EPIC 7 |
 | `ST-` | Story Planning | 5 | EPIC 8 |
 | `RS-` | Rules | 4 | EPIC 5 |
+| `DOC-` | Documentation | 1 | EPIC 9 |
 
-**Total: 77 use cases**
+**Total: 96 use cases**
 
 ---
 

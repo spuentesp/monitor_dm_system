@@ -13,7 +13,7 @@ import argparse
 import re
 import sys
 
-PATTERN = re.compile(r"^(feature|bugfix)/((?:P|M|Q|I|SYS|CF|ST|RS|DOC)-\d+)-[a-z0-9-]+$", re.IGNORECASE)
+PATTERN = re.compile(r"^(feature|bugfix)/((?:DL|P|M|Q|I|SYS|CF|ST|RS|DOC)-\d+)-[a-z0-9-]+$", re.IGNORECASE)
 
 
 def main() -> int:

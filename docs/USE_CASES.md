@@ -24,6 +24,7 @@ See [SYSTEM.md](../SYSTEM.md) for core objectives (O1-O5) and epics (EPIC 1-8).
 
 | Category | Code | Description | Count |
 |----------|------|-------------|-------|
+| **DATA LAYER** | `DL-` | Canonical data access and MCP interfaces | 14 |
 | **PLAY** | `P-` | Core gameplay loop — narration, scenes, actions | 12 |
 | **MANAGE** | `M-` | World administration — CRUD for all entities | 30 |
 | **QUERY** | `Q-` | Canon exploration — search, browse, ask | 9 |
@@ -34,14 +35,76 @@ See [SYSTEM.md](../SYSTEM.md) for core objectives (O1-O5) and epics (EPIC 1-8).
 | **RULES** | `RS-` | Game system definition — stats, skills, mechanics | 4 |
 | **DOCS** | `DOC-` | Documentation publishing & governance | 1 |
 
-**Total: 82 use cases**
+**Total: 96 use cases**
 
 ## Testing Expectations
 
 - Every use case implementation must add or update unit tests that cover success and failure paths.
 - End-to-end or integration tests should exercise the full flow for cross-layer interactions (e.g., CLI → agents → data-layer) where applicable.
 - Pull requests that change code without touching tests should be rejected by automation (see `scripts/require_tests_for_code_changes.py` and CI gate).
-- Each change must reference at least one use-case ID (P-, M-, Q-, I-, SYS-, CF-, ST-, RS-) in commits/PR body; CI enforces this.
+- Each change must reference at least one use-case ID (DL-, P-, M-, Q-, I-, SYS-, CF-, ST-, RS-, DOC-) in commits/PR body; CI enforces this.
+
+---
+
+# Epic 0: DATA LAYER ACCESS (Foundational)
+
+> These use cases define the explicit data interfaces (tools + schemas) exposed by the data-layer and MCP server. They must be implemented and tested before any agent/CLI work. Each use case maps to MCP commands with authority and validation.
+
+## DL-1: Manage Multiverse/Universes (Neo4j)
+- CRUD for Multiverse/Universe nodes, hierarchy, tags.
+- MCP: `neo4j_create_universe`, `neo4j_get_universe`, `neo4j_update_universe`, `neo4j_list_universes`, `neo4j_delete_universe`.
+
+## DL-2: Manage Archetypes & Instances (Neo4j)
+- CRUD for EntityArchetype/EntityInstance, state_tags, derivatives.
+- MCP: `neo4j_create_entity`, `neo4j_get_entity`, `neo4j_update_entity`, `neo4j_list_entities`, `neo4j_delete_entity`.
+
+## DL-3: Manage Facts & Events (Neo4j, provenance)
+- CRUD for Facts/Events, relationships, provenance edges (SUPPORTED_BY).
+- MCP: `neo4j_create_fact`, `neo4j_get_fact`, `neo4j_update_fact`, `neo4j_list_facts`, `neo4j_delete_fact`, `neo4j_create_event`.
+
+## DL-4: Manage Stories, Scenes, Turns (Neo4j + MongoDB)
+- CRUD for Story, Scene, Turn records; status transitions.
+- MCP: `neo4j_create_story`, `neo4j_get_story`, `neo4j_update_story`; `mongodb_create_scene`, `mongodb_get_scene`, `mongodb_update_scene`, `mongodb_append_turn`, `mongodb_list_scenes`.
+
+## DL-5: Manage Proposed Changes (MongoDB)
+- Create/retrieve/update ProposedChange documents for canonization staging.
+- MCP: `mongodb_create_proposed_change`, `mongodb_get_proposed_change`, `mongodb_list_proposed_changes`, `mongodb_update_proposed_change`.
+
+## DL-6: Manage Story Outlines & Plot Threads (MongoDB + Neo4j)
+- CRUD for story_outline documents and plot threads; link to stories and facts.
+- MCP: `mongodb_create_story_outline`, `mongodb_get_story_outline`, `mongodb_update_story_outline`; `neo4j_create_plot_thread`, `neo4j_list_plot_threads`.
+
+## DL-7: Manage Memories (MongoDB + Qdrant)
+- CRUD for CharacterMemory; embedding operations.
+- MCP: `mongodb_create_memory`, `mongodb_get_memory`, `mongodb_list_memories`, `mongodb_update_memory`; `qdrant_embed_memory`, `qdrant_search_memories`.
+
+## DL-8: Manage Sources, Documents, Snippets, Ingest Proposals (MongoDB)
+- CRUD for sources/documents/snippets and ingest proposals.
+- MCP: `neo4j_create_source`; `mongodb_create_document`, `mongodb_get_document`, `mongodb_list_documents`, `mongodb_create_snippet`, `mongodb_list_snippets`, `mongodb_create_ingest_proposal`, `mongodb_list_ingest_proposals`, `mongodb_update_ingest_proposal`.
+
+## DL-9: Manage Binary Assets (MinIO)
+- Upload/download/delete/list binaries with metadata references.
+- MCP: `minio_upload`, `minio_get_object`, `minio_delete_object`, `minio_list_objects`.
+
+## DL-10: Vector Index Operations (Qdrant)
+- Upsert/search/delete embeddings for scenes, memories, snippets.
+- MCP: `qdrant_upsert`, `qdrant_search`, `qdrant_delete`.
+
+## DL-11: Text Search Index Operations (OpenSearch)
+- Index/search/delete text documents/snippets/facts.
+- MCP: `opensearch_index_document`, `opensearch_search`, `opensearch_delete_document`.
+
+## DL-12: MCP Server & Middleware (Auth/Validation/Health)
+- Register tools, enforce authority and schema validation, expose health.
+- MCP: health/status endpoints; middleware: `auth`, `validation`, tool registry introspection.
+
+## DL-13: Manage Axioms (Neo4j)
+- CRUD for Axiom nodes tied to universes; link to sources/snippets.
+- MCP: `neo4j_create_axiom`, `neo4j_get_axiom`, `neo4j_update_axiom`, `neo4j_list_axioms`, `neo4j_delete_axiom`.
+
+## DL-14: Manage Relationships & State Tags (Neo4j)
+- Create/update/delete relationships between entities (membership, ownership, social, spatial, participation) and update state_tags.
+- MCP: `neo4j_create_relationship`, `neo4j_update_relationship`, `neo4j_delete_relationship`, `neo4j_list_relationships`; `neo4j_update_state_tags`.
 
 ---
 
@@ -5019,6 +5082,7 @@ def roll_dice(formula: str) -> DiceRoll:
 
 | Epic | Use Cases | Priority |
 |------|-----------|----------|
+| DATA LAYER | DL-1 to DL-14 | Phase 0 (Foundational) |
 | PLAY | P-1 to P-12 | Phase 1 (MVP) |
 | MANAGE | M-1 to M-29 | Phase 1-2 |
 | QUERY | Q-1 to Q-9 | Phase 2 |
@@ -5034,6 +5098,18 @@ Core gameplay loop:
 - P-1, P-2, P-3, P-4, P-8 (story, scene, turn, action, canonize)
 - P-9 (dice rolls)
 - M-12, M-13 (create entities, characters)
+
+## Phase 0
+
+Data layer foundation:
+- DL-1 to DL-14 (all data access MCP tools, auth/validation, indices)
+- Tasks:
+  - Create Pydantic schemas for all DL objects (universes, entities, axioms, facts/events, relationships/state tags, stories/scenes/turns, proposed changes, story outlines/plot threads, memories, sources/documents/snippets/ingest proposals, binaries, embeddings, search docs).
+  - Implement DB clients (Neo4j, MongoDB, Qdrant, MinIO, OpenSearch) and health checks.
+  - Implement MCP tools for each DL use case with auth/validation middleware.
+  - Docker/dev setup: ensure infra/docker-compose is runnable; add sample .env for services.
+  - Provide template/parent files agents can copy (one schema/tool pattern per store) to accelerate implementation.
+  - Data-layer perspectives are detailed in `docs/DATA_LAYER_USE_CASES.md`.
 
 ## Phase 2
 
