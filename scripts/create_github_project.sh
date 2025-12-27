@@ -67,9 +67,27 @@ EPICS=(
 )
 
 project_number_from_title() {
-    gh project list --owner "$OWNER" --format=json --limit 200 \
-        | jq -r --arg title "$PROJECT_TITLE" '.projects[] | select(.title == $title) | .number' \
-        | head -n1
+    local cursor=""
+    while :; do
+        local resp
+        if [[ -z "$cursor" ]]; then
+            resp=$(gh project list --owner "$OWNER" --format=json --limit 100)
+        else
+            resp=$(gh project list --owner "$OWNER" --format=json --limit 100 --after "$cursor")
+        fi
+
+        local found
+        found=$(echo "$resp" | jq -r --arg title "$PROJECT_TITLE" '.projects[] | select(.title == $title) | .number' | head -n1)
+        if [[ -n "$found" ]]; then
+            echo "$found"
+            return
+        fi
+
+        cursor=$(echo "$resp" | jq -r '.projects[-1].id' 2>/dev/null || true)
+        if [[ -z "$cursor" || "$cursor" == "null" ]]; then
+            break
+        fi
+    done
 }
 
 create_project_if_needed() {
@@ -218,7 +236,7 @@ load_items_meta() {
       query($id: ID!) {
         node(id: $id) {
           ... on ProjectV2 {
-            items(first: 200) {
+            items(first: 100) {
               nodes {
                 id
                 fieldValues(first: 10) {
