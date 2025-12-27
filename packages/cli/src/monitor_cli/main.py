@@ -7,19 +7,21 @@ LAYER: 3 (cli)
 IMPORTS FROM: monitor_agents (Layer 2), external libraries
 NEVER IMPORTS: monitor_data (Layer 1) - that would skip Layer 2!
 
-Usage:
-    $ monitor --help
-    $ monitor play
-    $ monitor ingest ./document.pdf
-    $ monitor query "What happened to Gandalf?"
-    $ monitor manage entities
+Commands (7 groups):
+    $ monitor play      # P- use cases - Solo Play mode
+    $ monitor manage    # M- use cases - World Design mode
+    $ monitor query     # Q- use cases - Canon exploration
+    $ monitor ingest    # I- use cases - Document upload
+    $ monitor copilot   # CF- use cases - GM Assistant mode
+    $ monitor story     # ST- use cases - Arc planning
+    $ monitor rules     # RS- use cases - Game system definition
 """
 
 import typer
 from rich.console import Console
 
 # Import commands
-# from monitor_cli.commands import play, ingest, query, manage
+# from monitor_cli.commands import play, manage, query, ingest, copilot, story, rules
 
 app = typer.Typer(
     name="monitor",
@@ -30,11 +32,14 @@ app = typer.Typer(
 console = Console()
 
 
-# Register command groups
-# app.add_typer(play.app, name="play", help="Start or continue a story")
+# Register command groups (7 total)
+# app.add_typer(play.app, name="play", help="Start or continue a story (Solo Play)")
+# app.add_typer(manage.app, name="manage", help="Manage universes, entities, facts (World Design)")
+# app.add_typer(query.app, name="query", help="Search and explore canon")
 # app.add_typer(ingest.app, name="ingest", help="Upload and process documents")
-# app.add_typer(query.app, name="query", help="Query canonical facts")
-# app.add_typer(manage.app, name="manage", help="Manage entities and universes")
+# app.add_typer(copilot.app, name="copilot", help="GM assistant features (Assisted GM)")
+# app.add_typer(story.app, name="story", help="Arc planning, factions, what-if scenarios")
+# app.add_typer(rules.app, name="rules", help="Game system definition and management")
 
 
 @app.command()

@@ -120,10 +120,10 @@ Not everything becomes truth. The canonization gate is the explicit decision poi
 
 | Type | Description | Has state_tags? |
 |------|-------------|-----------------|
-| **EntityAxiomatica** | Archetypes, concepts ("Wizard", "Orc") | No |
-| **EntityConcreta** | Specific instances ("Gandalf", "The One Ring") | Yes |
+| **EntityArchetype** | Archetypes, concepts ("Wizard", "Orc") | No |
+| **EntityInstance** | Specific instances ("Gandalf", "The One Ring") | Yes |
 
-EntityConcreta can derive from EntityAxiomatica via `DERIVA_DE` relationship.
+EntityInstance can derive from EntityArchetype via `DERIVES_FROM` relationship.
 
 ### Authority Hierarchy
 
@@ -154,7 +154,7 @@ EntityConcreta can derive from EntityAxiomatica via `DERIVA_DE` relationship.
 4. **Neo4j never references external DB primary keys** - only UUIDs
 5. **Qdrant is never authoritative** - derived index only, rebuildable
 6. **Entities are never deleted** - marked `retconned` instead
-7. **State tags are only on EntityConcreta** - EntityAxiomatica is timeless
+7. **State tags are only on EntityInstance** - EntityArchetype is timeless
 
 ---
 
@@ -224,8 +224,8 @@ monitor2/
 | `Universe` | id, multiverse_id, genre, tone |
 | `Source` | id, universe_id, doc_id, source_type |
 | `Axiom` | id, universe_id, statement, domain |
-| `EntityAxiomatica` | id, universe_id, name, entity_type, properties |
-| `EntityConcreta` | id, universe_id, name, entity_type, properties, **state_tags** |
+| `EntityArchetype` | id, universe_id, name, entity_type, properties |
+| `EntityInstance` | id, universe_id, name, entity_type, properties, **state_tags** |
 | `Story` | id, universe_id, title, story_type, status |
 | `Scene` | id, story_id, title, purpose |
 | `Fact` | id, universe_id, statement, time_ref, confidence, authority |
@@ -249,7 +249,7 @@ monitor2/
 
 `character`, `faction`, `location`, `object`, `concept`, `organization`
 
-### State Tags (EntityConcreta only)
+### State Tags (EntityInstance only)
 
 - **Life:** alive, dead, unconscious, dying
 - **Health:** healthy, wounded, poisoned

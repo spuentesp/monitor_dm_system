@@ -377,7 +377,7 @@ Collection: memory_chunks
   ├─ vector: [1536 floats]
   └─ payload:
        ├─ memory_id → references MongoDB character_memories.memory_id
-       ├─ entity_id → references Neo4j EntityConcreta.id
+       ├─ entity_id → references Neo4j EntityInstance.id
        ├─ text: string
        ├─ importance: float
        └─ timestamp: iso8601
@@ -442,7 +442,7 @@ Collection: snippet_chunks
 
 ## 5. Entity-Type Specific Properties
 
-### EntityConcreta.properties by entity_type
+### EntityInstance.properties by entity_type
 
 **character:**
 ```json
@@ -498,16 +498,34 @@ Collection: snippet_chunks
 
 ## 6. Enumerations
 
-### canon_level
+### canon_level (Standard)
+Used by: Axiom, EntityArchetype, EntityInstance, Fact, Event, Universe
 - `proposed` - suggested but not accepted
 - `canon` - accepted as truth
-- `retconned` - superseded by newer fact
+- `retconned` - superseded by newer version
 
-### authority
+### canon_level (Source)
+Used by: Source nodes only
+- `proposed` - source uploaded but not verified
+- `canon` - source accepted as valid reference
+- `authoritative` - official/primary source (highest trust, e.g., D&D PHB)
+
+**Note:** Sources use `authoritative` instead of `retconned` because source documents themselves don't get revised—only facts derived from them can be retconned.
+
+### authority (Standard)
+Used by: Fact, Event, EntityArchetype, EntityInstance
 - `source` - from manual/document
 - `gm` - explicit GM declaration
 - `player` - from player action via resolution
 - `system` - inferred by system
+
+### authority (Axiom)
+Used by: Axiom only
+- `source` - from manual/document
+- `gm` - explicit GM declaration
+- `system` - inferred by system
+
+**Note:** Axioms exclude `player` because world rules (physics, magic systems) cannot be created by player actions—only by GM declaration or authoritative sources.
 
 ### story_type
 - `campaign` - long-form multi-arc
@@ -550,8 +568,8 @@ Collection: snippet_chunks
 
 ### Neo4j Constraints
 ```cypher
-CREATE CONSTRAINT entity_concreta_id ON (n:EntityConcreta) ASSERT n.id IS UNIQUE;
-CREATE CONSTRAINT entity_axiomatica_id ON (n:EntityAxiomatica) ASSERT n.id IS UNIQUE;
+CREATE CONSTRAINT entity_concreta_id ON (n:EntityInstance) ASSERT n.id IS UNIQUE;
+CREATE CONSTRAINT entity_axiomatica_id ON (n:EntityArchetype) ASSERT n.id IS UNIQUE;
 CREATE CONSTRAINT universe_id ON (n:Universe) ASSERT n.id IS UNIQUE;
 CREATE CONSTRAINT story_id ON (n:Story) ASSERT n.id IS UNIQUE;
 CREATE CONSTRAINT fact_id ON (n:Fact) ASSERT n.id IS UNIQUE;
@@ -562,7 +580,7 @@ CREATE CONSTRAINT axiom_id ON (n:Axiom) ASSERT n.id IS UNIQUE;
 
 ### Neo4j Indexes
 ```cypher
-CREATE INDEX entity_universe ON :EntityConcreta(universe_id);
+CREATE INDEX entity_universe ON :EntityInstance(universe_id);
 CREATE INDEX fact_universe ON :Fact(universe_id);
 CREATE INDEX fact_canon_level ON :Fact(canon_level);
 CREATE INDEX story_universe ON :Story(universe_id);

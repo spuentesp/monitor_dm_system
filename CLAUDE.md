@@ -6,10 +6,11 @@
 
 ## Before You Do Anything
 
-1. **Read `STRUCTURE.md`** - Complete folder definitions (REQUIRED)
-2. **Read `ARCHITECTURE.md`** - Layer architecture and rules
-3. **Identify which layer** your changes belong to
-4. **Respect layer boundaries** - Dependencies flow downward ONLY
+1. **Read `SYSTEM.md`** - Product vision and epics (START HERE)
+2. **Read `STRUCTURE.md`** - Complete folder definitions
+3. **Read `ARCHITECTURE.md`** - Layer architecture and rules
+4. **Identify which layer** your changes belong to
+5. **Respect layer boundaries** - Dependencies flow downward ONLY
 
 ---
 
@@ -17,11 +18,12 @@
 
 | Order | Document | What It Contains |
 |-------|----------|------------------|
-| 1 | `STRUCTURE.md` | Every folder defined, what goes where |
-| 2 | `ARCHITECTURE.md` | Layer rules, dependency diagram |
-| 3 | `docs/USE_CASES.md` | All use cases (S-, U-, ST-, C-, G-, I-, Q-, CF-) |
-| 4 | `packages/*/README.md` | Layer-specific instructions |
-| 5 | `docs/AI_DOCS.md` | Quick reference for implementation |
+| 1 | `SYSTEM.md` | Product vision, epics, objectives, system modes |
+| 2 | `STRUCTURE.md` | Every folder defined, what goes where |
+| 3 | `ARCHITECTURE.md` | Layer rules, dependency diagram |
+| 4 | `docs/USE_CASES.md` | All use cases (P-, M-, Q-, I-, SYS-, CF-, ST-) |
+| 5 | `packages/*/README.md` | Layer-specific instructions |
+| 6 | `docs/AI_DOCS.md` | Quick reference for implementation |
 
 ---
 
@@ -165,11 +167,13 @@ from monitor_cli.commands import ...
 
 | Topic | Read... |
 |-------|---------|
+| Product vision & epics | `SYSTEM.md` |
 | Architecture overview | `ARCHITECTURE.md` |
 | Data model | `docs/ontology/ONTOLOGY.md` |
 | Database integration | `docs/architecture/DATABASE_INTEGRATION.md` |
 | Agent orchestration | `docs/architecture/AGENT_ORCHESTRATION.md` |
 | API specification | `docs/architecture/DATA_LAYER_API.md` |
+| Use cases | `docs/USE_CASES.md` |
 | Quick reference | `docs/AI_DOCS.md` |
 
 ---

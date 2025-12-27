@@ -40,7 +40,7 @@ docs/
 │   └── VALIDATION_SCHEMAS.md     # Pydantic model definitions
 │
 └── ontology/                     # Data model documents
-    ├── ENTITY_TAXONOMY.md        # EntityAxiomatica vs EntityConcreta
+    ├── ENTITY_TAXONOMY.md        # EntityArchetype vs EntityInstance
     ├── ERD_DIAGRAM.md            # Entity-relationship diagrams
     └── ONTOLOGY.md               # Complete data model
 ```
@@ -246,12 +246,15 @@ packages/cli/
 │       ├── __init__.py           # Package root, exports
 │       ├── main.py               # Typer app entry point
 │       │
-│       ├── commands/             # CLI commands
+│       ├── commands/             # CLI commands (7 command groups)
 │       │   ├── __init__.py
-│       │   ├── play.py           # `monitor play` - story sessions
-│       │   ├── ingest.py         # `monitor ingest` - doc upload
-│       │   ├── query.py          # `monitor query` - canon queries
-│       │   └── manage.py         # `monitor manage` - admin
+│       │   ├── play.py           # `monitor play` - P- use cases (Solo Play mode)
+│       │   ├── manage.py         # `monitor manage` - M- use cases (World Design mode)
+│       │   ├── query.py          # `monitor query` - Q- use cases
+│       │   ├── ingest.py         # `monitor ingest` - I- use cases
+│       │   ├── copilot.py        # `monitor copilot` - CF- use cases (GM Assistant mode)
+│       │   ├── story.py          # `monitor story` - ST- use cases (Planning)
+│       │   └── rules.py          # `monitor rules` - RS- use cases (Game Systems)
 │       │
 │       ├── repl/                 # Interactive REPL
 │       │   ├── __init__.py

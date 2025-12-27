@@ -197,8 +197,8 @@ class EntityType(str, Enum):
     CONCEPT = "concept"
     ORGANIZATION = "organization"
 
-class EntityConcretaCreate(BaseModel):
-    """Request to create an EntityConcreta."""
+class EntityInstanceCreate(BaseModel):
+    """Request to create an EntityInstance."""
     universe_id: UUID
     name: str = Field(min_length=1, max_length=200)
     entity_type: EntityType
@@ -241,7 +241,7 @@ class Neo4jClient:
     @staticmethod
     def _create_entity_tx(tx, data):
         query = """
-        CREATE (e:EntityConcreta {
+        CREATE (e:EntityInstance {
             id: $id,
             universe_id: $universe_id,
             name: $name,
@@ -326,7 +326,7 @@ class QdrantClient:
 
 ```python
 from anthropic import MCP
-from src.schemas.entities import EntityConcretaCreate, EntityResponse
+from src.schemas.entities import EntityInstanceCreate, EntityResponse
 from src.db.neo4j_client import Neo4jClient
 from uuid import uuid4
 from datetime import datetime
@@ -335,8 +335,8 @@ mcp = MCP()
 neo4j_client = Neo4jClient()
 
 @mcp.tool()
-async def neo4j_create_entity(request: EntityConcretaCreate) -> EntityResponse:
-    """Create a new entity (EntityConcreta) in the canonical graph."""
+async def neo4j_create_entity(request: EntityInstanceCreate) -> EntityResponse:
+    """Create a new entity (EntityInstance) in the canonical graph."""
 
     # Validate authority (CanonKeeper only)
     # (handled by middleware)
@@ -673,12 +673,12 @@ Create `services/data-layer/tests/test_neo4j_tools.py`:
 ```python
 import pytest
 from src.tools.neo4j_tools import neo4j_create_entity
-from src.schemas.entities import EntityConcretaCreate
+from src.schemas.entities import EntityInstanceCreate
 from uuid import uuid4
 
 @pytest.mark.asyncio
 async def test_create_entity():
-    request = EntityConcretaCreate(
+    request = EntityInstanceCreate(
         universe_id=uuid4(),
         name="Test Entity",
         entity_type="character",
@@ -708,8 +708,8 @@ from src.tools import *
 from uuid import uuid4
 
 @pytest.mark.asyncio
-async def test_uc3_end_scene_canonization():
-    """Test UC-3: End Scene (Canonization) from DATA_LAYER_API.md."""
+async def test_p8_end_scene_canonization():
+    """Test P-8: End Scene (Canonization) from DATA_LAYER_API.md."""
 
     # Setup: create scene with proposals
     scene_id = uuid4()
@@ -725,7 +725,7 @@ async def test_uc3_end_scene_canonization():
     assert len(result['accepted_proposals']) > 0
     assert len(result['canonical_fact_ids']) > 0
 
-# ... etc (test all 5 use cases from DATA_LAYER_API.md)
+# ... etc (test all use case flows from DATA_LAYER_API.md)
 ```
 
 ---

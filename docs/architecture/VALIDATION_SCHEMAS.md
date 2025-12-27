@@ -26,16 +26,37 @@ from enum import Enum
 from typing import Literal
 
 class CanonLevel(str, Enum):
-    """Canonization status of an entity/fact."""
+    """Canonization status for most canonical nodes."""
     PROPOSED = "proposed"
     CANON = "canon"
     RETCONNED = "retconned"
 
+class SourceCanonLevel(str, Enum):
+    """Canonization status for Source nodes only.
+
+    Sources use 'authoritative' instead of 'retconned' because
+    source documents themselves aren't revised—only facts derived
+    from them can be retconned.
+    """
+    PROPOSED = "proposed"
+    CANON = "canon"
+    AUTHORITATIVE = "authoritative"
+
 class Authority(str, Enum):
-    """Who asserted this data."""
+    """Who asserted this data (full set for Facts, Events, Entities)."""
     SOURCE = "source"
     GM = "gm"
     PLAYER = "player"
+    SYSTEM = "system"
+
+class AxiomAuthority(str, Enum):
+    """Authority for Axiom nodes only (excludes 'player').
+
+    World rules (physics, magic systems) cannot be created by player
+    actions—only by GM declaration or authoritative sources.
+    """
+    SOURCE = "source"
+    GM = "gm"
     SYSTEM = "system"
 
 class EntityType(str, Enum):
@@ -49,8 +70,8 @@ class EntityType(str, Enum):
 
 class EntityClass(str, Enum):
     """Axiomatic vs Concrete."""
-    AXIOMATICA = "EntityAxiomatica"
-    CONCRETA = "EntityConcreta"
+    AXIOMATICA = "EntityArchetype"
+    CONCRETA = "EntityInstance"
 
 class StoryType(str, Enum):
     """Story type."""
@@ -116,11 +137,11 @@ class CanonicalMetadata(BaseModel):
 
 ### 2.1 Entity Models
 
-#### EntityAxiomaticaCreate
+#### EntityArchetypeCreate
 
 ```python
-class EntityAxiomaticaCreate(BaseModel):
-    """Request to create an EntityAxiomatica."""
+class EntityArchetypeCreate(BaseModel):
+    """Request to create an EntityArchetype."""
     universe_id: UUID
     name: str = Field(min_length=1, max_length=200)
     entity_type: EntityType
@@ -153,11 +174,11 @@ class EntityAxiomaticaCreate(BaseModel):
 
 ---
 
-#### EntityConcretaCreate
+#### EntityInstanceCreate
 
 ```python
-class EntityConcretaCreate(BaseModel):
-    """Request to create an EntityConcreta."""
+class EntityInstanceCreate(BaseModel):
+    """Request to create an EntityInstance."""
     universe_id: UUID
     name: str = Field(min_length=1, max_length=200)
     entity_type: EntityType
@@ -212,7 +233,7 @@ class EntityCreate(BaseModel):
     """Polymorphic entity creation request."""
     entity_class: EntityClass
     data: Annotated[
-        EntityAxiomaticaCreate | EntityConcretaCreate,
+        EntityArchetypeCreate | EntityInstanceCreate,
         Discriminator('entity_class')
     ]
 ```
@@ -237,8 +258,8 @@ class EntityFull(CanonicalMetadata):
     entity_type: EntityType
     description: str
     properties: dict
-    state_tags: list[str] = Field(default_factory=list)  # Only for Concreta
-    updated_at: datetime | None = None  # Only for Concreta
+    state_tags: list[str] = Field(default_factory=list)  # Only for Instance
+    updated_at: datetime | None = None  # Only for Instance
 ```
 
 ---
@@ -473,7 +494,7 @@ class SceneCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     purpose: str | None = None
     order: int | None = Field(default=None, ge=0)
-    location_ref: UUID | None = None  # EntityConcreta location
+    location_ref: UUID | None = None  # EntityInstance location
     participating_entities: list[UUID] = Field(default_factory=list)
 
 class SceneResponse(BaseModel):
@@ -947,15 +968,93 @@ class ValidationError(APIError):
 
 ---
 
-## 8. Usage Examples
+## 8. Agent Authority Matrix
 
-### 8.1 Creating an Entity
+This matrix defines which agents can execute which operations.
+
+### 8.1 Neo4j Write Operations
+
+| Operation | Allowed Agents | Notes |
+|-----------|----------------|-------|
+| CreateUniverse | CanonKeeper | World creation |
+| CreateMultiverse | CanonKeeper | World creation |
+| CreateStory | CanonKeeper, Orchestrator | Orchestrator for story setup only |
+| CreateEntity | CanonKeeper | All entity types |
+| UpdateEntity | CanonKeeper | Property/state changes |
+| CreateFact | CanonKeeper | Canonization only |
+| CreateEvent | CanonKeeper | Canonization only |
+| CreateAxiom | CanonKeeper | World rules |
+| CreateSource | CanonKeeper | Document registration |
+| CreateRelationship | CanonKeeper | Entity relationships |
+| LinkEvidence | CanonKeeper | SUPPORTED_BY edges |
+
+### 8.2 MongoDB Write Operations
+
+| Operation | Allowed Agents | Notes |
+|-----------|----------------|-------|
+| CreateScene | Orchestrator | Scene lifecycle |
+| UpdateScene | Orchestrator | Status changes |
+| FinalizeScene | Orchestrator | After canonization |
+| AppendTurn | Narrator | Turn transcription |
+| UndoTurn | Orchestrator | Meta-command |
+| CreateProposedChange | Narrator, Resolver | Proposing canonical changes |
+| EvaluateProposal | CanonKeeper | Accept/reject |
+| CreateMemory | MemoryManager | Character memories |
+| UpdateMemory | MemoryManager | Memory updates |
+| CreateDocument | Indexer | Document ingestion |
+| CreateSnippet | Indexer | Text chunking |
+| CreateStoryOutline | Orchestrator | Story structure |
+| CreateResolution | Resolver | Dice/action results |
+
+### 8.3 Qdrant Write Operations
+
+| Operation | Allowed Agents | Notes |
+|-----------|----------------|-------|
+| EmbedScene | Indexer | Scene vectorization |
+| EmbedMemory | Indexer | Memory vectorization |
+| EmbedSnippet | Indexer | Document vectorization |
+| DeleteVectors | Indexer | Cleanup |
+
+### 8.4 Read Operations
+
+All read operations are available to **all agents**.
+
+### 8.5 Authority Enforcement
 
 ```python
-from monitor.schemas import EntityConcretaCreate, EntityType, Authority
+class AuthorityEnforcer:
+    """Middleware for authority enforcement."""
+
+    WRITE_PERMISSIONS = {
+        "neo4j_create_fact": ["CanonKeeper"],
+        "neo4j_create_entity": ["CanonKeeper"],
+        "neo4j_create_story": ["CanonKeeper", "Orchestrator"],
+        "mongodb_append_turn": ["Narrator"],
+        "mongodb_create_proposal": ["Narrator", "Resolver"],
+        "mongodb_evaluate_proposal": ["CanonKeeper"],
+        "mongodb_create_memory": ["MemoryManager"],
+        "qdrant_embed_scene": ["Indexer"],
+        # ... etc
+    }
+
+    def check_authority(self, agent: str, operation: str) -> bool:
+        allowed = self.WRITE_PERMISSIONS.get(operation, [])
+        if not allowed:  # Read operation
+            return True
+        return agent in allowed
+```
+
+---
+
+## 9. Usage Examples
+
+### 9.1 Creating an Entity
+
+```python
+from monitor.schemas import EntityInstanceCreate, EntityType, Authority
 
 # Create request
-request = EntityConcretaCreate(
+request = EntityInstanceCreate(
     universe_id=UUID("550e8400-e29b-41d4-a716-446655440000"),
     name="Gandalf the Grey",
     entity_type=EntityType.CHARACTER,
@@ -980,7 +1079,7 @@ request_json = request.model_dump_json()
 
 ---
 
-### 8.2 Querying Entities
+### 9.2 Querying Entities
 
 ```python
 from monitor.schemas import EntityQuery, EntityType, StateTagFilter
@@ -1002,7 +1101,7 @@ query = EntityQuery(
 
 ---
 
-### 8.3 Proposing a Change
+### 9.3 Proposing a Change
 
 ```python
 from monitor.schemas import ProposedChangeCreate, ProposalType, EvidenceRef
@@ -1035,10 +1134,10 @@ assert len(proposal.evidence) >= 1
 ### 9.1 Generate JSON Schema
 
 ```python
-from monitor.schemas import EntityConcretaCreate
+from monitor.schemas import EntityInstanceCreate
 
 # Generate JSON Schema for MCP tool registration
-schema = EntityConcretaCreate.model_json_schema()
+schema = EntityInstanceCreate.model_json_schema()
 
 # Output:
 {
@@ -1063,7 +1162,7 @@ from monitor.schemas import *
 app = FastAPI()
 
 @app.post("/neo4j/entity", response_model=EntityResponse)
-def create_entity(request: EntityConcretaCreate):
+def create_entity(request: EntityInstanceCreate):
     ...
 
 # FastAPI auto-generates OpenAPI spec from Pydantic models

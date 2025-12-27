@@ -8,7 +8,7 @@ They are used for:
 - Type safety across the codebase
 
 SCHEMA CATEGORIES:
-- entities:    EntityAxiomatica, EntityConcreta, entity types
+- entities:    EntityArchetype, EntityInstance, entity types
 - facts:       Fact, Event, canon_level, authority
 - scenes:      Scene, Turn, ProposedChange, Resolution
 - memories:    CharacterMemory, importance, valence

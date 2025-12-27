@@ -101,13 +101,13 @@ Examples:
 ```json
 {
   "name": "neo4j_create_entity",
-  "description": "Create a new entity (EntityAxiomatica or EntityConcreta) in the canonical graph. Requires CanonKeeper authority.",
+  "description": "Create a new entity (EntityArchetype or EntityInstance) in the canonical graph. Requires CanonKeeper authority.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "entity_class": {
         "type": "string",
-        "enum": ["EntityAxiomatica", "EntityConcreta"],
+        "enum": ["EntityArchetype", "EntityInstance"],
         "description": "Whether this is an archetype or concrete instance"
       },
       "universe_id": {
@@ -136,12 +136,12 @@ Examples:
       "state_tags": {
         "type": "array",
         "items": {"type": "string"},
-        "description": "State tags (EntityConcreta only)"
+        "description": "State tags (EntityInstance only)"
       },
       "derives_from": {
         "type": "string",
         "format": "uuid",
-        "description": "Optional EntityAxiomatica this derives from (EntityConcreta only)"
+        "description": "Optional EntityArchetype this derives from (EntityInstance only)"
       },
       "confidence": {
         "type": "number",
@@ -170,7 +170,7 @@ Examples:
 {
   "name": "neo4j_create_entity",
   "arguments": {
-    "entity_class": "EntityConcreta",
+    "entity_class": "EntityInstance",
     "universe_id": "550e8400-e29b-41d4-a716-446655440000",
     "name": "Gandalf the Grey",
     "entity_type": "character",
@@ -291,7 +291,7 @@ Examples:
       },
       "entity_class": {
         "type": "string",
-        "enum": ["EntityAxiomatica", "EntityConcreta"]
+        "enum": ["EntityArchetype", "EntityInstance"]
       },
       "canon_level": {
         "type": "string",
@@ -562,7 +562,7 @@ Examples:
       "location_ref": {
         "type": "string",
         "format": "uuid",
-        "description": "EntityConcreta location ID"
+        "description": "EntityInstance location ID"
       },
       "participating_entities": {
         "type": "array",

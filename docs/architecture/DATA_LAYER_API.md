@@ -109,14 +109,14 @@ interface ListUniversesResponse {
 #### CreateEntity
 ```typescript
 interface CreateEntityRequest {
-  entity_class: "EntityAxiomatica" | "EntityConcreta";
+  entity_class: "EntityArchetype" | "EntityInstance";
   universe_id: UUID;
   name: string;
   entity_type: "character" | "faction" | "location" | "object" | "concept" | "organization";
   description: string;
   properties: Record<string, any>;
-  state_tags?: string[];  // EntityConcreta only
-  derives_from?: UUID;  // EntityConcreta only, optional EntityAxiomatica reference
+  state_tags?: string[];  // EntityInstance only
+  derives_from?: UUID;  // EntityInstance only, optional EntityArchetype reference
   confidence: number;  // 0.0-1.0
   authority: "source" | "gm" | "player" | "system";
   evidence_refs: string[];  // ["source:uuid", "turn:uuid", ...]
@@ -133,8 +133,8 @@ interface CreateEntityResponse {
 **Validation:**
 - universe_id must exist
 - confidence ∈ [0.0, 1.0]
-- state_tags only for EntityConcreta
-- derives_from must reference EntityAxiomatica of same type
+- state_tags only for EntityInstance
+- derives_from must reference EntityArchetype of same type
 
 ---
 
@@ -148,7 +148,7 @@ interface GetEntityRequest {
 
 interface GetEntityResponse {
   entity_id: UUID;
-  entity_class: "EntityAxiomatica" | "EntityConcreta";
+  entity_class: "EntityArchetype" | "EntityInstance";
   universe_id: UUID;
   name: string;
   entity_type: string;
@@ -188,7 +188,7 @@ interface UpdateEntityStateResponse {
 
 **Authority:** CanonKeeper only
 **Validation:**
-- entity must be EntityConcreta
+- entity must be EntityInstance
 - Creates Fact nodes for each state change
 
 ---
@@ -198,7 +198,7 @@ interface UpdateEntityStateResponse {
 interface QueryEntitiesRequest {
   universe_id?: UUID;
   entity_type?: string;
-  entity_class?: "EntityAxiomatica" | "EntityConcreta";
+  entity_class?: "EntityArchetype" | "EntityInstance";
   canon_level?: "proposed" | "canon" | "retconned";
   state_tags?: {
     all_of?: string[];  // has ALL these tags
@@ -402,8 +402,8 @@ interface CreateSceneRequest {
   title: string;
   purpose?: string;
   order?: number;  // optional ordering within the Story
-  location_ref?: UUID;  // EntityConcreta ID
-  participating_entities: UUID[];  // EntityConcreta IDs
+  location_ref?: UUID;  // EntityInstance ID
+  participating_entities: UUID[];  // EntityInstance IDs
 }
 
 interface CreateSceneResponse {
@@ -569,7 +569,7 @@ interface GetPendingProposalsResponse {
 #### CreateCharacterMemory
 ```typescript
 interface CreateCharacterMemoryRequest {
-  entity_id: UUID;  // Neo4j EntityConcreta
+  entity_id: UUID;  // Neo4j EntityInstance
   text: string;
   linked_fact_id?: UUID;  // optional Neo4j Fact anchor
   scene_id?: UUID;
@@ -868,7 +868,7 @@ function enforceAuthority(request: APIRequest): boolean {
 **Scope:** Updating entity state tags
 
 **Operations:**
-1. Update EntityConcreta.state_tags (Neo4j)
+1. Update EntityInstance.state_tags (Neo4j)
 2. Create Fact documenting change (Neo4j)
 3. Link INVOLVES edge (Neo4j)
 4. Link SUPPORTED_BY evidence (Neo4j)
@@ -879,7 +879,7 @@ function enforceAuthority(request: APIRequest): boolean {
 
 ## 7. Use Case Examples
 
-### UC-1: Start New Story
+### P-1: Start New Story
 
 **Data flow:**
 ```
@@ -895,7 +895,7 @@ function enforceAuthority(request: APIRequest): boolean {
 
 ---
 
-### UC-2: User Turn in Active Scene
+### P-3: User Turn in Active Scene
 
 **Data flow:**
 ```
@@ -910,7 +910,7 @@ function enforceAuthority(request: APIRequest): boolean {
 
 ---
 
-### UC-3: End Scene (Canonization)
+### P-8: End Scene (Canonization)
 
 **Data flow:**
 ```
@@ -935,7 +935,7 @@ function enforceAuthority(request: APIRequest): boolean {
 
 ---
 
-### UC-4: Ingest PDF
+### I-1: Upload Document
 
 **Data flow:**
 ```
@@ -963,7 +963,7 @@ function enforceAuthority(request: APIRequest): boolean {
 
 ---
 
-### UC-5: Query Canon
+### Q-1: Semantic Search
 
 **Data flow:**
 ```

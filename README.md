@@ -27,7 +27,7 @@ MONITOR is a **narrative AI system** that serves as an automated Game Master (Au
 - **Semantic Search (Qdrant)**: Vector embeddings for contextual recall
 - **Document Ingestion**: Upload PDFs/manuals and extract entities/axioms
 - **Graduated Canonization**: Proposed → Canon → Retconned workflow
-- **Two-Tier Entity System**: EntityAxiomatica (archetypes) vs EntityConcreta (instances)
+- **Two-Tier Entity System**: EntityArchetype (archetypes) vs EntityInstance (instances)
 - **State Tags**: Dynamic entity state (alive, wounded, hostile, etc.)
 - **Evidence Chain**: All canon linked to sources via SUPPORTED_BY edges
 - **Multi-Agent Orchestration**: Orchestrator, Narrator, CanonKeeper, ContextAssembly, etc.
@@ -114,7 +114,7 @@ python -m services.agents.canonkeeper
 
 - **[ONTOLOGY.md](docs/ontology/ONTOLOGY.md)** - Complete data model across all databases
 - **[ERD_DIAGRAM.md](docs/ontology/ERD_DIAGRAM.md)** - Entity-Relationship diagrams
-- **[ENTITY_TAXONOMY.md](docs/ontology/ENTITY_TAXONOMY.md)** - Two-tier entity classification (Axiomatica vs Concreta)
+- **[ENTITY_TAXONOMY.md](docs/ontology/ENTITY_TAXONOMY.md)** - Two-tier entity classification (Archetype vs Instance)
 
 ### Implementation
 
@@ -142,7 +142,7 @@ python -m services.agents.canonkeeper
    │  ├─ Create Fact node
    │  ├─ Create INVOLVES edge
    │  ├─ Create SUPPORTED_BY edge
-   │  └─ Update EntityConcreta.state_tags
+   │  └─ Update EntityInstance.state_tags
    ├─ Update proposal.status = "accepted" (MongoDB)
    └─ Finalize scene.status = "completed" (MongoDB)
 
@@ -178,23 +178,23 @@ python -m services.agents.canonkeeper
 
 ### Two-Tier Entities
 
-**EntityAxiomatica** (archetypes):
+**EntityArchetype** (archetypes):
 - "Wizard" (character class)
 - "Lightsaber" (object type)
 - "The Force" (concept)
 
-**EntityConcreta** (instances):
+**EntityInstance** (instances):
 - "Gandalf the Grey" (specific wizard)
 - "Luke's Lightsaber" (specific object)
 - "The Force as wielded by Luke" (specific manifestation)
 
-**Key difference**: Concreta has `state_tags` that change over time ("alive", "wounded", "at_location").
+**Key difference**: Instance has `state_tags` that change over time ("alive", "wounded", "at_location").
 
 ---
 
 ## Use Cases
 
-### UC-1: Start New Story
+### P-1: Start New Story
 
 ```python
 # User selects "Start New Story"
@@ -205,7 +205,7 @@ python -m services.agents.canonkeeper
 #     → Orchestrator.run_scene_loop()
 ```
 
-### UC-2: User Turn in Active Scene
+### P-3: User Turn in Active Scene
 
 ```python
 # User inputs: "I attack the orc"
@@ -217,7 +217,7 @@ python -m services.agents.canonkeeper
 #     → mongodb_append_turn(speaker="gm")
 ```
 
-### UC-3: End Scene (Canonization)
+### P-8: End Scene (Canonization)
 
 ```python
 # Scene ends (user or Orchestrator signals)
@@ -232,11 +232,11 @@ python -m services.agents.canonkeeper
 #   → Indexer.embed_scene_summary()
 ```
 
-### UC-4: Ingest PDF
+### I-1: Upload Document
 
 ```python
 # User uploads D&D Player's Handbook
-# → IngestPipeline.process_pdf()
+# → IngestPipeline.process_document()
 #   → neo4j_create_source()
 #   → mongodb_create_document()
 #   → Extract text → mongodb_create_snippet() × N
@@ -247,7 +247,7 @@ python -m services.agents.canonkeeper
 #     → Accepted → neo4j_create_entity()
 ```
 
-### UC-5: Query Canon
+### Q-1: Semantic Search
 
 ```python
 # User asks: "What is Gandalf's current status?"
@@ -255,7 +255,7 @@ python -m services.agents.canonkeeper
 #   → qdrant_semantic_search()
 #     → Returns entity_id + fact_ids
 #   → neo4j_get_entity(entity_id)
-#     → Returns EntityConcreta with state_tags: ["alive", "wielding_staff"]
+#     → Returns EntityInstance with state_tags: ["alive", "wielding_staff"]
 #   → neo4j_query_facts(entity_id=gandalf)
 #     → Returns recent facts about Gandalf
 #   → Present to user

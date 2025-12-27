@@ -8,8 +8,8 @@
 
 MONITOR uses a **two-tier entity system**:
 
-1. **EntityAxiomatica** - Archetypes, concepts, universal truths
-2. **EntityConcreta** - Specific instances that exist in the universe
+1. **EntityArchetype** - Archetypes, concepts, universal truths
+2. **EntityInstance** - Specific instances that exist in the universe
 
 This separation enables:
 - Template-based entity creation (PC derives from "Wizard" archetype)
@@ -35,7 +35,7 @@ classDiagram
         +created_at: timestamp
     }
 
-    class EntityAxiomatica {
+    class EntityArchetype {
         +id: UUID
         +universe_id: UUID
         +name: string
@@ -47,7 +47,7 @@ classDiagram
         +created_at: timestamp
     }
 
-    class EntityConcreta {
+    class EntityInstance {
         +id: UUID
         +universe_id: UUID
         +name: string
@@ -93,29 +93,29 @@ classDiagram
         +is_hierarchical: bool
     }
 
-    Entity <|-- EntityAxiomatica
-    Entity <|-- EntityConcreta
+    Entity <|-- EntityArchetype
+    Entity <|-- EntityInstance
 
-    EntityAxiomatica <|.. Character : type=character
-    EntityAxiomatica <|.. Faction : type=faction
-    EntityAxiomatica <|.. Location : type=location
-    EntityAxiomatica <|.. Object : type=object
-    EntityAxiomatica <|.. Concept : type=concept
-    EntityAxiomatica <|.. Organization : type=organization
+    EntityArchetype <|.. Character : type=character
+    EntityArchetype <|.. Faction : type=faction
+    EntityArchetype <|.. Location : type=location
+    EntityArchetype <|.. Object : type=object
+    EntityArchetype <|.. Concept : type=concept
+    EntityArchetype <|.. Organization : type=organization
 
-    EntityConcreta <|.. Character : type=character
-    EntityConcreta <|.. Faction : type=faction
-    EntityConcreta <|.. Location : type=location
-    EntityConcreta <|.. Object : type=object
-    EntityConcreta <|.. Concept : type=concept
-    EntityConcreta <|.. Organization : type=organization
+    EntityInstance <|.. Character : type=character
+    EntityInstance <|.. Faction : type=faction
+    EntityInstance <|.. Location : type=location
+    EntityInstance <|.. Object : type=object
+    EntityInstance <|.. Concept : type=concept
+    EntityInstance <|.. Organization : type=organization
 
-    EntityConcreta ..> EntityAxiomatica : DERIVA_DE
+    EntityInstance ..> EntityArchetype : DERIVES_FROM
 ```
 
 ---
 
-## 2. EntityAxiomatica (Archetypes)
+## 2. EntityArchetype (Archetypes)
 
 **Purpose:** Templates, archetypes, concepts, and universal truths.
 
@@ -222,7 +222,7 @@ classDiagram
 
 ---
 
-## 3. EntityConcreta (Instances)
+## 3. EntityInstance (Instances)
 
 **Purpose:** Specific entities that exist in the universe.
 
@@ -261,11 +261,11 @@ classDiagram
 }
 ```
 
-**Key difference from Axiomatica:** `state_tags` - dynamic state that changes over time.
+**Key difference from Archetype:** `state_tags` - dynamic state that changes over time.
 
 **Derivation (optional):**
 ```cypher
-(:EntityConcreta {name: "Gandalf"})-[:DERIVA_DE]->(:EntityAxiomatica {name: "Wizard"})
+(:EntityInstance {name: "Gandalf"})-[:DERIVES_FROM]->(:EntityArchetype {name: "Wizard"})
 ```
 
 ### Type-Specific Properties
@@ -288,7 +288,7 @@ classDiagram
   "properties": {
     "faction_kind": "political | military | religious | criminal",
     "scope": "local | regional | global",
-    "current_leader_id": "uuid"  // optional EntityConcreta reference
+    "current_leader_id": "uuid"  // optional EntityInstance reference
   },
   "state_tags": ["active", "at_war", "declining_influence"]
 }
@@ -313,7 +313,7 @@ classDiagram
     "object_kind": "weapon | artifact | tool",
     "is_magical": true,
     "is_unique": true,
-    "current_owner_id": "uuid"  // optional EntityConcreta reference
+    "current_owner_id": "uuid"  // optional EntityInstance reference
   },
   "state_tags": ["worn", "cursed", "glowing"]
 }
@@ -325,7 +325,7 @@ classDiagram
   "properties": {
     "concept_kind": "belief | law | force",
     "is_abstract": false,  // concrete manifestation
-    "manifested_in_id": "uuid"  // optional EntityConcreta reference
+    "manifested_in_id": "uuid"  // optional EntityInstance reference
   },
   "state_tags": ["waxing", "waning", "corrupted"]
 }
@@ -337,7 +337,7 @@ classDiagram
   "properties": {
     "org_kind": "guild | company | cult",
     "is_hierarchical": true,
-    "headquarters_id": "uuid"  // optional EntityConcreta reference
+    "headquarters_id": "uuid"  // optional EntityInstance reference
   },
   "state_tags": ["active", "recruiting", "in_conflict"]
 }
@@ -345,7 +345,7 @@ classDiagram
 
 ---
 
-## 4. State Tags (EntityConcreta only)
+## 4. State Tags (EntityInstance only)
 
 State tags are **dynamic** and change during play. They represent current conditions.
 
@@ -420,42 +420,42 @@ All entities (Axiomatic and Concrete) have canonization metadata.
 ### Derivation (Axiomatic → Concrete)
 
 ```cypher
-(:EntityConcreta {name: "Luke Skywalker"})-[:DERIVA_DE]->(:EntityAxiomatica {name: "Jedi Knight"})
-(:EntityConcreta {name: "The One Ring"})-[:DERIVA_DE]->(:EntityAxiomatica {name: "Ring of Power"})
+(:EntityInstance {name: "Luke Skywalker"})-[:DERIVES_FROM]->(:EntityArchetype {name: "Jedi Knight"})
+(:EntityInstance {name: "The One Ring"})-[:DERIVES_FROM]->(:EntityArchetype {name: "Ring of Power"})
 ```
 
 ### Spatial Hierarchy
 
 ```cypher
-(:EntityConcreta {name: "Helm's Deep"})-[:LOCATED_IN]->(:EntityConcreta {name: "Rohan"})
-(:EntityConcreta {name: "Rohan"})-[:LOCATED_IN]->(:EntityConcreta {name: "Middle-earth"})
+(:EntityInstance {name: "Helm's Deep"})-[:LOCATED_IN]->(:EntityInstance {name: "Rohan"})
+(:EntityInstance {name: "Rohan"})-[:LOCATED_IN]->(:EntityInstance {name: "Middle-earth"})
 ```
 
 ### Membership
 
 ```cypher
-(:EntityConcreta {name: "Legolas"})-[:MEMBER_OF]->(:EntityConcreta {name: "Fellowship of the Ring"})
-(:EntityConcreta {name: "Fellowship"})-[:MEMBER_OF]->(:EntityConcreta {name: "Free Peoples of Middle-earth"})
+(:EntityInstance {name: "Legolas"})-[:MEMBER_OF]->(:EntityInstance {name: "Fellowship of the Ring"})
+(:EntityInstance {name: "Fellowship"})-[:MEMBER_OF]->(:EntityInstance {name: "Free Peoples of Middle-earth"})
 ```
 
 ### Social Relations
 
 ```cypher
-(:EntityConcreta {name: "Frodo"})-[:ALLY_OF]->(:EntityConcreta {name: "Sam"})
-(:EntityConcreta {name: "Gondor"})-[:ENEMY_OF]->(:EntityConcreta {name: "Mordor"})
+(:EntityInstance {name: "Frodo"})-[:ALLY_OF]->(:EntityInstance {name: "Sam"})
+(:EntityInstance {name: "Gondor"})-[:ENEMY_OF]->(:EntityInstance {name: "Mordor"})
 ```
 
 ### Ownership
 
 ```cypher
-(:EntityConcreta {name: "Frodo"})-[:OWNS]->(:EntityConcreta {name: "The One Ring"})
+(:EntityInstance {name: "Frodo"})-[:OWNS]->(:EntityInstance {name: "The One Ring"})
 ```
 
 ### Participation
 
 ```cypher
-(:EntityConcreta {name: "Aragorn"})-[:PARTICIPATED_IN]->(:Scene {name: "Battle of Helm's Deep"})
-(:EntityConcreta {name: "Gandalf"})-[:INVOLVED_IN]->(:Fact {statement: "Defeated the Balrog"})
+(:EntityInstance {name: "Aragorn"})-[:PARTICIPATED_IN]->(:Scene {name: "Battle of Helm's Deep"})
+(:EntityInstance {name: "Gandalf"})-[:INVOLVED_IN]->(:Fact {statement: "Defeated the Balrog"})
 ```
 
 ---
@@ -573,7 +573,7 @@ All entities (Axiomatic and Concrete) have canonization metadata.
 1. Extract entity references from text → MongoDB ProposedChange
 2. Determine if Axiomatic or Concrete
 3. User review → accept/reject
-4. CanonKeeper → create EntityAxiomatica or EntityConcreta in Neo4j
+4. CanonKeeper → create EntityArchetype or EntityInstance in Neo4j
 5. Link SUPPORTED_BY → Source/Snippet
 
 ### From Gameplay
@@ -581,7 +581,7 @@ All entities (Axiomatic and Concrete) have canonization metadata.
 1. NPC appears in narrative → MongoDB ProposedChange
 2. Resolver/Narrator determines properties
 3. End of scene → CanonKeeper evaluates
-4. Create EntityConcreta with canon_level=canon
+4. Create EntityInstance with canon_level=canon
 5. Link SUPPORTED_BY → Scene/Turn
 
 ### Manual Creation
@@ -597,8 +597,8 @@ All entities (Axiomatic and Concrete) have canonization metadata.
 **State tag changes:**
 1. Narrative implies change (e.g., "orc dies")
 2. Create ProposedChange: `{ type: "state_change", content: { entity_id, tag: "dead", action: "add" } }`
-3. End of scene → CanonKeeper updates EntityConcreta.state_tags
-4. Link Fact to entity: `(:Fact {statement: "Orc died"})-[:INVOLVES]->(:EntityConcreta)`
+3. End of scene → CanonKeeper updates EntityInstance.state_tags
+4. Link Fact to entity: `(:Fact {statement: "Orc died"})-[:INVOLVES]->(:EntityInstance)`
 
 **Property changes:**
 1. Similar to state tags, but modifies properties map
@@ -615,8 +615,8 @@ All entities (Axiomatic and Concrete) have canonization metadata.
 
 1. **Universe boundary:** All entities belong to exactly one Universe
 2. **Type consistency:** entity_type cannot change after creation
-3. **Derivation:** EntityConcreta can derive from EntityAxiomatica of same type
-4. **State tags:** Only EntityConcreta has state_tags (EntityAxiomatica is timeless)
+3. **Derivation:** EntityInstance can derive from EntityArchetype of same type
+4. **State tags:** Only EntityInstance has state_tags (EntityArchetype is timeless)
 5. **Confidence:** All entities have confidence ∈ [0.0, 1.0]
 6. **Canon level:** All entities have canon_level ∈ {proposed, canon, retconned}
 7. **No deletion:** Entities are never deleted, only marked retconned
@@ -628,7 +628,7 @@ All entities (Axiomatic and Concrete) have canonization metadata.
 ### Find all canonical characters in a universe
 
 ```cypher
-MATCH (u:Universe {id: $universe_id})-[:HAS_ENTITY]->(e:EntityConcreta)
+MATCH (u:Universe {id: $universe_id})-[:HAS_ENTITY]->(e:EntityInstance)
 WHERE e.entity_type = 'character' AND e.canon_level = 'canon'
 RETURN e
 ```
@@ -636,28 +636,28 @@ RETURN e
 ### Find character's current state
 
 ```cypher
-MATCH (e:EntityConcreta {id: $entity_id})
+MATCH (e:EntityInstance {id: $entity_id})
 RETURN e.state_tags
 ```
 
 ### Find all entities derived from archetype
 
 ```cypher
-MATCH (ec:EntityConcreta)-[:DERIVA_DE]->(ea:EntityAxiomatica {name: "Wizard"})
+MATCH (ec:EntityInstance)-[:DERIVES_FROM]->(ea:EntityArchetype {name: "Wizard"})
 RETURN ec
 ```
 
 ### Find entities at a location
 
 ```cypher
-MATCH (e:EntityConcreta)-[:LOCATED_IN]->(loc:EntityConcreta {id: $location_id})
+MATCH (e:EntityInstance)-[:LOCATED_IN]->(loc:EntityInstance {id: $location_id})
 RETURN e
 ```
 
 ### Find entity's allies
 
 ```cypher
-MATCH (e:EntityConcreta {id: $entity_id})-[:ALLY_OF]->(ally:EntityConcreta)
+MATCH (e:EntityInstance {id: $entity_id})-[:ALLY_OF]->(ally:EntityInstance)
 RETURN ally
 ```
 

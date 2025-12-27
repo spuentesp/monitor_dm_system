@@ -164,13 +164,13 @@ Sources don't use `retconned` because sources themselves aren't revised—only f
 **Entity Hierarchy:**
 ```
 Entity (abstract)
-├─ EntityAxiomatica (archetypes, concepts)
-└─ EntityConcreta (specific instances)
+├─ EntityArchetype (archetypes, concepts)
+└─ EntityInstance (specific instances)
 ```
 
-#### EntityAxiomatica (archetypes)
+#### EntityArchetype (archetypes)
 ```cypher
-(:EntityAxiomatica {
+(:EntityArchetype {
   id: UUID,
   universe_id: UUID,
   name: string,  // "Wizard", "Orc", "Magic Sword"
@@ -188,9 +188,9 @@ Entity (abstract)
 
 ---
 
-#### EntityConcreta (instances)
+#### EntityInstance (instances)
 ```cypher
-(:EntityConcreta {
+(:EntityInstance {
   id: UUID,
   universe_id: UUID,
   name: string,  // "Gandalf", "The One Ring", "Mordor"
@@ -209,12 +209,23 @@ Entity (abstract)
 **Examples:** "Gandalf the Grey", "The One Ring", "Mordor".
 
 **Relations:**
-- `(:EntityConcreta)-[:DERIVES_FROM]->(:EntityAxiomatica)` // optional
-- `(:EntityConcreta)-[:LOCATED_IN]->(:EntityConcreta)`
-- `(:EntityConcreta)-[:MEMBER_OF]->(:EntityConcreta)`
-- `(:EntityConcreta)-[:ALLY_OF]->(:EntityConcreta)`
-- `(:EntityConcreta)-[:ENEMY_OF]->(:EntityConcreta)`
-- `(:EntityConcreta)-[:OWNS]->(:EntityConcreta)`
+- `(:EntityInstance)-[:DERIVES_FROM]->(:EntityArchetype)` // optional
+- `(:EntityInstance)-[:LOCATED_IN]->(:EntityInstance)`
+- `(:EntityInstance)-[:MEMBER_OF]->(:EntityInstance)`
+- `(:EntityInstance)-[:ALLY_OF]->(:EntityInstance)`
+- `(:EntityInstance)-[:ENEMY_OF]->(:EntityInstance)`
+- `(:EntityInstance)-[:OWNS]->(:EntityInstance)`
+
+---
+
+#### Entity Properties & State Tags
+
+**Canonical Reference:** See [ENTITY_TAXONOMY.md](ENTITY_TAXONOMY.md) for complete specifications of:
+- Type-specific properties for each `entity_type` (character, faction, location, object, concept, organization)
+- State tag conventions and domains
+- Example property values and validation rules
+
+The `properties` map contains type-specific fields defined in ENTITY_TAXONOMY.md.
 
 ---
 
@@ -263,7 +274,7 @@ Entity (abstract)
 **Relations:**
 - `(:Story)-[:HAS_SCENE]->(:Scene)`
 - `(:Scene)-[:NEXT]->(:Scene)` // ordering
-- `(:EntityConcreta)-[:PARTICIPATED_IN]->(:Scene)`
+- `(:EntityInstance)-[:PARTICIPATED_IN]->(:Scene)`
 
 ---
 
@@ -289,7 +300,7 @@ Entity (abstract)
 **Examples:** "PC took 5 damage", "Door is broken", "NPC is hostile".
 
 **Relations:**
-- `(:Fact)-[:INVOLVES]->(:EntityConcreta)`
+- `(:Fact)-[:INVOLVES]->(:EntityInstance)`
 - `(:Fact)-[:SUPPORTED_BY]->(:Source)` or `(:Scene)` or MongoDB Turn ref (as property)
 - `(:Fact)-[:REPLACES]->(:Fact)` // retcons
 
@@ -316,7 +327,7 @@ Entity (abstract)
 
 **Relations:**
 - `(:Event)-[:CAUSES]->(:Event)` // causal DAG
-- `(:Event)-[:INVOLVES]->(:EntityConcreta)`
+- `(:Event)-[:INVOLVES]->(:EntityInstance)`
 - `(:Event)-[:SUPPORTED_BY]->(:Source)` or `(:Scene)` or Turn ref
 
 ---
@@ -339,7 +350,7 @@ Entity (abstract)
 **Relations:**
 - `(:Story)-[:HAS_THREAD]->(:PlotThread)`
 - `(:PlotThread)-[:ADVANCED_BY]->(:Scene)`
-- `(:PlotThread)-[:INVOLVES]->(:EntityConcreta)`
+- `(:PlotThread)-[:INVOLVES]->(:EntityInstance)`
 
 ---
 
@@ -365,8 +376,8 @@ Collection: scenes
 
   // Canonical references
   order: int,  // optional ordering within the Story
-  location_ref: UUID,  // optional EntityConcreta ID
-  participating_entities: [UUID],  // EntityConcreta IDs
+  location_ref: UUID,  // optional EntityInstance ID
+  participating_entities: [UUID],  // EntityInstance IDs
 
   // Narrative content
   turns: [
@@ -522,7 +533,7 @@ Collection: character_memories
   _id: ObjectId,
   memory_id: UUID,
 
-  entity_id: UUID,  // whose memory (references Neo4j EntityConcreta)
+  entity_id: UUID,  // whose memory (references Neo4j EntityInstance)
 
   text: string,  // "I remember you saved my life"
 
@@ -606,7 +617,7 @@ Collection: character_sheets
   _id: ObjectId,
   character_sheet_id: UUID,
 
-  entity_id: UUID,  // references Neo4j EntityConcreta
+  entity_id: UUID,  // references Neo4j EntityInstance
 
   stats: map,  // system-specific stats
   resources: map,  // HP, MP, etc.
@@ -758,20 +769,20 @@ Every canonical node in Neo4j MUST link to evidence:
 
 ## 6. Use Case Mapping
 
-### UC-1: Start new story
+### P-1: Start New Story
 **Data flow:**
 1. MongoDB: create story_outline
 2. Neo4j: create Story node
 3. MongoDB: create first Scene (status=active)
 4. Neo4j: optionally create Scene node (if canonical)
 
-### UC-2: User turn in active scene
+### P-3: User Turn in Active Scene
 **Data flow:**
 1. MongoDB: append Turn to scene.turns
 2. MongoDB: optionally create ProposedChange records
 3. No Neo4j writes (deferred to canonization)
 
-### UC-3: End scene (canonization)
+### P-8: End Scene (Canonization)
 **Data flow:**
 1. CanonKeeper: evaluate ProposedChanges
 2. Neo4j: write accepted Facts/Events/Relations
@@ -780,16 +791,16 @@ Every canonical node in Neo4j MUST link to evidence:
 5. MongoDB: update proposal.status = "accepted"/"rejected"
 6. Qdrant: embed scene summary + memories
 
-### UC-4: Ingest PDF
+### I-1: Upload Document
 **Data flow:**
-1. MinIO: store PDF
+1. MinIO: store document
 2. MongoDB: create document record
 3. MongoDB: create snippet records
 4. Qdrant: embed snippets
 5. MongoDB: create ProposedChanges (axioms/entities)
 6. User review → CanonKeeper → Neo4j (canonize accepted)
 
-### UC-5: Query canon
+### Q-1: Semantic Search
 **Data flow:**
 1. Qdrant: semantic search → candidate IDs
 2. Neo4j: fetch canonical nodes by ID
@@ -805,7 +816,7 @@ Every canonical node in Neo4j MUST link to evidence:
 1. **Separated Neo4j from MongoDB** - v1.0 assumed single graph model
 2. **Added canonization metadata** - confidence, canon_level, authority
 3. **Added Source nodes** - provenance tracking
-4. **Split Entity** → EntityAxiomatica + EntityConcreta
+4. **Split Entity** → EntityArchetype + EntityInstance
 5. **Added Fact** (distinct from Event)
 6. **Added ProposedChange** flow (staging before canon)
 7. **Scene can be Neo4j or MongoDB-only** - not always canonical

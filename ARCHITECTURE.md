@@ -196,10 +196,13 @@ src/monitor_agents/
 
 **Commands:**
 ```bash
-monitor play      # Start/continue story
-monitor ingest    # Upload documents
-monitor query     # Query canon
-monitor manage    # Entity management
+monitor play      # Start/continue story (Solo Play mode)
+monitor manage    # Universe, entity, fact management (World Design mode)
+monitor query     # Search and explore canon
+monitor ingest    # Upload and process documents
+monitor copilot   # GM assistant features (Assisted GM mode)
+monitor story     # Arc planning, faction modeling, what-if
+monitor rules     # Game system definition and management
 ```
 
 **Key modules:**
@@ -207,11 +210,15 @@ monitor manage    # Entity management
 src/monitor_cli/
 ├── main.py            # Typer app entry
 ├── commands/          # Command implementations
-│   ├── play.py
-│   ├── ingest.py
-│   ├── query.py
-│   └── manage.py
-└── repl.py            # Interactive REPL
+│   ├── play.py        # P- use cases (Solo Play)
+│   ├── manage.py      # M- use cases (World Design)
+│   ├── query.py       # Q- use cases
+│   ├── ingest.py      # I- use cases
+│   ├── copilot.py     # CF- use cases (GM Assistant)
+│   ├── story.py       # ST- use cases (Planning)
+│   └── rules.py       # RS- use cases (Game Systems)
+└── repl/              # Interactive REPL
+    └── session.py
 ```
 
 ---

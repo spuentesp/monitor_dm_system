@@ -319,12 +319,14 @@ A Scene is the natural narrative checkpoint. When a scene ends:
 
 **Rationale:** Cheaper, cleaner, enforces scene as natural narrative unit.
 
-**Optional: Mid-Scene Checkpoints**
+**Optional: Mid-Scene Checkpoints (Phase 2)**
 
 Canonization can occur mid-scene for:
 - Critical state changes (character death, major discoveries)
 - Very long scenes (prevent loss of progress)
-- Explicit user/GM "commit" commands
+- Explicit user/GM `/commit` command
+
+**Note:** Mid-scene canonization is a Phase 2 feature. For MVP, only end-of-scene canonization is implemented. The API method would be `composite_commit_mid_scene(scene_id, proposal_ids)`.
 
 **Never: Per-Turn**
 
@@ -461,10 +463,22 @@ Who can assert canon?
 
 **Confidence & Canon Level:**
 
-Facts can carry metadata:
+All canonical nodes carry metadata:
 - `confidence`: 0.0-1.0 (how certain are we?)
-- `canon_level`: "proposed" | "canon" | "retconned"
-- `authority`: "source" | "gm" | "player" | "system"
+- `canon_level`: See below
+- `authority`: See below
+
+**canon_level by node type:**
+| Node Type | Values | Notes |
+|-----------|--------|-------|
+| Axiom, Entity, Fact, Event | `proposed`, `canon`, `retconned` | Standard lifecycle |
+| Source | `proposed`, `canon`, `authoritative` | Sources don't get retconned; `authoritative` = official |
+
+**authority by node type:**
+| Node Type | Values | Notes |
+|-----------|--------|-------|
+| Fact, Event, Entity | `source`, `gm`, `player`, `system` | Full set |
+| Axiom | `source`, `gm`, `system` | No `player` - world rules can't be player-created |
 
 This supports graduated canonization and later revision.
 

@@ -181,10 +181,10 @@ Run these Cypher commands in Neo4j Browser to create constraints:
 
 ```cypher
 CREATE CONSTRAINT entity_concreta_id IF NOT EXISTS
-FOR (n:EntityConcreta) REQUIRE n.id IS UNIQUE;
+FOR (n:EntityInstance) REQUIRE n.id IS UNIQUE;
 
 CREATE CONSTRAINT entity_axiomatica_id IF NOT EXISTS
-FOR (n:EntityAxiomatica) REQUIRE n.id IS UNIQUE;
+FOR (n:EntityArchetype) REQUIRE n.id IS UNIQUE;
 
 CREATE CONSTRAINT universe_id IF NOT EXISTS
 FOR (n:Universe) REQUIRE n.id IS UNIQUE;
@@ -209,7 +209,7 @@ Create indices:
 
 ```cypher
 CREATE INDEX entity_universe IF NOT EXISTS
-FOR (n:EntityConcreta) ON (n.universe_id);
+FOR (n:EntityInstance) ON (n.universe_id);
 
 CREATE INDEX fact_universe IF NOT EXISTS
 FOR (n:Fact) ON (n.universe_id);
