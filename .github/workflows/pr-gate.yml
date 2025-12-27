@@ -1,0 +1,75 @@
+name: PR Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce branch naming
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        run: python scripts/enforce_branch_name.py --branch "$BRANCH_NAME"
+
+      - name: Require use-case per commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python scripts/check_commit_use_case.py --base "$BASE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-deps -e packages/data-layer -e packages/agents -e packages/cli
+          python -m pip install ruff black mypy pytest-cov
+
+      - name: Enforce layer boundaries
+        run: python scripts/check_layer_dependencies.py
+
+      - name: Require tests alongside code changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python scripts/require_tests_for_code_changes.py --base "$BASE_SHA"
+
+      - name: Require use-case reference
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python scripts/require_use_case_reference.py --base "$BASE_SHA"
+
+      - name: Block TODO/FIXME
+        run: bash scripts/block_todo.sh
+
+      - name: Ontology to use-case coverage
+        run: python scripts/check_ontology_use_cases.py
+
+      - name: Markdown lint
+        run: |
+          npm install -g markdownlint-cli
+          markdownlint "**/*.md" "!**/node_modules/**"
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Format check (black)
+        run: black --check .
+
+      - name: Type check (mypy)
+        run: mypy packages
+
+      - name: Run package tests (unit + integration with coverage)
+        run: |
+          pytest packages/data-layer --cov=packages/data-layer --cov-report=term-missing --cov-fail-under=70 || exit 1
+          pytest packages/agents --cov=packages/agents --cov-report=term-missing --cov-fail-under=70 || exit 1
+          pytest packages/cli --cov=packages/cli --cov-report=term-missing --cov-fail-under=70 || exit 1

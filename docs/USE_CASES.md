@@ -26,14 +26,22 @@ See [SYSTEM.md](../SYSTEM.md) for core objectives (O1-O5) and epics (EPIC 1-8).
 |----------|------|-------------|-------|
 | **PLAY** | `P-` | Core gameplay loop — narration, scenes, actions | 12 |
 | **MANAGE** | `M-` | World administration — CRUD for all entities | 30 |
-| **QUERY** | `Q-` | Canon exploration — search, browse, ask | 8 |
-| **INGEST** | `I-` | Knowledge import — documents, extraction | 5 |
-| **SYSTEM** | `SYS-` | App lifecycle, config, session | 8 |
+| **QUERY** | `Q-` | Canon exploration — search, browse, ask | 9 |
+| **INGEST** | `I-` | Knowledge import — documents, extraction | 6 |
+| **SYSTEM** | `SYS-` | App lifecycle, config, session | 10 |
 | **CO-PILOT** | `CF-` | Human GM assistant features | 5 |
 | **STORY** | `ST-` | Planning & meta-narrative tools | 5 |
 | **RULES** | `RS-` | Game system definition — stats, skills, mechanics | 4 |
+| **DOCS** | `DOC-` | Documentation publishing & governance | 1 |
 
-**Total: 77 use cases**
+**Total: 82 use cases**
+
+## Testing Expectations
+
+- Every use case implementation must add or update unit tests that cover success and failure paths.
+- End-to-end or integration tests should exercise the full flow for cross-layer interactions (e.g., CLI → agents → data-layer) where applicable.
+- Pull requests that change code without touching tests should be rejected by automation (see `scripts/require_tests_for_code_changes.py` and CI gate).
+- Each change must reference at least one use-case ID (P-, M-, Q-, I-, SYS-, CF-, ST-, RS-) in commits/PR body; CI enforces this.
 
 ---
 
@@ -3245,6 +3253,25 @@ monitor query compare --names "Gandalf" "Saruman" --universe <UUID>
 
 ---
 
+## Q-9: Keyword Search (OpenSearch)
+
+**Actor:** User
+**Trigger:** Query → Keyword search
+
+**Flow:**
+1. Enter keyword query with optional filters (universe, entity type, date range).
+2. Search OpenSearch index for entities/facts/documents.
+3. Return ranked results with snippets and links to canonical records.
+
+**Output:** Ranked results with context snippets.
+
+**Implementation**
+- Data Layer: OpenSearch client query endpoints.
+- Agents: ContextAssembly formats and enriches results.
+- CLI: `monitor query --keyword "ancient dragon" --universe <UUID>`.
+
+---
+
 ---
 
 # Epic 4: INGEST (Knowledge Import)
@@ -3507,6 +3534,26 @@ async def llm_extract_entities(text: str, source_type: str) -> ExtractedEntities
 
 ---
 
+## I-6: Manage Binary Assets (MinIO)
+
+**Actor:** User
+**Trigger:** Ingest → Upload binary
+
+**Flow:**
+1. Upload binary (PDF/image/audio) to MinIO with metadata (source_id, universe_id).
+2. Link binary to source document and entity references (if known).
+3. Retrieve or stream binary by source/entity.
+4. Delete/replace binary (soft delete, retain metadata).
+
+**Output:** Binary stored with retrievable URL and metadata.
+
+**Implementation**
+- Data Layer: MinIO client operations; metadata references stored alongside sources/entities.
+- Agents: Indexer handles uploads; CanonKeeper links evidence to binaries.
+- CLI: `monitor ingest --binary <file> --universe <UUID>`.
+
+---
+
 ---
 
 # Epic 5: SYSTEM (Configuration & Lifecycle)
@@ -3628,6 +3675,36 @@ MONITOR - Auto-GM
 3. Preview changes
 4. Merge strategy: overwrite, append, skip conflicts
 5. Execute import
+
+---
+
+## SYS-9: Verify Backup/Restore
+
+**Actor:** Operator
+**Trigger:** Scheduled verification or manual
+
+**Flow:**
+1. Restore snapshot to scratch environment.
+2. Run integrity checks (Neo4j constraints, MongoDB indexes, Qdrant collections).
+3. Run sample queries to validate data.
+4. Report status and failures.
+
+**Output:** Verification report with pass/fail.
+
+---
+
+## SYS-10: Retention and Archival
+
+**Actor:** Operator
+**Trigger:** Policy enforcement
+
+**Flow:**
+1. Define retention policies for narrative data (scenes, turns, embeddings).
+2. Archive or prune per policy (move to cold storage, delete embeddings).
+3. Update indices and references.
+4. Log actions for audit.
+
+**Output:** Policy-compliant storage footprint.
 
 ---
 
@@ -4911,6 +4988,31 @@ def roll_dice(formula: str) -> DiceRoll:
 
 ---
 
+# Epic 9: Documentation (DOC)
+
+> As a maintainer, I want documentation published and governed consistently.
+
+## DOC-1: Publish Docs to Wiki
+
+> Epic: Documentation (DOC)
+
+**Actor:** Maintainer
+**Trigger:** Release or documentation update
+
+**Flow:**
+1. Sync repo docs to GitHub wiki (flattened structure).
+2. Set Home page to `WIKI_HOME`.
+3. Validate navigation and key links.
+4. Include AI setup and contributing guides.
+
+**Output:** Updated wiki with working navigation.
+
+**Implementation**
+- Script: `scripts/sync_docs_to_wiki.sh`
+- Optional CI: scheduled doc sync or manual run.
+
+---
+
 # Use Case Summary
 
 ## By Epic
@@ -4919,9 +5021,10 @@ def roll_dice(formula: str) -> DiceRoll:
 |------|-----------|----------|
 | PLAY | P-1 to P-12 | Phase 1 (MVP) |
 | MANAGE | M-1 to M-29 | Phase 1-2 |
-| QUERY | Q-1 to Q-8 | Phase 2 |
-| INGEST | I-1 to I-5 | Phase 3 |
-| SYSTEM | SYS-1 to SYS-8 | Phase 1 |
+| QUERY | Q-1 to Q-9 | Phase 2 |
+| INGEST | I-1 to I-6 | Phase 3 |
+| SYSTEM | SYS-1 to SYS-10 | Phase 1 |
+| DOCS | DOC-1 | Phase 1 |
 
 ## MVP (Phase 1)
 
@@ -4936,19 +5039,19 @@ Core gameplay loop:
 
 Management and query:
 - M-* (all entity CRUD)
-- Q-1 to Q-7 (search and exploration)
+- Q-1 to Q-9 (search and exploration)
 - P-10, P-11 (combat, conversation modes)
 
 ## Phase 3
 
 Ingestion:
-- I-1 to I-5 (full ingestion pipeline)
+- I-1 to I-6 (full ingestion pipeline)
 
 ## Phase 4
 
 Polish:
-- Q-8 (compare)
-- SYS-7, SYS-8 (export/import)
+- Q-8, Q-9 (compare, keyword search)
+- SYS-7, SYS-8, SYS-9, SYS-10 (export/import, backup verify, retention)
 - Advanced gameplay features
 
 ---
