@@ -1,0 +1,73 @@
+# =============================================================================
+# MONITOR Data Layer
+# =============================================================================
+# LAYER 1 of 3 - This is the BOTTOM layer of the MONITOR stack.
+#
+# DEPENDENCY RULES (CRITICAL):
+#   - This package has NO dependencies on other MONITOR packages
+#   - This package ONLY depends on external libraries + databases
+#   - Agents (Layer 2) depend on THIS package
+#   - CLI (Layer 3) does NOT directly depend on this package
+#
+# RESPONSIBILITIES:
+#   - Database clients (Neo4j, MongoDB, Qdrant, MinIO)
+#   - MCP server and tools
+#   - Pydantic schemas for data validation
+#   - Authority enforcement middleware
+#
+# =============================================================================
+
+[project]
+name = "monitor-data-layer"
+version = "0.1.0"
+description = "MONITOR Data Layer - MCP server for canonical graph, narrative documents, and semantic search"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+dependencies = [
+    # Database clients
+    "neo4j>=5.15",
+    "pymongo>=4.6",
+    "qdrant-client>=1.7",
+    "minio>=7.2",
+    "opensearch-py>=2.4",
+
+    # MCP and API
+    "anthropic>=0.39",
+    "fastapi>=0.108",
+    "uvicorn>=0.25",
+
+    # Data validation
+    "pydantic>=2.5",
+
+    # Utilities
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.21",
+    "black>=23.12",
+    "mypy>=1.7",
+    "ruff>=0.1",
+]
+
+[project.scripts]
+monitor-data = "monitor_data.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/monitor_data"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

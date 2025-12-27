@@ -1,0 +1,150 @@
+version: '3.8'
+
+services:
+  # Neo4j - Canonical Graph Database
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: monitor-neo4j
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-monitor2024}
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
+      - NEO4J_dbms_memory_heap_initial__size=512m
+      - NEO4J_dbms_memory_heap_max__size=2G
+      - NEO4J_dbms_memory_pagecache_size=1G
+    volumes:
+      - ./neo4j/data:/data
+      - ./neo4j/logs:/logs
+      - ./neo4j/import:/var/lib/neo4j/import
+      - ./neo4j/plugins:/plugins
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # MongoDB - Narrative & Proposals Database
+  mongodb:
+    image: mongo:7.0
+    container_name: monitor-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=monitor
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-monitor2024}
+      - MONGO_INITDB_DATABASE=monitor
+    volumes:
+      - ./mongodb/data:/data/db
+      - ./mongodb/configdb:/data/configdb
+      - ./mongodb/init:/docker-entrypoint-initdb.d
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # Qdrant - Vector Database for Semantic Search
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: monitor-qdrant
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    volumes:
+      - ./qdrant/storage:/qdrant/storage
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # MinIO - Binary Storage (PDFs, images, etc.)
+  minio:
+    image: minio/minio:latest
+    container_name: monitor-minio
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    environment:
+      - MINIO_ROOT_USER=monitor
+      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD:-monitor2024}
+    volumes:
+      - ./minio/data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # OpenSearch - Optional full-text search (alternative to Qdrant for text search)
+  opensearch:
+    image: opensearchproject/opensearch:2.11.1
+    container_name: monitor-opensearch
+    ports:
+      - "9200:9200"  # REST API
+      - "9600:9600"  # Performance Analyzer
+    environment:
+      - discovery.type=single-node
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD:-Monitor2024!}
+      - plugins.security.disabled=false
+    volumes:
+      - ./opensearch/data:/usr/share/opensearch/data
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # OpenSearch Dashboards - Optional UI for OpenSearch
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.11.1
+    container_name: monitor-opensearch-dashboards
+    ports:
+      - "5601:5601"
+    environment:
+      - OPENSEARCH_HOSTS=["https://opensearch:9200"]
+    depends_on:
+      - opensearch
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # MCP Data Layer Server (placeholder for future implementation)
+  # mcp-server:
+  #   build:
+  #     context: ../services/mcp-server
+  #     dockerfile: Dockerfile
+  #   container_name: monitor-mcp-server
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     - NEO4J_URI=bolt://neo4j:7687
+  #     - NEO4J_USER=neo4j
+  #     - NEO4J_PASSWORD=${NEO4J_PASSWORD:-monitor2024}
+  #     - MONGODB_URI=mongodb://monitor:${MONGODB_PASSWORD:-monitor2024}@mongodb:27017/monitor
+  #     - QDRANT_URI=http://qdrant:6333
+  #     - MINIO_ENDPOINT=minio:9000
+  #     - MINIO_ACCESS_KEY=monitor
+  #     - MINIO_SECRET_KEY=${MINIO_PASSWORD:-monitor2024}
+  #     - OPENSEARCH_URI=https://opensearch:9200
+  #   depends_on:
+  #     - neo4j
+  #     - mongodb
+  #     - qdrant
+  #     - minio
+  #     - opensearch
+  #   networks:
+  #     - monitor-network
+  #   restart: unless-stopped
+
+networks:
+  monitor-network:
+    driver: bridge
+
+volumes:
+  neo4j-data:
+  neo4j-logs:
+  neo4j-import:
+  neo4j-plugins:
+  mongodb-data:
+  mongodb-configdb:
+  qdrant-storage:
+  minio-data:
+  opensearch-data:
