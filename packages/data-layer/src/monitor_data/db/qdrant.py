@@ -174,13 +174,25 @@ class QdrantClient:
         
         info = client.get_collection(collection_name)
         
+        # Handle VectorParams which can be either a single VectorParams or dict
+        vector_config = info.config.params.vectors
+        if isinstance(vector_config, dict):
+            # Multi-vector case - use the first vector config
+            first_vector_config = next(iter(vector_config.values()))
+            vector_size = first_vector_config.size if first_vector_config else 0
+            distance_name = first_vector_config.distance.name if first_vector_config else "Unknown"
+        else:
+            # Single vector case
+            vector_size = vector_config.size if vector_config else 0
+            distance_name = vector_config.distance.name if vector_config else "Unknown"
+        
         return {
             "name": collection_name,
             "exists": True,
-            "vector_size": info.config.params.vectors.size,
+            "vector_size": vector_size,
             "points_count": info.points_count,
             "config": {
-                "distance": info.config.params.vectors.distance.name,
+                "distance": distance_name,
             }
         }
     
@@ -267,7 +279,7 @@ class QdrantClient:
         # Build Qdrant filter if provided
         qdrant_filter = None
         if query_filter:
-            must_conditions = []
+            must_conditions: List[Any] = []
             
             for key, value in query_filter.items():
                 if value is not None:
@@ -281,7 +293,7 @@ class QdrantClient:
             if must_conditions:
                 qdrant_filter = Filter(must=must_conditions)
         
-        results = client.search(
+        results = client.search(  # type: ignore
             collection_name=collection_name,
             query_vector=query_vector,
             limit=limit,
@@ -335,7 +347,7 @@ class QdrantClient:
         client = self._ensure_connected()
         
         # Build Qdrant filter
-        must_conditions = []
+        must_conditions: List[Any] = []
         for key, value in filter_dict.items():
             if value is not None:
                 must_conditions.append(
@@ -351,7 +363,7 @@ class QdrantClient:
         qdrant_filter = Filter(must=must_conditions)
         
         # Get count before deletion
-        count_before = self.get_collection_info(collection_name)["points_count"]
+        count_before: int = self.get_collection_info(collection_name)["points_count"]
         
         # Delete points
         client.delete(
@@ -360,12 +372,12 @@ class QdrantClient:
         )
         
         # Get count after deletion
-        count_after = self.get_collection_info(collection_name)["points_count"]
+        count_after: int = self.get_collection_info(collection_name)["points_count"]
         
         return count_before - count_after
 
 
-def get_qdrant_client() -> QdrantClient:
+def get_qdrant_client() -> "QdrantClient":
     """
     Get or create a thread-local Qdrant client singleton.
     
@@ -380,4 +392,4 @@ def get_qdrant_client() -> QdrantClient:
         client.connect()
         _thread_local.qdrant_client = client
     
-    return _thread_local.qdrant_client
+    return _thread_local.qdrant_client  # type: ignore

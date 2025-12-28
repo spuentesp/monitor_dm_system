@@ -9,7 +9,6 @@ These schemas define the structure for vector embeddings stored in Qdrant.
 """
 
 from typing import Dict, List, Optional, Any
-from uuid import UUID
 
 from pydantic import BaseModel, Field
 

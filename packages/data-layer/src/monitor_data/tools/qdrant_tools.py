@@ -9,7 +9,7 @@ These tools expose Qdrant vector operations via the MCP server.
 All operations are open to all agents (authority: *).
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, Any
 
 from monitor_data.db.qdrant import get_qdrant_client
 from monitor_data.schemas.vectors import (
@@ -252,6 +252,7 @@ def qdrant_search(params: VectorSearch) -> VectorSearchResponse:
             id=result["id"],
             score=result["score"],
             payload=result["payload"],
+            vector=None,  # Vector not returned by default
         )
         for result in results
     ]
