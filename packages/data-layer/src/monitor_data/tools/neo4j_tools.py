@@ -405,11 +405,11 @@ def neo4j_update_universe(
         return result
 
     set_clause = ", ".join(set_clauses)
-    update_query = f"""
-    MATCH (u:Universe {{id: $id}})
-    SET {set_clause}
-    RETURN u
-    """
+    update_query = (
+        "MATCH (u:Universe {id: $id})\n"
+        "SET " + set_clause + "\n"
+        "RETURN u"
+    )
 
     result = client.execute_write(update_query, update_params)
     u = result[0]["u"]
@@ -463,19 +463,27 @@ def neo4j_delete_universe(universe_id: UUID, force: bool = False) -> Dict[str, A
         MATCH (u:Universe {id: $id})
         OPTIONAL MATCH (u)-[:HAS_SOURCE]->(s:Source)
         OPTIONAL MATCH (u)-[:HAS_AXIOM]->(a:Axiom)
+        OPTIONAL MATCH (u)-[:HAS_STORY]->(st:Story)
         OPTIONAL MATCH (u)<-[:IN_UNIVERSE]-(e)
         WHERE e:EntityArchetype OR e:EntityInstance
         RETURN count(DISTINCT s) AS sources,
                count(DISTINCT a) AS axioms,
+               count(DISTINCT st) AS stories,
                count(DISTINCT e) AS entities
         """
         dep_result = client.execute_read(dependency_query, {"id": str(universe_id)})
         deps = dep_result[0]
 
-        if deps["sources"] > 0 or deps["axioms"] > 0 or deps["entities"] > 0:
+        if (
+            deps["sources"] > 0
+            or deps["axioms"] > 0
+            or deps["stories"] > 0
+            or deps["entities"] > 0
+        ):
             raise ValueError(
                 f"Universe {universe_id} has dependent data: "
-                f"{deps['sources']} sources, {deps['axioms']} axioms, {deps['entities']} entities. "
+                f"{deps['sources']} sources, {deps['axioms']} axioms, "
+                f"{deps['stories']} stories, {deps['entities']} entities. "
                 f"Use force=True to cascade delete."
             )
 
@@ -487,9 +495,9 @@ def neo4j_delete_universe(universe_id: UUID, force: bool = False) -> Dict[str, A
         OPTIONAL MATCH (u)-[:HAS_SOURCE]->(source:Source)
         OPTIONAL MATCH (u)-[:HAS_AXIOM]->(axiom:Axiom)
         OPTIONAL MATCH (u)-[:HAS_STORY]->(story:Story)
-        // Collect story dependencies (1 level deep from Story)
-        OPTIONAL MATCH (story)-[:HAS_SCENE]->(scene:Scene)
-        OPTIONAL MATCH (story)-[:HAS_THREAD]->(thread:PlotThread)
+        // Collect story dependencies (1 level deep from Story), matched from universe
+        OPTIONAL MATCH (u)-[:HAS_STORY]->(:Story)-[:HAS_SCENE]->(scene:Scene)
+        OPTIONAL MATCH (u)-[:HAS_STORY]->(:Story)-[:HAS_THREAD]->(thread:PlotThread)
         // Collect entities with IN_UNIVERSE relationship
         OPTIONAL MATCH (u)<-[:IN_UNIVERSE]-(entity)
         WHERE entity:EntityArchetype OR entity:EntityInstance
