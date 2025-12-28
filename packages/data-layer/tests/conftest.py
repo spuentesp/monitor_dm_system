@@ -111,6 +111,43 @@ def universe_node(universe_data: Dict[str, Any]) -> Dict[str, Any]:
     return {"u": universe_data}
 
 
+@pytest.fixture
+def story_data(universe_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Provide sample story data."""
+    return {
+        "id": str(uuid4()),
+        "universe_id": universe_data["id"],
+        "title": "Test Story",
+        "story_type": "campaign",
+        "theme": "Adventure",
+        "premise": "A test adventure",
+        "status": "planned",
+        "start_time_ref": None,
+        "end_time_ref": None,
+        "created_at": "2024-01-01T00:00:00",
+        "completed_at": None,
+    }
+
+
+@pytest.fixture
+def pc_entity_data(universe_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Provide sample PC entity data."""
+    return {
+        "id": str(uuid4()),
+        "universe_id": universe_data["id"],
+        "name": "Test PC",
+        "entity_type": "character",
+        "is_archetype": False,
+        "description": "A test player character",
+        "properties": {"role": "PC"},
+        "state_tags": ["alive"],
+        "canon_level": "canon",
+        "confidence": 1.0,
+        "authority": "player",
+        "created_at": "2024-01-01T00:00:00",
+    }
+
+
 # =============================================================================
 # UTILITY FIXTURES
 # =============================================================================
