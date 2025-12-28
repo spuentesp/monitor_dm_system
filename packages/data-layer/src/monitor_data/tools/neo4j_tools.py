@@ -30,6 +30,14 @@ from monitor_data.schemas.entities import (
     EntityListResponse,
     StateTagsUpdate,
 )
+from monitor_data.schemas.relationships import (
+    RelationshipType,
+    RelationshipCreate,
+    RelationshipUpdate,
+    RelationshipResponse,
+    RelationshipFilter,
+    RelationshipListResponse,
+)
 
 
 # =============================================================================
@@ -1091,3 +1099,385 @@ def neo4j_set_state_tags(
         created_at=e["created_at"],
         updated_at=e.get("updated_at"),
     )
+
+
+# =============================================================================
+# RELATIONSHIP OPERATIONS (DL-14)
+# =============================================================================
+
+
+def neo4j_create_relationship(params: RelationshipCreate) -> RelationshipResponse:
+    """
+    Create a typed relationship (edge) between two entities.
+
+    Authority: CanonKeeper only
+    Use Case: DL-14
+
+    Args:
+        params: Relationship creation parameters
+
+    Returns:
+        RelationshipResponse with created relationship data
+
+    Raises:
+        ValueError: If either entity doesn't exist or validation fails
+    """
+    client = get_neo4j_client()
+
+    # Verify both entities exist
+    verify_query = """
+    MATCH (from:Entity {id: $from_id})
+    MATCH (to:Entity {id: $to_id})
+    RETURN from.id as from_id, from.name as from_name, 
+           to.id as to_id, to.name as to_name
+    """
+    result = client.execute_read(
+        verify_query,
+        {
+            "from_id": str(params.from_entity_id),
+            "to_id": str(params.to_entity_id),
+        },
+    )
+    if not result:
+        raise ValueError(
+            f"One or both entities not found: {params.from_entity_id}, {params.to_entity_id}"
+        )
+
+    entity_data = result[0]
+
+    # Create relationship with properties
+    create_query = f"""
+    MATCH (from:Entity {{id: $from_id}})
+    MATCH (to:Entity {{id: $to_id}})
+    CREATE (from)-[r:{params.rel_type.value} $properties]->(to)
+    RETURN id(r) as rel_id, type(r) as rel_type, properties(r) as properties
+    """
+
+    result = client.execute_write(
+        create_query,
+        {
+            "from_id": str(params.from_entity_id),
+            "to_id": str(params.to_entity_id),
+            "properties": params.properties,
+        },
+    )
+
+    r = result[0]
+
+    return RelationshipResponse(
+        id=str(r["rel_id"]),
+        from_entity_id=params.from_entity_id,
+        to_entity_id=params.to_entity_id,
+        rel_type=RelationshipType(r["rel_type"]),
+        properties=r["properties"],
+        from_entity_name=entity_data["from_name"],
+        to_entity_name=entity_data["to_name"],
+    )
+
+
+def neo4j_get_relationship(relationship_id: str) -> Optional[RelationshipResponse]:
+    """
+    Get a relationship by its internal Neo4j ID.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-14
+
+    Args:
+        relationship_id: Neo4j internal relationship ID
+
+    Returns:
+        RelationshipResponse if found, None otherwise
+    """
+    client = get_neo4j_client()
+
+    query = """
+    MATCH (from:Entity)-[r]->(to:Entity)
+    WHERE id(r) = $rel_id
+    RETURN id(r) as rel_id, type(r) as rel_type, properties(r) as properties,
+           from.id as from_id, from.name as from_name,
+           to.id as to_id, to.name as to_name
+    """
+
+    try:
+        rel_id = int(relationship_id)
+    except ValueError:
+        return None
+
+    result = client.execute_read(query, {"rel_id": rel_id})
+
+    if not result:
+        return None
+
+    r = result[0]
+
+    return RelationshipResponse(
+        id=str(r["rel_id"]),
+        from_entity_id=UUID(r["from_id"]),
+        to_entity_id=UUID(r["to_id"]),
+        rel_type=RelationshipType(r["rel_type"]),
+        properties=r["properties"],
+        from_entity_name=r["from_name"],
+        to_entity_name=r["to_name"],
+    )
+
+
+def neo4j_list_relationships(
+    filters: RelationshipFilter,
+) -> RelationshipListResponse:
+    """
+    List relationships with filtering by entity, type, and direction.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-14
+
+    Args:
+        filters: Filter parameters (entity_id, rel_type, direction, limit, offset)
+
+    Returns:
+        RelationshipListResponse with relationships and pagination info
+    """
+    client = get_neo4j_client()
+
+    # Build WHERE clause
+    where_clauses = []
+    params: Dict[str, Any] = {}
+
+    # Handle entity_id filter (matches either from or to)
+    if filters.entity_id:
+        where_clauses.append("(from.id = $entity_id OR to.id = $entity_id)")
+        params["entity_id"] = str(filters.entity_id)
+
+    # Handle from_entity_id filter
+    if filters.from_entity_id:
+        where_clauses.append("from.id = $from_entity_id")
+        params["from_entity_id"] = str(filters.from_entity_id)
+
+    # Handle to_entity_id filter
+    if filters.to_entity_id:
+        where_clauses.append("to.id = $to_entity_id")
+        params["to_entity_id"] = str(filters.to_entity_id)
+
+    # Handle rel_type filter
+    if filters.rel_type:
+        where_clauses.append("type(r) = $rel_type")
+        params["rel_type"] = filters.rel_type.value
+
+    where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+    # Build MATCH clause based on direction
+    if filters.direction == "outgoing":
+        match_clause = "MATCH (from:Entity)-[r]->(to:Entity)"
+    elif filters.direction == "incoming":
+        match_clause = "MATCH (from:Entity)<-[r]-(to:Entity)"
+    else:  # both
+        match_clause = "MATCH (from:Entity)-[r]-(to:Entity)"
+
+    # Count total
+    count_query = f"""
+    {match_clause}
+    {where_clause}
+    RETURN count(r) as total
+    """
+    count_result = client.execute_read(count_query, params)
+    total = count_result[0]["total"]
+
+    # Get relationships with pagination
+    list_query = f"""
+    {match_clause}
+    {where_clause}
+    RETURN id(r) as rel_id, type(r) as rel_type, properties(r) as properties,
+           from.id as from_id, from.name as from_name,
+           to.id as to_id, to.name as to_name
+    SKIP $offset
+    LIMIT $limit
+    """
+    params["offset"] = filters.offset
+    params["limit"] = filters.limit
+
+    result = client.execute_read(list_query, params)
+
+    relationships = []
+    for record in result:
+        relationships.append(
+            RelationshipResponse(
+                id=str(record["rel_id"]),
+                from_entity_id=UUID(record["from_id"]),
+                to_entity_id=UUID(record["to_id"]),
+                rel_type=RelationshipType(record["rel_type"]),
+                properties=record["properties"],
+                from_entity_name=record["from_name"],
+                to_entity_name=record["to_name"],
+            )
+        )
+
+    return RelationshipListResponse(
+        relationships=relationships,
+        total=total,
+        limit=filters.limit,
+        offset=filters.offset,
+    )
+
+
+def neo4j_update_relationship(
+    relationship_id: str, params: RelationshipUpdate
+) -> RelationshipResponse:
+    """
+    Update a relationship's properties.
+
+    Authority: CanonKeeper only
+    Use Case: DL-14
+
+    Note: from_entity_id, to_entity_id, and rel_type are immutable.
+    Only properties can be updated.
+
+    Args:
+        relationship_id: Neo4j internal relationship ID
+        params: Update parameters (properties only)
+
+    Returns:
+        RelationshipResponse with updated relationship data
+
+    Raises:
+        ValueError: If relationship doesn't exist
+    """
+    client = get_neo4j_client()
+
+    try:
+        rel_id = int(relationship_id)
+    except ValueError:
+        raise ValueError(f"Invalid relationship ID: {relationship_id}")
+
+    # Verify relationship exists
+    verify_query = """
+    MATCH ()-[r]->()
+    WHERE id(r) = $rel_id
+    RETURN id(r) as rel_id
+    """
+    result = client.execute_read(verify_query, {"rel_id": rel_id})
+    if not result:
+        raise ValueError(f"Relationship {relationship_id} not found")
+
+    # Update properties
+    update_query = """
+    MATCH (from:Entity)-[r]->(to:Entity)
+    WHERE id(r) = $rel_id
+    SET r = $properties
+    RETURN id(r) as rel_id, type(r) as rel_type, properties(r) as properties,
+           from.id as from_id, from.name as from_name,
+           to.id as to_id, to.name as to_name
+    """
+
+    result = client.execute_write(
+        update_query, {"rel_id": rel_id, "properties": params.properties}
+    )
+    r = result[0]
+
+    return RelationshipResponse(
+        id=str(r["rel_id"]),
+        from_entity_id=UUID(r["from_id"]),
+        to_entity_id=UUID(r["to_id"]),
+        rel_type=RelationshipType(r["rel_type"]),
+        properties=r["properties"],
+        from_entity_name=r["from_name"],
+        to_entity_name=r["to_name"],
+    )
+
+
+def neo4j_delete_relationship(relationship_id: str) -> Dict[str, Any]:
+    """
+    Delete a relationship (edge) between entities.
+
+    Authority: CanonKeeper only
+    Use Case: DL-14
+
+    Args:
+        relationship_id: Neo4j internal relationship ID
+
+    Returns:
+        Dict with deletion status
+
+    Raises:
+        ValueError: If relationship doesn't exist
+    """
+    client = get_neo4j_client()
+
+    try:
+        rel_id = int(relationship_id)
+    except ValueError:
+        raise ValueError(f"Invalid relationship ID: {relationship_id}")
+
+    # Verify and delete relationship
+    delete_query = """
+    MATCH ()-[r]->()
+    WHERE id(r) = $rel_id
+    DELETE r
+    RETURN count(r) as deleted_count
+    """
+
+    result = client.execute_write(delete_query, {"rel_id": rel_id})
+
+    if result[0]["deleted_count"] == 0:
+        raise ValueError(f"Relationship {relationship_id} not found")
+
+    return {
+        "relationship_id": relationship_id,
+        "deleted": True,
+    }
+
+
+def neo4j_update_state_tags(
+    entity_id: UUID, params: StateTagsUpdate
+) -> EntityResponse:
+    """
+    Atomically add/remove state tags on an EntityInstance.
+
+    This is an alias for neo4j_set_state_tags for consistency with
+    the DL-14 naming convention (update instead of set).
+
+    Authority: CanonKeeper only
+    Use Case: DL-14, DL-2
+
+    Args:
+        entity_id: UUID of the entity
+        params: Tags to add and/or remove
+
+    Returns:
+        EntityResponse with updated entity data
+
+    Raises:
+        ValueError: If entity doesn't exist or is an archetype
+    """
+    return neo4j_set_state_tags(entity_id, params)
+
+
+def neo4j_get_state_tags(entity_id: UUID) -> List[str]:
+    """
+    Get state tags for an EntityInstance.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-14
+
+    Args:
+        entity_id: UUID of the entity
+
+    Returns:
+        List of state tags
+
+    Raises:
+        ValueError: If entity doesn't exist or is an archetype
+    """
+    client = get_neo4j_client()
+
+    query = """
+    MATCH (e:Entity {id: $id})
+    RETURN e.is_archetype as is_archetype, e.state_tags as state_tags
+    """
+    result = client.execute_read(query, {"id": str(entity_id)})
+
+    if not result:
+        raise ValueError(f"Entity {entity_id} not found")
+
+    if result[0]["is_archetype"]:
+        raise ValueError("Cannot get state_tags from EntityArchetype")
+
+    return result[0].get("state_tags", [])

@@ -8,15 +8,16 @@ They are used for:
 - Type safety across the codebase
 
 SCHEMA CATEGORIES:
-- base:        Base models, enums (CanonLevel, Authority, etc)
-- universe:    Universe, Multiverse schemas
-- entities:    EntityArchetype, EntityInstance, entity types
-- facts:       Fact, Event, canon_level, authority
-- scenes:      Scene, Turn, ProposedChange, Resolution
-- memories:    CharacterMemory, importance, valence
-- sources:     Source, Document, Snippet
-- queries:     Search requests, filters, pagination
-- composite:   ContextPackage, CanonizationResult
+- base:           Base models, enums (CanonLevel, Authority, etc)
+- universe:       Universe, Multiverse schemas
+- entities:       EntityArchetype, EntityInstance, entity types
+- relationships:  Relationship schemas for entity edges
+- facts:          Fact, Event, canon_level, authority
+- scenes:         Scene, Turn, ProposedChange, Resolution
+- memories:       CharacterMemory, importance, valence
+- sources:        Source, Document, Snippet
+- queries:        Search requests, filters, pagination
+- composite:      ContextPackage, CanonizationResult
 
 See: docs/architecture/VALIDATION_SCHEMAS.md for full schema definitions
 """
@@ -45,6 +46,14 @@ from monitor_data.schemas.universe import (
     MultiverseCreate,
     MultiverseUpdate,
     MultiverseResponse,
+)
+from monitor_data.schemas.relationships import (
+    RelationshipType,
+    RelationshipCreate,
+    RelationshipUpdate,
+    RelationshipResponse,
+    RelationshipFilter,
+    RelationshipListResponse,
 )
 
 # from monitor_data.schemas.entities import *
@@ -79,4 +88,11 @@ __all__ = [
     "MultiverseCreate",
     "MultiverseUpdate",
     "MultiverseResponse",
+    # Relationship schemas
+    "RelationshipType",
+    "RelationshipCreate",
+    "RelationshipUpdate",
+    "RelationshipResponse",
+    "RelationshipFilter",
+    "RelationshipListResponse",
 ]
