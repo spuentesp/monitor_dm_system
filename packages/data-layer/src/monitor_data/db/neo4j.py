@@ -10,6 +10,7 @@ transaction management for read/write operations.
 """
 
 import os
+import threading
 from typing import Any, Dict, List, Optional
 
 from neo4j import GraphDatabase, Driver
@@ -143,20 +144,27 @@ class Neo4jClient:
 
 # Global client instance (can be initialized once at startup)
 _client: Optional[Neo4jClient] = None
+_client_lock = threading.Lock()
 
 
 def get_neo4j_client() -> Neo4jClient:
     """
-    Get or create the global Neo4j client instance.
+    Get or create the global Neo4j client instance (thread-safe).
 
     Returns:
         Neo4jClient instance
 
     Note:
         This returns a singleton client. Call connect() before using.
+        Uses double-checked locking for thread-safe initialization.
     """
     global _client
+    # First check without lock for performance
     if _client is None:
-        _client = Neo4jClient()
-        _client.connect()
+        # Acquire lock for initialization
+        with _client_lock:
+            # Second check with lock to prevent race condition
+            if _client is None:
+                _client = Neo4jClient()
+                _client.connect()
     return _client
