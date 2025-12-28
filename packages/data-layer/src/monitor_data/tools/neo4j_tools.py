@@ -737,24 +737,10 @@ def neo4j_create_fact(params: FactCreate) -> FactResponse:
         )
 
     # Retrieve with relationships
-    return neo4j_get_fact(fact_id) or FactResponse(
-        id=fact_id,
-        universe_id=params.universe_id,
-        statement=params.statement,
-        fact_type=params.fact_type,
-        time_ref=params.time_ref,
-        duration=params.duration,
-        canon_level=params.canon_level,
-        confidence=params.confidence,
-        authority=params.authority,
-        created_at=created_at,
-        replaces=params.replaces,
-        properties=params.properties,
-        entity_ids=params.entity_ids or [],
-        source_ids=params.source_ids or [],
-        snippet_ids=params.snippet_ids or [],
-        scene_ids=params.scene_ids or [],
-    )
+    result = neo4j_get_fact(fact_id)
+    if result is None:
+        raise ValueError(f"Failed to retrieve created fact {fact_id}")
+    return result
 
 
 def neo4j_get_fact(fact_id: UUID) -> Optional[FactResponse]:
@@ -970,7 +956,11 @@ def neo4j_update_fact(fact_id: UUID, params: FactUpdate) -> FactResponse:
         return result
 
     set_clause = ", ".join(set_clauses)
-    update_query = "MATCH (f:Fact {id: $id})\n" "SET " + set_clause + "\n" "RETURN f"
+    update_query = f"""
+    MATCH (f:Fact {{id: $id}})
+    SET {set_clause}
+    RETURN f
+    """
 
     client.execute_write(update_query, update_params)
 
@@ -1198,26 +1188,10 @@ def neo4j_create_event(params: EventCreate) -> EventResponse:
             )
 
     # Retrieve with relationships
-    return neo4j_get_event(event_id) or EventResponse(
-        id=event_id,
-        universe_id=params.universe_id,
-        scene_id=params.scene_id,
-        title=params.title,
-        description=params.description,
-        start_time=params.start_time,
-        end_time=params.end_time,
-        severity=params.severity,
-        canon_level=params.canon_level,
-        confidence=params.confidence,
-        authority=params.authority,
-        created_at=created_at,
-        properties=params.properties,
-        entity_ids=params.entity_ids or [],
-        source_ids=params.source_ids or [],
-        timeline_after=params.timeline_after or [],
-        timeline_before=params.timeline_before or [],
-        causes=params.causes or [],
-    )
+    result = neo4j_get_event(event_id)
+    if result is None:
+        raise ValueError(f"Failed to retrieve created event {event_id}")
+    return result
 
 
 def neo4j_get_event(event_id: UUID) -> Optional[EventResponse]:
