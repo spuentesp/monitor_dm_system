@@ -73,6 +73,7 @@ AUTHORITY_MATRIX = {
     "neo4j_create_source": ["CanonKeeper"],
     "neo4j_get_source": ["*"],
     "neo4j_list_sources": ["*"],
+    "neo4j_update_source": ["CanonKeeper"],
     "neo4j_link_evidence": ["CanonKeeper"],
     # =========================================================================
     # NEO4J OPERATIONS - Axioms
@@ -125,17 +126,22 @@ AUTHORITY_MATRIX = {
     "mongodb_get_character_sheet": ["*"],
     "mongodb_update_character_sheet": ["Orchestrator", "CanonKeeper"],
     # =========================================================================
-    # MONGODB OPERATIONS - Documents
+    # MONGODB OPERATIONS - Documents (DL-8)
     # =========================================================================
-    "mongodb_create_document": ["Indexer"],
+    "mongodb_create_document": ["*"],
     "mongodb_get_document": ["*"],
     "mongodb_list_documents": ["*"],
-    "mongodb_update_document_status": ["Indexer"],
     # =========================================================================
-    # MONGODB OPERATIONS - Snippets
+    # MONGODB OPERATIONS - Snippets (DL-8)
     # =========================================================================
-    "mongodb_create_snippets": ["Indexer"],
-    "mongodb_get_snippets": ["*"],
+    "mongodb_create_snippet": ["*"],
+    "mongodb_list_snippets": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Ingest Proposals (DL-8)
+    # =========================================================================
+    "mongodb_create_ingest_proposal": ["*"],
+    "mongodb_list_ingest_proposals": ["*"],
+    "mongodb_update_ingest_proposal": ["CanonKeeper"],
     # =========================================================================
     # MONGODB OPERATIONS - Story Outlines
     # =========================================================================

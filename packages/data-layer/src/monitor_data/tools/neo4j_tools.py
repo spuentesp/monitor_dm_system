@@ -1091,3 +1091,305 @@ def neo4j_set_state_tags(
         created_at=e["created_at"],
         updated_at=e.get("updated_at"),
     )
+
+
+# =============================================================================
+# SOURCE OPERATIONS
+# =============================================================================
+
+
+def neo4j_create_source(params) -> Any:
+    """
+    Create a new Source node.
+
+    Authority: CanonKeeper only
+    Use Case: DL-8
+
+    Args:
+        params: SourceCreate - Source creation parameters
+
+    Returns:
+        SourceResponse with created source data
+
+    Raises:
+        ValueError: If universe_id doesn't exist
+    """
+    from monitor_data.schemas.sources import SourceResponse
+
+    client = get_neo4j_client()
+
+    # Verify universe exists
+    verify_query = """
+    MATCH (u:Universe {id: $universe_id})
+    RETURN u.id as id
+    """
+    result = client.execute_read(verify_query, {"universe_id": str(params.universe_id)})
+    if not result:
+        raise ValueError(f"Universe {params.universe_id} not found")
+
+    # Create source
+    source_id = uuid4()
+    create_query = """
+    MATCH (u:Universe {id: $universe_id})
+    CREATE (s:Source {
+        id: $id,
+        universe_id: $universe_id,
+        title: $title,
+        source_type: $source_type,
+        edition: $edition,
+        provenance: $provenance,
+        doc_id: $doc_id,
+        canon_level: $canon_level,
+        metadata: $metadata,
+        created_at: datetime($created_at)
+    })
+    CREATE (u)-[:HAS_SOURCE]->(s)
+    RETURN s
+    """
+    created_at = datetime.now(timezone.utc)
+    client.execute_write(
+        create_query,
+        {
+            "id": str(source_id),
+            "universe_id": str(params.universe_id),
+            "title": params.title,
+            "source_type": params.source_type.value,
+            "edition": params.edition,
+            "provenance": params.provenance,
+            "doc_id": params.doc_id,
+            "canon_level": params.canon_level.value,
+            "metadata": params.metadata,
+            "created_at": created_at.isoformat(),
+        },
+    )
+
+    return SourceResponse(
+        id=source_id,
+        universe_id=params.universe_id,
+        title=params.title,
+        source_type=params.source_type,
+        edition=params.edition,
+        provenance=params.provenance,
+        doc_id=params.doc_id,
+        canon_level=params.canon_level,
+        metadata=params.metadata,
+        created_at=created_at,
+    )
+
+
+def neo4j_get_source(source_id: UUID) -> Optional[Any]:
+    """
+    Get a Source by ID.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-8
+
+    Args:
+        source_id: UUID of the source
+
+    Returns:
+        SourceResponse if found, None otherwise
+    """
+    from monitor_data.schemas.sources import SourceResponse
+    from monitor_data.schemas.base import SourceCanonLevel, SourceType
+
+    client = get_neo4j_client()
+
+    query = """
+    MATCH (s:Source {id: $id})
+    RETURN s
+    """
+    result = client.execute_read(query, {"id": str(source_id)})
+
+    if not result:
+        return None
+
+    s = result[0]["s"]
+    return SourceResponse(
+        id=UUID(s["id"]),
+        universe_id=UUID(s["universe_id"]),
+        title=s["title"],
+        source_type=SourceType(s["source_type"]),
+        edition=s.get("edition"),
+        provenance=s.get("provenance"),
+        doc_id=s.get("doc_id"),
+        canon_level=SourceCanonLevel(s["canon_level"]),
+        metadata=s.get("metadata", {}),
+        created_at=s["created_at"],
+    )
+
+
+def neo4j_list_sources(filters) -> Any:
+    """
+    List sources with optional filters.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-8
+
+    Args:
+        filters: SourceFilter - Filter parameters for sources
+
+    Returns:
+        SourceListResponse with sources and pagination info
+    """
+    from monitor_data.schemas.sources import SourceListResponse, SourceResponse
+    from monitor_data.schemas.base import SourceCanonLevel, SourceType
+
+    client = get_neo4j_client()
+
+    # Build WHERE clauses
+    where_clauses = []
+    params: Dict[str, Any] = {}
+
+    if filters.universe_id is not None:
+        where_clauses.append("s.universe_id = $universe_id")
+        params["universe_id"] = str(filters.universe_id)
+
+    if filters.source_type is not None:
+        where_clauses.append("s.source_type = $source_type")
+        params["source_type"] = filters.source_type.value
+
+    if filters.canon_level is not None:
+        where_clauses.append("s.canon_level = $canon_level")
+        params["canon_level"] = filters.canon_level.value
+
+    where_clause = " AND ".join(where_clauses) if where_clauses else "true"
+
+    # Count total matching sources
+    count_query = f"""
+    MATCH (s:Source)
+    WHERE {where_clause}
+    RETURN count(s) as total
+    """
+    count_result = client.execute_read(count_query, params)
+    total = count_result[0]["total"]
+
+    # Get paginated sources
+    order_direction = "DESC" if filters.sort_order == "desc" else "ASC"
+    list_query = f"""
+    MATCH (s:Source)
+    WHERE {where_clause}
+    RETURN s
+    ORDER BY s.{filters.sort_by} {order_direction}
+    SKIP $offset
+    LIMIT $limit
+    """
+    params["offset"] = filters.offset
+    params["limit"] = filters.limit
+
+    result = client.execute_read(list_query, params)
+
+    sources = []
+    for row in result:
+        s = row["s"]
+        sources.append(
+            SourceResponse(
+                id=UUID(s["id"]),
+                universe_id=UUID(s["universe_id"]),
+                title=s["title"],
+                source_type=SourceType(s["source_type"]),
+                edition=s.get("edition"),
+                provenance=s.get("provenance"),
+                doc_id=s.get("doc_id"),
+                canon_level=SourceCanonLevel(s["canon_level"]),
+                metadata=s.get("metadata", {}),
+                created_at=s["created_at"],
+            )
+        )
+
+    return SourceListResponse(
+        sources=sources,
+        total=total,
+        limit=filters.limit,
+        offset=filters.offset,
+    )
+
+
+def neo4j_update_source(source_id: UUID, params) -> Any:
+    """
+    Update a Source node.
+
+    Authority: CanonKeeper only
+    Use Case: DL-8
+
+    Args:
+        source_id: UUID of the source to update
+        params: SourceUpdate - Fields to update
+
+    Returns:
+        SourceResponse with updated source data
+
+    Raises:
+        ValueError: If source doesn't exist
+    """
+    from monitor_data.schemas.sources import SourceResponse
+    from monitor_data.schemas.base import SourceCanonLevel, SourceType
+
+    client = get_neo4j_client()
+
+    # Verify source exists
+    verify_query = """
+    MATCH (s:Source {id: $id})
+    RETURN s.id as id
+    """
+    result = client.execute_read(verify_query, {"id": str(source_id)})
+    if not result:
+        raise ValueError(f"Source {source_id} not found")
+
+    # Build SET clauses dynamically
+    set_clauses = []
+    update_params: Dict[str, Any] = {"id": str(source_id)}
+
+    if params.title is not None:
+        set_clauses.append("s.title = $title")
+        update_params["title"] = params.title
+
+    if params.edition is not None:
+        set_clauses.append("s.edition = $edition")
+        update_params["edition"] = params.edition
+
+    if params.provenance is not None:
+        set_clauses.append("s.provenance = $provenance")
+        update_params["provenance"] = params.provenance
+
+    if params.doc_id is not None:
+        set_clauses.append("s.doc_id = $doc_id")
+        update_params["doc_id"] = params.doc_id
+
+    if params.canon_level is not None:
+        set_clauses.append("s.canon_level = $canon_level")
+        update_params["canon_level"] = params.canon_level.value
+
+    if params.metadata is not None:
+        set_clauses.append("s.metadata = $metadata")
+        update_params["metadata"] = params.metadata
+
+    if not set_clauses:
+        # No changes, return current state
+        result = neo4j_get_source(source_id)
+        if result is None:
+            raise ValueError(f"Source {source_id} not found after verification")
+        return result
+
+    set_clause = ", ".join(set_clauses)
+    update_query = f"""
+    MATCH (s:Source {{id: $id}})
+    SET {set_clause}
+    RETURN s
+    """
+
+    result = client.execute_write(update_query, update_params)
+    s = result[0]["s"]
+
+    return SourceResponse(
+        id=UUID(s["id"]),
+        universe_id=UUID(s["universe_id"]),
+        title=s["title"],
+        source_type=SourceType(s["source_type"]),
+        edition=s.get("edition"),
+        provenance=s.get("provenance"),
+        doc_id=s.get("doc_id"),
+        canon_level=SourceCanonLevel(s["canon_level"]),
+        metadata=s.get("metadata", {}),
+        created_at=s["created_at"],
+    )

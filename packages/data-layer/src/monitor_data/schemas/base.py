@@ -132,6 +132,43 @@ class Speaker(str, Enum):
     ENTITY = "entity"
 
 
+class SourceType(str, Enum):
+    """Type of source material."""
+
+    BOOK = "book"
+    RULEBOOK = "rulebook"
+    WIKI = "wiki"
+    HOMEBREW = "homebrew"
+    CUSTOM = "custom"
+
+
+class DocumentStatus(str, Enum):
+    """Status of document extraction."""
+
+    PENDING = "pending"
+    EXTRACTING = "extracting"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class IngestProposalType(str, Enum):
+    """Type of ingested knowledge proposal."""
+
+    ENTITY = "entity"
+    FACT = "fact"
+    AXIOM = "axiom"
+    RELATIONSHIP = "relationship"
+
+
+class IngestProposalStatus(str, Enum):
+    """Status of ingest proposal."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    NEEDS_REVIEW = "needs_review"
+
+
 # =============================================================================
 # BASE MODELS
 # =============================================================================

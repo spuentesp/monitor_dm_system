@@ -34,6 +34,10 @@ from monitor_data.schemas.base import (
     ProposalStatus,
     ProposalType,
     Speaker,
+    SourceType,
+    DocumentStatus,
+    IngestProposalType,
+    IngestProposalStatus,
     CanonicalMetadata,
     BaseResponse,
 )
@@ -46,12 +50,37 @@ from monitor_data.schemas.universe import (
     MultiverseUpdate,
     MultiverseResponse,
 )
+from monitor_data.schemas.sources import (
+    SourceCreate,
+    SourceUpdate,
+    SourceResponse,
+    SourceFilter,
+    SourceListResponse,
+)
+from monitor_data.schemas.documents import (
+    DocumentCreate,
+    DocumentResponse,
+    DocumentFilter,
+    DocumentListResponse,
+)
+from monitor_data.schemas.snippets import (
+    SnippetCreate,
+    SnippetResponse,
+    SnippetFilter,
+    SnippetListResponse,
+)
+from monitor_data.schemas.ingest_proposals import (
+    IngestProposalCreate,
+    IngestProposalUpdate,
+    IngestProposalResponse,
+    IngestProposalFilter,
+    IngestProposalListResponse,
+)
 
 # from monitor_data.schemas.entities import *
 # from monitor_data.schemas.facts import *
 # from monitor_data.schemas.scenes import *
 # from monitor_data.schemas.memories import *
-# from monitor_data.schemas.sources import *
 # from monitor_data.schemas.queries import *
 # from monitor_data.schemas.composite import *
 
@@ -69,6 +98,10 @@ __all__ = [
     "ProposalStatus",
     "ProposalType",
     "Speaker",
+    "SourceType",
+    "DocumentStatus",
+    "IngestProposalType",
+    "IngestProposalStatus",
     "CanonicalMetadata",
     "BaseResponse",
     # Universe schemas
@@ -79,4 +112,26 @@ __all__ = [
     "MultiverseCreate",
     "MultiverseUpdate",
     "MultiverseResponse",
+    # Source schemas
+    "SourceCreate",
+    "SourceUpdate",
+    "SourceResponse",
+    "SourceFilter",
+    "SourceListResponse",
+    # Document schemas
+    "DocumentCreate",
+    "DocumentResponse",
+    "DocumentFilter",
+    "DocumentListResponse",
+    # Snippet schemas
+    "SnippetCreate",
+    "SnippetResponse",
+    "SnippetFilter",
+    "SnippetListResponse",
+    # IngestProposal schemas
+    "IngestProposalCreate",
+    "IngestProposalUpdate",
+    "IngestProposalResponse",
+    "IngestProposalFilter",
+    "IngestProposalListResponse",
 ]
