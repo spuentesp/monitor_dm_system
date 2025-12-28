@@ -206,7 +206,9 @@ def mongodb_list_memories(params: MemoryFilter) -> MemoryListResponse:
     )
 
 
-def mongodb_update_memory(memory_id: UUID, params: MemoryUpdate) -> Optional[MemoryResponse]:
+def mongodb_update_memory(
+    memory_id: UUID, params: MemoryUpdate
+) -> Optional[MemoryResponse]:
     """
     Update a CharacterMemory's mutable fields.
 

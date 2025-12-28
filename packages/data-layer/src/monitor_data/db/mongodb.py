@@ -42,12 +42,8 @@ class MongoDBClient:
             uri: MongoDB connection URI (default: from MONGODB_URI env var)
             database: MongoDB database name (default: from MONGODB_DATABASE env var)
         """
-        self.uri = uri or os.getenv(
-            "MONGODB_URI", "mongodb://localhost:27017"
-        )
-        self.database_name = database or os.getenv(
-            "MONGODB_DATABASE", "monitor"
-        )
+        self.uri = uri or os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+        self.database_name = database or os.getenv("MONGODB_DATABASE", "monitor")
 
         self._client: Optional[PyMongoClient] = None
         self._db: Optional[Database] = None
@@ -88,9 +84,7 @@ class MongoDBClient:
             RuntimeError: If not connected
         """
         if not self._db:
-            raise RuntimeError(
-                "MongoDB client not connected. Call connect() first."
-            )
+            raise RuntimeError("MongoDB client not connected. Call connect() first.")
         return self._db[collection_name]
 
     def verify_connectivity(self) -> bool:

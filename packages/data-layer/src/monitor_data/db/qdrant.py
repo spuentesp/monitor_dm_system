@@ -83,9 +83,7 @@ class QdrantClient:
             RuntimeError: If not connected
         """
         if not self._client:
-            raise RuntimeError(
-                "Qdrant client not connected. Call connect() first."
-            )
+            raise RuntimeError("Qdrant client not connected. Call connect() first.")
         return self._client
 
     def verify_connectivity(self) -> bool:
@@ -122,9 +120,7 @@ class QdrantClient:
             RuntimeError: If not connected
         """
         if not self._client:
-            raise RuntimeError(
-                "Qdrant client not connected. Call connect() first."
-            )
+            raise RuntimeError("Qdrant client not connected. Call connect() first.")
 
         try:
             # Check if collection exists

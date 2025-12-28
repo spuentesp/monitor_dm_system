@@ -188,7 +188,11 @@ def qdrant_search_memories(params: MemorySearchQuery) -> MemorySearchResponse:
                 text=hit.payload["text"],
                 importance=hit.payload["importance"],
                 score=hit.score,
-                scene_id=UUID(hit.payload["scene_id"]) if hit.payload.get("scene_id") else None,
+                scene_id=(
+                    UUID(hit.payload["scene_id"])
+                    if hit.payload.get("scene_id")
+                    else None
+                ),
                 metadata=hit.payload.get("metadata", {}),
             )
         )
