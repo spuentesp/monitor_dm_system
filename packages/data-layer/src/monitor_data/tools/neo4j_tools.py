@@ -483,7 +483,32 @@ def neo4j_delete_universe(universe_id: UUID, force: bool = False) -> Dict[str, A
     if force:
         delete_query = """
         MATCH (u:Universe {id: $id})
-        OPTIONAL MATCH path = (u)-[*0..]->(dependent)
+        // Explicitly collect direct dependencies with depth limit
+        OPTIONAL MATCH (u)-[:HAS_SOURCE]->(source:Source)
+        OPTIONAL MATCH (u)-[:HAS_AXIOM]->(axiom:Axiom)
+        OPTIONAL MATCH (u)-[:HAS_STORY]->(story:Story)
+        // Collect story dependencies (1 level deep from Story)
+        OPTIONAL MATCH (story)-[:HAS_SCENE]->(scene:Scene)
+        OPTIONAL MATCH (story)-[:HAS_THREAD]->(thread:PlotThread)
+        // Collect entities with IN_UNIVERSE relationship
+        OPTIONAL MATCH (u)<-[:IN_UNIVERSE]-(entity)
+        WHERE entity:EntityArchetype OR entity:EntityInstance
+        // Collect and filter out nulls from OPTIONAL MATCH results
+        WITH u, 
+             [x IN collect(DISTINCT source) WHERE x IS NOT NULL] as sources,
+             [x IN collect(DISTINCT axiom) WHERE x IS NOT NULL] as axioms,
+             [x IN collect(DISTINCT story) WHERE x IS NOT NULL] as stories,
+             [x IN collect(DISTINCT scene) WHERE x IS NOT NULL] as scenes,
+             [x IN collect(DISTINCT thread) WHERE x IS NOT NULL] as threads,
+             [x IN collect(DISTINCT entity) WHERE x IS NOT NULL] as entities
+        // Flatten into single list
+        WITH u, sources + axioms + stories + scenes + threads + entities AS dependents
+        UNWIND dependents AS dependent
+        // Final safety check: only delete expected node types
+        WITH u, dependent
+        WHERE dependent:Source OR dependent:Axiom OR dependent:Story OR 
+              dependent:Scene OR dependent:PlotThread OR 
+              dependent:EntityArchetype OR dependent:EntityInstance
         WITH collect(DISTINCT dependent) + u AS nodes
         UNWIND nodes AS n
         DETACH DELETE n
