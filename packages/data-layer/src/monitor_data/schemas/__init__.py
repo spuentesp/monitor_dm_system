@@ -46,6 +46,20 @@ from monitor_data.schemas.universe import (
     MultiverseUpdate,
     MultiverseResponse,
 )
+from monitor_data.schemas.assets import (
+    MinioRef,
+    MinioUpload,
+    MinioUploadResponse,
+    MinioGetObject,
+    MinioGetObjectResponse,
+    MinioDeleteObject,
+    MinioDeleteObjectResponse,
+    MinioListObjects,
+    MinioObjectInfo,
+    MinioListObjectsResponse,
+    MinioGetPresignedUrl,
+    MinioGetPresignedUrlResponse,
+)
 
 # from monitor_data.schemas.entities import *
 # from monitor_data.schemas.facts import *
@@ -79,4 +93,17 @@ __all__ = [
     "MultiverseCreate",
     "MultiverseUpdate",
     "MultiverseResponse",
+    # Asset (MinIO) schemas
+    "MinioRef",
+    "MinioUpload",
+    "MinioUploadResponse",
+    "MinioGetObject",
+    "MinioGetObjectResponse",
+    "MinioDeleteObject",
+    "MinioDeleteObjectResponse",
+    "MinioListObjects",
+    "MinioObjectInfo",
+    "MinioListObjectsResponse",
+    "MinioGetPresignedUrl",
+    "MinioGetPresignedUrlResponse",
 ]

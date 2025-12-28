@@ -29,6 +29,10 @@ def setup_test_env():
     os.environ["NEO4J_URI"] = "bolt://localhost:7687"
     os.environ["NEO4J_USER"] = "neo4j"
     os.environ["NEO4J_PASSWORD"] = "test_password"
+    os.environ["MINIO_ENDPOINT"] = "localhost:9000"
+    os.environ["MINIO_ACCESS_KEY"] = "monitor"
+    os.environ["MINIO_SECRET_KEY"] = "test_password"
+    os.environ["MINIO_SECURE"] = "false"
 
 
 # =============================================================================
