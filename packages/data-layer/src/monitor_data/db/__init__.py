@@ -14,13 +14,15 @@ WRITE AUTHORITY (enforced at tool level, not here):
 - MinIO:  Ingest pipeline only
 """
 
-# from monitor_data.db.neo4j import Neo4jClient
+from monitor_data.db.neo4j import Neo4jClient, get_neo4j_client
+
 # from monitor_data.db.mongodb import MongoDBClient
 # from monitor_data.db.qdrant import QdrantClient
 # from monitor_data.db.minio import MinIOClient
 
 __all__ = [
-    # "Neo4jClient",
+    "Neo4jClient",
+    "get_neo4j_client",
     # "MongoDBClient",
     # "QdrantClient",
     # "MinIOClient",

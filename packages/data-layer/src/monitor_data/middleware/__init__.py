@@ -24,5 +24,21 @@ before reaching database clients.
 See: docs/architecture/AGENT_ORCHESTRATION.md for full authority matrix
 """
 
-# from monitor_data.middleware.auth import require_authority, AUTHORITY_MATRIX
+from monitor_data.middleware.auth import (
+    require_authority,
+    check_authority,
+    get_allowed_agents,
+    AuthorizationError,
+    AUTHORITY_MATRIX,
+)
+
 # from monitor_data.middleware.validation import validate_request
+
+__all__ = [
+    "require_authority",
+    "check_authority",
+    "get_allowed_agents",
+    "AuthorizationError",
+    "AUTHORITY_MATRIX",
+    # "validate_request",
+]
