@@ -309,7 +309,7 @@ def test_delete_universe_success(
     # Mock universe exists
     mock_neo4j_client.execute_read.side_effect = [
         [{"u": universe_data}],  # verify exists
-        [{"sources": 0, "axioms": 0, "entities": 0}],  # no dependencies
+        [{"sources": 0, "axioms": 0, "stories": 0, "entities": 0}],  # no dependencies
     ]
 
     # Mock deletion
@@ -332,7 +332,7 @@ def test_delete_universe_with_dependencies_no_force(
     # Mock universe exists with dependencies
     mock_neo4j_client.execute_read.side_effect = [
         [{"u": universe_data}],  # verify exists
-        [{"sources": 2, "axioms": 3, "entities": 5}],  # has dependencies
+        [{"sources": 2, "axioms": 3, "stories": 1, "entities": 5}],  # has dependencies
     ]
 
     universe_id = UUID(universe_data["id"])
