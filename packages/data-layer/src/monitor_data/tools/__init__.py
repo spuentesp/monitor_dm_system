@@ -18,7 +18,29 @@ See: docs/architecture/MCP_TRANSPORT.md for full tool specifications
 See: docs/architecture/AGENT_ORCHESTRATION.md for authority matrix
 """
 
-# from monitor_data.tools.neo4j_tools import *
+from monitor_data.tools.neo4j_tools import (
+    neo4j_create_multiverse,
+    neo4j_get_multiverse,
+    neo4j_create_universe,
+    neo4j_get_universe,
+    neo4j_list_universes,
+    neo4j_update_universe,
+    neo4j_delete_universe,
+    neo4j_ensure_omniverse,
+)
+
 # from monitor_data.tools.mongodb_tools import *
 # from monitor_data.tools.qdrant_tools import *
 # from monitor_data.tools.composite_tools import *
+
+__all__ = [
+    # Neo4j Universe/Multiverse tools
+    "neo4j_create_multiverse",
+    "neo4j_get_multiverse",
+    "neo4j_create_universe",
+    "neo4j_get_universe",
+    "neo4j_list_universes",
+    "neo4j_update_universe",
+    "neo4j_delete_universe",
+    "neo4j_ensure_omniverse",
+]
