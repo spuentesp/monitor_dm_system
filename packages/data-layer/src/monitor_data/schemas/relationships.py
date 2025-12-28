@@ -9,7 +9,6 @@ These schemas define the data contracts for Relationship CRUD operations.
 Relationships are typed edges between EntityInstance nodes.
 """
 
-from datetime import datetime
 from enum import Enum
 from typing import Optional, Dict, Any, List
 from uuid import UUID
