@@ -493,14 +493,14 @@ def neo4j_delete_universe(universe_id: UUID, force: bool = False) -> Dict[str, A
         // Collect entities with IN_UNIVERSE relationship
         OPTIONAL MATCH (u)<-[:IN_UNIVERSE]-(entity)
         WHERE entity:EntityArchetype OR entity:EntityInstance
-        // Validate node types before deletion
+        // Collect and filter out nulls from OPTIONAL MATCH results
         WITH u, 
-             collect(DISTINCT source) as sources,
-             collect(DISTINCT axiom) as axioms,
-             collect(DISTINCT story) as stories,
-             collect(DISTINCT scene) as scenes,
-             collect(DISTINCT thread) as threads,
-             collect(DISTINCT entity) as entities
+             [x IN collect(DISTINCT source) WHERE x IS NOT NULL] as sources,
+             [x IN collect(DISTINCT axiom) WHERE x IS NOT NULL] as axioms,
+             [x IN collect(DISTINCT story) WHERE x IS NOT NULL] as stories,
+             [x IN collect(DISTINCT scene) WHERE x IS NOT NULL] as scenes,
+             [x IN collect(DISTINCT thread) WHERE x IS NOT NULL] as threads,
+             [x IN collect(DISTINCT entity) WHERE x IS NOT NULL] as entities
         // Flatten into single list
         WITH u, sources + axioms + stories + scenes + threads + entities AS dependents
         UNWIND dependents AS dependent
