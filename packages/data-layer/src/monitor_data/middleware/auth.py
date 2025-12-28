@@ -143,12 +143,19 @@ AUTHORITY_MATRIX = {
     "mongodb_get_story_outline": ["*"],
     "mongodb_update_story_outline": ["Orchestrator"],
     # =========================================================================
-    # QDRANT OPERATIONS - Vectors
+    # QDRANT OPERATIONS - Vectors (DL-10)
     # =========================================================================
+    "qdrant_upsert": ["*"],
+    "qdrant_upsert_batch": ["*"],
+    "qdrant_search": ["*"],
+    "qdrant_delete": ["*"],
+    "qdrant_delete_by_filter": ["*"],
+    "qdrant_get_collection_info": ["*"],
+    "qdrant_create_collection": ["*"],
+    # Legacy/future operations (to be implemented)
     "qdrant_embed_scene": ["Indexer"],
     "qdrant_embed_memory": ["Indexer"],
     "qdrant_embed_snippet": ["Indexer"],
-    "qdrant_search": ["*"],
     "qdrant_search_memories": ["*"],
     "qdrant_delete_vectors": ["Indexer"],
     # =========================================================================

@@ -46,6 +46,21 @@ from monitor_data.schemas.universe import (
     MultiverseUpdate,
     MultiverseResponse,
 )
+from monitor_data.schemas.vectors import (
+    VectorPayload,
+    VectorUpsert,
+    VectorPoint,
+    VectorUpsertBatch,
+    VectorSearchFilter,
+    VectorSearch,
+    VectorSearchResult,
+    VectorSearchResponse,
+    VectorDelete,
+    VectorDeleteByFilter,
+    VectorDeleteResponse,
+    CollectionInfo,
+    CollectionCreate,
+)
 
 # from monitor_data.schemas.entities import *
 # from monitor_data.schemas.facts import *
@@ -79,4 +94,18 @@ __all__ = [
     "MultiverseCreate",
     "MultiverseUpdate",
     "MultiverseResponse",
+    # Vector schemas
+    "VectorPayload",
+    "VectorUpsert",
+    "VectorPoint",
+    "VectorUpsertBatch",
+    "VectorSearchFilter",
+    "VectorSearch",
+    "VectorSearchResult",
+    "VectorSearchResponse",
+    "VectorDelete",
+    "VectorDeleteByFilter",
+    "VectorDeleteResponse",
+    "CollectionInfo",
+    "CollectionCreate",
 ]
