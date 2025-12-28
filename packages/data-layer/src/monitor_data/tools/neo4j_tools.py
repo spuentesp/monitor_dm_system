@@ -481,23 +481,32 @@ def neo4j_delete_universe(universe_id: UUID, force: bool = False) -> Dict[str, A
 
     # Delete universe (with cascade if force=True)
     if force:
-        # Cascade delete with explicit relationship types and depth limit
+        # Cascade delete with explicit relationship types and depth limits
         # This handles both outbound (HAS_SOURCE, HAS_AXIOM, HAS_STORY) and
         # inbound (entities with IN_UNIVERSE) relationships
         delete_query = """
         MATCH (u:Universe {id: $id})
-        // Collect outbound dependencies (sources, axioms, stories)
-        OPTIONAL MATCH (u)-[:HAS_SOURCE|HAS_AXIOM|HAS_STORY*0..3]->(outbound)
-        WHERE outbound:Source OR outbound:Axiom OR outbound:Story OR outbound:Scene
-        // Collect inbound dependencies (entities linked to this universe)
-        OPTIONAL MATCH (inbound)-[:IN_UNIVERSE]->(u)
-        WHERE inbound:EntityArchetype OR inbound:EntityInstance
-        // Also collect entities by universe_id property for backward compatibility
-        OPTIONAL MATCH (entity)
-        WHERE (entity:EntityArchetype OR entity:EntityInstance) 
-          AND entity.universe_id = $id
+        // Collect direct dependencies (sources, axioms)
+        OPTIONAL MATCH (u)-[:HAS_SOURCE]->(source:Source)
+        OPTIONAL MATCH (u)-[:HAS_AXIOM]->(axiom:Axiom)
+        // Collect stories and their nested content (up to 3 levels: Story -> Story -> Scene)
+        OPTIONAL MATCH (u)-[:HAS_STORY]->(story:Story)
+        OPTIONAL MATCH (story)-[:PARENT_STORY*0..2]->(nested_story:Story)
+        OPTIONAL MATCH (story)-[:HAS_SCENE]->(scene:Scene)
+        OPTIONAL MATCH (nested_story)-[:HAS_SCENE]->(nested_scene:Scene)
+        // Collect entities linked via IN_UNIVERSE relationship
+        OPTIONAL MATCH (entity_in)-[:IN_UNIVERSE]->(u)
+        WHERE entity_in:EntityArchetype OR entity_in:EntityInstance
+        // Collect entities by universe_id property for backward compatibility
+        OPTIONAL MATCH (entity_prop:EntityArchetype)
+        WHERE entity_prop.universe_id = $id
+        OPTIONAL MATCH (entity_inst:EntityInstance)
+        WHERE entity_inst.universe_id = $id
         WITH u, 
-             collect(DISTINCT outbound) + collect(DISTINCT inbound) + collect(DISTINCT entity) AS dependents
+             collect(DISTINCT source) + collect(DISTINCT axiom) +
+             collect(DISTINCT story) + collect(DISTINCT nested_story) +
+             collect(DISTINCT scene) + collect(DISTINCT nested_scene) +
+             collect(DISTINCT entity_in) + collect(DISTINCT entity_prop) + collect(DISTINCT entity_inst) AS dependents
         UNWIND (dependents + [u]) AS node
         DETACH DELETE node
         RETURN count(DISTINCT node) as deleted_count
