@@ -100,8 +100,13 @@ AUTHORITY_MATRIX = {
     "mongodb_get_turns": ["*"],
     "mongodb_undo_turn": ["Orchestrator"],
     # =========================================================================
-    # MONGODB OPERATIONS - Proposals
+    # MONGODB OPERATIONS - Proposals (DL-5)
     # =========================================================================
+    "mongodb_create_proposed_change": ["*"],
+    "mongodb_get_proposed_change": ["*"],
+    "mongodb_list_proposed_changes": ["*"],
+    "mongodb_update_proposed_change": ["CanonKeeper"],
+    # Legacy proposal operations (deprecated, use proposed_change instead)
     "mongodb_create_proposal": ["Narrator", "Resolver", "CanonKeeper"],
     "mongodb_get_proposals": ["*"],
     "mongodb_update_proposal": ["CanonKeeper"],
