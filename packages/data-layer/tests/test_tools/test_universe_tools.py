@@ -474,13 +474,16 @@ def test_ensure_omniverse_already_exists(
     mock_get_client.return_value = mock_neo4j_client
 
     existing_id = str(uuid4())
-    mock_neo4j_client.execute_read.return_value = [{"id": existing_id}]
+    # MERGE query returns the existing omniverse with was_created=false
+    mock_neo4j_client.execute_write.return_value = [
+        {"id": existing_id, "was_created": False}
+    ]
 
     result = neo4j_ensure_omniverse()
 
     assert result["omniverse_id"] == existing_id
     assert result["created"] is False
-    assert mock_neo4j_client.execute_write.call_count == 0
+    assert mock_neo4j_client.execute_write.call_count == 1
 
 
 @patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
@@ -488,13 +491,12 @@ def test_ensure_omniverse_creates_new(mock_get_client: Mock, mock_neo4j_client: 
     """Test ensure_omniverse creates new omniverse when none exists."""
     mock_get_client.return_value = mock_neo4j_client
 
-    # No existing omniverse
-    mock_neo4j_client.execute_read.return_value = []
-
     new_id = str(uuid4())
-    mock_neo4j_client.execute_write.return_value = [{"id": new_id}]
+    # MERGE query creates new omniverse and returns with was_created=true
+    mock_neo4j_client.execute_write.return_value = [{"id": new_id, "was_created": True}]
 
     result = neo4j_ensure_omniverse()
 
     assert result["created"] is True
+    assert result["omniverse_id"] == new_id
     assert mock_neo4j_client.execute_write.call_count == 1

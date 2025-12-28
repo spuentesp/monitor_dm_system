@@ -506,6 +506,7 @@ def neo4j_ensure_omniverse() -> Dict[str, Any]:
     Ensure an Omniverse node exists (create if missing).
 
     This is typically called on first run to initialize the root node.
+    Uses MERGE to ensure atomicity and prevent race conditions.
     Authority: CanonKeeper only
 
     Returns:
@@ -513,31 +514,25 @@ def neo4j_ensure_omniverse() -> Dict[str, Any]:
     """
     client = get_neo4j_client()
 
-    # Check if omniverse exists
-    check_query = """
-    MATCH (o:Omniverse)
-    RETURN o.id as id
-    LIMIT 1
-    """
-    result = client.execute_read(check_query)
-
-    if result:
-        return {"omniverse_id": result[0]["id"], "created": False}
-
-    # Create omniverse
+    # Use MERGE to atomically ensure omniverse exists
+    # This prevents race conditions where multiple concurrent calls
+    # could create duplicate omniverse nodes
     omniverse_id = uuid4()
-    create_query = """
-    CREATE (o:Omniverse {
-        id: $id,
-        name: $name,
-        description: $description,
-        created_at: datetime($created_at)
-    })
-    RETURN o.id as id
-    """
     created_at = datetime.now(timezone.utc)
-    client.execute_write(
-        create_query,
+    merge_query = """
+    MERGE (o:Omniverse)
+    ON CREATE SET
+        o.id = $id,
+        o.name = $name,
+        o.description = $description,
+        o.created_at = datetime($created_at),
+        o._was_created = true
+    ON MATCH SET
+        o._was_created = false
+    RETURN o.id as id, coalesce(o._was_created, false) as was_created
+    """
+    result = client.execute_write(
+        merge_query,
         {
             "id": str(omniverse_id),
             "name": "MONITOR Omniverse",
@@ -546,4 +541,10 @@ def neo4j_ensure_omniverse() -> Dict[str, Any]:
         },
     )
 
-    return {"omniverse_id": str(omniverse_id), "created": True}
+    if not result:
+        raise RuntimeError("Failed to ensure omniverse exists")
+
+    return {
+        "omniverse_id": result[0]["id"],
+        "created": result[0]["was_created"],
+    }
