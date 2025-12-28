@@ -22,6 +22,14 @@ from monitor_data.schemas.universe import (
     MultiverseCreate,
     MultiverseResponse,
 )
+from monitor_data.schemas.entities import (
+    EntityCreate,
+    EntityUpdate,
+    EntityResponse,
+    EntityFilter,
+    EntityListResponse,
+    StateTagsUpdate,
+)
 
 
 # =============================================================================
@@ -593,7 +601,7 @@ def neo4j_ensure_omniverse() -> Dict[str, Any]:
 # =============================================================================
 
 
-def neo4j_create_entity(params: "EntityCreate") -> "EntityResponse":
+def neo4j_create_entity(params: EntityCreate) -> EntityResponse:
     """
     Create a new Entity node (EntityArchetype or EntityInstance).
 
@@ -609,8 +617,6 @@ def neo4j_create_entity(params: "EntityCreate") -> "EntityResponse":
     Raises:
         ValueError: If universe_id doesn't exist, archetype_id is invalid, or validation fails
     """
-    from monitor_data.schemas.entities import EntityCreate, EntityResponse
-
     client = get_neo4j_client()
 
     # Verify universe exists
@@ -707,7 +713,7 @@ def neo4j_create_entity(params: "EntityCreate") -> "EntityResponse":
     )
 
 
-def neo4j_get_entity(entity_id: UUID) -> Optional["EntityResponse"]:
+def neo4j_get_entity(entity_id: UUID) -> Optional[EntityResponse]:
     """
     Get an Entity by ID with relationships and state_tags.
 
@@ -720,8 +726,6 @@ def neo4j_get_entity(entity_id: UUID) -> Optional["EntityResponse"]:
     Returns:
         EntityResponse if found, None otherwise
     """
-    from monitor_data.schemas.entities import EntityResponse
-
     client = get_neo4j_client()
 
     query = """
@@ -755,7 +759,7 @@ def neo4j_get_entity(entity_id: UUID) -> Optional["EntityResponse"]:
     )
 
 
-def neo4j_list_entities(filters: "EntityFilter") -> "EntityListResponse":
+def neo4j_list_entities(filters: EntityFilter) -> EntityListResponse:
     """
     List entities with filtering, pagination, and sorting.
 
@@ -768,8 +772,6 @@ def neo4j_list_entities(filters: "EntityFilter") -> "EntityListResponse":
     Returns:
         EntityListResponse with entities and pagination info
     """
-    from monitor_data.schemas.entities import EntityFilter, EntityListResponse, EntityResponse
-
     client = get_neo4j_client()
 
     # Build WHERE clause
@@ -853,7 +855,7 @@ def neo4j_list_entities(filters: "EntityFilter") -> "EntityListResponse":
     )
 
 
-def neo4j_update_entity(entity_id: UUID, params: "EntityUpdate") -> "EntityResponse":
+def neo4j_update_entity(entity_id: UUID, params: EntityUpdate) -> EntityResponse:
     """
     Update an Entity's mutable fields.
 
@@ -870,8 +872,6 @@ def neo4j_update_entity(entity_id: UUID, params: "EntityUpdate") -> "EntityRespo
     Raises:
         ValueError: If entity doesn't exist
     """
-    from monitor_data.schemas.entities import EntityUpdate, EntityResponse
-
     client = get_neo4j_client()
 
     # Verify entity exists
@@ -1008,8 +1008,8 @@ def neo4j_delete_entity(entity_id: UUID, force: bool = False) -> Dict[str, Any]:
 
 
 def neo4j_set_state_tags(
-    entity_id: UUID, params: "StateTagsUpdate"
-) -> "EntityResponse":
+    entity_id: UUID, params: StateTagsUpdate
+) -> EntityResponse:
     """
     Atomically add/remove state tags on an EntityInstance.
 
@@ -1026,8 +1026,6 @@ def neo4j_set_state_tags(
     Raises:
         ValueError: If entity doesn't exist or is an archetype
     """
-    from monitor_data.schemas.entities import StateTagsUpdate, EntityResponse
-
     client = get_neo4j_client()
 
     # Verify entity exists and is an instance

@@ -799,6 +799,8 @@ def test_entity_lifecycle(
     assert instance.archetype_id == archetype.id
 
     # 3. Update instance
+    # Reset side_effect to None and use return_value
+    mock_neo4j_client.execute_read.side_effect = None
     mock_neo4j_client.execute_read.return_value = [{"id": entity_instance_data["id"]}]
     updated_data = entity_instance_data.copy()
     updated_data["name"] = "Gandalf the White"
