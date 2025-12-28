@@ -46,6 +46,23 @@ from monitor_data.schemas.universe import (
     MultiverseUpdate,
     MultiverseResponse,
 )
+from monitor_data.schemas.outlines import (
+    OutlineBeat,
+    StoryOutlineCreate,
+    StoryOutlineUpdate,
+    StoryOutlineResponse,
+)
+from monitor_data.schemas.plot_threads import (
+    ThreadType,
+    ThreadStatus,
+    PlotThreadCreate,
+    PlotThreadUpdate,
+    PlotThreadResponse,
+    PlotThreadFilter,
+    PlotThreadListResponse,
+    PlotThreadAdvancement,
+    PlotThreadFactLink,
+)
 
 # from monitor_data.schemas.entities import *
 # from monitor_data.schemas.facts import *
@@ -79,4 +96,19 @@ __all__ = [
     "MultiverseCreate",
     "MultiverseUpdate",
     "MultiverseResponse",
+    # Story Outline schemas
+    "OutlineBeat",
+    "StoryOutlineCreate",
+    "StoryOutlineUpdate",
+    "StoryOutlineResponse",
+    # Plot Thread schemas
+    "ThreadType",
+    "ThreadStatus",
+    "PlotThreadCreate",
+    "PlotThreadUpdate",
+    "PlotThreadResponse",
+    "PlotThreadFilter",
+    "PlotThreadListResponse",
+    "PlotThreadAdvancement",
+    "PlotThreadFactLink",
 ]

@@ -27,9 +27,19 @@ from monitor_data.tools.neo4j_tools import (
     neo4j_update_universe,
     neo4j_delete_universe,
     neo4j_ensure_omniverse,
+    neo4j_create_plot_thread,
+    neo4j_list_plot_threads,
+    neo4j_update_plot_thread,
+    neo4j_advance_plot_thread,
+    neo4j_link_plot_to_fact,
 )
 
-# from monitor_data.tools.mongodb_tools import *
+from monitor_data.tools.mongodb_tools import (
+    mongodb_create_story_outline,
+    mongodb_get_story_outline,
+    mongodb_update_story_outline,
+)
+
 # from monitor_data.tools.qdrant_tools import *
 # from monitor_data.tools.composite_tools import *
 
@@ -43,4 +53,14 @@ __all__ = [
     "neo4j_update_universe",
     "neo4j_delete_universe",
     "neo4j_ensure_omniverse",
+    # Neo4j Plot Thread tools
+    "neo4j_create_plot_thread",
+    "neo4j_list_plot_threads",
+    "neo4j_update_plot_thread",
+    "neo4j_advance_plot_thread",
+    "neo4j_link_plot_to_fact",
+    # MongoDB Story Outline tools
+    "mongodb_create_story_outline",
+    "mongodb_get_story_outline",
+    "mongodb_update_story_outline",
 ]

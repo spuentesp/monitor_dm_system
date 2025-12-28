@@ -86,6 +86,8 @@ AUTHORITY_MATRIX = {
     "neo4j_create_plot_thread": ["CanonKeeper"],
     "neo4j_update_plot_thread": ["CanonKeeper"],
     "neo4j_list_plot_threads": ["*"],
+    "neo4j_advance_plot_thread": ["CanonKeeper"],
+    "neo4j_link_plot_to_fact": ["CanonKeeper"],
     # =========================================================================
     # MONGODB OPERATIONS - Scenes
     # =========================================================================
@@ -139,9 +141,9 @@ AUTHORITY_MATRIX = {
     # =========================================================================
     # MONGODB OPERATIONS - Story Outlines
     # =========================================================================
-    "mongodb_create_story_outline": ["Orchestrator"],
+    "mongodb_create_story_outline": ["CanonKeeper", "Narrator"],
     "mongodb_get_story_outline": ["*"],
-    "mongodb_update_story_outline": ["Orchestrator"],
+    "mongodb_update_story_outline": ["CanonKeeper", "Narrator"],
     # =========================================================================
     # QDRANT OPERATIONS - Vectors
     # =========================================================================

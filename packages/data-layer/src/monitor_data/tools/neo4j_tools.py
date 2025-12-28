@@ -30,6 +30,15 @@ from monitor_data.schemas.entities import (
     EntityListResponse,
     StateTagsUpdate,
 )
+from monitor_data.schemas.plot_threads import (
+    PlotThreadCreate,
+    PlotThreadUpdate,
+    PlotThreadResponse,
+    PlotThreadFilter,
+    PlotThreadListResponse,
+    PlotThreadAdvancement,
+    PlotThreadFactLink,
+)
 
 
 # =============================================================================
@@ -1091,3 +1100,740 @@ def neo4j_set_state_tags(
         created_at=e["created_at"],
         updated_at=e.get("updated_at"),
     )
+
+
+# =============================================================================
+# PLOT THREAD OPERATIONS (DL-6)
+# =============================================================================
+
+
+def neo4j_create_plot_thread(params: PlotThreadCreate) -> PlotThreadResponse:
+    """
+    Create a new PlotThread node linked to a Story.
+
+    Authority: CanonKeeper only
+    Use Case: DL-6
+
+    Args:
+        params: Plot thread creation parameters
+
+    Returns:
+        PlotThreadResponse with created thread data
+
+    Raises:
+        ValueError: If story_id doesn't exist
+    """
+    client = get_neo4j_client()
+
+    # Verify story exists
+    verify_query = """
+    MATCH (s:Story {id: $story_id})
+    RETURN s.id as id
+    """
+    result = client.execute_read(verify_query, {"story_id": str(params.story_id)})
+    if not result:
+        raise ValueError(f"Story {params.story_id} not found")
+
+    # Create plot thread
+    thread_id = uuid4()
+    created_at = datetime.now(timezone.utc)
+
+    create_query = """
+    MATCH (s:Story {id: $story_id})
+    CREATE (t:PlotThread {
+        id: $id,
+        story_id: $story_id,
+        title: $title,
+        thread_type: $thread_type,
+        description: $description,
+        status: $status,
+        canon_level: $canon_level,
+        confidence: $confidence,
+        authority: $authority,
+        created_at: datetime($created_at)
+    })
+    CREATE (s)-[:HAS_THREAD]->(t)
+    RETURN t
+    """
+
+    client.execute_write(
+        create_query,
+        {
+            "id": str(thread_id),
+            "story_id": str(params.story_id),
+            "title": params.title,
+            "thread_type": params.thread_type.value,
+            "description": params.description,
+            "status": params.status.value,
+            "canon_level": params.canon_level.value,
+            "confidence": params.confidence,
+            "authority": params.authority.value,
+            "created_at": created_at.isoformat(),
+        },
+    )
+
+    return PlotThreadResponse(
+        id=thread_id,
+        story_id=params.story_id,
+        title=params.title,
+        thread_type=params.thread_type,
+        description=params.description,
+        status=params.status,
+        canon_level=params.canon_level,
+        confidence=params.confidence,
+        authority=params.authority,
+        created_at=created_at,
+    )
+
+
+def neo4j_list_plot_threads(filters: PlotThreadFilter) -> PlotThreadListResponse:
+    """
+    List plot threads with filtering and pagination.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-6
+
+    Args:
+        filters: Filter, pagination parameters
+
+    Returns:
+        PlotThreadListResponse with threads and pagination info
+    """
+    client = get_neo4j_client()
+
+    # Build WHERE clause
+    where_clauses = []
+    params: Dict[str, Any] = {}
+
+    if filters.story_id:
+        where_clauses.append("t.story_id = $story_id")
+        params["story_id"] = str(filters.story_id)
+
+    if filters.status:
+        where_clauses.append("t.status = $status")
+        params["status"] = filters.status.value
+
+    if filters.thread_type:
+        where_clauses.append("t.thread_type = $thread_type")
+        params["thread_type"] = filters.thread_type.value
+
+    where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+    # Count total
+    count_query = f"""
+    MATCH (t:PlotThread)
+    {where_clause}
+    RETURN count(t) as total
+    """
+    count_result = client.execute_read(count_query, params)
+    total = count_result[0]["total"]
+
+    # Get threads with pagination
+    list_query = f"""
+    MATCH (t:PlotThread)
+    {where_clause}
+    RETURN t
+    ORDER BY t.created_at DESC
+    SKIP $offset
+    LIMIT $limit
+    """
+    params["offset"] = filters.offset
+    params["limit"] = filters.limit
+
+    result = client.execute_read(list_query, params)
+
+    threads = []
+    for record in result:
+        t = record["t"]
+        threads.append(
+            PlotThreadResponse(
+                id=UUID(t["id"]),
+                story_id=UUID(t["story_id"]),
+                title=t["title"],
+                thread_type=t["thread_type"],
+                description=t["description"],
+                status=t["status"],
+                canon_level=t["canon_level"],
+                confidence=t["confidence"],
+                authority=t["authority"],
+                created_at=t["created_at"],
+                updated_at=t.get("updated_at"),
+            )
+        )
+
+    return PlotThreadListResponse(
+        threads=threads, total=total, limit=filters.limit, offset=filters.offset
+    )
+
+
+def neo4j_update_plot_thread(
+    thread_id: UUID, params: PlotThreadUpdate
+) -> PlotThreadResponse:
+    """
+    Update a PlotThread's mutable fields.
+
+    Authority: CanonKeeper only
+    Use Case: DL-6
+
+    Args:
+        thread_id: UUID of the plot thread to update
+        params: Update parameters
+
+    Returns:
+        PlotThreadResponse with updated thread data
+
+    Raises:
+        ValueError: If thread doesn't exist
+    """
+    client = get_neo4j_client()
+
+    # Verify thread exists
+    verify_query = """
+    MATCH (t:PlotThread {id: $id})
+    RETURN t.id as id
+    """
+    result = client.execute_read(verify_query, {"id": str(thread_id)})
+    if not result:
+        raise ValueError(f"PlotThread {thread_id} not found")
+
+    # Build SET clauses for updates
+    set_clauses = ["t.updated_at = datetime($updated_at)"]
+    update_params: Dict[str, Any] = {
+        "id": str(thread_id),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if params.status is not None:
+        set_clauses.append("t.status = $status")
+        update_params["status"] = params.status.value
+
+    if params.description is not None:
+        set_clauses.append("t.description = $description")
+        update_params["description"] = params.description
+
+    set_clause = ", ".join(set_clauses)
+    update_query = f"""
+    MATCH (t:PlotThread {{id: $id}})
+    SET {set_clause}
+    RETURN t
+    """
+
+    result = client.execute_write(update_query, update_params)
+    t = result[0]["t"]
+
+    return PlotThreadResponse(
+        id=UUID(t["id"]),
+        story_id=UUID(t["story_id"]),
+        title=t["title"],
+        thread_type=t["thread_type"],
+        description=t["description"],
+        status=t["status"],
+        canon_level=t["canon_level"],
+        confidence=t["confidence"],
+        authority=t["authority"],
+        created_at=t["created_at"],
+        updated_at=t.get("updated_at"),
+    )
+
+
+def neo4j_advance_plot_thread(
+    thread_id: UUID, params: PlotThreadAdvancement
+) -> Dict[str, Any]:
+    """
+    Create an ADVANCED_BY edge from a PlotThread to a Scene.
+
+    Authority: CanonKeeper only
+    Use Case: DL-6
+
+    Args:
+        thread_id: UUID of the plot thread
+        params: Advancement parameters (scene_id, note)
+
+    Returns:
+        Dict with advancement confirmation
+
+    Raises:
+        ValueError: If thread or scene doesn't exist
+    """
+    client = get_neo4j_client()
+
+    # Verify thread exists
+    verify_thread_query = """
+    MATCH (t:PlotThread {id: $thread_id})
+    RETURN t.id as id
+    """
+    result = client.execute_read(verify_thread_query, {"thread_id": str(thread_id)})
+    if not result:
+        raise ValueError(f"PlotThread {thread_id} not found")
+
+    # Note: Scene may exist only in MongoDB, so we don't verify in Neo4j
+    # The scene_id will be stored as a property in the relationship
+
+    # Create ADVANCED_BY relationship
+    create_edge_query = """
+    MATCH (t:PlotThread {id: $thread_id})
+    MERGE (t)-[r:ADVANCED_BY {
+        scene_id: $scene_id,
+        advancement_note: $advancement_note,
+        created_at: datetime($created_at)
+    }]->(t)
+    RETURN r
+    """
+
+    created_at = datetime.now(timezone.utc)
+    client.execute_write(
+        create_edge_query,
+        {
+            "thread_id": str(thread_id),
+            "scene_id": str(params.scene_id),
+            "advancement_note": params.advancement_note,
+            "created_at": created_at.isoformat(),
+        },
+    )
+
+    return {
+        "thread_id": str(thread_id),
+        "scene_id": str(params.scene_id),
+        "advancement_note": params.advancement_note,
+        "created_at": created_at,
+    }
+
+
+def neo4j_link_plot_to_fact(
+    thread_id: UUID, params: PlotThreadFactLink
+) -> Dict[str, Any]:
+    """
+    Create a relationship between a PlotThread and a Fact/Event.
+
+    Authority: CanonKeeper only
+    Use Case: DL-6
+
+    Args:
+        thread_id: UUID of the plot thread
+        params: Link parameters (fact_id, link_type)
+
+    Returns:
+        Dict with link confirmation
+
+    Raises:
+        ValueError: If thread or fact doesn't exist
+    """
+    client = get_neo4j_client()
+
+    # Verify thread exists
+    verify_thread_query = """
+    MATCH (t:PlotThread {id: $thread_id})
+    RETURN t.id as id
+    """
+    result = client.execute_read(verify_thread_query, {"thread_id": str(thread_id)})
+    if not result:
+        raise ValueError(f"PlotThread {thread_id} not found")
+
+    # Verify fact/event exists
+    verify_fact_query = """
+    MATCH (f {id: $fact_id})
+    WHERE f:Fact OR f:Event
+    RETURN f.id as id
+    """
+    result = client.execute_read(verify_fact_query, {"fact_id": str(params.fact_id)})
+    if not result:
+        raise ValueError(f"Fact/Event {params.fact_id} not found")
+
+    # Create relationship based on link_type
+    # Use dynamic relationship type based on link_type
+    create_link_query = """
+    MATCH (t:PlotThread {id: $thread_id})
+    MATCH (f {id: $fact_id})
+    WHERE f:Fact OR f:Event
+    CREATE (t)-[r:RELATES_TO {
+        link_type: $link_type,
+        created_at: datetime($created_at)
+    }]->(f)
+    RETURN r
+    """
+
+    created_at = datetime.now(timezone.utc)
+    client.execute_write(
+        create_link_query,
+        {
+            "thread_id": str(thread_id),
+            "fact_id": str(params.fact_id),
+            "link_type": params.link_type,
+            "created_at": created_at.isoformat(),
+        },
+    )
+
+    return {
+        "thread_id": str(thread_id),
+        "fact_id": str(params.fact_id),
+        "link_type": params.link_type,
+        "created_at": created_at,
+    }
+
+
+# =============================================================================
+# PLOT THREAD OPERATIONS (DL-6)
+# =============================================================================
+
+
+def neo4j_create_plot_thread(params: PlotThreadCreate) -> PlotThreadResponse:
+    """
+    Create a new PlotThread node linked to a Story.
+
+    Authority: CanonKeeper only
+    Use Case: DL-6
+
+    Args:
+        params: Plot thread creation parameters
+
+    Returns:
+        PlotThreadResponse with created thread data
+
+    Raises:
+        ValueError: If story_id doesn't exist
+    """
+    client = get_neo4j_client()
+
+    # Verify story exists
+    verify_query = """
+    MATCH (s:Story {id: $story_id})
+    RETURN s.id as id
+    """
+    result = client.execute_read(verify_query, {"story_id": str(params.story_id)})
+    if not result:
+        raise ValueError(f"Story {params.story_id} not found")
+
+    # Create plot thread
+    thread_id = uuid4()
+    created_at = datetime.now(timezone.utc)
+
+    create_query = """
+    MATCH (s:Story {id: $story_id})
+    CREATE (t:PlotThread {
+        id: $id,
+        story_id: $story_id,
+        title: $title,
+        thread_type: $thread_type,
+        description: $description,
+        status: $status,
+        canon_level: $canon_level,
+        confidence: $confidence,
+        authority: $authority,
+        created_at: datetime($created_at)
+    })
+    CREATE (s)-[:HAS_THREAD]->(t)
+    RETURN t
+    """
+
+    client.execute_write(
+        create_query,
+        {
+            "id": str(thread_id),
+            "story_id": str(params.story_id),
+            "title": params.title,
+            "thread_type": params.thread_type.value,
+            "description": params.description,
+            "status": params.status.value,
+            "canon_level": params.canon_level.value,
+            "confidence": params.confidence,
+            "authority": params.authority.value,
+            "created_at": created_at.isoformat(),
+        },
+    )
+
+    return PlotThreadResponse(
+        id=thread_id,
+        story_id=params.story_id,
+        title=params.title,
+        thread_type=params.thread_type,
+        description=params.description,
+        status=params.status,
+        canon_level=params.canon_level,
+        confidence=params.confidence,
+        authority=params.authority,
+        created_at=created_at,
+    )
+
+
+def neo4j_list_plot_threads(filters: PlotThreadFilter) -> PlotThreadListResponse:
+    """
+    List plot threads with filtering and pagination.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-6
+
+    Args:
+        filters: Filter, pagination parameters
+
+    Returns:
+        PlotThreadListResponse with threads and pagination info
+    """
+    client = get_neo4j_client()
+
+    # Build WHERE clause
+    where_clauses = []
+    params: Dict[str, Any] = {}
+
+    if filters.story_id:
+        where_clauses.append("t.story_id = $story_id")
+        params["story_id"] = str(filters.story_id)
+
+    if filters.status:
+        where_clauses.append("t.status = $status")
+        params["status"] = filters.status.value
+
+    if filters.thread_type:
+        where_clauses.append("t.thread_type = $thread_type")
+        params["thread_type"] = filters.thread_type.value
+
+    where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+    # Count total
+    count_query = f"""
+    MATCH (t:PlotThread)
+    {where_clause}
+    RETURN count(t) as total
+    """
+    count_result = client.execute_read(count_query, params)
+    total = count_result[0]["total"]
+
+    # Get threads with pagination
+    list_query = f"""
+    MATCH (t:PlotThread)
+    {where_clause}
+    RETURN t
+    ORDER BY t.created_at DESC
+    SKIP $offset
+    LIMIT $limit
+    """
+    params["offset"] = filters.offset
+    params["limit"] = filters.limit
+
+    result = client.execute_read(list_query, params)
+
+    threads = []
+    for record in result:
+        t = record["t"]
+        threads.append(
+            PlotThreadResponse(
+                id=UUID(t["id"]),
+                story_id=UUID(t["story_id"]),
+                title=t["title"],
+                thread_type=t["thread_type"],
+                description=t["description"],
+                status=t["status"],
+                canon_level=t["canon_level"],
+                confidence=t["confidence"],
+                authority=t["authority"],
+                created_at=t["created_at"],
+                updated_at=t.get("updated_at"),
+            )
+        )
+
+    return PlotThreadListResponse(
+        threads=threads, total=total, limit=filters.limit, offset=filters.offset
+    )
+
+
+def neo4j_update_plot_thread(
+    thread_id: UUID, params: PlotThreadUpdate
+) -> PlotThreadResponse:
+    """
+    Update a PlotThread's mutable fields.
+
+    Authority: CanonKeeper only
+    Use Case: DL-6
+
+    Args:
+        thread_id: UUID of the plot thread to update
+        params: Update parameters
+
+    Returns:
+        PlotThreadResponse with updated thread data
+
+    Raises:
+        ValueError: If thread doesn't exist
+    """
+    client = get_neo4j_client()
+
+    # Verify thread exists
+    verify_query = """
+    MATCH (t:PlotThread {id: $id})
+    RETURN t.id as id
+    """
+    result = client.execute_read(verify_query, {"id": str(thread_id)})
+    if not result:
+        raise ValueError(f"PlotThread {thread_id} not found")
+
+    # Build SET clauses for updates
+    set_clauses = ["t.updated_at = datetime($updated_at)"]
+    update_params: Dict[str, Any] = {
+        "id": str(thread_id),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if params.status is not None:
+        set_clauses.append("t.status = $status")
+        update_params["status"] = params.status.value
+
+    if params.description is not None:
+        set_clauses.append("t.description = $description")
+        update_params["description"] = params.description
+
+    set_clause = ", ".join(set_clauses)
+    update_query = f"""
+    MATCH (t:PlotThread {{id: $id}})
+    SET {set_clause}
+    RETURN t
+    """
+
+    result = client.execute_write(update_query, update_params)
+    t = result[0]["t"]
+
+    return PlotThreadResponse(
+        id=UUID(t["id"]),
+        story_id=UUID(t["story_id"]),
+        title=t["title"],
+        thread_type=t["thread_type"],
+        description=t["description"],
+        status=t["status"],
+        canon_level=t["canon_level"],
+        confidence=t["confidence"],
+        authority=t["authority"],
+        created_at=t["created_at"],
+        updated_at=t.get("updated_at"),
+    )
+
+
+def neo4j_advance_plot_thread(
+    thread_id: UUID, params: PlotThreadAdvancement
+) -> Dict[str, Any]:
+    """
+    Create an ADVANCED_BY edge from a PlotThread to a Scene.
+
+    Authority: CanonKeeper only
+    Use Case: DL-6
+
+    Args:
+        thread_id: UUID of the plot thread
+        params: Advancement parameters (scene_id, note)
+
+    Returns:
+        Dict with advancement confirmation
+
+    Raises:
+        ValueError: If thread doesn't exist
+    """
+    client = get_neo4j_client()
+
+    # Verify thread exists
+    verify_thread_query = """
+    MATCH (t:PlotThread {id: $thread_id})
+    RETURN t.id as id
+    """
+    result = client.execute_read(verify_thread_query, {"thread_id": str(thread_id)})
+    if not result:
+        raise ValueError(f"PlotThread {thread_id} not found")
+
+    # Note: Scene may exist only in MongoDB, so we don't verify in Neo4j
+    # The scene_id will be stored as a property in the relationship
+
+    # Create ADVANCED_BY relationship (self-referencing to track progression)
+    create_edge_query = """
+    MATCH (t:PlotThread {id: $thread_id})
+    CREATE (t)-[r:ADVANCED_BY {
+        scene_id: $scene_id,
+        advancement_note: $advancement_note,
+        created_at: datetime($created_at)
+    }]->(t)
+    RETURN r
+    """
+
+    created_at = datetime.now(timezone.utc)
+    client.execute_write(
+        create_edge_query,
+        {
+            "thread_id": str(thread_id),
+            "scene_id": str(params.scene_id),
+            "advancement_note": params.advancement_note,
+            "created_at": created_at.isoformat(),
+        },
+    )
+
+    return {
+        "thread_id": str(thread_id),
+        "scene_id": str(params.scene_id),
+        "advancement_note": params.advancement_note,
+        "created_at": created_at,
+    }
+
+
+def neo4j_link_plot_to_fact(
+    thread_id: UUID, params: PlotThreadFactLink
+) -> Dict[str, Any]:
+    """
+    Create a relationship between a PlotThread and a Fact/Event.
+
+    Authority: CanonKeeper only
+    Use Case: DL-6
+
+    Args:
+        thread_id: UUID of the plot thread
+        params: Link parameters (fact_id, link_type)
+
+    Returns:
+        Dict with link confirmation
+
+    Raises:
+        ValueError: If thread or fact doesn't exist
+    """
+    client = get_neo4j_client()
+
+    # Verify thread exists
+    verify_thread_query = """
+    MATCH (t:PlotThread {id: $thread_id})
+    RETURN t.id as id
+    """
+    result = client.execute_read(verify_thread_query, {"thread_id": str(thread_id)})
+    if not result:
+        raise ValueError(f"PlotThread {thread_id} not found")
+
+    # Verify fact/event exists
+    verify_fact_query = """
+    MATCH (f {id: $fact_id})
+    WHERE f:Fact OR f:Event
+    RETURN f.id as id
+    """
+    result = client.execute_read(verify_fact_query, {"fact_id": str(params.fact_id)})
+    if not result:
+        raise ValueError(f"Fact/Event {params.fact_id} not found")
+
+    # Create relationship based on link_type
+    create_link_query = """
+    MATCH (t:PlotThread {id: $thread_id})
+    MATCH (f {id: $fact_id})
+    WHERE f:Fact OR f:Event
+    CREATE (t)-[r:RELATES_TO {
+        link_type: $link_type,
+        created_at: datetime($created_at)
+    }]->(f)
+    RETURN r
+    """
+
+    created_at = datetime.now(timezone.utc)
+    client.execute_write(
+        create_link_query,
+        {
+            "thread_id": str(thread_id),
+            "fact_id": str(params.fact_id),
+            "link_type": params.link_type,
+            "created_at": created_at.isoformat(),
+        },
+    )
+
+    return {
+        "thread_id": str(thread_id),
+        "fact_id": str(params.fact_id),
+        "link_type": params.link_type,
+        "created_at": created_at,
+    }
