@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Any
 from uuid import UUID, uuid4
 
 from monitor_data.db.neo4j import get_neo4j_client
+from monitor_data.schemas.base import CanonLevel
 from monitor_data.schemas.universe import (
     UniverseCreate,
     UniverseUpdate,
@@ -1463,14 +1464,17 @@ def neo4j_delete_axiom(axiom_id: UUID) -> Dict[str, Any]:
     # Soft-delete by setting canon_level to 'retconned'
     delete_query = """
     MATCH (a:Axiom {id: $id})
-    SET a.canon_level = 'retconned'
+    SET a.canon_level = $canon_level
     RETURN a
     """
-    result = client.execute_write(delete_query, {"id": str(axiom_id)})
+    result = client.execute_write(
+        delete_query,
+        {"id": str(axiom_id), "canon_level": CanonLevel.RETCONNED.value},
+    )
 
     return {
         "axiom_id": str(axiom_id),
         "deleted": True,
         "method": "soft-delete",
-        "canon_level": "retconned",
+        "canon_level": CanonLevel.RETCONNED.value,
     }
