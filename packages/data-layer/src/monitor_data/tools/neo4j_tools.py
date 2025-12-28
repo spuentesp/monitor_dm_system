@@ -297,16 +297,26 @@ def neo4j_list_universes(
         where_clauses.append("u.genre = $genre")
         params["genre"] = filters.genre
 
-    where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+    # NOTE: where_clauses must only contain static fragments with parameter
+    # placeholders (e.g., "u.field = $param"). Do not concatenate raw user
+    # input into this clause to avoid Cypher injection.
+    where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
-    query = f"""
-    MATCH (u:Universe)
-    {where_clause}
-    RETURN u
-    ORDER BY u.created_at DESC
-    SKIP $offset
-    LIMIT $limit
-    """
+    # Build query without f-strings to keep interpolation of dynamic parts explicit
+    query_lines = [
+        "MATCH (u:Universe)",
+    ]
+    if where_clause:
+        query_lines.append(where_clause)
+    query_lines.extend(
+        [
+            "RETURN u",
+            "ORDER BY u.created_at DESC",
+            "SKIP $offset",
+            "LIMIT $limit",
+        ]
+    )
+    query = "\n".join(query_lines)
 
     result = client.execute_read(query, params)
 
