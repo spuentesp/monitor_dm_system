@@ -513,3 +513,59 @@ def test_append_turn_with_metadata(
     result = mongodb_append_turn(UUID(scene_data["scene_id"]), params)
 
     assert result.metadata == {"action": "attack", "target": "orc"}
+
+
+@patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
+def test_update_scene_metadata(
+    mock_get_mongo: Mock,
+    scene_data: Dict[str, Any],
+):
+    """Test updating scene metadata."""
+    mock_mongo_client = Mock()
+    mock_collection = Mock()
+    
+    scene_with_metadata = scene_data.copy()
+    scene_with_metadata["metadata"] = {"important": True}
+    mock_collection.find_one.side_effect = [
+        scene_data,
+        scene_with_metadata,
+    ]
+    
+    mock_mongo_client.get_collection.return_value = mock_collection
+    mock_get_mongo.return_value = mock_mongo_client
+
+    params = SceneUpdate(metadata={"important": True})
+    result = mongodb_update_scene(UUID(scene_data["scene_id"]), params)
+
+    assert result.metadata == {"important": True}
+
+
+@patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
+def test_update_scene_to_completed(
+    mock_get_mongo: Mock,
+    scene_data: Dict[str, Any],
+):
+    """Test updating scene status to completed."""
+    # Scene starts as finalizing
+    scene_finalizing = scene_data.copy()
+    scene_finalizing["status"] = SceneStatus.FINALIZING.value
+    
+    scene_completed = scene_finalizing.copy()
+    scene_completed["status"] = SceneStatus.COMPLETED.value
+    scene_completed["completed_at"] = datetime.now(timezone.utc)
+    
+    mock_mongo_client = Mock()
+    mock_collection = Mock()
+    mock_collection.find_one.side_effect = [
+        scene_finalizing,
+        scene_completed,
+    ]
+    
+    mock_mongo_client.get_collection.return_value = mock_collection
+    mock_get_mongo.return_value = mock_mongo_client
+
+    params = SceneUpdate(status=SceneStatus.COMPLETED)
+    result = mongodb_update_scene(UUID(scene_data["scene_id"]), params)
+
+    assert result.status == SceneStatus.COMPLETED
+    assert result.completed_at is not None

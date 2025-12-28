@@ -311,16 +311,16 @@ def test_update_story_no_changes(
     """Test updating story with no changes."""
     mock_get_client.return_value = mock_neo4j_client
 
-    # Mock story exists
-    mock_neo4j_client.execute_read.return_value = [
-        {"id": story_data["id"]},
+    # Mock story exists check, then the get_story call
+    mock_neo4j_client.execute_read.side_effect = [
+        [{"id": story_data["id"]}],  # Story exists check
         [
             {
                 "s": story_data,
                 "scene_count": 0,
                 "participant_ids": [],
             }
-        ],
+        ],  # get_story call
     ]
 
     params = StoryUpdate()  # No changes
@@ -441,3 +441,62 @@ def test_list_stories_pagination(
     assert len(result.stories) == 0
     assert result.limit == 10
     assert result.offset == 100
+
+
+@patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
+def test_update_story_theme_and_premise(
+    mock_get_client: Mock,
+    mock_neo4j_client: Mock,
+    story_data: Dict[str, Any],
+):
+    """Test updating story theme and premise."""
+    mock_get_client.return_value = mock_neo4j_client
+
+    # Mock story exists
+    mock_neo4j_client.execute_read.return_value = [{"id": story_data["id"]}]
+
+    # Mock update
+    updated_story = story_data.copy()
+    updated_story["theme"] = "Hope and Courage"
+    updated_story["premise"] = "Updated premise"
+    mock_neo4j_client.execute_write.return_value = [
+        {
+            "s": updated_story,
+            "scene_count": 0,
+            "participant_ids": [],
+        }
+    ]
+
+    params = StoryUpdate(theme="Hope and Courage", premise="Updated premise")
+    result = neo4j_update_story(UUID(story_data["id"]), params)
+
+    assert result.theme == "Hope and Courage"
+    assert result.premise == "Updated premise"
+
+
+@patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
+def test_list_stories_by_story_type(
+    mock_get_client: Mock,
+    mock_neo4j_client: Mock,
+    story_data: Dict[str, Any],
+):
+    """Test listing stories filtered by story_type."""
+    mock_get_client.return_value = mock_neo4j_client
+
+    # Mock count and list
+    mock_neo4j_client.execute_read.side_effect = [
+        [{"total": 1}],  # Count
+        [
+            {
+                "s": story_data,
+                "scene_count": 0,
+                "participant_ids": [],
+            }
+        ],  # List
+    ]
+
+    filters = StoryFilter(story_type=StoryType.CAMPAIGN)
+    result = neo4j_list_stories(filters)
+
+    assert result.total == 1
+    assert result.stories[0].story_type == StoryType.CAMPAIGN
