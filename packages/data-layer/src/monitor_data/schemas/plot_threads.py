@@ -11,7 +11,7 @@ scenes and link to facts/events.
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from uuid import UUID
 from enum import Enum
 

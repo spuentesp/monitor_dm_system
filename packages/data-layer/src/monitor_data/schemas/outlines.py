@@ -10,7 +10,7 @@ Story outlines contain narrative beats and planning for stories.
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from uuid import UUID
 
 from pydantic import BaseModel, Field
