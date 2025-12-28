@@ -665,10 +665,12 @@ def neo4j_create_entity(params: EntityCreate) -> EntityResponse:
         "created_at": created_at.isoformat(),
     }
 
-    # Add state_tags for instances
+    # Add state_tags for instances; ensure archetypes also have an explicit (empty) list
     if not params.is_archetype:
         entity_props["state_tags"] = params.state_tags
         entity_props["updated_at"] = created_at.isoformat()
+    else:
+        entity_props["state_tags"] = []
 
     # Build creation query
     create_query = """
@@ -684,7 +686,6 @@ def neo4j_create_entity(params: EntityCreate) -> EntityResponse:
         MATCH (a:Entity {id: $archetype_id})
         CREATE (e)-[:DERIVES_FROM]->(a)
         """
-        entity_props["archetype_id"] = archetype_id_str
 
     create_query += "\nRETURN e"
 
@@ -987,16 +988,10 @@ def neo4j_delete_entity(entity_id: UUID, force: bool = False) -> Dict[str, Any]:
             )
 
     # Delete entity and its relationships
-    if force:
-        delete_query = """
-        MATCH (e:Entity {id: $id})
-        DETACH DELETE e
-        """
-    else:
-        delete_query = """
-        MATCH (e:Entity {id: $id})
-        DETACH DELETE e
-        """
+    delete_query = """
+    MATCH (e:Entity {id: $id})
+    DETACH DELETE e
+    """
 
     client.execute_write(delete_query, {"id": str(entity_id)})
 

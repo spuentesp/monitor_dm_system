@@ -85,6 +85,16 @@ class StateTagsUpdate(BaseModel):
             raise ValueError("Tags must not contain duplicates")
         return v
 
+    def model_post_init(self, __context):
+        """Validate that add_tags and remove_tags don't overlap."""
+        add_set = set(self.add_tags)
+        remove_set = set(self.remove_tags)
+        overlap = add_set & remove_set
+        if overlap:
+            raise ValueError(
+                f"Tags cannot appear in both add_tags and remove_tags: {sorted(overlap)}"
+            )
+
 
 class EntityResponse(BaseModel):
     """Response with Entity data."""

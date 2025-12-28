@@ -751,6 +751,14 @@ def test_set_state_tags_entity_not_found(
         neo4j_set_state_tags(uuid4(), params)
 
 
+def test_set_state_tags_overlapping_tags_fails():
+    """Test that overlapping tags in add and remove lists are rejected."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="Tags cannot appear in both add_tags and remove_tags"):
+        StateTagsUpdate(add_tags=["alive", "wounded"], remove_tags=["wounded", "dead"])
+
+
 # =============================================================================
 # INTEGRATION TESTS
 # =============================================================================
