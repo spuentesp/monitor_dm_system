@@ -110,25 +110,23 @@ def mongodb_get_memory(memory_id: UUID) -> Optional[MemoryResponse]:
     Returns:
         MemoryResponse if found, None otherwise
     """
+    from pymongo import ReturnDocument
+
     mongodb_client = get_mongodb_client()
     collection = mongodb_client.get_collection("character_memories")
 
-    memory_doc = collection.find_one({"memory_id": str(memory_id)})
-
-    if not memory_doc:
-        return None
-
-    # Update last_accessed and access_count
-    collection.update_one(
+    # Atomically update and retrieve the document
+    memory_doc = collection.find_one_and_update(
         {"memory_id": str(memory_id)},
         {
             "$set": {"last_accessed": datetime.now(timezone.utc)},
             "$inc": {"access_count": 1},
         },
+        return_document=ReturnDocument.AFTER,
     )
 
-    # Fetch updated document
-    memory_doc = collection.find_one({"memory_id": str(memory_id)})
+    if not memory_doc:
+        return None
 
     return MemoryResponse(
         memory_id=UUID(memory_doc["memory_id"]),

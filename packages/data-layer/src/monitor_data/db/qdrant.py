@@ -119,13 +119,15 @@ class QdrantClient:
         Raises:
             RuntimeError: If not connected
         """
+        from qdrant_client.http.exceptions import UnexpectedResponse
+
         if not self._client:
             raise RuntimeError("Qdrant client not connected. Call connect() first.")
 
         try:
             # Check if collection exists
             self._client.get_collection(collection_name)
-        except Exception:
+        except UnexpectedResponse:
             # Collection doesn't exist, create it
             self._client.create_collection(
                 collection_name=collection_name,

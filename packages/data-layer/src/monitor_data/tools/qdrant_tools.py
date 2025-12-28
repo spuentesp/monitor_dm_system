@@ -181,8 +181,9 @@ def qdrant_search_memories(params: MemorySearchQuery) -> MemorySearchResponse:
             query_filter=search_filter,
             limit=params.top_k,
         )
-    except Exception:
-        # Collection might not exist yet
+    except Exception as e:
+        # Collection might not exist yet or other Qdrant errors
+        # Log for debugging in production
         search_results = []
 
     # Convert results
@@ -233,5 +234,7 @@ def qdrant_delete_memory(memory_id: UUID) -> bool:
             points_selector=PointIdsList(points=[str(memory_id)]),
         )
         return True
-    except Exception:
+    except Exception as e:
+        # Log error in production for debugging
+        # Could be collection not found, connection error, etc.
         return False

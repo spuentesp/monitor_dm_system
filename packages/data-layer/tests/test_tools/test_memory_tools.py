@@ -233,8 +233,7 @@ def test_get_memory_success(
     """Test retrieving a memory by ID."""
     mock_mongodb = Mock()
     mock_collection = Mock()
-    mock_collection.find_one.return_value = memory_doc
-    mock_collection.update_one.return_value = Mock()
+    mock_collection.find_one_and_update.return_value = memory_doc
     mock_mongodb.get_collection.return_value = mock_collection
     mock_get_mongodb.return_value = mock_mongodb
 
@@ -244,8 +243,8 @@ def test_get_memory_success(
     assert result.memory_id == UUID(memory_doc["memory_id"])
     assert result.text == memory_doc["text"]
     assert result.importance == memory_doc["importance"]
-    # Verify access tracking
-    assert mock_collection.update_one.called
+    # Verify access tracking with find_one_and_update
+    assert mock_collection.find_one_and_update.called
 
 
 @patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
@@ -256,7 +255,7 @@ def test_get_memory_not_found(
     """Test retrieving a non-existent memory returns None."""
     mock_mongodb = Mock()
     mock_collection = Mock()
-    mock_collection.find_one.return_value = None
+    mock_collection.find_one_and_update.return_value = None
     mock_mongodb.get_collection.return_value = mock_collection
     mock_get_mongodb.return_value = mock_mongodb
 
