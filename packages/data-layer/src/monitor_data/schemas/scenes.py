@@ -39,7 +39,9 @@ class TurnCreate(BaseModel):
 
     @field_validator("entity_id")
     @classmethod
-    def validate_entity_for_entity_speaker(cls, v: Optional[UUID], info) -> Optional[UUID]:
+    def validate_entity_for_entity_speaker(
+        cls, v: Optional[UUID], info
+    ) -> Optional[UUID]:
         """Validate that entity_id is provided when speaker is ENTITY."""
         if info.data.get("speaker") == Speaker.ENTITY and v is None:
             raise ValueError("entity_id is required when speaker is ENTITY")
@@ -102,7 +104,9 @@ class SceneUpdate(BaseModel):
 
     @field_validator("status")
     @classmethod
-    def validate_status_transition(cls, v: Optional[SceneStatus]) -> Optional[SceneStatus]:
+    def validate_status_transition(
+        cls, v: Optional[SceneStatus]
+    ) -> Optional[SceneStatus]:
         """Validate status transitions."""
         # Valid transitions:
         # active -> finalizing

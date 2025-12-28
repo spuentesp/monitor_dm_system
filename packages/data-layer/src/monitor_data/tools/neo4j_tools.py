@@ -422,9 +422,7 @@ def neo4j_update_universe(
 
     set_clause = ", ".join(set_clauses)
     update_query = (
-        "MATCH (u:Universe {id: $id})\n"
-        "SET " + set_clause + "\n"
-        "RETURN u"
+        "MATCH (u:Universe {id: $id})\n" "SET " + set_clause + "\n" "RETURN u"
     )
 
     result = client.execute_write(update_query, update_params)
@@ -1010,9 +1008,7 @@ def neo4j_delete_entity(entity_id: UUID, force: bool = False) -> Dict[str, Any]:
     }
 
 
-def neo4j_set_state_tags(
-    entity_id: UUID, params: StateTagsUpdate
-) -> EntityResponse:
+def neo4j_set_state_tags(entity_id: UUID, params: StateTagsUpdate) -> EntityResponse:
     """
     Atomically add/remove state tags on an EntityInstance.
 
@@ -1129,9 +1125,7 @@ def neo4j_create_story(params: StoryCreate) -> StoryResponse:
     MATCH (u:Universe {id: $universe_id})
     RETURN u.id as id
     """
-    result = client.execute_read(
-        verify_query, {"universe_id": str(params.universe_id)}
-    )
+    result = client.execute_read(verify_query, {"universe_id": str(params.universe_id)})
     if not result:
         raise ValueError(f"Universe {params.universe_id} not found")
 
@@ -1154,7 +1148,7 @@ def neo4j_create_story(params: StoryCreate) -> StoryResponse:
     # Create story
     story_id = uuid4()
     created_at = datetime.now(timezone.utc)
-    
+
     create_query = """
     MATCH (u:Universe {id: $universe_id})
     CREATE (s:Story {
@@ -1171,7 +1165,7 @@ def neo4j_create_story(params: StoryCreate) -> StoryResponse:
     CREATE (u)-[:HAS_STORY]->(s)
     RETURN s
     """
-    
+
     create_params = {
         "id": str(story_id),
         "universe_id": str(params.universe_id),
@@ -1180,10 +1174,12 @@ def neo4j_create_story(params: StoryCreate) -> StoryResponse:
         "theme": params.theme,
         "premise": params.premise,
         "status": StoryStatus.PLANNED.value,
-        "start_time_ref": params.start_time_ref.isoformat() if params.start_time_ref else None,
+        "start_time_ref": (
+            params.start_time_ref.isoformat() if params.start_time_ref else None
+        ),
         "created_at": created_at.isoformat(),
     }
-    
+
     client.execute_write(create_query, create_params)
 
     # Create PARTICIPATES edges for PCs
@@ -1298,7 +1294,10 @@ def neo4j_update_story(story_id: UUID, params: StoryUpdate) -> StoryResponse:
 
     # Build update query dynamically
     update_parts = []
-    update_params = {"id": str(story_id), "updated_at": datetime.now(timezone.utc).isoformat()}
+    update_params = {
+        "id": str(story_id),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
     if params.title is not None:
         update_parts.append("s.title = $title")
@@ -1432,7 +1431,7 @@ def neo4j_list_stories(filters: StoryFilter) -> StoryListResponse:
         s = record["s"]
         scene_count = record.get("scene_count", 0)
         participant_ids = record.get("participant_ids", [])
-        
+
         stories.append(
             StoryResponse(
                 id=UUID(s["id"]),

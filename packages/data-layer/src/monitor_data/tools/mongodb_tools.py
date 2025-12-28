@@ -54,12 +54,10 @@ def mongodb_create_scene(params: SceneCreate) -> SceneResponse:
     MATCH (s:Story {id: $story_id})
     RETURN s.id as id, s.universe_id as universe_id
     """
-    result = neo4j_client.execute_read(
-        verify_query, {"story_id": str(params.story_id)}
-    )
+    result = neo4j_client.execute_read(verify_query, {"story_id": str(params.story_id)})
     if not result:
         raise ValueError(f"Story {params.story_id} not found")
-    
+
     universe_id = result[0]["universe_id"]
 
     # Create scene in MongoDB
@@ -140,7 +138,9 @@ def mongodb_get_scene(scene_id: UUID) -> Optional[SceneResponse]:
             TurnResponse(
                 turn_id=UUID(turn_data["turn_id"]),
                 speaker=turn_data["speaker"],
-                entity_id=UUID(turn_data["entity_id"]) if turn_data.get("entity_id") else None,
+                entity_id=(
+                    UUID(turn_data["entity_id"]) if turn_data.get("entity_id") else None
+                ),
                 text=turn_data["text"],
                 metadata=turn_data.get("metadata", {}),
                 timestamp=turn_data["timestamp"],
@@ -155,7 +155,9 @@ def mongodb_get_scene(scene_id: UUID) -> Optional[SceneResponse]:
         purpose=scene_doc.get("purpose"),
         status=scene_doc["status"],
         order=scene_doc.get("order"),
-        location_id=UUID(scene_doc["location_id"]) if scene_doc.get("location_id") else None,
+        location_id=(
+            UUID(scene_doc["location_id"]) if scene_doc.get("location_id") else None
+        ),
         participant_ids=[UUID(pid) for pid in scene_doc.get("participant_ids", [])],
         turns=turns,
         proposed_changes=[UUID(pc) for pc in scene_doc.get("proposed_changes", [])],
@@ -194,9 +196,7 @@ def mongodb_update_scene(scene_id: UUID, params: SceneUpdate) -> SceneResponse:
         raise ValueError(f"Scene {scene_id} not found")
 
     # Build update document
-    update_doc: Dict[str, Any] = {
-        "updated_at": datetime.now(timezone.utc)
-    }
+    update_doc: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
 
     # Validate and apply status transition if provided
     if params.status is not None:
@@ -228,10 +228,7 @@ def mongodb_update_scene(scene_id: UUID, params: SceneUpdate) -> SceneResponse:
         update_doc["metadata"] = params.metadata
 
     # Update the scene
-    scenes_collection.update_one(
-        {"scene_id": str(scene_id)},
-        {"$set": update_doc}
-    )
+    scenes_collection.update_one({"scene_id": str(scene_id)}, {"$set": update_doc})
 
     # Return updated scene
     result = mongodb_get_scene(scene_id)
@@ -273,9 +270,12 @@ def mongodb_list_scenes(filters: SceneFilter) -> SceneListResponse:
     sort_order = 1 if filters.sort_order == "asc" else -1
 
     # Get scenes with pagination
-    cursor = scenes_collection.find(query_filter).sort(
-        sort_field, sort_order
-    ).skip(filters.offset).limit(filters.limit)
+    cursor = (
+        scenes_collection.find(query_filter)
+        .sort(sort_field, sort_order)
+        .skip(filters.offset)
+        .limit(filters.limit)
+    )
 
     scenes = []
     for scene_doc in cursor:
@@ -286,7 +286,11 @@ def mongodb_list_scenes(filters: SceneFilter) -> SceneListResponse:
                 TurnResponse(
                     turn_id=UUID(turn_data["turn_id"]),
                     speaker=turn_data["speaker"],
-                    entity_id=UUID(turn_data["entity_id"]) if turn_data.get("entity_id") else None,
+                    entity_id=(
+                        UUID(turn_data["entity_id"])
+                        if turn_data.get("entity_id")
+                        else None
+                    ),
                     text=turn_data["text"],
                     metadata=turn_data.get("metadata", {}),
                     timestamp=turn_data["timestamp"],
@@ -302,11 +306,21 @@ def mongodb_list_scenes(filters: SceneFilter) -> SceneListResponse:
                 purpose=scene_doc.get("purpose"),
                 status=scene_doc["status"],
                 order=scene_doc.get("order"),
-                location_id=UUID(scene_doc["location_id"]) if scene_doc.get("location_id") else None,
-                participant_ids=[UUID(pid) for pid in scene_doc.get("participant_ids", [])],
+                location_id=(
+                    UUID(scene_doc["location_id"])
+                    if scene_doc.get("location_id")
+                    else None
+                ),
+                participant_ids=[
+                    UUID(pid) for pid in scene_doc.get("participant_ids", [])
+                ],
                 turns=turns,
-                proposed_changes=[UUID(pc) for pc in scene_doc.get("proposed_changes", [])],
-                canonical_outcomes=[UUID(co) for co in scene_doc.get("canonical_outcomes", [])],
+                proposed_changes=[
+                    UUID(pc) for pc in scene_doc.get("proposed_changes", [])
+                ],
+                canonical_outcomes=[
+                    UUID(co) for co in scene_doc.get("canonical_outcomes", [])
+                ],
                 summary=scene_doc.get("summary"),
                 metadata=scene_doc.get("metadata", {}),
                 created_at=scene_doc["created_at"],
@@ -369,10 +383,7 @@ def mongodb_append_turn(scene_id: UUID, params: TurnCreate) -> TurnResponse:
     # Append turn to scene
     scenes_collection.update_one(
         {"scene_id": str(scene_id)},
-        {
-            "$push": {"turns": turn_doc},
-            "$set": {"updated_at": timestamp}
-        }
+        {"$push": {"turns": turn_doc}, "$set": {"updated_at": timestamp}},
     )
 
     return TurnResponse(
