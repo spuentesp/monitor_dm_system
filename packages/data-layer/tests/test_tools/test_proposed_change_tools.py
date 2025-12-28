@@ -398,9 +398,10 @@ def test_update_accept(mock_get_client: Mock):
     universe_id = uuid4()
     canonical_ref = uuid4()
     created_at = datetime.now(timezone.utc)
+    decided_at = datetime.now(timezone.utc)
 
-    # Mock existing document (pending)
-    existing_doc = {
+    # Mock updated document (accepted) returned by find_one_and_update
+    updated_doc = {
         "proposal_id": str(proposal_id),
         "change_type": ProposalType.FACT.value,
         "content": {"statement": "Test fact"},
@@ -412,27 +413,16 @@ def test_update_accept(mock_get_client: Mock):
         "authority": Authority.SYSTEM.value,
         "evidence_refs": [],
         "proposed_by": "Narrator",
-        "status": ProposalStatus.PENDING.value,
-        "decision_reason": None,
-        "canonical_ref": None,
-        "decided_by": None,
-        "created_at": created_at,
-        "decided_at": None,
-    }
-
-    # Mock updated document (accepted)
-    decided_at = datetime.now(timezone.utc)
-    updated_doc = {
-        **existing_doc,
         "status": ProposalStatus.ACCEPTED.value,
         "decision_reason": "Valid fact",
         "canonical_ref": str(canonical_ref),
         "decided_by": "CanonKeeper",
+        "created_at": created_at,
         "decided_at": decided_at,
     }
 
-    # Setup mock to return existing doc first, then updated doc
-    mock_collection.find_one.side_effect = [existing_doc, updated_doc]
+    # Mock find_one_and_update to return updated document
+    mock_collection.find_one_and_update.return_value = updated_doc
 
     params = ProposedChangeUpdate(
         status=ProposalStatus.ACCEPTED,
@@ -448,7 +438,7 @@ def test_update_accept(mock_get_client: Mock):
     assert result.decision_reason == "Valid fact"
     assert result.canonical_ref == canonical_ref
     assert result.decided_by == "CanonKeeper"
-    assert mock_collection.update_one.call_count == 1
+    assert mock_collection.find_one_and_update.call_count == 1
 
 
 @patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
@@ -463,9 +453,10 @@ def test_update_reject(mock_get_client: Mock):
     proposal_id = uuid4()
     universe_id = uuid4()
     created_at = datetime.now(timezone.utc)
+    decided_at = datetime.now(timezone.utc)
 
-    # Mock existing document (pending)
-    existing_doc = {
+    # Mock updated document (rejected) returned by find_one_and_update
+    updated_doc = {
         "proposal_id": str(proposal_id),
         "change_type": ProposalType.FACT.value,
         "content": {"statement": "Test fact"},
@@ -477,25 +468,15 @@ def test_update_reject(mock_get_client: Mock):
         "authority": Authority.SYSTEM.value,
         "evidence_refs": [],
         "proposed_by": "Narrator",
-        "status": ProposalStatus.PENDING.value,
-        "decision_reason": None,
-        "canonical_ref": None,
-        "decided_by": None,
-        "created_at": created_at,
-        "decided_at": None,
-    }
-
-    # Mock updated document (rejected)
-    decided_at = datetime.now(timezone.utc)
-    updated_doc = {
-        **existing_doc,
         "status": ProposalStatus.REJECTED.value,
         "decision_reason": "Contradicts existing canon",
+        "canonical_ref": None,
         "decided_by": "CanonKeeper",
+        "created_at": created_at,
         "decided_at": decided_at,
     }
 
-    mock_collection.find_one.side_effect = [existing_doc, updated_doc]
+    mock_collection.find_one_and_update.return_value = updated_doc
 
     params = ProposedChangeUpdate(
         status=ProposalStatus.REJECTED,
@@ -509,7 +490,7 @@ def test_update_reject(mock_get_client: Mock):
     assert result.status == ProposalStatus.REJECTED
     assert result.decision_reason == "Contradicts existing canon"
     assert result.canonical_ref is None
-    assert mock_collection.update_one.call_count == 1
+    assert mock_collection.find_one_and_update.call_count == 1
 
 
 @patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
@@ -546,6 +527,9 @@ def test_update_invalid_transition(mock_get_client: Mock):
         "decided_at": created_at,
     }
 
+    # find_one_and_update returns None (no matching document with pending status)
+    mock_collection.find_one_and_update.return_value = None
+    # find_one returns the existing accepted document
     mock_collection.find_one.return_value = existing_doc
 
     params = ProposedChangeUpdate(
@@ -663,6 +647,9 @@ def test_update_not_found(mock_get_client: Mock):
     mock_client.db = {"proposed_changes": mock_collection}
     mock_get_client.return_value = mock_client
 
+    # find_one_and_update returns None (no document found)
+    mock_collection.find_one_and_update.return_value = None
+    # find_one also returns None (document doesn't exist)
     mock_collection.find_one.return_value = None
 
     params = ProposedChangeUpdate(

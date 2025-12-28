@@ -10,6 +10,7 @@ Collections: scenes, turns, proposed_changes, resolutions, memories, etc.
 """
 
 import os
+import threading
 from typing import Optional
 from pymongo import MongoClient
 from pymongo.database import Database
@@ -20,7 +21,8 @@ class MongoDBClient:
     MongoDB client for MONITOR narrative documents.
     
     Provides access to MongoDB collections with connection pooling.
-    Thread-safe client suitable for use across requests.
+    The underlying PyMongo MongoClient is thread-safe and can be used
+    across multiple threads/requests safely.
     """
 
     def __init__(
@@ -89,19 +91,23 @@ class MongoDBClient:
 # =============================================================================
 
 _mongodb_client: Optional[MongoDBClient] = None
+_mongodb_client_lock = threading.Lock()
 
 
 def get_mongodb_client() -> MongoDBClient:
     """
-    Get or create the singleton MongoDB client.
+    Get or create the singleton MongoDB client (thread-safe).
 
     Returns:
         MongoDBClient instance (connected)
     """
     global _mongodb_client
     if _mongodb_client is None:
-        _mongodb_client = MongoDBClient()
-        _mongodb_client.connect()
+        with _mongodb_client_lock:
+            # Double-check pattern to avoid race condition
+            if _mongodb_client is None:
+                _mongodb_client = MongoDBClient()
+                _mongodb_client.connect()
     return _mongodb_client
 
 

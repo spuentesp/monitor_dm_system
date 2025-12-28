@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from uuid import UUID, uuid4
 
+from pymongo import ReturnDocument
+
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.schemas.proposed_changes import (
     ProposedChangeCreate,
@@ -207,19 +209,7 @@ def mongodb_update_proposed_change(
     client = get_mongodb_client()
     collection = client.db["proposed_changes"]
 
-    # Get existing document
-    document = collection.find_one({"proposal_id": str(proposal_id)})
-    if not document:
-        raise ValueError(f"ProposedChange {proposal_id} not found")
-
-    # Validate status transition
-    current_status = ProposalStatus(document["status"])
-    if current_status != ProposalStatus.PENDING:
-        raise ValueError(
-            f"Cannot update ProposedChange with status '{current_status.value}'. "
-            "Only 'pending' proposals can be updated to 'accepted' or 'rejected'."
-        )
-
+    # Validate status transition rules
     if params.status == ProposalStatus.PENDING:
         raise ValueError(
             "Cannot transition to 'pending' status. "
@@ -233,7 +223,7 @@ def mongodb_update_proposed_change(
             "It must reference the created Neo4j node/edge ID."
         )
 
-    # Build update
+    # Build update atomically using find_one_and_update with status validation
     decided_at = datetime.now(timezone.utc)
     update_doc = {
         "$set": {
@@ -245,16 +235,28 @@ def mongodb_update_proposed_change(
         }
     }
 
-    # Update document
-    collection.update_one(
-        {"proposal_id": str(proposal_id)},
+    # Use find_one_and_update for atomic operation with status validation
+    # Only update if current status is PENDING
+    updated_doc = collection.find_one_and_update(
+        {
+            "proposal_id": str(proposal_id),
+            "status": ProposalStatus.PENDING.value,  # Only update pending proposals
+        },
         update_doc,
+        return_document=ReturnDocument.AFTER,  # Return document after update
     )
 
-    # Get updated document
-    updated_doc = collection.find_one({"proposal_id": str(proposal_id)})
     if not updated_doc:
-        raise ValueError(f"ProposedChange {proposal_id} not found after update")
+        # Either proposal doesn't exist or status is not PENDING
+        existing = collection.find_one({"proposal_id": str(proposal_id)})
+        if not existing:
+            raise ValueError(f"ProposedChange {proposal_id} not found")
+        
+        current_status = ProposalStatus(existing["status"])
+        raise ValueError(
+            f"Cannot update ProposedChange with status '{current_status.value}'. "
+            "Only 'pending' proposals can be updated to 'accepted' or 'rejected'."
+        )
 
     return _document_to_response(updated_doc)
 
