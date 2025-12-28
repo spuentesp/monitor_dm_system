@@ -9,11 +9,8 @@ These tools expose MinIO object storage operations via the MCP server.
 All operations have authority: * (available to all agents).
 """
 
-from datetime import datetime
-from typing import Optional
 from uuid import uuid4
 
-from minio.error import S3Error
 
 from monitor_data.db.minio import get_minio_client
 from monitor_data.schemas.assets import (
