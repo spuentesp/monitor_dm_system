@@ -421,9 +421,7 @@ def neo4j_update_universe(
 
     set_clause = ", ".join(set_clauses)
     update_query = (
-        "MATCH (u:Universe {id: $id})\n"
-        "SET " + set_clause + "\n"
-        "RETURN u"
+        "MATCH (u:Universe {id: $id})\n" "SET " + set_clause + "\n" "RETURN u"
     )
 
     result = client.execute_write(update_query, update_params)
@@ -1009,9 +1007,7 @@ def neo4j_delete_entity(entity_id: UUID, force: bool = False) -> Dict[str, Any]:
     }
 
 
-def neo4j_set_state_tags(
-    entity_id: UUID, params: StateTagsUpdate
-) -> EntityResponse:
+def neo4j_set_state_tags(entity_id: UUID, params: StateTagsUpdate) -> EntityResponse:
     """
     Atomically add/remove state tags on an EntityInstance.
 
@@ -1211,7 +1207,9 @@ def neo4j_create_axiom(params: AxiomCreate) -> AxiomResponse:
     )
 
 
-def neo4j_get_axiom(axiom_id: UUID, include_provenance: bool = True) -> Optional[AxiomResponse]:
+def neo4j_get_axiom(
+    axiom_id: UUID, include_provenance: bool = True
+) -> Optional[AxiomResponse]:
     """
     Get an Axiom by ID with optional provenance chain.
 
