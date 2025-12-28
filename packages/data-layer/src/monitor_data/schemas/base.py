@@ -145,15 +145,6 @@ class CanonicalMetadata(BaseModel):
     authority: Authority
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    @field_validator("confidence")
-    @classmethod
-    def validate_confidence(cls, v: float) -> float:
-        """Ensure confidence is between 0.0 and 1.0."""
-        if not 0.0 <= v <= 1.0:
-            raise ValueError("confidence must be between 0.0 and 1.0")
-        return v
-
-
 class BaseResponse(BaseModel):
     """Base response model with common fields."""
 
