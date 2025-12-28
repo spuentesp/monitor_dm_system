@@ -9,7 +9,7 @@ This middleware validates all incoming requests against Pydantic schemas
 before they reach the database clients or tool implementations.
 """
 
-from typing import Any, Dict, Type, TypeVar
+from typing import Any, Dict, Type, TypeVar, List
 from pydantic import BaseModel, ValidationError
 
 
@@ -19,7 +19,7 @@ T = TypeVar("T", bound=BaseModel)
 class RequestValidationError(Exception):
     """Raised when request validation fails."""
 
-    def __init__(self, errors: list[Dict[str, Any]]):
+    def __init__(self, errors: List[Dict[str, Any]]):
         self.errors = errors
         error_messages = []
         for error in errors:

@@ -204,13 +204,27 @@ async def health_check():
     Health check endpoint for k8s liveness/readiness probes.
     
     Returns server status, version, and database connectivity.
+    
+    Note: Database connectivity checks are simplified for now.
+    In production, these should verify actual connections to:
+    - Neo4j: Execute simple query
+    - MongoDB: Ping database
+    - Qdrant: Check collection existence
     """
     # Check database connectivity
-    # For now, we'll assume healthy (actual checks would go here)
+    # TODO: Implement actual connectivity checks
+    # Example implementation:
+    # try:
+    #     neo4j_client = get_neo4j_client()
+    #     neo4j_client.verify_connectivity()
+    #     neo4j_ok = True
+    # except Exception:
+    #     neo4j_ok = False
+    
     db_status = {
-        "neo4j": True,  # TODO: Implement actual connectivity check
-        "mongodb": True,  # TODO: Implement actual connectivity check
-        "qdrant": True,  # TODO: Implement actual connectivity check
+        "neo4j": True,  # Assumes healthy
+        "mongodb": True,  # Assumes healthy
+        "qdrant": True,  # Assumes healthy
     }
     
     return HealthResponse(
