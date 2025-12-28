@@ -481,13 +481,26 @@ def neo4j_delete_universe(universe_id: UUID, force: bool = False) -> Dict[str, A
 
     # Delete universe (with cascade if force=True)
     if force:
+        # Cascade delete with explicit relationship types and depth limit
+        # This handles both outbound (HAS_SOURCE, HAS_AXIOM, HAS_STORY) and
+        # inbound (entities with IN_UNIVERSE) relationships
         delete_query = """
         MATCH (u:Universe {id: $id})
-        OPTIONAL MATCH path = (u)-[*0..]->(dependent)
-        WITH collect(DISTINCT dependent) + u AS nodes
-        UNWIND nodes AS n
-        DETACH DELETE n
-        RETURN count(DISTINCT n) as deleted_count
+        // Collect outbound dependencies (sources, axioms, stories)
+        OPTIONAL MATCH (u)-[:HAS_SOURCE|HAS_AXIOM|HAS_STORY*0..3]->(outbound)
+        WHERE outbound:Source OR outbound:Axiom OR outbound:Story OR outbound:Scene
+        // Collect inbound dependencies (entities linked to this universe)
+        OPTIONAL MATCH (inbound)-[:IN_UNIVERSE]->(u)
+        WHERE inbound:EntityArchetype OR inbound:EntityInstance
+        // Also collect entities by universe_id property for backward compatibility
+        OPTIONAL MATCH (entity)
+        WHERE (entity:EntityArchetype OR entity:EntityInstance) 
+          AND entity.universe_id = $id
+        WITH u, 
+             collect(DISTINCT outbound) + collect(DISTINCT inbound) + collect(DISTINCT entity) AS dependents
+        UNWIND (dependents + [u]) AS node
+        DETACH DELETE node
+        RETURN count(DISTINCT node) as deleted_count
         """
     else:
         delete_query = """
