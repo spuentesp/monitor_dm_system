@@ -175,6 +175,7 @@ class MinIOClient:
         if not self._client:
             raise RuntimeError("MinIO client not connected. Call connect() first.")
 
+        response = None
         try:
             # Get the object
             response = self._client.get_object(bucket_name, object_key)
