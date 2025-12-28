@@ -30,6 +30,13 @@ from monitor_data.schemas.entities import (
     EntityListResponse,
     StateTagsUpdate,
 )
+from monitor_data.schemas.axioms import (
+    AxiomCreate,
+    AxiomUpdate,
+    AxiomResponse,
+    AxiomFilter,
+    AxiomListResponse,
+)
 
 
 # =============================================================================
@@ -1091,3 +1098,381 @@ def neo4j_set_state_tags(
         created_at=e["created_at"],
         updated_at=e.get("updated_at"),
     )
+
+
+# =============================================================================
+# AXIOM OPERATIONS
+# =============================================================================
+
+
+def neo4j_create_axiom(params: AxiomCreate) -> AxiomResponse:
+    """
+    Create a new Axiom node linked to a universe.
+
+    Authority: CanonKeeper only
+    Use Case: DL-13
+
+    Args:
+        params: Axiom creation parameters
+
+    Returns:
+        AxiomResponse with created axiom data
+
+    Raises:
+        ValueError: If universe_id doesn't exist or source_ids don't exist
+    """
+    client = get_neo4j_client()
+
+    # Verify universe exists
+    verify_query = """
+    MATCH (u:Universe {id: $universe_id})
+    RETURN u.id as id
+    """
+    result = client.execute_read(verify_query, {"universe_id": str(params.universe_id)})
+    if not result:
+        raise ValueError(f"Universe {params.universe_id} not found")
+
+    # Verify all source_ids exist if provided
+    if params.source_ids:
+        verify_sources_query = """
+        MATCH (s:Source)
+        WHERE s.id IN $source_ids
+        RETURN collect(s.id) as found_ids
+        """
+        result = client.execute_read(
+            verify_sources_query,
+            {"source_ids": [str(sid) for sid in params.source_ids]},
+        )
+        found_ids = set(result[0]["found_ids"]) if result else set()
+        expected_ids = {str(sid) for sid in params.source_ids}
+        missing_ids = expected_ids - found_ids
+        if missing_ids:
+            raise ValueError(f"Source IDs not found: {missing_ids}")
+
+    # Create axiom
+    axiom_id = uuid4()
+    created_at = datetime.now(timezone.utc)
+
+    create_query = """
+    MATCH (u:Universe {id: $universe_id})
+    CREATE (a:Axiom {
+        id: $id,
+        universe_id: $universe_id,
+        statement: $statement,
+        domain: $domain,
+        confidence: $confidence,
+        canon_level: $canon_level,
+        authority: $authority,
+        created_at: datetime($created_at)
+    })
+    CREATE (u)-[:HAS_AXIOM]->(a)
+    RETURN a
+    """
+    client.execute_write(
+        create_query,
+        {
+            "id": str(axiom_id),
+            "universe_id": str(params.universe_id),
+            "statement": params.statement,
+            "domain": params.domain.value,
+            "confidence": params.confidence,
+            "canon_level": params.canon_level.value,
+            "authority": params.authority.value,
+            "created_at": created_at.isoformat(),
+        },
+    )
+
+    # Create SUPPORTED_BY edges to sources if provided
+    if params.source_ids:
+        link_query = """
+        MATCH (a:Axiom {id: $axiom_id})
+        MATCH (s:Source)
+        WHERE s.id IN $source_ids
+        CREATE (a)-[:SUPPORTED_BY]->(s)
+        """
+        client.execute_write(
+            link_query,
+            {
+                "axiom_id": str(axiom_id),
+                "source_ids": [str(sid) for sid in params.source_ids],
+            },
+        )
+
+    return AxiomResponse(
+        id=axiom_id,
+        universe_id=params.universe_id,
+        statement=params.statement,
+        domain=params.domain,
+        confidence=params.confidence,
+        canon_level=params.canon_level,
+        authority=params.authority,
+        created_at=created_at,
+        sources=[],
+    )
+
+
+def neo4j_get_axiom(axiom_id: UUID, include_provenance: bool = True) -> Optional[AxiomResponse]:
+    """
+    Get an Axiom by ID with optional provenance chain.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-13
+
+    Args:
+        axiom_id: UUID of the axiom
+        include_provenance: If True, include SUPPORTED_BY sources in response
+
+    Returns:
+        AxiomResponse if found, None otherwise
+    """
+    client = get_neo4j_client()
+
+    if include_provenance:
+        query = """
+        MATCH (a:Axiom {id: $id})
+        OPTIONAL MATCH (a)-[:SUPPORTED_BY]->(s:Source)
+        RETURN a, collect(DISTINCT {
+            id: s.id,
+            title: s.title,
+            source_type: s.source_type,
+            canon_level: s.canon_level
+        }) as sources
+        """
+    else:
+        query = """
+        MATCH (a:Axiom {id: $id})
+        RETURN a, [] as sources
+        """
+
+    result = client.execute_read(query, {"id": str(axiom_id)})
+
+    if not result:
+        return None
+
+    a = result[0]["a"]
+    sources = result[0].get("sources", [])
+    # Filter out sources with None values (from OPTIONAL MATCH when no sources exist)
+    sources = [s for s in sources if s.get("id") is not None]
+
+    return AxiomResponse(
+        id=UUID(a["id"]),
+        universe_id=UUID(a["universe_id"]),
+        statement=a["statement"],
+        domain=a["domain"],
+        confidence=a["confidence"],
+        canon_level=a["canon_level"],
+        authority=a["authority"],
+        created_at=a["created_at"],
+        sources=sources,
+    )
+
+
+def neo4j_list_axioms(filters: Optional[AxiomFilter] = None) -> AxiomListResponse:
+    """
+    List axioms with filtering, pagination, and sorting.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-13
+
+    Args:
+        filters: Optional filter parameters (universe_id, domain, confidence, limit, offset)
+
+    Returns:
+        AxiomListResponse with axioms and pagination info
+    """
+    client = get_neo4j_client()
+
+    if filters is None:
+        filters = AxiomFilter()
+
+    # Build WHERE clause
+    where_clauses = []
+    params: Dict[str, Any] = {}
+
+    if filters.universe_id:
+        where_clauses.append("a.universe_id = $universe_id")
+        params["universe_id"] = str(filters.universe_id)
+
+    if filters.domain:
+        where_clauses.append("a.domain = $domain")
+        params["domain"] = filters.domain.value
+
+    if filters.canon_level:
+        where_clauses.append("a.canon_level = $canon_level")
+        params["canon_level"] = filters.canon_level.value
+
+    if filters.confidence_min is not None:
+        where_clauses.append("a.confidence >= $confidence_min")
+        params["confidence_min"] = filters.confidence_min
+
+    if filters.confidence_max is not None:
+        where_clauses.append("a.confidence <= $confidence_max")
+        params["confidence_max"] = filters.confidence_max
+
+    where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+    # Build ORDER BY clause
+    sort_field_map = {"created_at": "a.created_at", "confidence": "a.confidence"}
+    sort_field = sort_field_map.get(filters.sort_by, "a.created_at")
+    sort_order = "DESC" if filters.sort_order == "desc" else "ASC"
+
+    # Count total
+    count_query = f"""
+    MATCH (a:Axiom)
+    {where_clause}
+    RETURN count(a) as total
+    """
+    count_result = client.execute_read(count_query, params)
+    total = count_result[0]["total"]
+
+    # Get axioms with pagination
+    list_query = f"""
+    MATCH (a:Axiom)
+    {where_clause}
+    RETURN a
+    ORDER BY {sort_field} {sort_order}
+    SKIP $offset
+    LIMIT $limit
+    """
+    params["offset"] = filters.offset
+    params["limit"] = filters.limit
+
+    result = client.execute_read(list_query, params)
+
+    axioms = []
+    for record in result:
+        a = record["a"]
+        axioms.append(
+            AxiomResponse(
+                id=UUID(a["id"]),
+                universe_id=UUID(a["universe_id"]),
+                statement=a["statement"],
+                domain=a["domain"],
+                confidence=a["confidence"],
+                canon_level=a["canon_level"],
+                authority=a["authority"],
+                created_at=a["created_at"],
+                sources=[],  # Not included in list view for performance
+            )
+        )
+
+    return AxiomListResponse(
+        axioms=axioms, total=total, limit=filters.limit, offset=filters.offset
+    )
+
+
+def neo4j_update_axiom(axiom_id: UUID, params: AxiomUpdate) -> AxiomResponse:
+    """
+    Update an Axiom's mutable fields.
+
+    Authority: CanonKeeper only
+    Use Case: DL-13
+
+    Args:
+        axiom_id: UUID of the axiom to update
+        params: Update parameters (statement, confidence, canon_level)
+
+    Returns:
+        AxiomResponse with updated axiom data
+
+    Raises:
+        ValueError: If axiom doesn't exist
+    """
+    client = get_neo4j_client()
+
+    # Verify axiom exists
+    verify_query = """
+    MATCH (a:Axiom {id: $id})
+    RETURN a.id as id
+    """
+    result = client.execute_read(verify_query, {"id": str(axiom_id)})
+    if not result:
+        raise ValueError(f"Axiom {axiom_id} not found")
+
+    # Build SET clauses for updates
+    set_clauses = []
+    update_params: Dict[str, Any] = {"id": str(axiom_id)}
+
+    if params.statement is not None:
+        set_clauses.append("a.statement = $statement")
+        update_params["statement"] = params.statement
+
+    if params.confidence is not None:
+        set_clauses.append("a.confidence = $confidence")
+        update_params["confidence"] = params.confidence
+
+    if params.canon_level is not None:
+        set_clauses.append("a.canon_level = $canon_level")
+        update_params["canon_level"] = params.canon_level.value
+
+    if not set_clauses:
+        # No updates, return current state
+        result = neo4j_get_axiom(axiom_id, include_provenance=False)
+        if result is None:
+            raise ValueError(f"Axiom {axiom_id} not found after verification")
+        return result
+
+    set_clause = ", ".join(set_clauses)
+    update_query = f"""
+    MATCH (a:Axiom {{id: $id}})
+    SET {set_clause}
+    RETURN a
+    """
+
+    result = client.execute_write(update_query, update_params)
+    a = result[0]["a"]
+
+    return AxiomResponse(
+        id=UUID(a["id"]),
+        universe_id=UUID(a["universe_id"]),
+        statement=a["statement"],
+        domain=a["domain"],
+        confidence=a["confidence"],
+        canon_level=a["canon_level"],
+        authority=a["authority"],
+        created_at=a["created_at"],
+        sources=[],
+    )
+
+
+def neo4j_delete_axiom(axiom_id: UUID) -> Dict[str, Any]:
+    """
+    Soft-delete an Axiom by setting canon_level to 'retconned'.
+
+    Authority: CanonKeeper only
+    Use Case: DL-13
+
+    Args:
+        axiom_id: UUID of the axiom to soft-delete
+
+    Returns:
+        Dict with deletion status
+
+    Raises:
+        ValueError: If axiom doesn't exist
+    """
+    client = get_neo4j_client()
+
+    # Verify axiom exists
+    verify_query = """
+    MATCH (a:Axiom {id: $id})
+    RETURN a.id as id
+    """
+    result = client.execute_read(verify_query, {"id": str(axiom_id)})
+    if not result:
+        raise ValueError(f"Axiom {axiom_id} not found")
+
+    # Soft-delete by setting canon_level to 'retconned'
+    delete_query = """
+    MATCH (a:Axiom {id: $id})
+    SET a.canon_level = 'retconned'
+    RETURN a
+    """
+    result = client.execute_write(delete_query, {"id": str(axiom_id)})
+
+    return {
+        "axiom_id": str(axiom_id),
+        "deleted": True,
+        "method": "soft-delete",
+        "canon_level": "retconned",
+    }
