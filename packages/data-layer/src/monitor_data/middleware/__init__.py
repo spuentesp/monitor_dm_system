@@ -31,8 +31,11 @@ from monitor_data.middleware.auth import (
     AuthorizationError,
     AUTHORITY_MATRIX,
 )
-
-# from monitor_data.middleware.validation import validate_request
+from monitor_data.middleware.validation import (
+    validate_request,
+    validate_response,
+    RequestValidationError,
+)
 
 __all__ = [
     "require_authority",
@@ -40,5 +43,7 @@ __all__ = [
     "get_allowed_agents",
     "AuthorizationError",
     "AUTHORITY_MATRIX",
-    # "validate_request",
+    "validate_request",
+    "validate_response",
+    "RequestValidationError",
 ]
