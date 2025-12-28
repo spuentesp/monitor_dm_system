@@ -59,3 +59,25 @@ def test_neo4j_client_explicit_overrides_env():
 
     client = Neo4jClient(password="explicit_password")
     assert client.password == "explicit_password"
+
+
+def test_neo4j_client_execute_read_without_connection():
+    """Test that execute_read raises RuntimeError when not connected."""
+    os.environ["NEO4J_PASSWORD"] = "test_password"
+    
+    client = Neo4jClient()
+    # Don't call connect()
+    
+    with pytest.raises(RuntimeError, match="Neo4j client not connected. Call connect\\(\\) first."):
+        client.execute_read("RETURN 1")
+
+
+def test_neo4j_client_execute_write_without_connection():
+    """Test that execute_write raises RuntimeError when not connected."""
+    os.environ["NEO4J_PASSWORD"] = "test_password"
+    
+    client = Neo4jClient()
+    # Don't call connect()
+    
+    with pytest.raises(RuntimeError, match="Neo4j client not connected. Call connect\\(\\) first."):
+        client.execute_write("CREATE (n:Test) RETURN n")
