@@ -12,7 +12,14 @@ Qdrant stores embeddings for semantic search of scenes, memories, and snippets.
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue, Range
+from qdrant_client.models import (
+    PointStruct,
+    Filter,
+    FieldCondition,
+    MatchValue,
+    Range,
+    PointIdsList,
+)
 
 from monitor_data.db.qdrant import get_qdrant_client
 from monitor_data.schemas.memories import (
@@ -223,7 +230,7 @@ def qdrant_delete_memory(memory_id: UUID) -> bool:
         client = qdrant_client.get_client()
         client.delete(
             collection_name=MEMORIES_COLLECTION,
-            points_selector=[str(memory_id)],
+            points_selector=PointIdsList(points=[str(memory_id)]),
         )
         return True
     except Exception:
