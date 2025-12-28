@@ -100,15 +100,10 @@ class SearchRequest(BaseModel):
     highlight_fields: Optional[List[str]] = Field(
         default=None, description="Fields to highlight (default: ['text'])"
     )
-    from_: int = Field(default=0, ge=0, description="Offset for pagination")
+    from_: int = Field(default=0, ge=0, description="Offset for pagination", alias="from")
     size: int = Field(default=10, ge=1, le=100, description="Number of results")
 
-    class Config:
-        """Pydantic config."""
-
-        populate_by_name = True
-        # Allow 'from' as alias for 'from_'
-        fields = {"from_": {"alias": "from"}}
+    model_config = {"populate_by_name": True}
 
 
 class SearchHit(BaseModel):
