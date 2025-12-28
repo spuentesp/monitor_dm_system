@@ -5,10 +5,11 @@ These tools are exposed via the MCP server for agents to call.
 Each tool enforces authority checks before executing.
 
 TOOL CATEGORIES:
-- neo4j_tools:     41 operations (entities, facts, events, queries)
-- mongodb_tools:   18 operations (scenes, turns, proposals, memories)
-- qdrant_tools:    3 operations (embed, search, delete)
-- composite_tools: 2 operations (context assembly, canonization)
+- neo4j_tools:      41 operations (entities, facts, events, queries)
+- mongodb_tools:    18 operations (scenes, turns, proposals, memories)
+- qdrant_tools:     3 operations (embed, search, delete)
+- opensearch_tools: 5 operations (index, search, delete, get)
+- composite_tools:  2 operations (context assembly, canonization)
 
 AUTHORITY ENFORCEMENT:
 Tools check the calling agent's type before executing.
@@ -29,6 +30,14 @@ from monitor_data.tools.neo4j_tools import (
     neo4j_ensure_omniverse,
 )
 
+from monitor_data.tools.opensearch_tools import (
+    opensearch_index_document,
+    opensearch_get_document,
+    opensearch_search,
+    opensearch_delete_document,
+    opensearch_delete_by_query,
+)
+
 # from monitor_data.tools.mongodb_tools import *
 # from monitor_data.tools.qdrant_tools import *
 # from monitor_data.tools.composite_tools import *
@@ -43,4 +52,10 @@ __all__ = [
     "neo4j_update_universe",
     "neo4j_delete_universe",
     "neo4j_ensure_omniverse",
+    # OpenSearch tools
+    "opensearch_index_document",
+    "opensearch_get_document",
+    "opensearch_search",
+    "opensearch_delete_document",
+    "opensearch_delete_by_query",
 ]

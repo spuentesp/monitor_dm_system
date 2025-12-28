@@ -15,6 +15,7 @@ import pytest
 from unittest.mock import Mock
 
 from monitor_data.db.neo4j import Neo4jClient
+from monitor_data.db.opensearch import OpenSearchClient
 from monitor_data.schemas.base import Authority, CanonLevel
 
 
@@ -29,6 +30,10 @@ def setup_test_env():
     os.environ["NEO4J_URI"] = "bolt://localhost:7687"
     os.environ["NEO4J_USER"] = "neo4j"
     os.environ["NEO4J_PASSWORD"] = "test_password"
+    os.environ["OPENSEARCH_HOST"] = "localhost"
+    os.environ["OPENSEARCH_PORT"] = "9200"
+    os.environ["OPENSEARCH_USER"] = "admin"
+    os.environ["OPENSEARCH_PASSWORD"] = "admin"
 
 
 # =============================================================================
@@ -50,6 +55,63 @@ def mock_neo4j_client() -> Generator[Mock, None, None]:
     mock_client.verify_connectivity = Mock(return_value=True)
     mock_client.connect = Mock()
     mock_client.close = Mock()
+
+    yield mock_client
+
+
+@pytest.fixture
+def mock_opensearch_client() -> Generator[Mock, None, None]:
+    """
+    Provide a mock OpenSearch client for testing.
+
+    Returns:
+        Mock OpenSearchClient with common methods stubbed
+    """
+    mock_client = Mock(spec=OpenSearchClient)
+    mock_client.connect = Mock()
+    mock_client.close = Mock()
+    mock_client.index_exists = Mock(return_value=True)
+    mock_client.create_index = Mock()
+    mock_client.index_document = Mock(return_value={
+        "_id": "test_id",
+        "_index": "test_index",
+        "result": "created",
+        "_version": 1,
+    })
+    mock_client.get_document = Mock(return_value={
+        "_id": "test_id",
+        "_index": "test_index",
+        "found": True,
+        "_source": {"text": "test content"},
+        "_version": 1,
+    })
+    mock_client.search = Mock(return_value={
+        "took": 5,
+        "hits": {
+            "total": {"value": 1},
+            "max_score": 1.0,
+            "hits": [
+                {
+                    "_id": "test_id",
+                    "_index": "test_index",
+                    "_score": 1.0,
+                    "_source": {"text": "test content"},
+                    "highlight": {"text": ["<em>test</em> content"]},
+                }
+            ],
+        },
+    })
+    mock_client.delete_document = Mock(return_value={
+        "_id": "test_id",
+        "_index": "test_index",
+        "result": "deleted",
+        "_version": 2,
+    })
+    mock_client.delete_by_query = Mock(return_value={
+        "deleted": 5,
+        "total": 5,
+        "took": 10,
+    })
 
     yield mock_client
 
