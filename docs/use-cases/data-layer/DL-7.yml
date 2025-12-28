@@ -1,0 +1,129 @@
+# DL-7: Manage Memories
+# ======================
+
+id: "DL-7"
+title: "Manage Memories"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement CRUD operations for CharacterMemory documents in MongoDB with
+  vector embedding support via Qdrant. Memories belong to entities (characters)
+  and can reference scenes or facts. Supports importance-based recall and
+  semantic search.
+
+acceptance_criteria:
+  - "mongodb_create_memory creates CharacterMemory document"
+  - "mongodb_create_memory validates entity_id exists"
+  - "mongodb_create_memory supports optional scene_id and fact_id references"
+  - "mongodb_create_memory enforces importance range (0.0-1.0)"
+  - "mongodb_get_memory returns full memory with metadata"
+  - "mongodb_list_memories supports filtering by entity_id, importance threshold"
+  - "mongodb_update_memory allows updating importance and metadata"
+  - "qdrant_embed_memory generates and stores embedding for memory text"
+  - "qdrant_search_memories performs semantic search within entity's memories"
+  - "qdrant_search_memories supports filtering by entity_id, scene_id, importance"
+  - "Memory deletion removes both MongoDB doc and Qdrant vector"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-2"  # Memories belong to entities
+  - "DL-3"  # Memories may reference facts
+  - "DL-4"  # Memories may reference scenes
+  - "DL-10" # Uses Qdrant operations
+
+blocks:
+  - "CF-2"   # Character agents use memories
+  - "Q-5"    # Query character memories
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/memories.py"
+      - "packages/data-layer/tests/test_tools/test_memory_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/tools/qdrant_tools.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_create_memory"
+        authority: ["*"]
+        params: ["entity_id", "text", "importance", "scene_id?", "fact_id?", "metadata?"]
+
+      - name: "mongodb_get_memory"
+        authority: ["*"]
+        params: ["memory_id"]
+
+      - name: "mongodb_list_memories"
+        authority: ["*"]
+        params: ["entity_id?", "min_importance?", "scene_id?", "limit", "offset"]
+
+      - name: "mongodb_update_memory"
+        authority: ["*"]
+        params: ["memory_id", "importance?", "metadata?"]
+
+      - name: "mongodb_delete_memory"
+        authority: ["*"]
+        params: ["memory_id"]
+
+    qdrant:
+      - name: "qdrant_embed_memory"
+        authority: ["*"]
+        params: ["memory_id", "text", "entity_id", "metadata?"]
+
+      - name: "qdrant_search_memories"
+        authority: ["*"]
+        params: ["query_text", "entity_id?", "min_importance?", "top_k"]
+
+  patterns:
+    - "MongoDB stores full memory document with metadata"
+    - "Qdrant stores vector with memory_id, entity_id in payload"
+    - "Use 'memories' collection in Qdrant"
+    - "importance: 0.0-1.0 where 1.0 is most important"
+
+  notes: |
+    - Memories are subjective, belong to a single entity
+    - importance affects recall priority (higher = more likely to surface)
+    - Consider decay mechanism for old memories
+    - Embedding model should match scene embeddings for consistency
+
+testing:
+  unit_tests:
+    - "test_create_memory_success: valid params → Memory doc"
+    - "test_create_memory_importance_range: validates 0.0-1.0"
+    - "test_embed_memory: creates Qdrant vector"
+    - "test_search_memories: returns ranked results"
+    - "test_search_memories_by_entity: entity filter works"
+    - "test_list_memories_by_importance: threshold filter works"
+    - "test_delete_memory_cascade: removes MongoDB and Qdrant"
+
+  integration_tests:
+    - "test_memory_lifecycle: create → embed → search → delete"
+    - "test_memory_recall: create multiple → search → verify ranking"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "mongodb"
+    - "qdrant"
+    - "priority-medium"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#28-memories"
+    - "docs/architecture/DATABASE_INTEGRATION.md"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/mongodb.py"
+    - "packages/data-layer/src/monitor_data/db/qdrant.py"

@@ -97,6 +97,11 @@ python -m services.agents.narrator
 python -m services.agents.canonkeeper
 ```
 
+### Environment variables
+
+- Copy `env.example` to `.env` and fill in your own values; reuse the same file for Docker by copying it to `infra/.env`.
+- To publish the values to GitHub Actions secrets/variables, run `scripts/push_env_to_github.sh env.example` (or pass your `.env`) — requires authenticated `gh` CLI.
+
 ---
 
 ## Documentation

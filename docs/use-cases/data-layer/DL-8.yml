@@ -1,0 +1,156 @@
+# DL-8: Manage Sources, Documents, Snippets, Ingest Proposals
+# ============================================================
+
+id: "DL-8"
+title: "Manage Sources, Documents, Snippets, Ingest Proposals"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement CRUD operations for the knowledge ingestion pipeline. Sources (Neo4j)
+  are canonical references to external knowledge. Documents/Snippets/IngestProposals
+  (MongoDB) handle the ingestion workflow. Supports provenance chains via
+  SUPPORTED_BY edges.
+
+acceptance_criteria:
+  - "neo4j_create_source creates Source node linked to universe"
+  - "neo4j_create_source validates universe_id exists"
+  - "neo4j_create_source supports source_type enum (book, rulebook, wiki, custom)"
+  - "neo4j_get_source returns source with linked documents and snippets"
+  - "mongodb_create_document creates Document doc with minio_ref"
+  - "mongodb_create_document links to source_id"
+  - "mongodb_list_documents supports filtering by source_id, file_type"
+  - "mongodb_create_snippet creates Snippet from document"
+  - "mongodb_create_snippet stores page/location metadata"
+  - "mongodb_list_snippets supports filtering by document_id, source_id"
+  - "mongodb_create_ingest_proposal creates proposal for extracted knowledge"
+  - "mongodb_list_ingest_proposals supports filtering by status, proposal_type"
+  - "mongodb_update_ingest_proposal allows status transitions"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-1"   # Sources belong to universes
+  - "DL-9"   # Documents reference MinIO objects
+
+blocks:
+  - "I-1"    # Upload source document
+  - "I-2"    # Process document
+  - "I-3"    # Review ingest proposals
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/sources.py"
+      - "packages/data-layer/src/monitor_data/schemas/documents.py"
+      - "packages/data-layer/src/monitor_data/schemas/snippets.py"
+      - "packages/data-layer/src/monitor_data/schemas/ingest_proposals.py"
+      - "packages/data-layer/tests/test_tools/test_source_tools.py"
+      - "packages/data-layer/tests/test_tools/test_ingest_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_source"
+        authority: ["CanonKeeper"]
+        params: ["universe_id", "title", "source_type", "canon_level?", "authority?", "metadata?"]
+
+      - name: "neo4j_get_source"
+        authority: ["*"]
+        params: ["source_id"]
+
+      - name: "neo4j_list_sources"
+        authority: ["*"]
+        params: ["universe_id?", "source_type?", "limit", "offset"]
+
+      - name: "neo4j_update_source"
+        authority: ["CanonKeeper"]
+        params: ["source_id", "canon_level?", "authority?", "metadata?"]
+
+    mongodb:
+      - name: "mongodb_create_document"
+        authority: ["*"]
+        params: ["source_id", "minio_ref", "filename", "file_type", "metadata?"]
+
+      - name: "mongodb_get_document"
+        authority: ["*"]
+        params: ["document_id"]
+
+      - name: "mongodb_list_documents"
+        authority: ["*"]
+        params: ["source_id?", "file_type?", "limit", "offset"]
+
+      - name: "mongodb_create_snippet"
+        authority: ["*"]
+        params: ["document_id", "text", "page?", "location?", "metadata?"]
+
+      - name: "mongodb_list_snippets"
+        authority: ["*"]
+        params: ["document_id?", "source_id?", "limit", "offset"]
+
+      - name: "mongodb_create_ingest_proposal"
+        authority: ["*"]
+        params: ["proposal_type", "content", "confidence", "evidence_snippet_ids", "universe_id"]
+
+      - name: "mongodb_list_ingest_proposals"
+        authority: ["*"]
+        params: ["status?", "proposal_type?", "universe_id?", "limit", "offset"]
+
+      - name: "mongodb_update_ingest_proposal"
+        authority: ["CanonKeeper"]
+        params: ["proposal_id", "status", "decision_reason?"]
+
+  patterns:
+    - "Source in Neo4j for canonical reference and SUPPORTED_BY"
+    - "Document/Snippet/IngestProposal in MongoDB for flexibility"
+    - "Use source_type enum: book, rulebook, wiki, homebrew, custom"
+    - "Use proposal_type enum: entity, fact, axiom, relationship"
+    - "Use proposal_status enum: pending, accepted, rejected, needs_review"
+
+  notes: |
+    - Sources are the authority references (e.g., PHB, campaign setting)
+    - Documents are uploaded files (PDFs, etc.) stored in MinIO
+    - Snippets are extracted text chunks from documents
+    - IngestProposals are AI-extracted knowledge awaiting review
+    - evidence_snippet_ids creates provenance chain
+
+testing:
+  unit_tests:
+    - "test_create_source: valid params → Source node"
+    - "test_create_document: valid params with minio_ref → Document doc"
+    - "test_create_snippet: valid params → Snippet doc"
+    - "test_create_ingest_proposal: valid params → IngestProposal doc"
+    - "test_list_documents_by_source: source filter works"
+    - "test_list_snippets_by_document: document filter works"
+    - "test_update_ingest_proposal: status transitions work"
+
+  integration_tests:
+    - "test_ingest_pipeline: source → document → snippets → proposals → accept"
+    - "test_provenance_chain: accepted proposal → fact with SUPPORTED_BY"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "neo4j"
+    - "mongodb"
+    - "priority-medium"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#29-sources-provenance"
+    - "docs/architecture/DATABASE_INTEGRATION.md"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/neo4j.py"
+    - "packages/data-layer/src/monitor_data/db/mongodb.py"

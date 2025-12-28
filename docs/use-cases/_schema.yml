@@ -1,0 +1,101 @@
+# MONITOR Use Case Schema
+# ========================
+# Each use case file follows this structure.
+# Files are named: {id}.yml (e.g., DL-1.yml, P-1.yml)
+#
+# Required fields are marked with (required)
+# Optional fields have defaults shown
+
+# -----------------------------------------------------------------------------
+# METADATA (required)
+# -----------------------------------------------------------------------------
+id: "DL-1"                    # (required) Unique identifier
+title: "Short descriptive title"  # (required) Human-readable title
+category: "data-layer"        # (required) One of: data-layer, play, manage, query,
+                              #            ingest, system, co-pilot, story, rules, docs
+epic: 0                       # (required) Epic number (0-9)
+priority: "medium"            # high, medium, low (default: medium)
+status: "todo"                # todo, in-progress, done, blocked (default: todo)
+
+# -----------------------------------------------------------------------------
+# DESCRIPTION
+# -----------------------------------------------------------------------------
+summary: |
+  One paragraph describing what this use case accomplishes.
+  Keep it concise but complete.
+
+# -----------------------------------------------------------------------------
+# ACCEPTANCE CRITERIA (required)
+# -----------------------------------------------------------------------------
+# These become checkboxes in the GitHub issue.
+# Each criterion should be testable and specific.
+acceptance_criteria:
+  - "Criterion 1: specific, testable outcome"
+  - "Criterion 2: another specific outcome"
+  - "All operations return proper error messages on failure"
+  - "Unit tests cover success and failure paths"
+  - "Integration test demonstrates end-to-end flow"
+
+# -----------------------------------------------------------------------------
+# DEPENDENCIES
+# -----------------------------------------------------------------------------
+depends_on: []                # List of use case IDs that must be completed first
+                              # e.g., ["DL-1", "DL-2"]
+
+blocks: []                    # List of use case IDs blocked by this one
+
+# -----------------------------------------------------------------------------
+# IMPLEMENTATION DETAILS
+# -----------------------------------------------------------------------------
+implementation:
+  layer: 1                    # 1 = data-layer, 2 = agents, 3 = cli
+
+  files:                      # Files to create or modify
+    create: []                # New files to create
+    modify: []                # Existing files to modify
+
+  patterns:                   # Patterns to follow (references to existing code)
+    - "Follow existing pattern in src/monitor_data/db/neo4j.py"
+
+  notes: |                    # Additional implementation guidance
+    Any specific notes for the implementer.
+
+# -----------------------------------------------------------------------------
+# TESTING REQUIREMENTS
+# -----------------------------------------------------------------------------
+testing:
+  unit_tests:
+    - "Test success path with valid input"
+    - "Test failure path with invalid input"
+    - "Test edge cases (empty, null, large values)"
+
+  integration_tests:
+    - "End-to-end test with real database connection"
+
+  coverage_minimum: 80        # Minimum test coverage percentage
+
+# -----------------------------------------------------------------------------
+# GITHUB ISSUE METADATA
+# -----------------------------------------------------------------------------
+github:
+  labels:                     # Labels to apply to the issue
+    - "enhancement"
+    - "data-layer"
+
+  milestone: "v0.1.0"         # Optional milestone
+
+  assignees: []               # Optional assignees (GitHub usernames)
+
+# -----------------------------------------------------------------------------
+# REFERENCES
+# -----------------------------------------------------------------------------
+references:
+  docs:                       # Related documentation
+    - "docs/ontology/ONTOLOGY.md"
+    - "docs/architecture/DATABASE_INTEGRATION.md"
+
+  code:                       # Related code files
+    - "packages/data-layer/src/monitor_data/db/"
+
+  external:                   # External references (URLs)
+    - "https://neo4j.com/docs/"

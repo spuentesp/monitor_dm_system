@@ -1,0 +1,132 @@
+# DL-6: Manage Story Outlines & Plot Threads
+# ============================================
+
+id: "DL-6"
+title: "Manage Story Outlines & Plot Threads"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement CRUD operations for story_outline documents (MongoDB) and PlotThread
+  nodes (Neo4j). Story outlines contain narrative beats and planning. Plot threads
+  are canonical tracking of narrative arcs that advance through scenes and link
+  to facts/events.
+
+acceptance_criteria:
+  - "mongodb_create_story_outline creates outline document linked to story"
+  - "mongodb_create_story_outline validates story_id exists"
+  - "mongodb_get_story_outline returns outline with all beats"
+  - "mongodb_update_story_outline allows updating beats and status"
+  - "neo4j_create_plot_thread creates PlotThread node linked to story"
+  - "neo4j_create_plot_thread supports thread_type enum (main, subplot, character_arc)"
+  - "neo4j_list_plot_threads supports filtering by story_id, status"
+  - "neo4j_update_plot_thread allows status transitions"
+  - "neo4j_advance_plot_thread creates ADVANCED_BY edge to scene"
+  - "neo4j_link_plot_to_fact creates relationship between thread and fact/event"
+  - "All operations enforce CanonKeeper authority for writes"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-3"  # Plot threads may reference facts
+  - "DL-4"  # Outlines and threads belong to stories
+
+blocks:
+  - "P-6"    # Create story outline
+  - "CF-4"   # Narrator uses plot threads
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/outlines.py"
+      - "packages/data-layer/src/monitor_data/schemas/plot_threads.py"
+      - "packages/data-layer/tests/test_tools/test_outline_tools.py"
+      - "packages/data-layer/tests/test_tools/test_plot_thread_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_create_story_outline"
+        authority: ["CanonKeeper", "Narrator"]
+        params: ["story_id", "beats", "pc_ids?", "status?"]
+
+      - name: "mongodb_get_story_outline"
+        authority: ["*"]
+        params: ["story_id"]
+
+      - name: "mongodb_update_story_outline"
+        authority: ["CanonKeeper", "Narrator"]
+        params: ["story_id", "beats?", "status?"]
+
+    neo4j:
+      - name: "neo4j_create_plot_thread"
+        authority: ["CanonKeeper"]
+        params: ["story_id", "title", "thread_type", "description?", "status?"]
+
+      - name: "neo4j_list_plot_threads"
+        authority: ["*"]
+        params: ["story_id?", "status?", "thread_type?", "limit", "offset"]
+
+      - name: "neo4j_update_plot_thread"
+        authority: ["CanonKeeper"]
+        params: ["thread_id", "status?", "description?"]
+
+      - name: "neo4j_advance_plot_thread"
+        authority: ["CanonKeeper"]
+        params: ["thread_id", "scene_id", "advancement_note?"]
+
+      - name: "neo4j_link_plot_to_fact"
+        authority: ["CanonKeeper"]
+        params: ["thread_id", "fact_id", "link_type?"]
+
+  patterns:
+    - "Story outlines in MongoDB for flexible beat structure"
+    - "Plot threads in Neo4j for graph traversal and canonization"
+    - "Use thread_type enum: main, subplot, character_arc, mystery, conflict"
+    - "Use thread_status enum: active, resolved, abandoned"
+
+  notes: |
+    - Beats in outline are ordered list with status tracking
+    - Plot threads track canonical narrative arc progression
+    - ADVANCED_BY edges create scene-to-thread links
+    - Consider linking to Facts/Events for provenance
+
+testing:
+  unit_tests:
+    - "test_create_outline_success: valid params → outline doc"
+    - "test_update_outline_beats: modify beats list"
+    - "test_create_plot_thread: valid params → PlotThread node"
+    - "test_advance_plot_thread: creates ADVANCED_BY edge"
+    - "test_link_plot_to_fact: creates relationship edge"
+    - "test_list_threads_by_story: story filter works"
+    - "test_list_threads_by_status: status filter works"
+
+  integration_tests:
+    - "test_outline_lifecycle: create → update beats → complete"
+    - "test_plot_thread_progression: create → advance through scenes → resolve"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "neo4j"
+    - "mongodb"
+    - "priority-medium"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#26-narrative-structures"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/neo4j.py"
+    - "packages/data-layer/src/monitor_data/db/mongodb.py"

@@ -1,0 +1,113 @@
+# DL-11: Text Search Index Operations
+# =====================================
+
+id: "DL-11"
+title: "Text Search Index Operations"
+category: "data-layer"
+epic: 0
+priority: "low"
+status: "todo"
+
+summary: |
+  Implement text search operations using OpenSearch. Supports indexing, searching,
+  and deleting text documents including snippets, facts, and narrative content.
+  Enables keyword and phrase search with filtering and highlighting.
+
+acceptance_criteria:
+  - "opensearch_index_document indexes text with metadata"
+  - "opensearch_index_document creates index if not exists"
+  - "opensearch_index_document supports update (upsert)"
+  - "opensearch_search performs keyword/phrase search"
+  - "opensearch_search supports field filters (universe_id, type)"
+  - "opensearch_search returns highlighted snippets"
+  - "opensearch_search supports pagination"
+  - "opensearch_delete_document removes document by ID"
+  - "opensearch_delete_by_query removes documents matching filter"
+  - "Indices are created with appropriate analyzers"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on: []  # OpenSearch is independent search engine
+
+blocks:
+  - "Q-4"    # Text search
+  - "I-2"    # Document processing indexes snippets
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/tests/test_tools/test_opensearch_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/opensearch_tools.py"
+      - "packages/data-layer/src/monitor_data/db/opensearch.py"
+
+  database_operations:
+    opensearch:
+      - name: "opensearch_index_document"
+        authority: ["*"]
+        params: ["index", "id", "body", "refresh?"]
+
+      - name: "opensearch_search"
+        authority: ["*"]
+        params: ["index", "query", "filters?", "highlight?", "from", "size"]
+
+      - name: "opensearch_delete_document"
+        authority: ["*"]
+        params: ["index", "id"]
+
+      - name: "opensearch_delete_by_query"
+        authority: ["*"]
+        params: ["index", "query"]
+
+      - name: "opensearch_get_document"
+        authority: ["*"]
+        params: ["index", "id"]
+
+  patterns:
+    - "Indices: snippets, facts, scenes, sources"
+    - "Document body: {id, type, universe_id, text, metadata}"
+    - "Use standard analyzer for general text"
+    - "Highlight returns matching snippets"
+
+  notes: |
+    - OpenSearch provides full-text search capabilities
+    - Complements vector search for keyword queries
+    - Consider synonym expansion for domain terms
+    - Faceted search for filtering by type/universe
+
+testing:
+  unit_tests:
+    - "test_index_document: valid body → document indexed"
+    - "test_index_creates_index: new index → auto-created"
+    - "test_search_keyword: keyword query → matching docs"
+    - "test_search_phrase: phrase query → exact matches"
+    - "test_search_filter: universe filter → scoped results"
+    - "test_search_highlight: returns highlighted snippets"
+    - "test_delete_document: valid id → document removed"
+    - "test_delete_by_query: filter → matching removed"
+
+  integration_tests:
+    - "test_snippet_search: index snippets → search → verify results"
+    - "test_fact_search: index facts → keyword search → ranked results"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "opensearch"
+    - "priority-low"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/architecture/DATABASE_INTEGRATION.md"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/opensearch.py"
+
+  external:
+    - "https://opensearch.org/docs/latest/"

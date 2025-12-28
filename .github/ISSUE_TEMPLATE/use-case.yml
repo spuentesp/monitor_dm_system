@@ -1,0 +1,89 @@
+name: Use Case Implementation
+description: Track implementation of a specific use case
+title: "[UC-ID]: "
+labels: ["use-case"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Use Case Implementation
+        Use this template for implementing use cases from docs/use-cases/
+
+  - type: input
+    id: use_case_id
+    attributes:
+      label: Use Case ID
+      description: The use case identifier (e.g., DL-1, P-1, M-1)
+      placeholder: "DL-1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - data-layer
+        - play
+        - manage
+        - query
+        - ingest
+        - system
+        - co-pilot
+        - story
+        - rules
+        - docs
+    validations:
+      required: true
+
+  - type: dropdown
+    id: epic
+    attributes:
+      label: Epic
+      options:
+        - "0 - Data Layer Access"
+        - "1 - World & Multiverse"
+        - "2 - Knowledge Ingestion"
+        - "3 - Character & Identity"
+        - "4 - Autonomous GM"
+        - "5 - Rules & Randomization"
+        - "6 - Session & Timeline"
+        - "7 - Human GM Assistant"
+        - "8 - Planning & Meta-Narrative"
+        - "9 - Documentation"
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Brief description of what this use case accomplishes
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: List of checkboxes that must be satisfied
+      placeholder: |
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+        - [ ] Unit tests pass
+        - [ ] Integration tests pass
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation_notes
+    attributes:
+      label: Implementation Notes
+      description: Files to modify, patterns to follow, technical notes
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Other use cases that must be completed first
+      placeholder: "DL-1, DL-2"

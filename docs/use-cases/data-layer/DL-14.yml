@@ -1,0 +1,126 @@
+# DL-14: Manage Relationships & State Tags
+# ==========================================
+
+id: "DL-14"
+title: "Manage Relationships & State Tags"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement CRUD operations for relationships between entities and state tag
+  management. Relationships include membership, ownership, social, spatial,
+  and participation types. State tags track dynamic entity status (alive, dead,
+  wounded, hidden, etc.).
+
+acceptance_criteria:
+  - "neo4j_create_relationship creates typed edge between entities"
+  - "neo4j_create_relationship validates both entity IDs exist"
+  - "neo4j_create_relationship supports all rel_type values"
+  - "neo4j_create_relationship stores properties on edge"
+  - "neo4j_get_relationship returns relationship with entities"
+  - "neo4j_list_relationships supports filtering by entity_id, rel_type"
+  - "neo4j_update_relationship allows updating properties"
+  - "neo4j_delete_relationship removes edge"
+  - "neo4j_update_state_tags adds/removes tags atomically"
+  - "neo4j_update_state_tags validates entity is an instance (not archetype)"
+  - "All operations enforce CanonKeeper authority for writes"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-2"   # Relationships connect entities
+
+blocks:
+  - "Q-6"    # Query relationships
+  - "M-14"   # Manage relationships UI
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/relationships.py"
+      - "packages/data-layer/tests/test_tools/test_relationship_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_relationship"
+        authority: ["CanonKeeper"]
+        params: ["from_id", "to_id", "rel_type", "properties?"]
+
+      - name: "neo4j_get_relationship"
+        authority: ["*"]
+        params: ["relationship_id"]
+
+      - name: "neo4j_list_relationships"
+        authority: ["*"]
+        params: ["entity_id?", "rel_type?", "direction?", "limit", "offset"]
+
+      - name: "neo4j_update_relationship"
+        authority: ["CanonKeeper"]
+        params: ["relationship_id", "properties"]
+
+      - name: "neo4j_delete_relationship"
+        authority: ["CanonKeeper"]
+        params: ["relationship_id"]
+
+      - name: "neo4j_update_state_tags"
+        authority: ["CanonKeeper"]
+        params: ["entity_id", "add_tags?", "remove_tags?"]
+
+      - name: "neo4j_get_state_tags"
+        authority: ["*"]
+        params: ["entity_id"]
+
+  patterns:
+    - "Relationship types: MEMBER_OF, OWNS, KNOWS, ALLIED_WITH, HOSTILE_TO, LOCATED_IN, PARTICIPATES_IN"
+    - "State tags: alive, dead, wounded, unconscious, hidden, revealed, hostile, friendly"
+    - "Properties on relationships for metadata (since, strength, etc.)"
+    - "Direction param: outgoing, incoming, both"
+
+  notes: |
+    - Relationships are edges, not nodes
+    - State tags only on EntityInstance, not EntityArchetype
+    - Consider temporal properties (valid_from, valid_to)
+    - Common patterns: faction membership, location containment
+
+testing:
+  unit_tests:
+    - "test_create_relationship_success: valid params → edge created"
+    - "test_create_relationship_types: each rel_type works"
+    - "test_list_relationships_by_entity: entity filter works"
+    - "test_list_relationships_by_type: rel_type filter works"
+    - "test_list_relationships_direction: direction filter works"
+    - "test_update_relationship_properties: updates edge properties"
+    - "test_delete_relationship: removes edge"
+    - "test_update_state_tags_add: adds new tags"
+    - "test_update_state_tags_remove: removes existing tags"
+    - "test_update_state_tags_archetype: archetype → error"
+
+  integration_tests:
+    - "test_relationship_lifecycle: create → update → delete"
+    - "test_state_tag_lifecycle: add tags → verify → remove tags"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "neo4j"
+    - "priority-medium"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#24-entities"
+    - "docs/ontology/ENTITY_TAXONOMY.md"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/neo4j.py"
+    - "packages/data-layer/src/monitor_data/schemas/entities.py"

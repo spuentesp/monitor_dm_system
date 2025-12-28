@@ -1,0 +1,166 @@
+# DL-1: Manage Multiverse/Universes
+# ==================================
+
+id: "DL-1"
+title: "Manage Multiverse/Universes"
+category: "data-layer"
+epic: 0
+priority: "high"
+status: "todo"
+
+summary: |
+  Implement CRUD operations for Multiverse and Universe nodes in Neo4j.
+  This is foundational - all other data depends on universes existing first.
+  Includes hierarchy management (Omniverse → Multiverse → Universe) and
+  metadata tags (genre, tone, tech_level).
+
+acceptance_criteria:
+  - "neo4j_create_universe creates a Universe node with required fields"
+  - "neo4j_create_universe validates multiverse_id exists before creation"
+  - "neo4j_get_universe returns full universe data including relationships"
+  - "neo4j_update_universe allows updating mutable fields (name, description, genre, tone)"
+  - "neo4j_list_universes supports filtering by multiverse_id"
+  - "neo4j_list_universes supports pagination (limit, offset)"
+  - "neo4j_delete_universe prevents deletion if universe has dependent data"
+  - "neo4j_delete_universe supports force=true to cascade delete"
+  - "All operations validate input against Pydantic schemas"
+  - "All operations enforce CanonKeeper authority for writes"
+  - "All operations return structured error responses on failure"
+  - "Unit tests achieve >= 80% coverage"
+  - "Integration test creates, reads, updates, and deletes a universe"
+
+depends_on: []
+
+blocks:
+  - "DL-2"   # Entities need universes
+  - "DL-3"   # Facts need universes
+  - "DL-13"  # Axioms need universes
+  - "P-1"    # Starting a story needs a universe
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/universe.py"
+      - "packages/data-layer/tests/test_tools/test_universe_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+      - "packages/data-layer/src/monitor_data/db/neo4j.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+      - "packages/data-layer/src/monitor_data/server.py"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_universe"
+        authority: ["CanonKeeper"]
+        cypher: |
+          MATCH (m:Multiverse {id: $multiverse_id})
+          CREATE (u:Universe {
+            id: $id,
+            multiverse_id: $multiverse_id,
+            name: $name,
+            description: $description,
+            genre: $genre,
+            tone: $tone,
+            tech_level: $tech_level,
+            canon_level: 'proposed',
+            created_at: datetime()
+          })
+          CREATE (m)-[:CONTAINS]->(u)
+          RETURN u
+
+      - name: "neo4j_get_universe"
+        authority: ["*"]
+        cypher: |
+          MATCH (u:Universe {id: $universe_id})
+          OPTIONAL MATCH (m:Multiverse)-[:CONTAINS]->(u)
+          RETURN u, m.id as multiverse_id
+
+      - name: "neo4j_list_universes"
+        authority: ["*"]
+        cypher: |
+          MATCH (u:Universe)
+          WHERE $multiverse_id IS NULL OR u.multiverse_id = $multiverse_id
+          RETURN u
+          ORDER BY u.created_at DESC
+          SKIP $offset LIMIT $limit
+
+      - name: "neo4j_update_universe"
+        authority: ["CanonKeeper"]
+        cypher: |
+          MATCH (u:Universe {id: $universe_id})
+          SET u.name = COALESCE($name, u.name),
+              u.description = COALESCE($description, u.description),
+              u.genre = COALESCE($genre, u.genre),
+              u.tone = COALESCE($tone, u.tone),
+              u.tech_level = COALESCE($tech_level, u.tech_level),
+              u.updated_at = datetime()
+          RETURN u
+
+      - name: "neo4j_delete_universe"
+        authority: ["CanonKeeper"]
+        cypher: |
+          MATCH (u:Universe {id: $universe_id})
+          // Check for dependencies unless force=true
+          OPTIONAL MATCH (u)-[:HAS_ENTITY]->(e)
+          WITH u, count(e) as entity_count
+          WHERE $force = true OR entity_count = 0
+          DETACH DELETE u
+          RETURN true as deleted
+
+  patterns:
+    - "Follow Neo4jClient pattern from packages/data-layer/src/monitor_data/db/neo4j.py"
+    - "Use Pydantic models for request/response validation"
+    - "Register tools in server.py with @server.tool() decorator"
+    - "Add authority checks in middleware/auth.py AUTHORITY_MATRIX"
+
+  notes: |
+    - Start with Multiverse CRUD (simpler), then Universe
+    - The Omniverse is typically a singleton, created on first run
+    - Consider adding neo4j_ensure_omniverse() for initialization
+    - Universe deletion should be rare; prefer soft-delete (canon_level='retconned')
+
+testing:
+  unit_tests:
+    - "test_create_universe_success: valid params → Universe node created"
+    - "test_create_universe_invalid_multiverse: bad multiverse_id → error"
+    - "test_create_universe_missing_required: missing name → validation error"
+    - "test_get_universe_exists: valid id → returns universe data"
+    - "test_get_universe_not_found: bad id → None or error"
+    - "test_list_universes_all: no filter → returns all"
+    - "test_list_universes_filtered: multiverse_id filter → returns subset"
+    - "test_list_universes_pagination: limit/offset → correct page"
+    - "test_update_universe_success: valid update → fields changed"
+    - "test_update_universe_not_found: bad id → error"
+    - "test_delete_universe_no_deps: empty universe → deleted"
+    - "test_delete_universe_with_deps: has entities → error unless force"
+    - "test_delete_universe_force: force=true → cascade delete"
+
+  integration_tests:
+    - "test_universe_lifecycle: create → read → update → delete flow"
+    - "test_universe_hierarchy: omniverse → multiverse → universe chain"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "neo4j"
+    - "priority-high"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#21-world-structure"
+    - "docs/architecture/DATABASE_INTEGRATION.md"
+    - "packages/data-layer/IMPLEMENTATION.md#phase-4-neo4j-tools"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/neo4j.py"
+    - "packages/data-layer/src/monitor_data/schemas/base.py"
+
+  external:
+    - "https://neo4j.com/docs/cypher-manual/current/"

@@ -1,0 +1,11 @@
+# Environment and secrets
+.env
+infra/.env
+
+# Bytecode and cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/

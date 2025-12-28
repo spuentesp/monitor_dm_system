@@ -1,0 +1,113 @@
+# DL-13: Manage Axioms
+# =====================
+
+id: "DL-13"
+title: "Manage Axioms"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement CRUD operations for Axiom nodes in Neo4j. Axioms are foundational
+  world rules and constraints tied to universes (e.g., "magic requires verbal
+  components", "vampires burn in sunlight"). Supports provenance via SUPPORTED_BY
+  edges to sources/snippets.
+
+acceptance_criteria:
+  - "neo4j_create_axiom creates Axiom node linked to universe"
+  - "neo4j_create_axiom validates universe_id exists"
+  - "neo4j_create_axiom supports domain enum (physics, magic, society, metaphysics)"
+  - "neo4j_create_axiom creates SUPPORTED_BY edges to sources/snippets"
+  - "neo4j_get_axiom returns axiom with provenance chain"
+  - "neo4j_list_axioms supports filtering by universe_id, domain, confidence"
+  - "neo4j_update_axiom allows updating statement, confidence, canon_level"
+  - "neo4j_delete_axiom removes axiom (soft-delete via canon_level='retconned')"
+  - "All operations enforce CanonKeeper authority for writes"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-1"   # Axioms belong to universes
+  - "DL-8"   # Axioms may reference sources/snippets
+
+blocks:
+  - "RS-1"   # Rules engine uses axioms
+  - "CF-3"   # CanonKeeper validates against axioms
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/axioms.py"
+      - "packages/data-layer/tests/test_tools/test_axiom_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_axiom"
+        authority: ["CanonKeeper"]
+        params: ["universe_id", "statement", "domain", "confidence?", "canon_level?", "source_ids?", "snippet_ids?"]
+
+      - name: "neo4j_get_axiom"
+        authority: ["*"]
+        params: ["axiom_id"]
+
+      - name: "neo4j_list_axioms"
+        authority: ["*"]
+        params: ["universe_id?", "domain?", "min_confidence?", "limit", "offset"]
+
+      - name: "neo4j_update_axiom"
+        authority: ["CanonKeeper"]
+        params: ["axiom_id", "statement?", "confidence?", "canon_level?"]
+
+      - name: "neo4j_delete_axiom"
+        authority: ["CanonKeeper"]
+        params: ["axiom_id", "force?"]
+
+  patterns:
+    - "Use domain enum: physics, magic, society, metaphysics, biology, technology"
+    - "Use canon_level: proposed, confirmed, retconned"
+    - "SUPPORTED_BY edges for provenance"
+    - "confidence 0.0-1.0 for uncertainty"
+
+  notes: |
+    - Axioms are world-building fundamentals (not specific facts)
+    - Used by rules engine for consistency checking
+    - Consider hierarchy (universal vs local axioms)
+    - Retconned axioms remain for history but marked inactive
+
+testing:
+  unit_tests:
+    - "test_create_axiom_success: valid params → Axiom node"
+    - "test_create_axiom_with_provenance: source_ids → SUPPORTED_BY edges"
+    - "test_create_axiom_domain: each domain value works"
+    - "test_get_axiom_with_provenance: returns full chain"
+    - "test_list_axioms_by_domain: domain filter works"
+    - "test_list_axioms_by_confidence: min_confidence filter works"
+    - "test_update_axiom_confidence: updates correctly"
+    - "test_delete_axiom_soft: sets canon_level='retconned'"
+
+  integration_tests:
+    - "test_axiom_lifecycle: create → update → soft-delete"
+    - "test_axiom_provenance: create with sources → verify chain"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "neo4j"
+    - "priority-medium"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#210-axioms"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/neo4j.py"

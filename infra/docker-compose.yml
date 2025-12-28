@@ -9,7 +9,7 @@ services:
       - "7474:7474"  # HTTP
       - "7687:7687"  # Bolt
     environment:
-      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-monitor2024}
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
       - NEO4J_PLUGINS=["apoc", "graph-data-science"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
       - NEO4J_dbms_memory_heap_initial__size=512m
@@ -32,7 +32,7 @@ services:
       - "27017:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=monitor
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD:-monitor2024}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD}
       - MONGO_INITDB_DATABASE=monitor
     volumes:
       - ./mongodb/data:/data/db
@@ -66,7 +66,7 @@ services:
       - "9001:9001"  # Console
     environment:
       - MINIO_ROOT_USER=monitor
-      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD:-monitor2024}
+      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
     volumes:
       - ./minio/data:/data
     command: server /data --console-address ":9001"
@@ -84,7 +84,7 @@ services:
     environment:
       - discovery.type=single-node
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
-      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD:-Monitor2024!}
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD}
       - plugins.security.disabled=false
     volumes:
       - ./opensearch/data:/usr/share/opensearch/data
@@ -117,12 +117,12 @@ services:
   #   environment:
   #     - NEO4J_URI=bolt://neo4j:7687
   #     - NEO4J_USER=neo4j
-  #     - NEO4J_PASSWORD=${NEO4J_PASSWORD:-monitor2024}
-  #     - MONGODB_URI=mongodb://monitor:${MONGODB_PASSWORD:-monitor2024}@mongodb:27017/monitor
+  #     - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+  #     - MONGODB_URI=mongodb://monitor:${MONGODB_PASSWORD}@mongodb:27017/monitor
   #     - QDRANT_URI=http://qdrant:6333
   #     - MINIO_ENDPOINT=minio:9000
   #     - MINIO_ACCESS_KEY=monitor
-  #     - MINIO_SECRET_KEY=${MINIO_PASSWORD:-monitor2024}
+  #     - MINIO_SECRET_KEY=${MINIO_PASSWORD}
   #     - OPENSEARCH_URI=https://opensearch:9200
   #   depends_on:
   #     - neo4j

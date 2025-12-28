@@ -271,7 +271,9 @@ import os
 
 class MongoDBClient:
     def __init__(self):
-        uri = os.getenv("MONGODB_URI", "mongodb://monitor:monitor2024@localhost:27017/monitor")
+        uri = os.getenv("MONGODB_URI")
+        if not uri:
+            raise ValueError("MONGODB_URI is required; add it to your .env")
         self.client = MongoClient(uri)
         self.db = self.client.monitor
 

@@ -1,0 +1,118 @@
+# DL-10: Vector Index Operations
+# ================================
+
+id: "DL-10"
+title: "Vector Index Operations"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement vector embedding operations using Qdrant. Supports upsert, search,
+  and delete for scene embeddings, memory embeddings, and snippet embeddings.
+  Enables semantic search across narrative content.
+
+acceptance_criteria:
+  - "qdrant_upsert stores vector with payload metadata"
+  - "qdrant_upsert creates collection if not exists"
+  - "qdrant_upsert supports batch operations"
+  - "qdrant_search returns top-k similar vectors with scores"
+  - "qdrant_search supports payload filtering (story_id, entity_id, type)"
+  - "qdrant_search supports score threshold"
+  - "qdrant_delete removes vector by ID"
+  - "qdrant_delete supports batch delete by filter"
+  - "Collections are created with appropriate dimensions"
+  - "Payload includes: id, type, story_id, scene_id, entity_id"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on: []  # Qdrant is independent vector store
+
+blocks:
+  - "DL-7"   # Memory embeddings
+  - "Q-3"    # Semantic search
+  - "Q-5"    # Character memory recall
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/tests/test_tools/test_qdrant_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/qdrant_tools.py"
+      - "packages/data-layer/src/monitor_data/db/qdrant.py"
+
+  database_operations:
+    qdrant:
+      - name: "qdrant_upsert"
+        authority: ["*"]
+        params: ["collection", "id", "vector", "payload"]
+
+      - name: "qdrant_upsert_batch"
+        authority: ["*"]
+        params: ["collection", "points"]
+
+      - name: "qdrant_search"
+        authority: ["*"]
+        params: ["collection", "query_vector", "top_k", "filter?", "score_threshold?"]
+
+      - name: "qdrant_delete"
+        authority: ["*"]
+        params: ["collection", "id"]
+
+      - name: "qdrant_delete_by_filter"
+        authority: ["*"]
+        params: ["collection", "filter"]
+
+      - name: "qdrant_get_collection_info"
+        authority: ["*"]
+        params: ["collection"]
+
+  patterns:
+    - "Collections: scenes, memories, snippets"
+    - "Payload structure: {id, type, story_id?, scene_id?, entity_id?}"
+    - "Use consistent embedding dimension (e.g., 1536 for OpenAI)"
+    - "Filter syntax follows Qdrant Filter DSL"
+
+  notes: |
+    - Embedding generation is separate (use embedding model)
+    - Collections are auto-created with correct dimensions
+    - Consider HNSW index parameters for large collections
+    - Payload filters enable scoped search
+
+testing:
+  unit_tests:
+    - "test_upsert_success: valid vector → point stored"
+    - "test_upsert_batch: multiple vectors → all stored"
+    - "test_search_basic: query vector → returns similar"
+    - "test_search_with_filter: story_id filter → scoped results"
+    - "test_search_threshold: score_threshold → filters low scores"
+    - "test_delete_success: valid id → point removed"
+    - "test_delete_by_filter: filter → matching points removed"
+    - "test_collection_info: returns collection stats"
+
+  integration_tests:
+    - "test_scene_embedding: embed scene → search similar → verify"
+    - "test_memory_recall: embed memories → semantic search → ranked results"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "qdrant"
+    - "priority-medium"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/architecture/DATABASE_INTEGRATION.md"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/qdrant.py"
+
+  external:
+    - "https://qdrant.tech/documentation/"

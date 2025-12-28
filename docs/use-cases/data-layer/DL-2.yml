@@ -1,0 +1,121 @@
+# DL-2: Manage Archetypes & Instances
+# ====================================
+
+id: "DL-2"
+title: "Manage Archetypes & Instances"
+category: "data-layer"
+epic: 0
+priority: "high"
+status: "todo"
+
+summary: |
+  Implement CRUD operations for EntityArchetype and EntityInstance nodes in Neo4j.
+  Archetypes are templates (e.g., "Wizard", "Orc"), Instances are specific entities
+  (e.g., "Gandalf", "Thrall"). Supports state_tags for dynamic status tracking
+  and DERIVES_FROM relationships between instances and archetypes.
+
+acceptance_criteria:
+  - "neo4j_create_entity creates EntityArchetype or EntityInstance based on type"
+  - "neo4j_create_entity validates universe_id exists"
+  - "neo4j_create_entity supports all entity_type values (character, faction, location, object, concept, organization)"
+  - "neo4j_create_entity links instance to archetype via DERIVES_FROM when archetype_id provided"
+  - "neo4j_get_entity returns full entity with relationships and state_tags"
+  - "neo4j_update_entity allows updating mutable fields and state_tags"
+  - "neo4j_list_entities supports filtering by universe_id, entity_type, state_tags"
+  - "neo4j_list_entities supports pagination and sorting"
+  - "neo4j_delete_entity prevents deletion if entity has dependent facts/events"
+  - "neo4j_set_state_tags adds/removes state tags atomically"
+  - "All operations enforce CanonKeeper authority for writes"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-1"  # Universes must exist first
+
+blocks:
+  - "DL-3"   # Facts reference entities
+  - "DL-7"   # Memories reference entities
+  - "DL-14"  # Relationships connect entities
+  - "M-12"   # Create Entity UI
+  - "M-13"   # Create Character
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/entities.py"
+      - "packages/data-layer/tests/test_tools/test_entity_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_entity"
+        authority: ["CanonKeeper"]
+        params: ["universe_id", "name", "entity_type", "is_archetype", "archetype_id?", "properties?", "state_tags?"]
+
+      - name: "neo4j_get_entity"
+        authority: ["*"]
+        params: ["entity_id"]
+
+      - name: "neo4j_list_entities"
+        authority: ["*"]
+        params: ["universe_id?", "entity_type?", "is_archetype?", "state_tags?", "limit", "offset"]
+
+      - name: "neo4j_update_entity"
+        authority: ["CanonKeeper"]
+        params: ["entity_id", "name?", "description?", "properties?"]
+
+      - name: "neo4j_delete_entity"
+        authority: ["CanonKeeper"]
+        params: ["entity_id", "force?"]
+
+      - name: "neo4j_set_state_tags"
+        authority: ["CanonKeeper"]
+        params: ["entity_id", "add_tags?", "remove_tags?"]
+
+  patterns:
+    - "Use EntityType enum from schemas/base.py"
+    - "Store properties as JSON map in Neo4j"
+    - "state_tags is a list property on the node"
+
+  notes: |
+    - EntityArchetype vs EntityInstance is distinguished by `is_archetype` boolean
+    - Properties map structure varies by entity_type (see ENTITY_TAXONOMY.md)
+    - Common state_tags: alive, dead, hostile, friendly, wounded, hidden
+
+testing:
+  unit_tests:
+    - "test_create_archetype: is_archetype=true → EntityArchetype node"
+    - "test_create_instance: is_archetype=false → EntityInstance node"
+    - "test_create_instance_with_archetype: archetype_id → DERIVES_FROM edge"
+    - "test_create_entity_all_types: each entity_type works"
+    - "test_list_entities_by_type: filter by entity_type"
+    - "test_list_entities_by_tags: filter by state_tags"
+    - "test_set_state_tags_add: add new tags"
+    - "test_set_state_tags_remove: remove existing tags"
+    - "test_delete_entity_with_facts: has facts → error unless force"
+
+  integration_tests:
+    - "test_entity_lifecycle: create archetype → create instance → update → delete"
+    - "test_entity_hierarchy: archetype with multiple instances"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "neo4j"
+    - "priority-high"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#24-entities"
+    - "docs/ontology/ENTITY_TAXONOMY.md"
+
+  code:
+    - "packages/data-layer/src/monitor_data/schemas/base.py"

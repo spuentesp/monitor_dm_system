@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/Sebas-h/monitor2/wiki
+    about: Check the wiki for documentation and guides
+  - name: Use Cases
+    url: https://github.com/Sebas-h/monitor2/blob/master/docs/USE_CASES.md
+    about: View all use cases and requirements

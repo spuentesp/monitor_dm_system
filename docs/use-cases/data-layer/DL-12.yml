@@ -1,0 +1,112 @@
+# DL-12: MCP Server & Middleware
+# ================================
+
+id: "DL-12"
+title: "MCP Server & Middleware"
+category: "data-layer"
+epic: 0
+priority: "high"
+status: "todo"
+
+summary: |
+  Implement the MCP server with middleware for authentication, authorization,
+  validation, and health monitoring. This is the central infrastructure that
+  exposes all data-layer tools to agents via the Model Context Protocol.
+
+acceptance_criteria:
+  - "MCP server registers all tools with proper schemas"
+  - "MCP server exposes tool list via introspection"
+  - "Auth middleware validates caller identity"
+  - "Auth middleware enforces AUTHORITY_MATRIX for each tool"
+  - "Auth middleware returns 403 for unauthorized calls"
+  - "Validation middleware validates inputs against Pydantic schemas"
+  - "Validation middleware returns 400 for invalid inputs"
+  - "Health endpoint returns server status and DB connectivity"
+  - "Health endpoint includes version info"
+  - "All tool calls are logged with caller, params, result status"
+  - "Error responses follow consistent format"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on: []  # Core infrastructure, no data dependencies
+
+blocks:
+  - "DL-1"   # All tools depend on server/middleware
+  - "DL-2"
+  - "DL-3"
+  - "DL-4"
+  - "DL-5"
+  - "DL-6"
+  - "DL-7"
+  - "DL-8"
+  - "DL-9"
+  - "DL-10"
+  - "DL-11"
+  - "DL-13"
+  - "DL-14"
+  - "SYS-1"  # System health
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/tests/test_middleware/test_auth.py"
+      - "packages/data-layer/tests/test_middleware/test_validation.py"
+      - "packages/data-layer/tests/test_server/test_health.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/server.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+      - "packages/data-layer/src/monitor_data/middleware/validation.py"
+
+  database_operations: {}
+
+  patterns:
+    - "Use @server.tool() decorator for registration"
+    - "AUTHORITY_MATRIX maps tool → allowed callers"
+    - "Pydantic models for input/output validation"
+    - "Consistent error response: {error: bool, code: str, message: str}"
+
+  notes: |
+    - MCP server is the entry point for all data-layer access
+    - Authority is caller-based (CanonKeeper, Narrator, etc.)
+    - Health endpoint for k8s liveness/readiness probes
+    - Consider rate limiting for protection
+
+testing:
+  unit_tests:
+    - "test_tool_registration: all tools registered"
+    - "test_tool_introspection: list returns tool schemas"
+    - "test_auth_valid_caller: authorized → allowed"
+    - "test_auth_invalid_caller: unauthorized → 403"
+    - "test_validation_valid: good input → passes"
+    - "test_validation_invalid: bad input → 400"
+    - "test_health_ok: all DBs up → healthy"
+    - "test_health_degraded: DB down → degraded status"
+    - "test_error_format: errors follow schema"
+
+  integration_tests:
+    - "test_full_call: auth → validate → execute → response"
+    - "test_logging: calls are logged with metadata"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "infrastructure"
+    - "priority-high"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/architecture/MCP_TRANSPORT.md"
+    - "docs/architecture/DATA_LAYER_API.md"
+
+  code:
+    - "packages/data-layer/src/monitor_data/server.py"
+    - "packages/data-layer/src/monitor_data/middleware/"
+
+  external:
+    - "https://modelcontextprotocol.io/docs/"

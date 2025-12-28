@@ -1,0 +1,111 @@
+# DL-5: Manage Proposed Changes
+# ==============================
+
+id: "DL-5"
+title: "Manage Proposed Changes"
+category: "data-layer"
+epic: 0
+priority: "high"
+status: "todo"
+
+summary: |
+  Implement CRUD operations for ProposedChange documents in MongoDB. These are
+  staging documents for canonical changes that CanonKeeper evaluates at scene end.
+  Supports different change types (fact, entity, relationship, state_change, event)
+  and status transitions (pending → accepted/rejected).
+
+acceptance_criteria:
+  - "mongodb_create_proposed_change creates ProposedChange document"
+  - "mongodb_create_proposed_change validates change_type enum"
+  - "mongodb_create_proposed_change stores content payload as flexible JSON"
+  - "mongodb_create_proposed_change links to scene_id or story_id"
+  - "mongodb_get_proposed_change returns full document with evidence"
+  - "mongodb_list_proposed_changes supports filtering by status, change_type, scene_id"
+  - "mongodb_update_proposed_change allows status transitions"
+  - "mongodb_update_proposed_change validates status transitions (pending only → accepted/rejected)"
+  - "mongodb_update_proposed_change records decision metadata (decided_by, decided_at, reason)"
+  - "Accepted changes include reference to created canonical entity"
+  - "All operations track timestamps and proposer identity"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-4"  # Proposed changes reference scenes
+
+blocks:
+  - "P-3"    # Scene canonization uses proposed changes
+  - "CF-3"   # CanonKeeper evaluates proposed changes
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/proposed_changes.py"
+      - "packages/data-layer/tests/test_tools/test_proposed_change_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_create_proposed_change"
+        authority: ["*"]
+        params: ["change_type", "content", "scene_id?", "story_id?", "universe_id", "confidence?", "evidence_refs?", "proposed_by"]
+
+      - name: "mongodb_get_proposed_change"
+        authority: ["*"]
+        params: ["proposal_id"]
+
+      - name: "mongodb_list_proposed_changes"
+        authority: ["*"]
+        params: ["scene_id?", "story_id?", "status?", "change_type?", "limit", "offset"]
+
+      - name: "mongodb_update_proposed_change"
+        authority: ["CanonKeeper"]
+        params: ["proposal_id", "status", "decision_reason?", "canonical_ref?"]
+
+  patterns:
+    - "Use change_type enum: fact, entity, relationship, state_change, event"
+    - "Use status enum: pending, accepted, rejected"
+    - "Content is flexible JSON matching the target change type"
+    - "evidence_refs links to supporting scene turns, facts, or sources"
+
+  notes: |
+    - Any agent can propose changes (authority: *)
+    - Only CanonKeeper can accept/reject (update status)
+    - Accepted changes should include canonical_ref pointing to created node
+    - Consider indexing by scene_id for efficient batch retrieval
+
+testing:
+  unit_tests:
+    - "test_create_proposed_change_fact: change_type=fact → valid doc"
+    - "test_create_proposed_change_entity: change_type=entity → valid doc"
+    - "test_create_proposed_change_relationship: change_type=relationship → valid doc"
+    - "test_list_by_scene: scene_id filter returns relevant proposals"
+    - "test_list_by_status: pending filter works"
+    - "test_update_accept: pending → accepted with canonical_ref"
+    - "test_update_reject: pending → rejected with reason"
+    - "test_update_invalid_transition: accepted → pending → error"
+
+  integration_tests:
+    - "test_proposal_lifecycle: create → list → accept → verify canonical created"
+    - "test_batch_canonization: multiple proposals → batch accept/reject"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "mongodb"
+    - "priority-high"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#27-proposed-changes"
+    - "docs/architecture/AGENT_ORCHESTRATION.md"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/mongodb.py"

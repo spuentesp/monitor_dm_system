@@ -1,0 +1,114 @@
+# DL-9: Manage Binary Assets
+# ===========================
+
+id: "DL-9"
+title: "Manage Binary Assets"
+category: "data-layer"
+epic: 0
+priority: "low"
+status: "todo"
+
+summary: |
+  Implement operations for binary asset storage in MinIO. Supports upload,
+  download, delete, and list operations for files like PDFs, images, and
+  other binary content. Metadata references link to MongoDB documents.
+
+acceptance_criteria:
+  - "minio_upload uploads binary content with content-type and metadata"
+  - "minio_upload generates unique object key if not provided"
+  - "minio_upload returns bucket/key reference for storage"
+  - "minio_get_object retrieves binary content by bucket/key"
+  - "minio_get_object returns content with metadata"
+  - "minio_delete_object removes object from bucket"
+  - "minio_list_objects lists objects with optional prefix filter"
+  - "minio_list_objects supports pagination"
+  - "All operations handle bucket creation if not exists"
+  - "Objects store metadata (source_id, universe_id, uploader)"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on: []  # MinIO is independent storage
+
+blocks:
+  - "DL-8"   # Documents store minio_ref
+  - "I-1"    # Upload source document
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/assets.py"
+      - "packages/data-layer/tests/test_tools/test_minio_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/minio_tools.py"
+      - "packages/data-layer/src/monitor_data/db/minio.py"
+
+  database_operations:
+    minio:
+      - name: "minio_upload"
+        authority: ["*"]
+        params: ["bucket", "key?", "content", "content_type", "metadata?"]
+
+      - name: "minio_get_object"
+        authority: ["*"]
+        params: ["bucket", "key"]
+
+      - name: "minio_delete_object"
+        authority: ["*"]
+        params: ["bucket", "key"]
+
+      - name: "minio_list_objects"
+        authority: ["*"]
+        params: ["bucket", "prefix?", "limit", "offset"]
+
+      - name: "minio_get_presigned_url"
+        authority: ["*"]
+        params: ["bucket", "key", "expires_in?"]
+
+  patterns:
+    - "Use bucket per content type (documents, images, etc.)"
+    - "Store metadata in object tags"
+    - "Generate UUID-based keys for uniqueness"
+    - "Return minio_ref object {bucket, key} for storage in MongoDB"
+
+  notes: |
+    - MinIO provides S3-compatible object storage
+    - Consider versioning for document updates
+    - Presigned URLs for secure external access
+    - Metadata should link to source_id/universe_id
+
+testing:
+  unit_tests:
+    - "test_upload_success: valid content → object stored"
+    - "test_upload_auto_key: no key → generates UUID key"
+    - "test_get_object: valid key → returns content"
+    - "test_get_object_not_found: bad key → error"
+    - "test_delete_object: valid key → object removed"
+    - "test_list_objects: returns objects in bucket"
+    - "test_list_objects_prefix: prefix filter works"
+    - "test_presigned_url: generates valid URL"
+
+  integration_tests:
+    - "test_upload_download: upload → get → verify content matches"
+    - "test_lifecycle: upload → list → delete → verify removed"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "minio"
+    - "priority-low"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/architecture/DATABASE_INTEGRATION.md"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/minio.py"
+
+  external:
+    - "https://min.io/docs/minio/linux/reference/minio-mc.html"

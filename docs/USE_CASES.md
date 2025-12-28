@@ -16,7 +16,7 @@
 | **Autonomous GM** | Run full solo RPG experiences with turn-by-turn narration |
 | **GM Assistant** | Support human-led campaigns by recording, tracking, and analyzing |
 
-See [SYSTEM.md](../SYSTEM.md) for core objectives (O1-O5) and epics (EPIC 1-8).
+See [SYSTEM.md](../SYSTEM.md) for core objectives (O1-O5) and epics (EPIC 0-9).
 
 ---
 

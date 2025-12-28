@@ -254,14 +254,18 @@ The system does **NOT**:
 
 | Category | Prefix | Count | Description |
 |----------|--------|-------|-------------|
-| Play | `P-` | 12 | Core gameplay loop |
-| Manage | `M-` | 30 | World administration |
-| Query | `Q-` | 8 | Canon exploration |
-| Ingest | `I-` | 5 | Knowledge import |
-| System | `SYS-` | 8 | App lifecycle |
-| Co-Pilot | `CF-` | 5 | Human GM assistant |
-| Story | `ST-` | 5 | Planning & meta-narrative |
-| Rules | `RS-` | 4 | Game system definition |
+| **DATA LAYER** | `DL-` | 14 | Canonical data access and MCP interfaces |
+| **PLAY** | `P-` | 12 | Core gameplay loop — narration, scenes, actions |
+| **MANAGE** | `M-` | 30 | World administration — CRUD for all entities |
+| **QUERY** | `Q-` | 9 | Canon exploration — search, browse, ask |
+| **INGEST** | `I-` | 6 | Knowledge import — documents, extraction |
+| **SYSTEM** | `SYS-` | 10 | App lifecycle, config, session |
+| **CO-PILOT** | `CF-` | 5 | Human GM assistant features |
+| **STORY** | `ST-` | 5 | Planning & meta-narrative tools |
+| **RULES** | `RS-` | 4 | Game system definition — stats, skills, mechanics |
+| **DOCS** | `DOC-` | 1 | Documentation publishing & governance |
+
+**Total: 96 use cases**
 
 ### Epic Mapping
 
