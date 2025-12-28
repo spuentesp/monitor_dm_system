@@ -29,8 +29,20 @@ from monitor_data.tools.neo4j_tools import (
     neo4j_ensure_omniverse,
 )
 
-# from monitor_data.tools.mongodb_tools import *
-# from monitor_data.tools.qdrant_tools import *
+from monitor_data.tools.mongodb_tools import (
+    mongodb_create_memory,
+    mongodb_get_memory,
+    mongodb_list_memories,
+    mongodb_update_memory,
+    mongodb_delete_memory,
+)
+
+from monitor_data.tools.qdrant_tools import (
+    qdrant_embed_memory,
+    qdrant_search_memories,
+    qdrant_delete_memory,
+)
+
 # from monitor_data.tools.composite_tools import *
 
 __all__ = [
@@ -43,4 +55,14 @@ __all__ = [
     "neo4j_update_universe",
     "neo4j_delete_universe",
     "neo4j_ensure_omniverse",
+    # MongoDB Memory tools (DL-7)
+    "mongodb_create_memory",
+    "mongodb_get_memory",
+    "mongodb_list_memories",
+    "mongodb_update_memory",
+    "mongodb_delete_memory",
+    # Qdrant Memory tools (DL-7)
+    "qdrant_embed_memory",
+    "qdrant_search_memories",
+    "qdrant_delete_memory",
 ]

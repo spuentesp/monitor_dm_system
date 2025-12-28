@@ -46,11 +46,20 @@ from monitor_data.schemas.universe import (
     MultiverseUpdate,
     MultiverseResponse,
 )
+from monitor_data.schemas.memories import (
+    MemoryCreate,
+    MemoryUpdate,
+    MemoryResponse,
+    MemoryFilter,
+    MemoryListResponse,
+    MemorySearchQuery,
+    MemorySearchResult,
+    MemorySearchResponse,
+)
 
 # from monitor_data.schemas.entities import *
 # from monitor_data.schemas.facts import *
 # from monitor_data.schemas.scenes import *
-# from monitor_data.schemas.memories import *
 # from monitor_data.schemas.sources import *
 # from monitor_data.schemas.queries import *
 # from monitor_data.schemas.composite import *
@@ -79,4 +88,13 @@ __all__ = [
     "MultiverseCreate",
     "MultiverseUpdate",
     "MultiverseResponse",
+    # Memory schemas (DL-7)
+    "MemoryCreate",
+    "MemoryUpdate",
+    "MemoryResponse",
+    "MemoryFilter",
+    "MemoryListResponse",
+    "MemorySearchQuery",
+    "MemorySearchResult",
+    "MemorySearchResponse",
 ]

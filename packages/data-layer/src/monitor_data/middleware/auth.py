@@ -112,12 +112,13 @@ AUTHORITY_MATRIX = {
     "mongodb_create_resolution": ["Resolver"],
     "mongodb_get_resolution": ["*"],
     # =========================================================================
-    # MONGODB OPERATIONS - Memories
+    # MONGODB OPERATIONS - Memories (DL-7)
     # =========================================================================
-    "mongodb_create_memory": ["MemoryManager"],
-    "mongodb_get_memories": ["*"],
-    "mongodb_update_memory": ["MemoryManager"],
-    "mongodb_search_memories": ["*"],
+    "mongodb_create_memory": ["*"],
+    "mongodb_get_memory": ["*"],
+    "mongodb_list_memories": ["*"],
+    "mongodb_update_memory": ["*"],
+    "mongodb_delete_memory": ["*"],
     # =========================================================================
     # MONGODB OPERATIONS - Character Sheets
     # =========================================================================
@@ -143,13 +144,14 @@ AUTHORITY_MATRIX = {
     "mongodb_get_story_outline": ["*"],
     "mongodb_update_story_outline": ["Orchestrator"],
     # =========================================================================
-    # QDRANT OPERATIONS - Vectors
+    # QDRANT OPERATIONS - Vectors (DL-7, DL-10)
     # =========================================================================
     "qdrant_embed_scene": ["Indexer"],
-    "qdrant_embed_memory": ["Indexer"],
+    "qdrant_embed_memory": ["*"],
     "qdrant_embed_snippet": ["Indexer"],
     "qdrant_search": ["*"],
     "qdrant_search_memories": ["*"],
+    "qdrant_delete_memory": ["*"],
     "qdrant_delete_vectors": ["Indexer"],
     # =========================================================================
     # COMPOSITE OPERATIONS
