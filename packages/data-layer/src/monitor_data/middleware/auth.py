@@ -35,13 +35,13 @@ AUTHORITY_MATRIX = {
     "neo4j_delete_universe": ["CanonKeeper"],
     "neo4j_ensure_omniverse": ["CanonKeeper"],
     # =========================================================================
-    # NEO4J OPERATIONS - Entities
+    # NEO4J OPERATIONS - Entities (DL-2)
     # =========================================================================
-    "neo4j_create_entity_archetype": ["CanonKeeper"],
-    "neo4j_create_entity_instance": ["CanonKeeper"],
+    "neo4j_create_entity": ["CanonKeeper"],
     "neo4j_get_entity": ["*"],
     "neo4j_list_entities": ["*"],
     "neo4j_update_entity": ["CanonKeeper"],
+    "neo4j_delete_entity": ["CanonKeeper"],
     "neo4j_set_state_tags": ["CanonKeeper"],
     # =========================================================================
     # NEO4J OPERATIONS - Relationships
