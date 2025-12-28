@@ -489,7 +489,7 @@ def neo4j_delete_universe(universe_id: UUID, force: bool = False) -> Dict[str, A
         // Collect direct dependencies (sources, axioms)
         OPTIONAL MATCH (u)-[:HAS_SOURCE]->(source:Source)
         OPTIONAL MATCH (u)-[:HAS_AXIOM]->(axiom:Axiom)
-        // Collect stories and their nested content (up to 3 levels: Story -> Story -> Scene)
+        // Collect stories and their nested content (up to 2 levels of nesting via PARENT_STORY)
         OPTIONAL MATCH (u)-[:HAS_STORY]->(story:Story)
         OPTIONAL MATCH (story)-[:PARENT_STORY*0..2]->(nested_story:Story)
         OPTIONAL MATCH (story)-[:HAS_SCENE]->(scene:Scene)
@@ -498,6 +498,9 @@ def neo4j_delete_universe(universe_id: UUID, force: bool = False) -> Dict[str, A
         OPTIONAL MATCH (entity_in)-[:IN_UNIVERSE]->(u)
         WHERE entity_in:EntityArchetype OR entity_in:EntityInstance
         // Collect entities by universe_id property for backward compatibility
+        // NOTE: This requires an index on universe_id for optimal performance
+        // CREATE INDEX entity_universe_id IF NOT EXISTS FOR (e:EntityArchetype) ON (e.universe_id)
+        // CREATE INDEX entity_instance_universe_id IF NOT EXISTS FOR (e:EntityInstance) ON (e.universe_id)
         OPTIONAL MATCH (entity_prop:EntityArchetype)
         WHERE entity_prop.universe_id = $id
         OPTIONAL MATCH (entity_inst:EntityInstance)
