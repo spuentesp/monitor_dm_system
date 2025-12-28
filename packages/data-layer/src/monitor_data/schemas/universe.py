@@ -31,7 +31,6 @@ class MultiverseCreate(BaseModel):
         min_length=1, max_length=200, description="e.g., 'D&D 5e', 'Marvel 616'"
     )
     description: str = Field(min_length=1, max_length=2000)
-    authority: Authority = Field(default=Authority.SYSTEM)
 
 
 class MultiverseUpdate(BaseModel):

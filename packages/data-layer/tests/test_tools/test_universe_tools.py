@@ -365,6 +365,33 @@ def test_delete_universe_with_force(
 
 
 @patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
+def test_delete_universe_with_force_no_dependencies(
+    mock_get_client: Mock,
+    mock_neo4j_client: Mock,
+    universe_data: Dict[str, Any],
+):
+    """Test universe deletion with force=True when there are no dependencies.
+    
+    This verifies that the cascade delete query correctly handles the edge case
+    where the universe has no dependent data (empty dependents list).
+    """
+    mock_get_client.return_value = mock_neo4j_client
+
+    # Mock universe exists
+    mock_neo4j_client.execute_read.return_value = [{"u": universe_data}]
+
+    # Mock cascade deletion with only the universe itself (count=1)
+    mock_neo4j_client.execute_write.return_value = [{"deleted_count": 1}]
+
+    universe_id = UUID(universe_data["id"])
+    result = neo4j_delete_universe(universe_id, force=True)
+
+    assert result["deleted"] is True
+    assert result["force"] is True
+    assert result["deleted_count"] == 1  # Only the universe itself
+
+
+@patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
 def test_delete_universe_not_found(mock_get_client: Mock, mock_neo4j_client: Mock):
     """Test deleting a non-existent universe."""
     mock_get_client.return_value = mock_neo4j_client

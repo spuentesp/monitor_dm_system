@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 # =============================================================================

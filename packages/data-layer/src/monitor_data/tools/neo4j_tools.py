@@ -501,15 +501,11 @@ def neo4j_delete_universe(universe_id: UUID, force: bool = False) -> Dict[str, A
              [x IN collect(DISTINCT scene) WHERE x IS NOT NULL] as scenes,
              [x IN collect(DISTINCT thread) WHERE x IS NOT NULL] as threads,
              [x IN collect(DISTINCT entity) WHERE x IS NOT NULL] as entities
-        // Flatten into single list
-        WITH u, sources + axioms + stories + scenes + threads + entities AS dependents
-        UNWIND dependents AS dependent
-        // Final safety check: only delete expected node types
-        WITH u, dependent
-        WHERE dependent:Source OR dependent:Axiom OR dependent:Story OR 
-              dependent:Scene OR dependent:PlotThread OR 
-              dependent:EntityArchetype OR dependent:EntityInstance
-        WITH collect(DISTINCT dependent) + u AS nodes
+        // Flatten into single list and filter to expected node types, always include universe
+        WITH u, [x IN sources + axioms + stories + scenes + threads + entities
+                 WHERE x:Source OR x:Axiom OR x:Story OR 
+                       x:Scene OR x:PlotThread OR 
+                       x:EntityArchetype OR x:EntityInstance] + [u] AS nodes
         UNWIND nodes AS n
         DETACH DELETE n
         RETURN count(DISTINCT n) as deleted_count
