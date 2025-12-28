@@ -101,6 +101,13 @@ python -m services.agents.canonkeeper
 
 - Copy `env.example` to `.env` and fill in your own values; reuse the same file for Docker by copying it to `infra/.env`.
 - To publish the values to GitHub Actions secrets/variables, run `scripts/push_env_to_github.sh env.example` (or pass your `.env`) — requires authenticated `gh` CLI.
+- To audit drift between `env.example` and GitHub Actions, run `scripts/check_env_drift.sh env.example`; it reports missing/extra keys without printing values.
+
+### GitHub automation quick wins
+
+- PR auto-labeling and test reminder: runs in CI via `.github/workflows/auto-label.yml`, or manually with `scripts/auto_label_and_comment.sh <pr#>`.
+- Weekly health snapshot: `scripts/weekly_health_report.sh --days 7 [--discussion <category>|--issue <number>]` to print or post merged PRs, stale issues, and failing runs.
+- Rerun failed workflows: `scripts/rerun_failed_workflow.sh --pr <number> [--comment]` (or `--branch <name>`) to restart the latest failed run.
 
 ---
 
