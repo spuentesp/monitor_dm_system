@@ -30,6 +30,14 @@ from monitor_data.schemas.entities import (
     EntityListResponse,
     StateTagsUpdate,
 )
+from monitor_data.schemas.stories import (
+    StoryCreate,
+    StoryUpdate,
+    StoryResponse,
+    StoryFilter,
+    StoryListResponse,
+)
+from monitor_data.schemas.base import StoryStatus
 
 
 # =============================================================================
@@ -1090,4 +1098,362 @@ def neo4j_set_state_tags(
         authority=e["authority"],
         created_at=e["created_at"],
         updated_at=e.get("updated_at"),
+    )
+
+
+# =============================================================================
+# STORY OPERATIONS
+# =============================================================================
+
+
+def neo4j_create_story(params: StoryCreate) -> StoryResponse:
+    """
+    Create a new Story node.
+
+    Authority: CanonKeeper only
+    Use Case: DL-4
+
+    Args:
+        params: Story creation parameters
+
+    Returns:
+        StoryResponse with created story data
+
+    Raises:
+        ValueError: If universe_id doesn't exist or pc_ids reference invalid entities
+    """
+    client = get_neo4j_client()
+
+    # Verify universe exists
+    verify_query = """
+    MATCH (u:Universe {id: $universe_id})
+    RETURN u.id as id
+    """
+    result = client.execute_read(
+        verify_query, {"universe_id": str(params.universe_id)}
+    )
+    if not result:
+        raise ValueError(f"Universe {params.universe_id} not found")
+
+    # Verify all PC IDs exist if provided
+    if params.pc_ids:
+        verify_pcs_query = """
+        MATCH (e:Entity)
+        WHERE e.id IN $pc_ids
+        RETURN collect(e.id) as found_ids
+        """
+        result = client.execute_read(
+            verify_pcs_query, {"pc_ids": [str(pc_id) for pc_id in params.pc_ids]}
+        )
+        found_ids = set(result[0]["found_ids"]) if result else set()
+        expected_ids = {str(pc_id) for pc_id in params.pc_ids}
+        missing_ids = expected_ids - found_ids
+        if missing_ids:
+            raise ValueError(f"PC entities not found: {missing_ids}")
+
+    # Create story
+    story_id = uuid4()
+    created_at = datetime.now(timezone.utc)
+    
+    create_query = """
+    MATCH (u:Universe {id: $universe_id})
+    CREATE (s:Story {
+        id: $id,
+        universe_id: $universe_id,
+        title: $title,
+        story_type: $story_type,
+        theme: $theme,
+        premise: $premise,
+        status: $status,
+        start_time_ref: datetime($start_time_ref),
+        created_at: datetime($created_at)
+    })
+    CREATE (u)-[:HAS_STORY]->(s)
+    RETURN s
+    """
+    
+    create_params = {
+        "id": str(story_id),
+        "universe_id": str(params.universe_id),
+        "title": params.title,
+        "story_type": params.story_type.value,
+        "theme": params.theme,
+        "premise": params.premise,
+        "status": StoryStatus.PLANNED.value,
+        "start_time_ref": params.start_time_ref.isoformat() if params.start_time_ref else None,
+        "created_at": created_at.isoformat(),
+    }
+    
+    client.execute_write(create_query, create_params)
+
+    # Create PARTICIPATES edges for PCs
+    if params.pc_ids:
+        participates_query = """
+        MATCH (s:Story {id: $story_id})
+        MATCH (e:Entity)
+        WHERE e.id IN $pc_ids
+        CREATE (e)-[:PARTICIPATES]->(s)
+        """
+        client.execute_write(
+            participates_query,
+            {
+                "story_id": str(story_id),
+                "pc_ids": [str(pc_id) for pc_id in params.pc_ids],
+            },
+        )
+
+    return StoryResponse(
+        id=story_id,
+        universe_id=params.universe_id,
+        title=params.title,
+        story_type=params.story_type,
+        theme=params.theme,
+        premise=params.premise,
+        status=StoryStatus.PLANNED,
+        start_time_ref=params.start_time_ref,
+        end_time_ref=None,
+        created_at=created_at,
+        completed_at=None,
+        scene_count=0,
+        participant_ids=params.pc_ids,
+    )
+
+
+def neo4j_get_story(story_id: UUID) -> Optional[StoryResponse]:
+    """
+    Get a Story by ID with metadata and scene count.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-4
+
+    Args:
+        story_id: UUID of the story
+
+    Returns:
+        StoryResponse if found, None otherwise
+    """
+    client = get_neo4j_client()
+
+    query = """
+    MATCH (s:Story {id: $id})
+    OPTIONAL MATCH (s)-[:HAS_SCENE]->(scene:Scene)
+    OPTIONAL MATCH (e:Entity)-[:PARTICIPATES]->(s)
+    RETURN s, 
+           count(DISTINCT scene) as scene_count,
+           collect(DISTINCT e.id) as participant_ids
+    """
+    result = client.execute_read(query, {"id": str(story_id)})
+
+    if not result:
+        return None
+
+    s = result[0]["s"]
+    scene_count = result[0].get("scene_count", 0)
+    participant_ids = result[0].get("participant_ids", [])
+
+    return StoryResponse(
+        id=UUID(s["id"]),
+        universe_id=UUID(s["universe_id"]),
+        title=s["title"],
+        story_type=s["story_type"],
+        theme=s.get("theme"),
+        premise=s.get("premise"),
+        status=s["status"],
+        start_time_ref=s.get("start_time_ref"),
+        end_time_ref=s.get("end_time_ref"),
+        created_at=s["created_at"],
+        completed_at=s.get("completed_at"),
+        scene_count=scene_count,
+        participant_ids=[UUID(pid) for pid in participant_ids if pid],
+    )
+
+
+def neo4j_update_story(story_id: UUID, params: StoryUpdate) -> StoryResponse:
+    """
+    Update a Story.
+
+    Authority: CanonKeeper only
+    Use Case: DL-4
+
+    Args:
+        story_id: UUID of the story to update
+        params: Fields to update
+
+    Returns:
+        StoryResponse with updated story data
+
+    Raises:
+        ValueError: If story not found
+    """
+    client = get_neo4j_client()
+
+    # Verify story exists
+    verify_query = """
+    MATCH (s:Story {id: $id})
+    RETURN s.id as id
+    """
+    result = client.execute_read(verify_query, {"id": str(story_id)})
+    if not result:
+        raise ValueError(f"Story {story_id} not found")
+
+    # Build update query dynamically
+    update_parts = []
+    update_params = {"id": str(story_id), "updated_at": datetime.now(timezone.utc).isoformat()}
+
+    if params.title is not None:
+        update_parts.append("s.title = $title")
+        update_params["title"] = params.title
+
+    if params.status is not None:
+        update_parts.append("s.status = $status")
+        update_params["status"] = params.status.value
+        # If completing the story, set completed_at
+        if params.status == StoryStatus.COMPLETED:
+            update_parts.append("s.completed_at = datetime($completed_at)")
+            update_params["completed_at"] = update_params["updated_at"]
+
+    if params.theme is not None:
+        update_parts.append("s.theme = $theme")
+        update_params["theme"] = params.theme
+
+    if params.premise is not None:
+        update_parts.append("s.premise = $premise")
+        update_params["premise"] = params.premise
+
+    if params.end_time_ref is not None:
+        update_parts.append("s.end_time_ref = datetime($end_time_ref)")
+        update_params["end_time_ref"] = params.end_time_ref.isoformat()
+
+    if not update_parts:
+        # No changes, return current state
+        result = neo4j_get_story(story_id)
+        if result is None:
+            raise ValueError(f"Story {story_id} not found after verification")
+        return result
+
+    update_query = f"""
+    MATCH (s:Story {{id: $id}})
+    SET {', '.join(update_parts)}
+    OPTIONAL MATCH (s)-[:HAS_SCENE]->(scene:Scene)
+    OPTIONAL MATCH (e:Entity)-[:PARTICIPATES]->(s)
+    RETURN s,
+           count(DISTINCT scene) as scene_count,
+           collect(DISTINCT e.id) as participant_ids
+    """
+
+    result = client.execute_write(update_query, update_params)
+    s = result[0]["s"]
+    scene_count = result[0].get("scene_count", 0)
+    participant_ids = result[0].get("participant_ids", [])
+
+    return StoryResponse(
+        id=UUID(s["id"]),
+        universe_id=UUID(s["universe_id"]),
+        title=s["title"],
+        story_type=s["story_type"],
+        theme=s.get("theme"),
+        premise=s.get("premise"),
+        status=s["status"],
+        start_time_ref=s.get("start_time_ref"),
+        end_time_ref=s.get("end_time_ref"),
+        created_at=s["created_at"],
+        completed_at=s.get("completed_at"),
+        scene_count=scene_count,
+        participant_ids=[UUID(pid) for pid in participant_ids if pid],
+    )
+
+
+def neo4j_list_stories(filters: StoryFilter) -> StoryListResponse:
+    """
+    List stories with optional filtering.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-4
+
+    Args:
+        filters: Filter and pagination parameters
+
+    Returns:
+        StoryListResponse with list of stories and pagination info
+    """
+    client = get_neo4j_client()
+
+    # Build WHERE clause
+    where_clauses = []
+    query_params: Dict[str, Any] = {}
+
+    if filters.universe_id is not None:
+        where_clauses.append("s.universe_id = $universe_id")
+        query_params["universe_id"] = str(filters.universe_id)
+
+    if filters.status is not None:
+        where_clauses.append("s.status = $status")
+        query_params["status"] = filters.status.value
+
+    if filters.story_type is not None:
+        where_clauses.append("s.story_type = $story_type")
+        query_params["story_type"] = filters.story_type.value
+
+    where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+    # Count total
+    count_query = f"""
+    MATCH (s:Story)
+    {where_clause}
+    RETURN count(s) as total
+    """
+    count_result = client.execute_read(count_query, query_params)
+    total = count_result[0]["total"] if count_result else 0
+
+    # Get stories
+    query_params["skip"] = filters.offset
+    query_params["limit"] = filters.limit
+
+    # Determine sort order
+    sort_field = "s.created_at" if filters.sort_by == "created_at" else "s.title"
+    sort_order = "ASC" if filters.sort_order == "asc" else "DESC"
+
+    list_query = f"""
+    MATCH (s:Story)
+    {where_clause}
+    OPTIONAL MATCH (s)-[:HAS_SCENE]->(scene:Scene)
+    OPTIONAL MATCH (e:Entity)-[:PARTICIPATES]->(s)
+    WITH s, count(DISTINCT scene) as scene_count, collect(DISTINCT e.id) as participant_ids
+    ORDER BY {sort_field} {sort_order}
+    SKIP $skip
+    LIMIT $limit
+    RETURN s, scene_count, participant_ids
+    """
+
+    result = client.execute_read(list_query, query_params)
+
+    stories = []
+    for record in result:
+        s = record["s"]
+        scene_count = record.get("scene_count", 0)
+        participant_ids = record.get("participant_ids", [])
+        
+        stories.append(
+            StoryResponse(
+                id=UUID(s["id"]),
+                universe_id=UUID(s["universe_id"]),
+                title=s["title"],
+                story_type=s["story_type"],
+                theme=s.get("theme"),
+                premise=s.get("premise"),
+                status=s["status"],
+                start_time_ref=s.get("start_time_ref"),
+                end_time_ref=s.get("end_time_ref"),
+                created_at=s["created_at"],
+                completed_at=s.get("completed_at"),
+                scene_count=scene_count,
+                participant_ids=[UUID(pid) for pid in participant_ids if pid],
+            )
+        )
+
+    return StoryListResponse(
+        stories=stories,
+        total=total,
+        limit=filters.limit,
+        offset=filters.offset,
     )
