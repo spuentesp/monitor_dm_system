@@ -30,7 +30,7 @@ class FactType(str, Enum):
     STATE = "state"  # "Door is broken", "NPC is hostile"
     RELATIONSHIP = "relationship"  # "PC is allied with NPC"
     ATTRIBUTE = "attribute"  # "PC has 5 HP"
-    EVENT = "event"  # "PC took 5 damage"
+    OCCURRENCE = "occurrence"  # "PC took 5 damage" (distinct from Event entity)
 
 
 # =============================================================================
@@ -59,7 +59,8 @@ class FactCreate(BaseModel):
         default=None, description="Source IDs supporting this fact"
     )
     snippet_ids: Optional[List[str]] = Field(
-        default=None, description="Snippet IDs supporting this fact"
+        default=None, 
+        description="Snippet IDs supporting this fact (stored for reference, not as Neo4j edges)"
     )
     scene_ids: Optional[List[UUID]] = Field(
         default=None, description="Scene IDs supporting this fact"
@@ -160,7 +161,7 @@ class EventCreate(BaseModel):
         default=None, description="Source IDs supporting this event"
     )
     
-    # Timeline ordering (for establishing NEXT, BEFORE, AFTER edges)
+    # Timeline ordering (for establishing BEFORE and AFTER edges)
     timeline_after: Optional[List[UUID]] = Field(
         default=None, description="Event IDs this event comes after"
     )

@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Any
 from uuid import UUID, uuid4
 
 from monitor_data.db.neo4j import get_neo4j_client
+from monitor_data.schemas.base import CanonLevel
 from monitor_data.schemas.universe import (
     UniverseCreate,
     UniverseUpdate,
@@ -641,6 +642,38 @@ def neo4j_create_fact(params: FactCreate) -> FactResponse:
             if not result:
                 raise ValueError(f"Entity {entity_id} not found")
 
+    # Verify source references if provided
+    if params.source_ids:
+        source_check_query = """
+        MATCH (s:Source {id: $source_id})
+        RETURN s.id as id
+        """
+        for source_id in params.source_ids:
+            result = client.execute_read(source_check_query, {"source_id": str(source_id)})
+            if not result:
+                raise ValueError(f"Source {source_id} not found")
+
+    # Verify scene references if provided
+    if params.scene_ids:
+        scene_check_query = """
+        MATCH (sc:Scene {id: $scene_id})
+        RETURN sc.id as id
+        """
+        for scene_id in params.scene_ids:
+            result = client.execute_read(scene_check_query, {"scene_id": str(scene_id)})
+            if not result:
+                raise ValueError(f"Scene {scene_id} not found")
+
+    # Verify replaces reference if provided
+    if params.replaces:
+        replaces_check_query = """
+        MATCH (old:Fact {id: $replaces_id})
+        RETURN old.id as id
+        """
+        result = client.execute_read(replaces_check_query, {"replaces_id": str(params.replaces)})
+        if not result:
+            raise ValueError(f"Fact to replace {params.replaces} not found")
+
     # Create fact node
     fact_id = uuid4()
     created_at = datetime.now(timezone.utc)
@@ -729,11 +762,15 @@ def neo4j_create_fact(params: FactCreate) -> FactResponse:
         MATCH (f:Fact {id: $fact_id})
         MATCH (old:Fact {id: $replaces_id})
         CREATE (f)-[:REPLACES]->(old)
-        SET old.canon_level = 'retconned'
+        SET old.canon_level = $retconned_level
         """
         client.execute_write(
             replaces_edge_query,
-            {"fact_id": str(fact_id), "replaces_id": str(params.replaces)},
+            {
+                "fact_id": str(fact_id),
+                "replaces_id": str(params.replaces),
+                "retconned_level": CanonLevel.RETCONNED.value,
+            },
         )
 
     # Retrieve with relationships
@@ -834,12 +871,15 @@ def neo4j_list_facts(filters: Optional[FactFilter] = None) -> List[FactResponse]
         where_clauses.append("f.canon_level = $canon_level")
         params["canon_level"] = filters.canon_level.value
 
-    where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-
     # Handle entity filter separately
     if filters.entity_id:
+        # When filtering by entity, we need to match the INVOLVES relationship
+        # and combine it with other filters using AND
+        where_clauses.insert(0, "e.id = $entity_id")
+        where_clause = "WHERE " + " AND ".join(where_clauses)
+        
         query = f"""
-        MATCH (f:Fact)-[:INVOLVES]->(e {{id: $entity_id}})
+        MATCH (f:Fact)-[:INVOLVES]->(e)
         {where_clause}
         OPTIONAL MATCH (f)-[:INVOLVES]->(e2)
         WHERE e2:EntityArchetype OR e2:EntityInstance
@@ -855,6 +895,8 @@ def neo4j_list_facts(filters: Optional[FactFilter] = None) -> List[FactResponse]
         """
         params["entity_id"] = str(filters.entity_id)
     else:
+        where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+        
         query = f"""
         MATCH (f:Fact)
         {where_clause}
@@ -1002,7 +1044,7 @@ def neo4j_delete_fact(fact_id: UUID, force: bool = False) -> Dict[str, Any]:
     canon_level = result[0]["canon_level"]
 
     # Prevent deletion of canon facts unless force=True
-    if canon_level == "canon" and not force:
+    if canon_level == CanonLevel.CANON.value and not force:
         raise ValueError(
             f"Cannot delete canon fact {fact_id} without force=True. "
             "Canon facts must be explicitly retconned before deletion."
@@ -1076,6 +1118,50 @@ def neo4j_create_event(params: EventCreate) -> EventResponse:
             result = client.execute_read(entity_check_query, {"entity_id": str(entity_id)})
             if not result:
                 raise ValueError(f"Entity {entity_id} not found")
+
+    # Verify source references if provided
+    if params.source_ids:
+        source_check_query = """
+        MATCH (s:Source {id: $source_id})
+        RETURN s.id as id
+        """
+        for source_id in params.source_ids:
+            result = client.execute_read(source_check_query, {"source_id": str(source_id)})
+            if not result:
+                raise ValueError(f"Source {source_id} not found")
+
+    # Verify timeline_after event references if provided
+    if params.timeline_after:
+        event_check_query = """
+        MATCH (ev:Event {id: $event_id})
+        RETURN ev.id as id
+        """
+        for after_id in params.timeline_after:
+            result = client.execute_read(event_check_query, {"event_id": str(after_id)})
+            if not result:
+                raise ValueError(f"Timeline after event {after_id} not found")
+
+    # Verify timeline_before event references if provided
+    if params.timeline_before:
+        event_check_query = """
+        MATCH (ev:Event {id: $event_id})
+        RETURN ev.id as id
+        """
+        for before_id in params.timeline_before:
+            result = client.execute_read(event_check_query, {"event_id": str(before_id)})
+            if not result:
+                raise ValueError(f"Timeline before event {before_id} not found")
+
+    # Verify causes event references if provided
+    if params.causes:
+        event_check_query = """
+        MATCH (ev:Event {id: $event_id})
+        RETURN ev.id as id
+        """
+        for caused_id in params.causes:
+            result = client.execute_read(event_check_query, {"event_id": str(caused_id)})
+            if not result:
+                raise ValueError(f"Caused event {caused_id} not found")
 
     # Create event node
     event_id = uuid4()
@@ -1299,12 +1385,15 @@ def neo4j_list_events(filters: Optional[EventFilter] = None) -> List[EventRespon
         where_clauses.append("ev.start_time <= datetime($start_before)")
         params["start_before"] = filters.start_before.isoformat()
 
-    where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-
     # Handle entity filter separately
     if filters.entity_id:
+        # When filtering by entity, we need to match the INVOLVES relationship
+        # and combine it with other filters using AND
+        where_clauses.insert(0, "e.id = $entity_id")
+        where_clause = "WHERE " + " AND ".join(where_clauses)
+        
         query = f"""
-        MATCH (ev:Event)-[:INVOLVES]->(e {{id: $entity_id}})
+        MATCH (ev:Event)-[:INVOLVES]->(e)
         {where_clause}
         OPTIONAL MATCH (ev)-[:INVOLVES]->(e2)
         WHERE e2:EntityArchetype OR e2:EntityInstance
@@ -1324,6 +1413,8 @@ def neo4j_list_events(filters: Optional[EventFilter] = None) -> List[EventRespon
         """
         params["entity_id"] = str(filters.entity_id)
     else:
+        where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+        
         query = f"""
         MATCH (ev:Event)
         {where_clause}
