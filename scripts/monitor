@@ -1,0 +1,481 @@
+#!/usr/bin/env python3
+"""
+MONITOR Project Management CLI
+
+Unified tool for managing GitHub Project, Issues, and Dependencies.
+
+Usage:
+    monitor status                    # Show project status
+    monitor status --ready            # Show ready-to-work items
+    monitor status --blocked          # Show blocked items
+    monitor status --in-progress      # Show in-progress items
+
+    monitor sync                      # Sync project from current state
+    monitor sync --dry-run            # Preview sync changes
+
+    monitor deps                      # Show dependency graph
+    monitor deps --format mermaid     # Output as mermaid diagram
+    monitor deps DL-5                 # Check specific use case
+
+    monitor labels                    # Sync blocked/ready labels
+
+    monitor check                     # Run all checks (deps, labels, status)
+
+    monitor pr <number>               # Show PR status and linked issue
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+# Add scripts to path for imports
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent
+USE_CASES_DIR = ROOT / "docs" / "use-cases"
+
+try:
+    import yaml
+except ImportError:
+    print("Error: PyYAML required. Run: pip install pyyaml", file=sys.stderr)
+    sys.exit(1)
+
+
+# =============================================================================
+# UTILITIES
+# =============================================================================
+
+def run_gh(args: list[str], check: bool = False) -> subprocess.CompletedProcess:
+    """Run gh CLI command."""
+    result = subprocess.run(["gh"] + args, capture_output=True, text=True)
+    if check and result.returncode != 0:
+        print(f"Error: {result.stderr}", file=sys.stderr)
+    return result
+
+
+def load_use_cases(category: str = None) -> dict[str, dict[str, Any]]:
+    """Load all use case YAML files."""
+    use_cases = {}
+    for category_dir in USE_CASES_DIR.iterdir():
+        if not category_dir.is_dir():
+            continue
+        if category and category_dir.name != category:
+            continue
+        for yml_file in category_dir.glob("*.yml"):
+            if yml_file.name.startswith("_"):
+                continue
+            try:
+                with open(yml_file) as f:
+                    data = yaml.safe_load(f)
+                if data and "id" in data:
+                    use_cases[data["id"]] = {
+                        "id": data["id"],
+                        "title": data.get("title", ""),
+                        "category": data.get("category", ""),
+                        "priority": data.get("priority", "medium"),
+                        "depends_on": data.get("depends_on", []),
+                        "blocks": data.get("blocks", []),
+                    }
+            except (yaml.YAMLError, OSError):
+                pass
+    return use_cases
+
+
+def get_issues() -> dict[str, dict[str, Any]]:
+    """Get all GitHub issues keyed by use case ID."""
+    result = run_gh(["issue", "list", "--state", "all", "--limit", "500",
+                     "--json", "number,title,state,labels"])
+    if result.returncode != 0:
+        return {}
+    issues = {}
+    try:
+        for issue in json.loads(result.stdout):
+            title = issue.get("title", "")
+            if ":" in title:
+                uc_id = title.split(":")[0].strip()
+                issues[uc_id] = {
+                    "number": issue.get("number"),
+                    "state": issue.get("state"),
+                    "labels": [l.get("name") for l in issue.get("labels", [])],
+                }
+    except json.JSONDecodeError:
+        pass
+    return issues
+
+
+def get_open_prs() -> dict[int, dict[str, Any]]:
+    """Get open PRs with linked issues."""
+    result = run_gh(["pr", "list", "--state", "open", "--limit", "100",
+                     "--json", "number,title,body,headRefName"])
+    if result.returncode != 0:
+        return {}
+    prs = {}
+    try:
+        for pr in json.loads(result.stdout):
+            body = pr.get("body", "") or ""
+            match = re.search(r"(?:Fixes|Closes|Resolves)\s*(?:[\w-]+/[\w-]+)?#(\d+)", body, re.I)
+            prs[pr["number"]] = {
+                "title": pr.get("title"),
+                "branch": pr.get("headRefName"),
+                "linked_issue": int(match.group(1)) if match else None,
+            }
+    except json.JSONDecodeError:
+        pass
+    return prs
+
+
+def get_github_blocked(issue_number: int) -> int:
+    """Get GitHub native blocked_by count."""
+    result = run_gh(["api", f"repos/:owner/:repo/issues/{issue_number}",
+                     "--jq", ".issue_dependencies_summary.blocked_by // 0"])
+    try:
+        return int(result.stdout.strip())
+    except (ValueError, AttributeError):
+        return 0
+
+
+# =============================================================================
+# STATUS COMMAND
+# =============================================================================
+
+def compute_statuses(use_cases, issues, prs, category=None):
+    """Compute status for all use cases."""
+    statuses = []
+
+    for uc_id in sorted(use_cases.keys()):
+        uc = use_cases[uc_id]
+        if category and uc.get("category") != category:
+            continue
+
+        issue = issues.get(uc_id, {})
+        issue_num = issue.get("number")
+
+        status = {
+            "id": uc_id,
+            "title": uc.get("title", ""),
+            "priority": uc.get("priority", ""),
+            "issue_number": issue_num,
+            "category": uc.get("category", ""),
+        }
+
+        # Check if closed
+        if issue.get("state") == "CLOSED":
+            status["status"] = "Done"
+            status["icon"] = "✅"
+            statuses.append(status)
+            continue
+
+        # Check for open PR
+        has_pr = False
+        for pr_num, pr_data in prs.items():
+            if pr_data.get("linked_issue") == issue_num:
+                status["status"] = "In Progress"
+                status["icon"] = "🔄"
+                status["pr_number"] = pr_num
+                has_pr = True
+                break
+
+        if has_pr:
+            statuses.append(status)
+            continue
+
+        # Check dependencies
+        deps = uc.get("depends_on", [])
+        unsatisfied = [d for d in deps if issues.get(d, {}).get("state") != "CLOSED"]
+        github_blocked = get_github_blocked(issue_num) if issue_num else 0
+
+        if unsatisfied or github_blocked > 0:
+            status["status"] = "Blocked"
+            status["icon"] = "🔴"
+            status["blocked_by"] = unsatisfied
+            status["github_blocked"] = github_blocked
+        else:
+            status["status"] = "Ready"
+            status["icon"] = "🟢"
+
+        statuses.append(status)
+
+    return statuses
+
+
+def cmd_status(args):
+    """Show project status."""
+    print("Loading...", file=sys.stderr)
+    use_cases = load_use_cases(args.category)
+    issues = get_issues()
+    prs = get_open_prs()
+
+    statuses = compute_statuses(use_cases, issues, prs, args.category)
+
+    # Filter
+    if args.ready:
+        statuses = [s for s in statuses if s["status"] == "Ready"]
+    elif args.blocked:
+        statuses = [s for s in statuses if s["status"] == "Blocked"]
+    elif args.in_progress:
+        statuses = [s for s in statuses if s["status"] == "In Progress"]
+    elif args.done:
+        statuses = [s for s in statuses if s["status"] == "Done"]
+
+    # Group by status
+    by_status = {}
+    for s in statuses:
+        by_status.setdefault(s["status"], []).append(s)
+
+    # Print
+    order = ["Done", "In Progress", "Ready", "Blocked"]
+    for status_name in order:
+        items = by_status.get(status_name, [])
+        if not items:
+            continue
+
+        icons = {"Done": "✅", "In Progress": "🔄", "Ready": "🟢", "Blocked": "🔴"}
+        print(f"\n{icons.get(status_name, '')} {status_name.upper()} ({len(items)}):")
+
+        for s in items:
+            issue_ref = f"#{s['issue_number']}" if s.get('issue_number') else ""
+            pr_ref = f" (PR #{s['pr_number']})" if s.get('pr_number') else ""
+            blocked = ""
+            if s.get("blocked_by"):
+                blocked = f" ← {', '.join(s['blocked_by'])}"
+
+            print(f"   {issue_ref:5} {s['id']:8} {s['title'][:40]}{pr_ref}{blocked}")
+
+    # Summary
+    counts = {k: len(v) for k, v in by_status.items()}
+    print(f"\nTotal: {sum(counts.values())} | " +
+          " | ".join(f"{k}: {v}" for k, v in counts.items() if v > 0))
+
+    return 0
+
+
+# =============================================================================
+# SYNC COMMAND
+# =============================================================================
+
+def cmd_sync(args):
+    """Sync project status and labels."""
+    print("Syncing...", file=sys.stderr)
+
+    # Run the sync_project.py script
+    cmd = [sys.executable, str(SCRIPT_DIR / "sync_project.py"), "--sync"]
+    if args.dry_run:
+        cmd.append("--dry-run")
+    if args.category:
+        cmd.extend(["--category", args.category])
+
+    result = subprocess.run(cmd)
+    return result.returncode
+
+
+# =============================================================================
+# DEPS COMMAND
+# =============================================================================
+
+def cmd_deps(args):
+    """Check or visualize dependencies."""
+    if args.use_case:
+        # Check specific use case
+        cmd = [sys.executable, str(SCRIPT_DIR / "check_issue_dependencies.py"), args.use_case]
+        if args.verbose:
+            cmd.append("--verbose")
+    else:
+        # Show dependency map
+        cmd = [sys.executable, str(SCRIPT_DIR / "map_dependencies.py")]
+        if args.format:
+            cmd.extend(["--format", args.format])
+        if args.category:
+            cmd.extend(["--category", args.category])
+
+    result = subprocess.run(cmd)
+    return result.returncode
+
+
+# =============================================================================
+# LABELS COMMAND
+# =============================================================================
+
+def cmd_labels(args):
+    """Sync blocked/ready labels."""
+    cmd = ["bash", str(SCRIPT_DIR / "sync_github_blockers.sh"), "--add-labels"]
+    if args.dry_run:
+        cmd.append("--dry-run")
+    if args.category:
+        cmd.append(f"--category={args.category}")
+
+    result = subprocess.run(cmd)
+    return result.returncode
+
+
+# =============================================================================
+# CHECK COMMAND
+# =============================================================================
+
+def cmd_check(args):
+    """Run all checks."""
+    print("=" * 60)
+    print("MONITOR Project Health Check")
+    print("=" * 60)
+
+    errors = 0
+
+    # Check dependencies
+    print("\n→ Checking dependencies...")
+    result = subprocess.run([sys.executable, str(SCRIPT_DIR / "check_issue_dependencies.py"),
+                            "--blocked", "--category", args.category or "data-layer"],
+                           capture_output=True, text=True)
+    blocked_count = result.stdout.count("🚫")
+    print(f"  {blocked_count} blocked items found")
+
+    # Check project sync
+    print("\n→ Checking project status...")
+    use_cases = load_use_cases(args.category)
+    issues = get_issues()
+    prs = get_open_prs()
+    statuses = compute_statuses(use_cases, issues, prs, args.category)
+
+    in_progress = [s for s in statuses if s["status"] == "In Progress"]
+    ready = [s for s in statuses if s["status"] == "Ready"]
+
+    print(f"  {len(in_progress)} in progress, {len(ready)} ready to start")
+
+    # Check for PRs without linked issues
+    print("\n→ Checking open PRs...")
+    unlinked = [p for p in prs.values() if not p.get("linked_issue")]
+    if unlinked:
+        print(f"  ⚠️  {len(unlinked)} PRs without linked issues")
+        errors += 1
+    else:
+        print(f"  ✓ All {len(prs)} open PRs have linked issues")
+
+    print("\n" + "=" * 60)
+    if errors:
+        print(f"⚠️  {errors} issue(s) found")
+    else:
+        print("✅ All checks passed")
+    print("=" * 60)
+
+    return errors
+
+
+# =============================================================================
+# PR COMMAND
+# =============================================================================
+
+def cmd_pr(args):
+    """Show PR status and linked issue."""
+    result = run_gh(["pr", "view", str(args.number), "--json",
+                     "number,title,state,body,headRefName,mergeable,reviewDecision"])
+    if result.returncode != 0:
+        print(f"Error: Could not find PR #{args.number}", file=sys.stderr)
+        return 1
+
+    try:
+        pr = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        print("Error: Invalid response", file=sys.stderr)
+        return 1
+
+    body = pr.get("body", "") or ""
+    match = re.search(r"(?:Fixes|Closes|Resolves)\s*(?:[\w-]+/[\w-]+)?#(\d+)", body, re.I)
+    linked_issue = int(match.group(1)) if match else None
+
+    print(f"PR #{pr['number']}: {pr['title']}")
+    print(f"  State: {pr['state']}")
+    print(f"  Branch: {pr['headRefName']}")
+    print(f"  Mergeable: {pr.get('mergeable', 'unknown')}")
+    print(f"  Review: {pr.get('reviewDecision', 'none')}")
+
+    if linked_issue:
+        print(f"  Linked Issue: #{linked_issue}")
+        # Get issue info
+        issue_result = run_gh(["issue", "view", str(linked_issue), "--json", "title,state"])
+        if issue_result.returncode == 0:
+            issue = json.loads(issue_result.stdout)
+            print(f"    → {issue['title']}")
+            print(f"    → State: {issue['state']}")
+    else:
+        print("  ⚠️  No linked issue found!")
+
+    return 0
+
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="MONITOR Project Management CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  monitor status                 Show all items by status
+  monitor status --ready         Show only ready items
+  monitor sync                   Sync project from current state
+  monitor deps --format mermaid  Generate dependency diagram
+  monitor check                  Run health checks
+  monitor pr 66                  Show PR #66 details
+        """
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+
+    # status
+    p_status = subparsers.add_parser("status", help="Show project status")
+    p_status.add_argument("--ready", "-r", action="store_true", help="Show only ready items")
+    p_status.add_argument("--blocked", "-b", action="store_true", help="Show only blocked items")
+    p_status.add_argument("--in-progress", "-p", action="store_true", help="Show only in-progress items")
+    p_status.add_argument("--done", "-d", action="store_true", help="Show only done items")
+    p_status.add_argument("--category", "-c", help="Filter by category")
+
+    # sync
+    p_sync = subparsers.add_parser("sync", help="Sync project status")
+    p_sync.add_argument("--dry-run", action="store_true", help="Preview changes")
+    p_sync.add_argument("--category", "-c", help="Filter by category")
+
+    # deps
+    p_deps = subparsers.add_parser("deps", help="Check/visualize dependencies")
+    p_deps.add_argument("use_case", nargs="?", help="Specific use case to check")
+    p_deps.add_argument("--format", "-f", choices=["ascii", "mermaid", "dot", "json"], help="Output format")
+    p_deps.add_argument("--category", "-c", help="Filter by category")
+    p_deps.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+
+    # labels
+    p_labels = subparsers.add_parser("labels", help="Sync blocked/ready labels")
+    p_labels.add_argument("--dry-run", action="store_true", help="Preview changes")
+    p_labels.add_argument("--category", "-c", help="Filter by category")
+
+    # check
+    p_check = subparsers.add_parser("check", help="Run health checks")
+    p_check.add_argument("--category", "-c", help="Filter by category")
+
+    # pr
+    p_pr = subparsers.add_parser("pr", help="Show PR details")
+    p_pr.add_argument("number", type=int, help="PR number")
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return 1
+
+    commands = {
+        "status": cmd_status,
+        "sync": cmd_sync,
+        "deps": cmd_deps,
+        "labels": cmd_labels,
+        "check": cmd_check,
+        "pr": cmd_pr,
+    }
+
+    return commands[args.command](args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

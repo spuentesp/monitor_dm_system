@@ -1,0 +1,183 @@
+name: Project Automation
+
+# Automatically update GitHub Project status based on PR lifecycle:
+# - PR opened/draft → Issue status = "In Progress"
+# - PR merged → Issue status = "Done"
+# - PR closed (not merged) → Issue status = "Todo"
+
+on:
+  pull_request:
+    types: [opened, reopened, closed, converted_to_draft, ready_for_review]
+
+env:
+  PROJECT_NUMBER: 1
+  PROJECT_OWNER: spuentesp
+
+jobs:
+  update-project-status:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      issues: read
+      repository-projects: write
+    steps:
+      - name: Get linked issue number
+        id: get-issue
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Extract issue number from PR body (e.g., "Fixes #40", "Closes #40")
+          ISSUE_NUM=$(echo "$PR_BODY" | grep -oP '(?:Fixes|Closes|Resolves|fixes|closes|resolves)\s*#\K\d+' | head -1)
+
+          if [ -z "$ISSUE_NUM" ]; then
+            echo "No linked issue found in PR body"
+            echo "issue_found=false" >> $GITHUB_OUTPUT
+          else
+            echo "Found linked issue: #$ISSUE_NUM"
+            echo "issue_number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+            echo "issue_found=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Determine target status
+        id: get-status
+        if: steps.get-issue.outputs.issue_found == 'true'
+        run: |
+          EVENT="${{ github.event.action }}"
+          MERGED="${{ github.event.pull_request.merged }}"
+
+          if [ "$EVENT" = "closed" ] && [ "$MERGED" = "true" ]; then
+            echo "status=Done" >> $GITHUB_OUTPUT
+            echo "PR merged → Setting status to Done"
+          elif [ "$EVENT" = "closed" ] && [ "$MERGED" = "false" ]; then
+            echo "status=Todo" >> $GITHUB_OUTPUT
+            echo "PR closed without merge → Setting status to Todo"
+          else
+            echo "status=In Progress" >> $GITHUB_OUTPUT
+            echo "PR opened/updated → Setting status to In Progress"
+          fi
+
+      - name: Update project item status
+        if: steps.get-issue.outputs.issue_found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          ISSUE_NUMBER: ${{ steps.get-issue.outputs.issue_number }}
+          TARGET_STATUS: ${{ steps.get-status.outputs.status }}
+        run: |
+          # If no PROJECT_TOKEN secret, try GITHUB_TOKEN (may have limited permissions)
+          if [ -z "$GH_TOKEN" ]; then
+            echo "Warning: PROJECT_TOKEN not set, trying GITHUB_TOKEN"
+            GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          fi
+
+          echo "Updating issue #$ISSUE_NUMBER to status: $TARGET_STATUS"
+
+          # Get project ID
+          PROJECT_ID=$(gh api graphql -f query='
+            query($owner: String!, $number: Int!) {
+              user(login: $owner) {
+                projectV2(number: $number) {
+                  id
+                }
+              }
+            }' -f owner="$PROJECT_OWNER" -F number="$PROJECT_NUMBER" --jq '.data.user.projectV2.id')
+
+          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+            echo "Could not find project"
+            exit 1
+          fi
+          echo "Project ID: $PROJECT_ID"
+
+          # Get repository ID and issue node ID
+          REPO_OWNER="${{ github.repository_owner }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+
+          ISSUE_NODE_ID=$(gh api graphql -f query='
+            query($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) {
+                issue(number: $number) {
+                  id
+                }
+              }
+            }' -f owner="$REPO_OWNER" -f repo="$REPO_NAME" -F number="$ISSUE_NUMBER" --jq '.data.repository.issue.id')
+
+          if [ -z "$ISSUE_NODE_ID" ] || [ "$ISSUE_NODE_ID" = "null" ]; then
+            echo "Could not find issue #$ISSUE_NUMBER"
+            exit 1
+          fi
+          echo "Issue Node ID: $ISSUE_NODE_ID"
+
+          # Find the project item for this issue
+          ITEM_ID=$(gh api graphql -f query='
+            query($projectId: ID!, $cursor: String) {
+              node(id: $projectId) {
+                ... on ProjectV2 {
+                  items(first: 100, after: $cursor) {
+                    nodes {
+                      id
+                      content {
+                        ... on Issue {
+                          id
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }' -f projectId="$PROJECT_ID" --jq ".data.node.items.nodes[] | select(.content.id == \"$ISSUE_NODE_ID\") | .id")
+
+          if [ -z "$ITEM_ID" ]; then
+            echo "Issue not found in project, adding it first..."
+            ITEM_ID=$(gh api graphql -f query='
+              mutation($projectId: ID!, $contentId: ID!) {
+                addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+                  item {
+                    id
+                  }
+                }
+              }' -f projectId="$PROJECT_ID" -f contentId="$ISSUE_NODE_ID" --jq '.data.addProjectV2ItemById.item.id')
+          fi
+          echo "Item ID: $ITEM_ID"
+
+          # Get Status field ID and option ID
+          FIELD_DATA=$(gh api graphql -f query='
+            query($projectId: ID!) {
+              node(id: $projectId) {
+                ... on ProjectV2 {
+                  fields(first: 20) {
+                    nodes {
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        name
+                        options {
+                          id
+                          name
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }' -f projectId="$PROJECT_ID")
+
+          STATUS_FIELD_ID=$(echo "$FIELD_DATA" | jq -r '.data.node.fields.nodes[] | select(.name == "Status") | .id')
+          OPTION_ID=$(echo "$FIELD_DATA" | jq -r --arg status "$TARGET_STATUS" '.data.node.fields.nodes[] | select(.name == "Status") | .options[] | select(.name == $status) | .id')
+
+          echo "Status Field ID: $STATUS_FIELD_ID"
+          echo "Option ID for '$TARGET_STATUS': $OPTION_ID"
+
+          # Update the status
+          gh api graphql -f query='
+            mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId
+                itemId: $itemId
+                fieldId: $fieldId
+                value: { singleSelectOptionId: $optionId }
+              }) {
+                projectV2Item {
+                  id
+                }
+              }
+            }' -f projectId="$PROJECT_ID" -f itemId="$ITEM_ID" -f fieldId="$STATUS_FIELD_ID" -f optionId="$OPTION_ID"
+
+          echo "✅ Updated issue #$ISSUE_NUMBER status to '$TARGET_STATUS'"
