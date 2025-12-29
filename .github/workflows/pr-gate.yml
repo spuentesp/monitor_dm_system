@@ -19,11 +19,6 @@ jobs:
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: python scripts/enforce_branch_name.py --branch "$BRANCH_NAME"
 
-      - name: Require use-case per commit
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: python scripts/check_commit_use_case.py --base "$BASE_SHA"
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

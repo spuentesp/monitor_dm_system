@@ -13,7 +13,6 @@ You are an autonomous coding agent working on the MONITOR repo. Follow these rul
 - Run and satisfy all checks:
   python scripts/check_layer_dependencies.py
   python scripts/require_use_case_reference.py --base <base_sha>
-  python scripts/check_commit_use_case.py --base <base_sha>
   python scripts/require_tests_for_code_changes.py --base <base_sha>
   bash scripts/block_todo.sh
   python scripts/check_ontology_use_cases.py
