@@ -2140,10 +2140,12 @@ def neo4j_get_story(story_id: UUID) -> Optional[StoryResponse]:
 
 def neo4j_update_story(story_id: UUID, params: StoryUpdate) -> StoryResponse:
     """
-    Update a Story's mutable fields.
+    Update a Story's mutable fields with status transition enforcement.
 
     Authority: CanonKeeper only
     Use Case: DL-4
+
+    Valid status transitions: planned → active → completed/abandoned
 
     Args:
         story_id: UUID of the story to update
@@ -2153,11 +2155,13 @@ def neo4j_update_story(story_id: UUID, params: StoryUpdate) -> StoryResponse:
         StoryResponse with updated story data
 
     Raises:
-        ValueError: If story doesn't exist
+        ValueError: If story doesn't exist or invalid status transition
     """
+    from monitor_data.schemas.base import StoryStatus
+    
     client = get_neo4j_client()
 
-    # Verify story exists
+    # Verify story exists and get current status
     verify_query = """
     MATCH (s:Story {id: $id})
     RETURN s
@@ -2165,6 +2169,28 @@ def neo4j_update_story(story_id: UUID, params: StoryUpdate) -> StoryResponse:
     result = client.execute_read(verify_query, {"id": str(story_id)})
     if not result:
         raise ValueError(f"Story {story_id} not found")
+    
+    current_story = result[0]["s"]
+
+    # Validate status transition if status is being updated
+    if params.status is not None:
+        current_status = StoryStatus(current_story["status"])
+        new_status = params.status
+
+        # Define valid transitions
+        valid_transitions = {
+            StoryStatus.PLANNED: [StoryStatus.ACTIVE, StoryStatus.ABANDONED],
+            StoryStatus.ACTIVE: [StoryStatus.COMPLETED, StoryStatus.ABANDONED],
+            StoryStatus.COMPLETED: [],  # No transitions from completed
+            StoryStatus.ABANDONED: [],  # No transitions from abandoned
+        }
+
+        if new_status != current_status:
+            if new_status not in valid_transitions.get(current_status, []):
+                raise ValueError(
+                    f"Invalid status transition from {current_status.value} to {new_status.value}. "
+                    f"Valid transitions: {[s.value for s in valid_transitions.get(current_status, [])]}"
+                )
 
     # Build update query dynamically
     set_clauses = []

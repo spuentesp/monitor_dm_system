@@ -608,3 +608,82 @@ def test_scene_status_transition_finalizing_to_active_invalid(
 
     with pytest.raises(ValueError, match="Invalid status transition"):
         mongodb_update_scene(UUID(scene_data["scene_id"]), params)
+
+
+# =============================================================================
+# TESTS: Additional validation coverage
+# =============================================================================
+
+
+def test_turn_create_entity_without_entity_id():
+    """Test that TurnCreate validation fails when speaker is ENTITY but entity_id is None."""
+    with pytest.raises(ValueError, match="entity_id required when speaker is entity"):
+        TurnCreate(
+            speaker=Speaker.ENTITY,
+            entity_id=None,
+            text="This should fail",
+        )
+
+
+@patch("monitor_data.tools.mongodb_tools.get_neo4j_client")
+@patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
+def test_create_scene_invalid_entity(
+    mock_get_mongo: Mock,
+    mock_get_neo4j: Mock,
+    mock_mongodb_client: Mock,
+    mock_neo4j_client: Mock,
+    story_data: Dict[str, Any],
+    universe_data: Dict[str, Any],
+):
+    """Test scene creation with invalid participating entity."""
+    mock_get_mongo.return_value = mock_mongodb_client
+    mock_get_neo4j.return_value = mock_neo4j_client
+
+    # Mock story exists but entity doesn't
+    mock_neo4j_client.execute_read.side_effect = [
+        [{"story_id": story_data["id"], "universe_id": universe_data["id"]}],
+        [],  # entity check fails
+    ]
+
+    invalid_entity_id = uuid4()
+    params = SceneCreate(
+        story_id=UUID(story_data["id"]),
+        universe_id=UUID(universe_data["id"]),
+        title="Test Scene",
+        participating_entities=[invalid_entity_id],
+    )
+
+    with pytest.raises(ValueError, match=f"Entity {invalid_entity_id} not found"):
+        mongodb_create_scene(params)
+
+
+@patch("monitor_data.tools.mongodb_tools.get_neo4j_client")
+@patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
+def test_create_scene_invalid_location(
+    mock_get_mongo: Mock,
+    mock_get_neo4j: Mock,
+    mock_mongodb_client: Mock,
+    mock_neo4j_client: Mock,
+    story_data: Dict[str, Any],
+    universe_data: Dict[str, Any],
+):
+    """Test scene creation with invalid location_ref."""
+    mock_get_mongo.return_value = mock_mongodb_client
+    mock_get_neo4j.return_value = mock_neo4j_client
+
+    # Mock story exists but location doesn't
+    mock_neo4j_client.execute_read.side_effect = [
+        [{"story_id": story_data["id"], "universe_id": universe_data["id"]}],
+        [],  # location check fails
+    ]
+
+    invalid_location_id = uuid4()
+    params = SceneCreate(
+        story_id=UUID(story_data["id"]),
+        universe_id=UUID(universe_data["id"]),
+        title="Test Scene",
+        location_ref=invalid_location_id,
+    )
+
+    with pytest.raises(ValueError, match=f"Location entity {invalid_location_id} not found"):
+        mongodb_create_scene(params)

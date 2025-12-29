@@ -409,3 +409,102 @@ def test_list_stories_pagination(
     assert result.limit == 1
     assert result.offset == 5
     assert len(result.stories) == 1
+
+
+# =============================================================================
+# TESTS: Story status transitions
+# =============================================================================
+
+
+@patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
+def test_update_story_status_valid_transition_planned_to_active(
+    mock_get_client: Mock,
+    mock_neo4j_client: Mock,
+    story_data: Dict[str, Any],
+):
+    """Test valid status transition: planned → active."""
+    mock_get_client.return_value = mock_neo4j_client
+
+    story_data["status"] = StoryStatus.PLANNED.value
+    updated_data = story_data.copy()
+    updated_data["status"] = StoryStatus.ACTIVE.value
+
+    # Mock story exists check, update, and get
+    mock_neo4j_client.execute_read.side_effect = [
+        [{"s": story_data}],  # verify exists
+        [{"s": updated_data, "scene_count": 0, "pc_ids": []}],  # get after update
+    ]
+    mock_neo4j_client.execute_write.return_value = [{"s": updated_data}]
+
+    params = StoryUpdate(status=StoryStatus.ACTIVE)
+    result = neo4j_update_story(UUID(story_data["id"]), params)
+
+    assert result.status == StoryStatus.ACTIVE
+
+
+@patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
+def test_update_story_status_valid_transition_active_to_completed(
+    mock_get_client: Mock,
+    mock_neo4j_client: Mock,
+    story_data: Dict[str, Any],
+):
+    """Test valid status transition: active → completed."""
+    mock_get_client.return_value = mock_neo4j_client
+
+    story_data["status"] = StoryStatus.ACTIVE.value
+    updated_data = story_data.copy()
+    updated_data["status"] = StoryStatus.COMPLETED.value
+
+    # Mock story exists check, update, and get
+    mock_neo4j_client.execute_read.side_effect = [
+        [{"s": story_data}],  # verify exists
+        [{"s": updated_data, "scene_count": 0, "pc_ids": []}],  # get after update
+    ]
+    mock_neo4j_client.execute_write.return_value = [{"s": updated_data}]
+
+    params = StoryUpdate(status=StoryStatus.COMPLETED)
+    result = neo4j_update_story(UUID(story_data["id"]), params)
+
+    assert result.status == StoryStatus.COMPLETED
+
+
+@patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
+def test_update_story_status_invalid_transition_completed_to_active(
+    mock_get_client: Mock,
+    mock_neo4j_client: Mock,
+    story_data: Dict[str, Any],
+):
+    """Test invalid status transition: completed → active."""
+    mock_get_client.return_value = mock_neo4j_client
+
+    # Story is already completed
+    story_data["status"] = StoryStatus.COMPLETED.value
+
+    # Mock story exists check
+    mock_neo4j_client.execute_read.return_value = [{"s": story_data}]
+
+    params = StoryUpdate(status=StoryStatus.ACTIVE)
+
+    with pytest.raises(ValueError, match="Invalid status transition"):
+        neo4j_update_story(UUID(story_data["id"]), params)
+
+
+@patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
+def test_update_story_status_invalid_transition_planned_to_completed(
+    mock_get_client: Mock,
+    mock_neo4j_client: Mock,
+    story_data: Dict[str, Any],
+):
+    """Test invalid status transition: planned → completed (must go through active)."""
+    mock_get_client.return_value = mock_neo4j_client
+
+    # Story is planned
+    story_data["status"] = StoryStatus.PLANNED.value
+
+    # Mock story exists check
+    mock_neo4j_client.execute_read.return_value = [{"s": story_data}]
+
+    params = StoryUpdate(status=StoryStatus.COMPLETED)
+
+    with pytest.raises(ValueError, match="Invalid status transition"):
+        neo4j_update_story(UUID(story_data["id"]), params)
