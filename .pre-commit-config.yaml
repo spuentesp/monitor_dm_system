@@ -22,3 +22,14 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+      - id: ci-check
+        name: ci-check (ruff, black, mypy, layer boundaries, unit tests)
+        entry: >
+          bash -c "python3 scripts/check_layer_dependencies.py &&
+          python3 -m ruff check . &&
+          python3 -m black --check . &&
+          python3 -m mypy packages &&
+          pytest packages/data-layer packages/agents packages/cli -m 'not integration and not e2e'"
+        language: system
+        pass_filenames: false
+        stages: [push]

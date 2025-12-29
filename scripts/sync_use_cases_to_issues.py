@@ -351,7 +351,7 @@ def ensure_labels_exist(use_cases: list[dict[str, Any]], dry_run: bool = False) 
     existing = set()
     if result.returncode == 0:
         try:
-            existing = {l["name"] for l in json.loads(result.stdout)}
+            existing = {label["name"] for label in json.loads(result.stdout)}
         except json.JSONDecodeError:
             pass
 
@@ -480,7 +480,7 @@ def main() -> int:
                 if update_issue(existing, uc, dry_run=args.dry_run):
                     updated += 1
                 else:
-                    print(f"    Failed to update")
+                    print("    Failed to update")
         else:
             if args.check_only:
                 print(f"  {uc_id}: NOT FOUND")
@@ -501,9 +501,9 @@ def main() -> int:
                     if project_owner and issue_url:
                         if add_issue_to_project(args.project, project_owner, issue_url):
                             added_to_project += 1
-                            print(f"    ✓ Added to project")
+                            print("    ✓ Added to project")
                         else:
-                            print(f"    ⚠️  Failed to add to project")
+                            print("    ⚠️  Failed to add to project")
                 elif args.dry_run:
                     created += 1  # Count dry-run as success
 
@@ -511,7 +511,7 @@ def main() -> int:
     print()
     print("=" * 70)
     if args.check_only:
-        print(f"  CHECK COMPLETE")
+        print("  CHECK COMPLETE")
         print(f"  Existing issues: {len(existing_issues)}, Missing: {len(use_cases) - len(existing_issues)}")
         if existing_issues:
             print()
@@ -519,12 +519,12 @@ def main() -> int:
             for uc_id, issue_num in existing_issues:
                 print(f"    - {uc_id}: #{issue_num}")
     elif args.dry_run:
-        print(f"  DRY RUN COMPLETE")
+        print("  DRY RUN COMPLETE")
         print(f"  Would create: {created}, Would update: {updated}, Skipped: {skipped}")
         if args.project:
             print(f"  Would add to project #{args.project}: {created}")
     else:
-        print(f"  Sync complete!")
+        print("  Sync complete!")
         print(f"  Created: {created}, Updated: {updated}, Skipped: {skipped}")
         if args.project:
             print(f"  Added to project: {added_to_project}")
