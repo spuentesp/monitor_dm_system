@@ -1,0 +1,128 @@
+# DL-21: Manage Random Tables
+# ============================
+
+id: "DL-21"
+title: "Manage Random Tables"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement MongoDB collection for storing random table definitions used in
+  procedural generation. Pure data storage for table structures and entries.
+  Rolling/selection logic lives in the agents layer utilities.
+
+acceptance_criteria:
+  - "mongodb_create_random_table creates table with entries"
+  - "mongodb_get_random_table returns table with all entries"
+  - "mongodb_list_random_tables supports filtering by universe, type, tags"
+  - "mongodb_update_random_table allows modifying table and entries"
+  - "mongodb_delete_random_table removes table"
+  - "mongodb_add_table_entry adds entry to existing table"
+  - "mongodb_remove_table_entry removes entry from table"
+  - "Tables support dice-based ranges (min_roll, max_roll)"
+  - "Tables support weighted entries (weight field)"
+  - "Tables support subtable references (subtable_id)"
+  - "Tables support conditional entries (conditions map)"
+  - "Global tables (universe_id: null) available to all universes"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-1"   # Tables scoped to universe
+
+blocks:
+  - "DL-17"  # Entity templates reference tables
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/random_tables.py"
+      - "packages/data-layer/tests/test_tools/test_random_table_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_create_random_table"
+        authority: ["*"]
+        params: ["universe_id", "name", "description?", "table_type", "dice_formula?", "weighted?", "entries"]
+
+      - name: "mongodb_get_random_table"
+        authority: ["*"]
+        params: ["table_id"]
+
+      - name: "mongodb_list_random_tables"
+        authority: ["*"]
+        params: ["universe_id?", "table_type?", "tags?", "limit?", "offset?"]
+
+      - name: "mongodb_update_random_table"
+        authority: ["*"]
+        params: ["table_id", "name?", "description?", "dice_formula?", "weighted?"]
+
+      - name: "mongodb_delete_random_table"
+        authority: ["*"]
+        params: ["table_id"]
+
+      - name: "mongodb_add_table_entry"
+        authority: ["*"]
+        params: ["table_id", "min_roll?", "max_roll?", "weight?", "value", "subtable_id?", "conditions?"]
+
+      - name: "mongodb_update_table_entry"
+        authority: ["*"]
+        params: ["table_id", "entry_index", "min_roll?", "max_roll?", "weight?", "value?", "subtable_id?", "conditions?"]
+
+      - name: "mongodb_remove_table_entry"
+        authority: ["*"]
+        params: ["table_id", "entry_index"]
+
+  patterns:
+    - "random_tables collection: {table_id, universe_id, name, table_type, dice_formula, weighted, entries[]}"
+    - "Entry structure: {min_roll, max_roll, weight, value, subtable_id, conditions}"
+    - "Table types enum: encounter, loot, name, trait, weather, custom"
+    - "Global tables have universe_id: null"
+
+  notes: |
+    - This is PURE DATA STORAGE - no rolling or selection logic
+    - Dice rolling lives in agents layer utilities
+    - Entry selection algorithm lives in agents layer utilities
+    - Subtable resolution lives in agents layer utilities
+    - Condition matching lives in agents layer utilities
+
+testing:
+  unit_tests:
+    - "test_create_table_success: valid table created"
+    - "test_create_table_with_entries: entries stored correctly"
+    - "test_get_table: returns full table with entries"
+    - "test_list_tables_by_type: type filter works"
+    - "test_list_tables_by_universe: universe filter works"
+    - "test_list_global_tables: null universe_id tables returned"
+    - "test_update_table: metadata updated"
+    - "test_delete_table: table removed"
+    - "test_add_entry: new entry added"
+    - "test_update_entry: entry modified"
+    - "test_remove_entry: entry removed"
+
+  integration_tests:
+    - "test_table_with_subtable_ref: subtable_id stored correctly"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "mongodb"
+    - "priority-medium"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/DATA_LAYER_USE_CASES.md#dl-21"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/mongodb.py"

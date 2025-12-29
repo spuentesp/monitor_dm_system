@@ -1,6 +1,8 @@
-# Data Layer Use Cases (DL-1 .. DL-14)
+# Data Layer Use Cases (DL-1 .. DL-26)
 
 Data-layer viewpoints for each DL use case: inputs, behavior, cross-references, and outputs. These describe expected MCP tool behavior and storage-only concerns (no agents/CLI).
+
+> **IMPORTANT:** This document describes PURE DATA STORAGE operations only. All business logic (dice rolling, success evaluation, combat flow, canonization sync) lives in the **agents layer**.
 
 ## DL-1: Manage Multiverse/Universes (Neo4j)
 - Inputs: name, description, tags, parent_id (optional).
@@ -89,76 +91,63 @@ Data-layer viewpoints for each DL use case: inputs, behavior, cross-references, 
 
 ## DL-15: Manage Parties (Neo4j + MongoDB)
 
-**Purpose:** Support party management for stories with multiple PCs/companions traveling together.
+**Purpose:** Store party data for stories with multiple PCs/companions.
 
 - Inputs:
   - Party: story_id, name, status
-  - Membership: party_id, entity_id, role (pc/companion/hireling/mount), position (front/middle/rear), joined_at
+  - Membership: party_id, entity_id, role, position, joined_at
   - Active PC: party_id, entity_id
 
 - Behavior:
-  - Create/update/delete Party nodes (Neo4j)
-  - Manage MEMBER_OF edges with role/position properties
-  - Track ACTIVE_PC edge (one per party)
-  - Enforce one party per story (or allow multiple for complex stories)
-  - Track party status: traveling, camping, in_scene, combat, split, resting
+  - CRUD Party nodes (Neo4j)
+  - CRUD MEMBER_OF edges with role/position properties
+  - CRUD ACTIVE_PC edge
+  - Store party status enum
 
 - Cross-refs:
   - Story (party belongs to story)
   - EntityInstance (members)
-  - Scene (party participates in scene)
   - Party inventory (DL-16)
 
 - Outputs:
   - Party node with ID
   - Membership edges with metadata
-  - Active PC reference
 
-**Cypher Examples:**
-```cypher
-// Create party
-CREATE (p:Party {id: $id, story_id: $story_id, name: $name, status: "traveling", created_at: datetime()})
+**MCP Tools (CRUD only):**
+```python
+neo4j_create_party(story_id, name, status?) -> party_id
+neo4j_get_party(party_id) -> Party
+neo4j_list_parties(story_id?, status?, limit, offset) -> list[Party]
+neo4j_update_party(party_id, name?, status?) -> Party
+neo4j_delete_party(party_id)
 
-// Add member
-MATCH (p:Party {id: $party_id}), (e:EntityInstance {id: $entity_id})
-CREATE (e)-[:MEMBER_OF {role: $role, position: $position, joined_at: datetime()}]->(p)
+neo4j_add_party_member(party_id, entity_id, role, position?)
+neo4j_update_party_member(party_id, entity_id, role?, position?)
+neo4j_remove_party_member(party_id, entity_id)
 
-// Set active PC
-MATCH (p:Party {id: $party_id})-[old:ACTIVE_PC]->()
-DELETE old
-WITH p
-MATCH (e:EntityInstance {id: $entity_id})
-CREATE (p)-[:ACTIVE_PC]->(e)
-
-// Get party with members
-MATCH (p:Party {id: $party_id})<-[m:MEMBER_OF]-(e:EntityInstance)
-RETURN p, collect({entity: e, role: m.role, position: m.position}) as members
+neo4j_set_active_pc(party_id, entity_id)
+neo4j_get_active_pc(party_id) -> entity_id
 ```
 
 ---
 
 ## DL-16: Manage Party Inventory & Splits (MongoDB)
 
-**Purpose:** Track shared party inventory and split-party state.
+**Purpose:** Store shared party inventory and split-party state.
 
 - Inputs:
-  - Inventory: party_id, items[], gold, encumbrance
+  - Inventory: party_id, items[], gold
   - Item: name, quantity, owner_id (optional), properties
   - Split: party_id, groups[], active_group_index
 
 - Behavior:
   - CRUD party_inventories collection
-  - Add/remove/transfer items
-  - Calculate encumbrance based on game system
-  - Track item ownership within party (who's carrying what)
-  - CRUD party_splits for split-party scenarios
-  - Track which group is "active" (player focus)
-  - Store off-screen summaries for inactive groups
+  - CRUD party_splits collection
+  - Store item data and ownership
 
 - Cross-refs:
   - Party (DL-15)
   - EntityInstance (item owners)
-  - Scene (splits may span scenes)
 
 - Outputs:
   - Inventory documents
@@ -176,12 +165,11 @@ RETURN p, collect({entity: e, role: m.role, position: m.position}) as members
       name: string,
       quantity: int,
       weight: float,
-      owner_id: UUID,  // who's carrying it (null = party shared)
+      owner_id: UUID,
       properties: map
     }
   ],
   gold: int,
-  encumbrance: { current: float, max: float },
   updated_at: ISODate
 }
 
@@ -205,34 +193,42 @@ RETURN p, collect({entity: e, role: m.role, position: m.position}) as members
 }
 ```
 
+**MCP Tools (CRUD only):**
+```python
+mongodb_create_party_inventory(party_id, initial_gold?, initial_items?) -> inventory_id
+mongodb_get_party_inventory(party_id) -> PartyInventory
+mongodb_add_inventory_item(party_id, item)
+mongodb_update_inventory_item(party_id, item_id, updates)
+mongodb_remove_inventory_item(party_id, item_id)
+mongodb_update_party_gold(party_id, gold)
+
+mongodb_create_party_split(party_id, groups) -> split_id
+mongodb_get_party_split(split_id) -> PartySplit
+mongodb_get_active_split(party_id) -> PartySplit
+mongodb_update_party_split(split_id, active_group_index?, groups?)
+mongodb_delete_party_split(split_id)
+```
+
 ---
 
 ## DL-17: Manage Entity Templates (MongoDB)
 
-**Purpose:** Store reusable entity templates for efficient world-building.
+**Purpose:** Store reusable entity templates for world-building.
 
 - Inputs:
-  - Template: universe_id, name, entity_type, base_properties, variable_properties, naming_pattern, stat_generation, default_state_tags, equipment_options, parent_template_id
-  - Variable property: property_path, generation_type (fixed/choice/range/pattern/table/llm), options/range/pattern
-  - Instantiation request: template_id, overrides, count
+  - Template: universe_id, name, entity_type, base_properties, variable_properties, naming_pattern, parent_template_id
 
 - Behavior:
   - CRUD entity_templates collection
-  - Validate template structure (required fields per entity_type)
-  - Support template inheritance (parent_template_id)
-  - Generate entities from template with variable property resolution
-  - Bulk instantiation with unique variations
-  - Track template usage count
+  - Store template structure and inheritance
 
 - Cross-refs:
   - Universe (templates scoped to universe)
   - EntityArchetype (templates may reference archetypes)
-  - EntityInstance (created from templates)
-  - Random tables (for table-based generation)
+  - Random tables (DL-21)
 
 - Outputs:
   - Template documents
-  - Generated entity parameters (for neo4j_create_entity)
 
 **MongoDB Schema:**
 ```javascript
@@ -251,10 +247,10 @@ RETURN p, collect({entity: e, role: m.role, position: m.position}) as members
     {
       property_path: string,
       generation_type: enum["fixed", "choice", "range", "pattern", "table", "llm"],
-      options: [string],      // for choice
-      range: [int, int],      // for range
-      pattern: string,        // for pattern
-      table_id: UUID          // for table
+      options: [string],
+      range: [int, int],
+      pattern: string,
+      table_id: UUID
     }
   ],
 
@@ -264,12 +260,6 @@ RETURN p, collect({entity: e, role: m.role, position: m.position}) as members
     adjectives: [string],
     nouns: [string],
     name_list: [string]
-  },
-
-  stat_generation: {
-    method: string,
-    formulas: map,
-    constraints: map
   },
 
   default_state_tags: [string],
@@ -283,31 +273,38 @@ RETURN p, collect({entity: e, role: m.role, position: m.position}) as members
 }
 ```
 
+**MCP Tools (CRUD only):**
+```python
+mongodb_create_template(universe_id, name, entity_type, base_properties, variable_properties?, ...) -> template_id
+mongodb_get_template(template_id) -> EntityTemplate
+mongodb_list_templates(universe_id?, entity_type?, limit, offset) -> list[EntityTemplate]
+mongodb_update_template(template_id, updates) -> EntityTemplate
+mongodb_delete_template(template_id)
+```
+
+> **Note:** Template instantiation logic (variable resolution, stat generation) lives in agents layer.
+
 ---
 
 ## DL-18: Manage Change Log (MongoDB - Event Sourcing)
 
-**Purpose:** Record all changes to canonical data for audit trail and history reconstruction.
+**Purpose:** Store all changes to canonical data for audit trail.
 
 - Inputs:
-  - Change record: subject_type, subject_id, change_type, field_path, old_value, new_value, author, authority, evidence_type, evidence_id, reason, transaction_id
+  - Change record: subject_type, subject_id, change_type, field_path, old_value, new_value, author, evidence_id, transaction_id
 
 - Behavior:
   - Append-only change_log collection (never update/delete)
-  - Auto-capture all Neo4j write operations
-  - Group related changes by transaction_id
-  - Support filtering by subject, time range, change type, author
-  - Efficient pagination for history queries
+  - Store change records with timestamps
+  - Index for efficient queries
 
 - Cross-refs:
   - All Neo4j nodes (via subject_id)
   - Scenes, Turns (as evidence)
-  - Users/agents (as authors)
 
 - Outputs:
   - Change records
   - Paginated history queries
-  - Transaction groups
 
 **MongoDB Schema:**
 ```javascript
@@ -323,185 +320,86 @@ RETURN p, collect({entity: e, role: m.role, position: m.position}) as members
 
   timestamp: ISODate,
 
-  field_path: string,  // e.g., "state_tags", "properties.hp"
+  field_path: string,
   old_value: any,
   new_value: any,
 
-  state_before: map,   // full snapshot (optional, for complex changes)
-  state_after: map,
-
-  author: string,      // "CanonKeeper", "User:123", "System"
+  author: string,
   authority: enum["source", "gm", "player", "system"],
 
-  evidence_type: string,  // "scene", "turn", "proposal", "manual"
+  evidence_type: string,
   evidence_id: UUID,
   reason: string,
 
-  transaction_id: UUID  // groups related changes
+  transaction_id: UUID
 }
 
 Index: { subject_type: 1, subject_id: 1, timestamp: -1 }
 Index: { timestamp: -1 }
 Index: { transaction_id: 1 }
-Index: { author: 1, timestamp: -1 }
 ```
 
-**Middleware Integration:**
-All data-layer write operations MUST call `log_change()` before returning:
+**MCP Tools (CRUD only):**
 ```python
-async def log_change(
-    subject_type: str,
-    subject_id: UUID,
-    change_type: str,
-    old_value: Any,
-    new_value: Any,
-    author: str,
-    evidence_id: UUID = None,
-    transaction_id: UUID = None
-):
-    """Log a change to the audit trail."""
-    await mongodb.change_log.insert_one({
-        "change_id": str(uuid4()),
-        "subject_type": subject_type,
-        "subject_id": str(subject_id),
-        "change_type": change_type,
-        "timestamp": datetime.utcnow(),
-        "old_value": old_value,
-        "new_value": new_value,
-        "author": author,
-        "evidence_id": str(evidence_id) if evidence_id else None,
-        "transaction_id": str(transaction_id) if transaction_id else None
-    })
+mongodb_log_change(subject_type, subject_id, change_type, old_value, new_value, author, evidence_id?, transaction_id?)
+mongodb_get_change_history(subject_type, subject_id, limit?, offset?, start_time?, end_time?) -> list[ChangeRecord]
+mongodb_get_changes_by_time(start_time, end_time, subject_type?, limit?, offset?) -> list[ChangeRecord]
+mongodb_get_transaction_changes(transaction_id) -> list[ChangeRecord]
 ```
 
 ---
 
-## DL-19: Historical Queries & State Reconstruction (Neo4j + MongoDB)
+## DL-19: Historical Queries (MongoDB)
 
-**Purpose:** Reconstruct entity state at any past point in time.
+**Purpose:** Query change log for historical data.
 
 - Inputs:
   - Entity ID + target timestamp
   - Time range for history queries
-  - Comparison timestamps (time_a, time_b)
 
 - Behavior:
-  - Query change_log to find all changes after target timestamp
-  - Reverse-apply changes to reconstruct historical state
-  - Support entity, fact, and relationship history
-  - Compare two points in time (diff)
-  - Support revert operation (creates new change, doesn't delete history)
+  - Query change_log by subject and time range
+  - Return change records for reconstruction
 
 - Cross-refs:
   - Change log (DL-18)
   - All canonical nodes
-  - Facts (for revert evidence)
 
 - Outputs:
-  - Historical entity state
-  - Change diff between timestamps
+  - Change records for time range
   - Timeline of changes
 
-**Key Operations:**
+**MCP Tools (Query only):**
 ```python
-# Get entity at past time
-async def get_entity_at_time(entity_id: UUID, target_time: datetime) -> Entity:
-    # 1. Get current state
-    current = await neo4j_get_entity(entity_id)
-
-    # 2. Get all changes after target_time
-    changes = await mongodb.change_log.find({
-        "subject_type": "entity",
-        "subject_id": str(entity_id),
-        "timestamp": {"$gt": target_time}
-    }).sort("timestamp", -1).to_list(None)
-
-    # 3. Reverse-apply changes
-    historical = reverse_apply_changes(current, changes)
-
-    return historical
-
-# Compare two points in time
-async def compare_entity_versions(
-    entity_id: UUID,
-    time_a: datetime,
-    time_b: datetime
-) -> Comparison:
-    state_a = await get_entity_at_time(entity_id, time_a)
-    state_b = await get_entity_at_time(entity_id, time_b)
-
-    changes = await mongodb.change_log.find({
-        "subject_type": "entity",
-        "subject_id": str(entity_id),
-        "timestamp": {"$gt": time_a, "$lte": time_b}
-    }).to_list(None)
-
-    return Comparison(
-        state_a=state_a,
-        state_b=state_b,
-        changes=changes,
-        diff=compute_diff(state_a, state_b)
-    )
-
-# Revert to past state (creates new change, preserves history)
-async def revert_entity_to_time(
-    entity_id: UUID,
-    target_time: datetime,
-    reason: str
-) -> UUID:
-    historical = await get_entity_at_time(entity_id, target_time)
-
-    # Update entity to historical state
-    await neo4j_update_entity(entity_id, historical.to_dict())
-
-    # Log as "reverted" change type
-    await log_change(
-        subject_type="entity",
-        subject_id=entity_id,
-        change_type="reverted",
-        old_value=current.to_dict(),
-        new_value=historical.to_dict(),
-        author="User",
-        reason=reason
-    )
-
-    # Create fact documenting the revert
-    fact_id = await neo4j_create_fact({
-        "statement": f"State reverted to {target_time}",
-        "authority": "gm"
-    })
-
-    return fact_id
+mongodb_get_changes_after(subject_type, subject_id, after_timestamp) -> list[ChangeRecord]
+mongodb_get_changes_between(subject_type, subject_id, start_time, end_time) -> list[ChangeRecord]
+mongodb_get_entity_timeline(entity_id, limit?, offset?) -> list[ChangeRecord]
 ```
+
+> **Note:** State reconstruction algorithms (reverse-apply changes) live in agents layer.
 
 ---
 
 ## DL-20: Manage Game Systems & Rules (MongoDB)
 
-**Purpose:** Store and retrieve game system definitions for system-agnostic play.
+**Purpose:** Store game system definitions for system-agnostic play.
 
 - Inputs:
-  - Game system: name, description, core_mechanic, attributes, skills, resources, combat_rules, custom_dice
-  - Character template: system_id, sections, creation_rules, advancement_rules
-  - Rule override: scope, target, original, override, reason
+  - Game system: name, description, core_mechanic, attributes, skills, resources, custom_dice
+  - Rule override: scope, scope_id, target, original, override, reason
 
 - Behavior:
   - CRUD game_systems collection
-  - CRUD character_templates (nested in game_systems or separate)
-  - CRUD rule_overrides (scoped to story/scene/universe)
-  - Validate system definitions (required fields)
-  - Support built-in templates (D&D 5e, Fate, etc.)
-  - Import/export systems as JSON
+  - CRUD rule_overrides collection
+  - Store built-in system definitions
 
 - Cross-refs:
-  - Multiverse/Universe (system_name reference)
-  - Character sheets (use system for stat definitions)
-  - Resolver agent (uses system for dice mechanics)
+  - Universe (system_name reference)
+  - Resolutions (DL-24)
 
 - Outputs:
   - Game system documents
-  - Character templates
-  - Active rule overrides
+  - Rule override documents
 
 **MongoDB Schema:**
 ```javascript
@@ -533,28 +431,9 @@ async def revert_entity_to_time(
     }
   ],
 
-  skills: [
-    {
-      name: string,
-      attribute: string,
-      category: string,
-      trained_bonus: int
-    }
-  ],
-
-  resources: [
-    {
-      name: string,
-      abbreviation: string,
-      max_formula: string,
-      recovery_rules: string,
-      depleted_effect: string
-    }
-  ],
-
-  custom_dice: map,  // {"advantage": "2d20kh1"}
-
-  character_template: {...},
+  skills: [...],
+  resources: [...],
+  custom_dice: map,
 
   is_builtin: bool,
   created_at: ISODate,
@@ -565,49 +444,55 @@ async def revert_entity_to_time(
 {
   _id: ObjectId,
   override_id: UUID,
-
   scope: enum["one_time", "scene", "story", "universe"],
   scope_id: UUID,
-
-  target: enum["dice", "threshold", "resource", "skill", "custom"],
+  target: string,
   original: string,
   override: string,
-
   reason: string,
-  created_by: string,
-
   times_used: int,
   active: bool,
-
   created_at: ISODate
 }
 ```
+
+**MCP Tools (CRUD only):**
+```python
+mongodb_create_game_system(name, description, core_mechanic, attributes, ...) -> system_id
+mongodb_get_game_system(system_id) -> GameSystem
+mongodb_list_game_systems(include_builtin?, limit?, offset?) -> list[GameSystem]
+mongodb_update_game_system(system_id, updates) -> GameSystem
+mongodb_delete_game_system(system_id)
+
+mongodb_create_rule_override(scope, scope_id, target, original, override, reason) -> override_id
+mongodb_get_rule_override(override_id) -> RuleOverride
+mongodb_list_rule_overrides(scope, scope_id, active_only?) -> list[RuleOverride]
+mongodb_update_rule_override(override_id, active?, times_used?)
+mongodb_delete_rule_override(override_id)
+```
+
+> **Note:** Rule interpretation and dice mechanics live in agents layer utilities.
 
 ---
 
 ## DL-21: Manage Random Tables (MongoDB)
 
-**Purpose:** Support table-based random generation for templates, encounters, and narrative elements.
+**Purpose:** Store table definitions for procedural generation.
 
 - Inputs:
   - Table: universe_id, name, table_type, entries[], dice_formula, weighted
-  - Entry: value, weight, min_roll, max_roll, subtable_id
+  - Entry: value, weight, min_roll, max_roll, subtable_id, conditions
 
 - Behavior:
   - CRUD random_tables collection
-  - Roll on table with dice formula
-  - Support weighted entries
-  - Support subtables (nested rolls)
-  - Support conditional entries (based on context)
+  - Store table entries with roll ranges or weights
 
 - Cross-refs:
   - Entity templates (DL-17)
-  - Universe (tables scoped to universe or global)
-  - Game systems (dice formulas)
+  - Universe
 
 - Outputs:
   - Table documents
-  - Roll results
 
 **MongoDB Schema:**
 ```javascript
@@ -615,23 +500,23 @@ async def revert_entity_to_time(
 {
   _id: ObjectId,
   table_id: UUID,
-  universe_id: UUID,  // null for global tables
+  universe_id: UUID,
 
   name: string,
   description: string,
   table_type: enum["encounter", "loot", "name", "trait", "weather", "custom"],
 
-  dice_formula: string,  // "1d100", "2d6"
+  dice_formula: string,
   weighted: bool,
 
   entries: [
     {
       min_roll: int,
       max_roll: int,
-      weight: float,       // for weighted tables
-      value: string,       // the result
-      subtable_id: UUID,   // optional nested table
-      conditions: map      // optional conditions
+      weight: float,
+      value: string,
+      subtable_id: UUID,
+      conditions: map
     }
   ],
 
@@ -640,37 +525,46 @@ async def revert_entity_to_time(
 }
 ```
 
+**MCP Tools (CRUD only):**
+```python
+mongodb_create_random_table(universe_id, name, table_type, dice_formula?, entries) -> table_id
+mongodb_get_random_table(table_id) -> RandomTable
+mongodb_list_random_tables(universe_id?, table_type?, limit?, offset?) -> list[RandomTable]
+mongodb_update_random_table(table_id, updates) -> RandomTable
+mongodb_delete_random_table(table_id)
+
+mongodb_add_table_entry(table_id, entry)
+mongodb_update_table_entry(table_id, entry_index, updates)
+mongodb_remove_table_entry(table_id, entry_index)
+```
+
+> **Note:** Dice rolling and entry selection logic live in agents layer utilities.
+
 ---
 
 ## DL-22: Manage Card Deck State (MongoDB)
 
-**Purpose:** Support card-based RPG mechanics with deck, discard pile, and hand management.
+**Purpose:** Store card deck definitions and runtime state.
 
 - Inputs:
-  - Deck Definition: game_system_id, deck_type, cards[], include_jokers, reshuffle_on[], suit_meanings
+  - Deck Definition: game_system_id, deck_type, cards[], suit_meanings
   - Deck State: story_id, deck_id, draw_pile[], discard_pile[], held_cards{}
-  - Hand: story_id, entity_id, cards[]
+  - Card Draw: state_id, drawn_by, cards[], purpose
 
 - Behavior:
-  - CRUD card_decks (deck definitions) collection
-  - CRUD deck_states (runtime state) collection
-  - Draw cards (random from draw_pile, move to discard or hand)
-  - Shuffle deck (combine discard + draw_pile, randomize)
-  - Return cards to deck or discard
-  - Track hands per entity
-  - Handle special cards (jokers trigger reshuffle)
+  - CRUD card_decks collection (definitions)
+  - CRUD deck_states collection (runtime)
+  - CRUD card_draws collection (history)
 
 - Cross-refs:
-  - Game systems (deck definitions tied to rules)
+  - Game systems (DL-20)
   - Stories (deck state per story)
   - Entities (hands per character)
-  - RS-5 (Card-Based Mechanics use case)
 
 - Outputs:
-  - Deck definitions
-  - Runtime deck states
-  - Hand states
-  - Card draw results
+  - Deck definition documents
+  - Runtime state documents
+  - Draw history documents
 
 **MongoDB Schema:**
 ```javascript
@@ -679,42 +573,21 @@ async def revert_entity_to_time(
   _id: ObjectId,
   deck_id: UUID,
   game_system_id: UUID,
-
   name: string,
   deck_type: enum["standard", "standard_jokers", "tarot", "custom"],
-
   cards: [
     {
-      card_id: string,      // "hearts_ace", "major_fool"
-      suit: string,         // "hearts", "major_arcana", null
-      value: string,        // "ace", "2", "king", "fool"
-      numeric_value: int,   // For comparison
-      display_name: string, // "Ace of Hearts"
-      short_name: string,   // "A♥"
-      meaning: string       // Optional interpretation
-    }
-  ],
-
-  include_jokers: bool,
-  joker_count: int,
-
-  reshuffle_on: [string],   // ["joker", "scene_end", "empty"]
-  show_discards: bool,
-  allow_hands: bool,
-  max_hand_size: int,
-
-  suit_meanings: map,       // {"hearts": "social", "spades": "combat"}
-  value_scale: map,         // {"ace": 14} or {"ace": 1}
-  special_cards: [
-    {
       card_id: string,
-      effect: string,
-      trigger_reshuffle: bool
+      suit: string,
+      value: string,
+      numeric_value: int,
+      display_name: string,
+      short_name: string
     }
   ],
-
-  created_at: ISODate,
-  updated_at: ISODate
+  suit_meanings: map,
+  reshuffle_on: [string],
+  created_at: ISODate
 }
 
 // deck_states (runtime)
@@ -723,73 +596,73 @@ async def revert_entity_to_time(
   state_id: UUID,
   deck_id: UUID,
   story_id: UUID,
-
-  draw_pile: [string],      // Card IDs in shuffled order
-  discard_pile: [string],   // Card IDs in discard
-  held_cards: {             // entity_id -> [card_id]
-    "<entity_uuid>": ["hearts_ace", "spades_king"]
-  },
-
+  draw_pile: [string],
+  discard_pile: [string],
+  held_cards: map,
   total_draws: int,
-  cards_remaining: int,
-  jokers_drawn: int,
-
-  last_shuffled: ISODate,
   last_draw: ISODate,
-
-  created_at: ISODate,
-  updated_at: ISODate
+  created_at: ISODate
 }
 
 // card_draws (history)
 {
   _id: ObjectId,
   draw_id: UUID,
-  deck_id: UUID,
-  story_id: UUID,
+  state_id: UUID,
   scene_id: UUID,
   turn_id: UUID,
-
-  drawn_by: UUID,           // Entity ID
-  cards: [string],          // Card IDs drawn
-  draw_type: enum["single", "multiple_best", "multiple_choose", "opposed", "hand_play"],
-  purpose: string,          // "initiative", "skill_check", etc.
-
-  interpretation: string,   // What the draw means
-  outcome: string,          // Resolved result
-
+  drawn_by: UUID,
+  cards: [string],
+  draw_type: string,
+  purpose: string,
+  interpretation: string,
   drawn_at: ISODate
 }
 ```
+
+**MCP Tools (CRUD only):**
+```python
+# Deck definitions
+mongodb_create_card_deck(game_system_id, name, deck_type, cards, ...) -> deck_id
+mongodb_get_card_deck(deck_id) -> CardDeck
+mongodb_list_card_decks(game_system_id?, deck_type?) -> list[CardDeck]
+mongodb_update_card_deck(deck_id, updates)
+mongodb_delete_card_deck(deck_id)
+
+# Runtime state
+mongodb_create_deck_state(deck_id, story_id, draw_pile, discard_pile?, held_cards?) -> state_id
+mongodb_get_deck_state(state_id) -> DeckState
+mongodb_get_deck_state_by_story(story_id, deck_id) -> DeckState
+mongodb_update_deck_state(state_id, draw_pile?, discard_pile?, held_cards?, total_draws?)
+mongodb_delete_deck_state(state_id)
+
+# Draw history
+mongodb_create_card_draw(state_id, scene_id?, turn_id?, drawn_by, cards, draw_type, purpose?)
+mongodb_list_card_draws(state_id?, scene_id?, drawn_by?, limit?) -> list[CardDraw]
+```
+
+> **Note:** Shuffle algorithms, card selection, and hand management logic live in agents layer utilities.
 
 ---
 
 ## DL-23: Manage World Snapshots (MongoDB)
 
-**Purpose:** Store point-in-time snapshots of world state for backup, comparison, branching, and "what-if" exploration.
+**Purpose:** Store point-in-time snapshots of world state.
 
 - Inputs:
-  - Snapshot: scope (universe/story/region), scope_id, name, description, trigger
-  - State capture: entities[], facts[], relationships[], axioms[]
+  - Snapshot: scope, scope_id, name, trigger
+  - Captured state: entities[], facts[], relationships[], axioms[]
 
 - Behavior:
   - CRUD world_snapshots collection
-  - Capture current state from Neo4j (batch read)
-  - Compare snapshots (diff entities, facts, relationships)
-  - Compare snapshot to current state
-  - Support restore (with CanonKeeper coordination)
-  - Track snapshot lineage for forked universes
+  - Store denormalized state data
 
 - Cross-refs:
   - Neo4j (source of captured state)
   - Stories/Scenes (auto-snapshot at milestones)
-  - M-34 (World Snapshots use case)
-  - M-35 (Universe Fork use case)
 
 - Outputs:
   - Snapshot documents
-  - Snapshot diffs
-  - Restore operations (via CanonKeeper)
 
 **MongoDB Schema:**
 ```javascript
@@ -804,7 +677,6 @@ async def revert_entity_to_time(
   scope: enum["universe", "story", "region"],
   scope_id: UUID,
 
-  // Captured state (denormalized from Neo4j)
   entities: [
     {
       entity_id: UUID,
@@ -815,35 +687,10 @@ async def revert_entity_to_time(
     }
   ],
 
-  facts: [
-    {
-      fact_id: UUID,
-      fact_type: string,
-      statement: string,
-      properties: map
-    }
-  ],
+  facts: [...],
+  relationships: [...],
+  axioms: [...],
 
-  relationships: [
-    {
-      relationship_id: UUID,
-      type: string,
-      from_id: UUID,
-      to_id: UUID,
-      properties: map
-    }
-  ],
-
-  axioms: [
-    {
-      axiom_id: UUID,
-      type: string,
-      content: string,
-      properties: map
-    }
-  ],
-
-  // For story scope
   story_state: {
     current_scene_id: UUID,
     scene_count: int,
@@ -851,92 +698,49 @@ async def revert_entity_to_time(
     story_status: string
   },
 
-  // Metadata
   trigger: enum["manual", "story_start", "milestone", "pre_branch", "pre_flashback", "scheduled"],
   created_at: ISODate,
-  created_by: string,       // "system" or user ID
+  created_by: string,
 
-  // Size metrics
   entity_count: int,
   fact_count: int,
-  relationship_count: int,
   total_size_kb: int,
 
-  // Lineage (for forked universes)
-  parent_snapshot_id: UUID,  // If forked from another snapshot
-  branched_to: [UUID]        // Universes forked from this snapshot
+  parent_snapshot_id: UUID,
+  branched_to: [UUID]
 }
 ```
 
-**Snapshot Operations:**
+**MCP Tools (CRUD only):**
 ```python
-# Capture snapshot
-async def capture_snapshot(scope: str, scope_id: UUID, name: str, trigger: str) -> UUID:
-    # 1. Batch read from Neo4j based on scope
-    entities = await neo4j_list_entities(scope_id=scope_id)
-    facts = await neo4j_list_facts(scope_id=scope_id)
-    relationships = await neo4j_list_relationships(scope_id=scope_id)
-    axioms = await neo4j_list_axioms(scope_id=scope_id)
-
-    # 2. Create snapshot document
-    snapshot = WorldSnapshot(
-        scope=scope,
-        scope_id=scope_id,
-        name=name,
-        trigger=trigger,
-        entities=serialize_entities(entities),
-        facts=serialize_facts(facts),
-        relationships=serialize_relationships(relationships),
-        axioms=serialize_axioms(axioms)
-    )
-
-    # 3. Store in MongoDB
-    return await mongodb_create_snapshot(snapshot)
-
-# Compare snapshots
-async def compare_snapshots(snapshot_a_id: UUID, snapshot_b_id: UUID) -> SnapshotDiff:
-    a = await mongodb_get_snapshot(snapshot_a_id)
-    b = await mongodb_get_snapshot(snapshot_b_id)
-
-    return SnapshotDiff(
-        added_entities=find_added(a.entities, b.entities),
-        modified_entities=find_modified(a.entities, b.entities),
-        deleted_entities=find_deleted(a.entities, b.entities),
-        # ... same for facts, relationships
-    )
+mongodb_create_snapshot(scope, scope_id, name, trigger, entities, facts, relationships, axioms, story_state?) -> snapshot_id
+mongodb_get_snapshot(snapshot_id) -> WorldSnapshot
+mongodb_list_snapshots(scope?, scope_id?, trigger?, limit?, offset?) -> list[WorldSnapshot]
+mongodb_delete_snapshot(snapshot_id)
 ```
+
+> **Note:** Snapshot capture orchestration (batch read from Neo4j) and diff algorithms live in agents layer.
 
 ---
 
 ## DL-24: Manage Turn Resolutions (MongoDB)
 
-**Purpose:** Store and process mechanical resolutions for player/NPC actions during gameplay. This is the core data layer for turn-by-turn game mechanics.
-
-> **CRITICAL:** This DL use case backs P-4 (Player Action) and P-9 (Dice Rolls). Without it, the system cannot run actual gameplay.
+**Purpose:** Store mechanical resolution records for gameplay actions.
 
 - Inputs:
-  - Resolution: turn_id, action, entity_id, resolution_type, mechanics
-  - Mechanics: formula, modifiers[], target, roll_result
-  - Effects: type, target_id, magnitude, duration
+  - Resolution: turn_id, scene_id, actor_id, action, action_type, resolution_type, mechanics, success_level, effects
 
 - Behavior:
   - CRUD resolutions collection
-  - Execute dice/card rolls
-  - Evaluate success against targets
-  - Calculate and apply effects
-  - Track resolution history per scene
+  - Store pre-computed resolution data
 
 - Cross-refs:
-  - Turns (DL-4) - resolution belongs to turn
-  - Game Systems (DL-20) - resolution uses system rules
-  - Card Decks (DL-22) - for card-based resolution
-  - Entities (DL-2) - effects target entities
+  - Turns (DL-4)
+  - Game Systems (DL-20)
+  - Entities (DL-2)
 
 - Outputs:
   - Resolution documents
-  - Roll results
-  - Success levels
-  - Effect calculations
 
 **MongoDB Schema:**
 ```javascript
@@ -948,195 +752,96 @@ async def compare_snapshots(snapshot_a_id: UUID, snapshot_b_id: UUID) -> Snapsho
   scene_id: UUID,
   story_id: UUID,
 
-  // What was attempted
-  actor_id: UUID,              // Entity performing action
-  action: string,              // "attack goblin", "pick lock", etc.
+  actor_id: UUID,
+  action: string,
   action_type: enum["combat", "skill", "social", "exploration", "magic", "other"],
 
-  // Resolution method
   resolution_type: enum["dice", "card", "narrative", "deterministic", "contested"],
 
-  // Mechanics (for dice/card resolution)
   mechanics: {
     game_system_id: UUID,
-    formula: string,           // "1d20+5", "2d6", etc.
+    formula: string,
     modifiers: [
       {source: string, value: int, reason: string}
     ],
-    target: int,               // DC, TN, etc.
-    target_source: string,     // "skill_dc", "opposed_roll", "fixed"
+    target: int,
+    target_source: string,
 
-    // Roll result
     roll: {
-      raw_rolls: [int],        // Individual dice
-      kept_rolls: [int],       // After keep highest/lowest
-      total: int,              // Sum + modifiers
-      natural: int,            // Unmodified roll (for crit detection)
+      raw_rolls: [int],
+      kept_rolls: [int],
+      total: int,
+      natural: int,
       critical: bool,
       fumble: bool
     },
 
-    // For card-based
     card_draw: {
       deck_id: UUID,
       cards: [string],
       interpretation: string
     },
 
-    // For contested
     opposed: {
       defender_id: UUID,
-      defender_roll: {...}     // Same structure as roll
+      defender_roll: {...}
     }
   },
 
-  // Outcome
   success_level: enum["critical_success", "success", "partial_success", "failure", "critical_failure"],
-  margin: int,                 // How much over/under target
+  margin: int,
 
-  // Effects generated
   effects: [
     {
       effect_type: enum["damage", "healing", "condition", "resource", "state_change", "narrative"],
-      target_id: UUID,         // Entity affected
-      magnitude: int,          // Amount (for numeric effects)
-      damage_type: string,     // "slashing", "fire", etc. (for damage)
-      condition: string,       // "poisoned", "prone", etc. (for conditions)
-      duration: string,        // "instant", "1_round", "scene", "permanent"
-      description: string      // Narrative description
+      target_id: UUID,
+      magnitude: int,
+      damage_type: string,
+      condition: string,
+      duration: string,
+      description: string
     }
   ],
 
-  // Narrative
-  description: string,         // What happened narratively
-  gm_notes: string,            // Internal notes
+  description: string,
+  gm_notes: string,
 
   created_at: ISODate
 }
 ```
 
-**MCP Tools:**
+**MCP Tools (CRUD only):**
 ```python
-# Core resolution
-mongodb_create_resolution(turn_id, action, params) -> resolution_id
+mongodb_create_resolution(turn_id, scene_id, story_id, actor_id, action, action_type, resolution_type, mechanics, success_level, margin?, effects?, description?) -> resolution_id
 mongodb_get_resolution(resolution_id) -> Resolution
-mongodb_list_resolutions(scene_id=None, turn_id=None) -> list[Resolution]
-
-# Dice mechanics
-roll_dice(formula: str, modifiers: list[Modifier] = []) -> DiceResult
-evaluate_success(roll: int, target: int, system_id: UUID) -> SuccessLevel
-
-# Effect calculation
-calculate_damage(base: str, modifiers: list, resistances: list) -> int
-apply_effect(entity_id: UUID, effect: Effect) -> EffectResult
-
-# Full resolution pipeline
-async def resolve_action(
-    turn_id: UUID,
-    actor_id: UUID,
-    action: str,
-    target_id: UUID | None,
-    game_system_id: UUID,
-    context: Context
-) -> Resolution:
-    # 1. Determine action type and applicable skill/stat
-    action_type, skill = parse_action(action, context)
-
-    # 2. Get actor stats and modifiers
-    actor = await neo4j_get_entity(actor_id)
-    modifiers = calculate_modifiers(actor, action_type, skill, context)
-
-    # 3. Determine target number
-    target = determine_target(action_type, target_id, context)
-
-    # 4. Get game system rules
-    system = await mongodb_get_game_system(game_system_id)
-
-    # 5. Roll dice (or draw cards)
-    if system.core_mechanic.type in ["d20", "dice_pool", "percentile"]:
-        roll = roll_dice(system.core_mechanic.formula, modifiers)
-    elif system.core_mechanic.type == "card":
-        roll = await draw_cards(context.story_id, system.deck_id)
-
-    # 6. Evaluate success
-    success_level = evaluate_success(roll.total, target, system)
-
-    # 7. Calculate effects
-    effects = calculate_effects(action_type, success_level, actor, target_id, context)
-
-    # 8. Create resolution record
-    resolution = Resolution(
-        turn_id=turn_id,
-        actor_id=actor_id,
-        action=action,
-        action_type=action_type,
-        resolution_type="dice",
-        mechanics={...},
-        success_level=success_level,
-        effects=effects
-    )
-
-    # 9. Persist
-    await mongodb_create_resolution(resolution)
-
-    return resolution
+mongodb_list_resolutions(scene_id?, turn_id?, actor_id?, action_type?, success_level?, limit?, offset?) -> list[Resolution]
+mongodb_update_resolution(resolution_id, effects?, description?, gm_notes?)
+mongodb_delete_resolution(resolution_id)
 ```
 
-**Success Level Evaluation:**
-```python
-def evaluate_success(roll: int, target: int, system: GameSystem) -> SuccessLevel:
-    margin = roll - target
-
-    # Check for criticals first
-    if system.core_mechanic.critical_success:
-        if meets_critical(roll, system.core_mechanic.critical_success):
-            return SuccessLevel.CRITICAL_SUCCESS
-
-    if system.core_mechanic.critical_failure:
-        if meets_critical(roll, system.core_mechanic.critical_failure):
-            return SuccessLevel.CRITICAL_FAILURE
-
-    # Standard success evaluation
-    if margin >= 0:
-        if system.core_mechanic.partial_success:
-            threshold = parse_partial_threshold(system.core_mechanic.partial_success)
-            if margin < threshold:
-                return SuccessLevel.PARTIAL_SUCCESS
-        return SuccessLevel.SUCCESS
-
-    return SuccessLevel.FAILURE
-```
+> **Note:** Dice rolling, success evaluation, damage calculation, and effect application logic live in agents layer utilities. This collection stores the RESULTS of those computations.
 
 ---
 
 ## DL-25: Manage Combat State (MongoDB)
 
-**Purpose:** Track combat encounter state including initiative, turn order, participant status, and environmental factors.
+**Purpose:** Store combat encounter state.
 
 - Inputs:
-  - Encounter: scene_id, participants[], environment
-  - Participant state: entity_id, initiative, position, conditions[], resources{}
-  - Round/turn progression
+  - Encounter: scene_id, story_id, participants[], environment
+  - Participant: entity_id, name, side, initiative_value, conditions[], resources{}
 
 - Behavior:
   - CRUD combat_encounters collection
-  - Initialize combat (roll/draw initiative)
-  - Track turn order and current turn
-  - Manage participant conditions and resources
-  - Handle defeat/victory detection
-  - Support tactical positioning (optional)
+  - Store participant state and turn tracking
 
 - Cross-refs:
-  - Scenes (DL-4) - combat belongs to scene
-  - Entities (DL-2) - participants are entities
-  - Resolutions (DL-24) - combat actions create resolutions
-  - Card Decks (DL-22) - for card-based initiative
+  - Scenes (DL-4)
+  - Entities (DL-2)
+  - Resolutions (DL-24)
 
 - Outputs:
   - Combat encounter documents
-  - Initiative order
-  - Combat state updates
-  - Victory/defeat outcomes
 
 **MongoDB Schema:**
 ```javascript
@@ -1147,81 +852,57 @@ def evaluate_success(roll: int, target: int, system: GameSystem) -> SuccessLevel
   scene_id: UUID,
   story_id: UUID,
 
-  // Status
   status: enum["initializing", "initiative", "active", "paused", "resolved"],
   started_at: ISODate,
   ended_at: ISODate,
 
-  // Participants
   participants: [
     {
       entity_id: UUID,
-      name: string,                    // Cached for display
+      name: string,
       side: enum["pc", "ally", "enemy", "neutral"],
 
-      // Initiative
       initiative_value: int,
-      initiative_card: string,         // For card-based
-      initiative_modifiers: [string],
+      initiative_card: string,
 
-      // Current state
-      is_active: bool,                 // Still in combat
+      is_active: bool,
       is_current_turn: bool,
       has_acted_this_round: bool,
 
-      // Position (for tactical combat)
-      position: {
-        x: int,
-        y: int,
-        zone: string                   // "melee_range", "ranged", "cover"
-      },
+      position: { x: int, y: int, zone: string },
 
-      // Conditions and effects
       conditions: [
         {
-          name: string,                // "poisoned", "prone", "stunned"
-          source: string,              // What caused it
-          duration: string,            // "1_round", "save_ends", "scene"
+          name: string,
+          source: string,
+          duration: string,
           rounds_remaining: int,
-          effects: map                 // Mechanical effects
+          effects: map
         }
       ],
 
-      // Combat resources (snapshot from character)
       resources: {
         hp: {current: int, max: int},
         temp_hp: int,
-        // System-specific resources
-        spell_slots: map,
-        ki_points: int,
-        rage_rounds: int
+        ...
       },
 
-      // Tracking
       damage_dealt: int,
-      damage_taken: int,
-      kills: int
+      damage_taken: int
     }
   ],
 
-  // Turn tracking
   round: int,
-  turn_order: [UUID],                  // Entity IDs in initiative order
+  turn_order: [UUID],
   current_turn_index: int,
-  current_entity_id: UUID,
 
-  // Environment
   environment: {
-    terrain: string,                   // "forest", "dungeon", "urban"
+    terrain: string,
     lighting: enum["bright", "dim", "dark"],
-    hazards: [
-      {name: string, area: string, effect: string, damage: string}
-    ],
-    cover_positions: [string],
-    difficult_terrain: [string]
+    hazards: [...],
+    cover_positions: [string]
   },
 
-  // Combat log
   combat_log: [
     {
       round: int,
@@ -1234,7 +915,6 @@ def evaluate_success(roll: int, target: int, system: GameSystem) -> SuccessLevel
     }
   ],
 
-  // Outcome
   outcome: {
     result: enum["victory", "defeat", "flee", "surrender", "interrupted"],
     winning_side: string,
@@ -1246,120 +926,49 @@ def evaluate_success(roll: int, target: int, system: GameSystem) -> SuccessLevel
 }
 ```
 
-**MCP Tools:**
+**MCP Tools (CRUD only):**
 ```python
 # Combat lifecycle
-mongodb_create_combat(scene_id, participants, environment) -> encounter_id
+mongodb_create_combat(scene_id, story_id, participants?, environment?) -> encounter_id
 mongodb_get_combat(encounter_id) -> CombatEncounter
-mongodb_end_combat(encounter_id, outcome) -> CombatOutcome
+mongodb_list_combats(scene_id?, story_id?, status?, limit?, offset?) -> list[CombatEncounter]
+mongodb_update_combat(encounter_id, status?, round?, turn_order?, current_turn_index?)
+mongodb_delete_combat(encounter_id)
 
-# Initiative
-mongodb_roll_initiative(encounter_id, game_system_id) -> list[InitiativeResult]
-mongodb_set_initiative(encounter_id, entity_id, value)
-mongodb_reroll_initiative(encounter_id)  # For systems that reroll each round
+# Participant management
+mongodb_add_combat_participant(encounter_id, entity_id, name, side, initiative_value?, resources?)
+mongodb_update_combat_participant(encounter_id, entity_id, initiative_value?, is_active?, conditions?, resources?, position?)
+mongodb_remove_combat_participant(encounter_id, entity_id)
 
-# Turn management
-mongodb_get_current_turn(encounter_id) -> TurnInfo
-mongodb_advance_turn(encounter_id) -> NextTurnInfo
-mongodb_delay_turn(encounter_id, entity_id)
-mongodb_ready_action(encounter_id, entity_id, trigger, action)
+# Combat log
+mongodb_add_combat_log_entry(encounter_id, round, turn, actor_id, action, resolution_id?, summary)
 
-# Participant state
-mongodb_update_participant(encounter_id, entity_id, updates)
-mongodb_apply_damage(encounter_id, entity_id, damage, damage_type) -> DamageResult
-mongodb_apply_healing(encounter_id, entity_id, amount) -> HealingResult
-mongodb_add_condition(encounter_id, entity_id, condition) -> ConditionResult
-mongodb_remove_condition(encounter_id, entity_id, condition_name)
-mongodb_update_position(encounter_id, entity_id, position)
-
-# Combat queries
-mongodb_get_valid_targets(encounter_id, entity_id, action_type) -> list[UUID]
-mongodb_check_line_of_sight(encounter_id, from_id, to_id) -> bool
-mongodb_get_distance(encounter_id, from_id, to_id) -> int
-
-# Defeat detection
-mongodb_check_combat_end(encounter_id) -> CombatEndCheck
+# Outcome
+mongodb_set_combat_outcome(encounter_id, result, winning_side?, survivors?, casualties?, loot?, xp_awarded?)
 ```
 
-**Combat Flow:**
-```python
-async def run_combat_round(encounter_id: UUID) -> RoundResult:
-    encounter = await mongodb_get_combat(encounter_id)
-
-    round_results = []
-
-    # Process each participant in initiative order
-    for entity_id in encounter.turn_order:
-        participant = get_participant(encounter, entity_id)
-
-        if not participant.is_active:
-            continue
-
-        # Mark current turn
-        await mongodb_update_participant(encounter_id, entity_id, {"is_current_turn": True})
-
-        # Get action (from user, PC-Agent, or NPC-Agent)
-        if participant.side == "pc":
-            action = await get_pc_action(entity_id, encounter)
-        else:
-            action = await get_npc_action(entity_id, encounter)
-
-        # Resolve action
-        resolution = await resolve_combat_action(encounter_id, entity_id, action)
-        round_results.append(resolution)
-
-        # Apply effects
-        for effect in resolution.effects:
-            await apply_combat_effect(encounter_id, effect)
-
-        # Check for combat end
-        end_check = await mongodb_check_combat_end(encounter_id)
-        if end_check.should_end:
-            await mongodb_end_combat(encounter_id, end_check.outcome)
-            return RoundResult(ended=True, outcome=end_check.outcome)
-
-        # Clear current turn
-        await mongodb_update_participant(encounter_id, entity_id, {
-            "is_current_turn": False,
-            "has_acted_this_round": True
-        })
-
-    # Advance round
-    await mongodb_advance_round(encounter_id)
-
-    return RoundResult(ended=False, actions=round_results)
-```
+> **Note:** Initiative rolling, turn advancement, defeat detection, damage/healing application, and combat flow orchestration live in agents layer.
 
 ---
 
 ## DL-26: Manage Character Working State (MongoDB)
 
-**Purpose:** Track character stats and resources during active gameplay, separate from canonical Neo4j state.
-
-> **Design Decision:** Neo4j stores permanent/canonical character data. MongoDB stores scene-scoped working state that syncs to Neo4j at canonization.
+**Purpose:** Store character working state during active gameplay.
 
 - Inputs:
-  - Character state: entity_id, scene_id, stats{}, resources{}, temporary_effects[]
-  - Stat modifications (buffs, debuffs, damage)
-  - Temporary effects with duration
+  - Working state: entity_id, scene_id, base_stats, current_stats, resources, modifications[], temporary_effects[]
 
 - Behavior:
-  - Initialize working state from Neo4j at scene start
-  - Track all mid-scene modifications
-  - Apply temporary effects with duration tracking
-  - Sync back to Neo4j at canonization
-  - Support "what would happen" queries without committing
+  - CRUD character_working_state collection
+  - Store stat snapshots and modifications
 
 - Cross-refs:
   - Entities (DL-2) - source of canonical stats
   - Scenes (DL-4) - working state scoped to scene
-  - Resolutions (DL-24) - resolutions modify working state
-  - Combat (DL-25) - combat uses working state
+  - Resolutions (DL-24) - resolutions create modifications
 
 - Outputs:
   - Working state documents
-  - Effective stat calculations
-  - State diffs for canonization
 
 **MongoDB Schema:**
 ```javascript
@@ -1371,47 +980,41 @@ async def run_combat_round(encounter_id: UUID) -> RoundResult:
   scene_id: UUID,
   story_id: UUID,
 
-  // Snapshot of canonical stats (from Neo4j at scene start)
   base_stats: {
-    // Game-system specific
     strength: int,
     dexterity: int,
-    // ...
+    ...
   },
 
-  // Current working values (base + modifications)
   current_stats: {
     strength: int,
     dexterity: int,
-    // ...
+    ...
   },
 
-  // Resources with current/max
   resources: {
     hp: {current: int, max: int, temp: int},
     mp: {current: int, max: int},
-    // Game-system specific
+    ...
   },
 
-  // Modifications applied this scene
   modifications: [
     {
       mod_id: UUID,
       stat_or_resource: string,
       change: int,
-      source: string,          // "combat_damage", "healing_potion", "spell_buff"
-      source_id: UUID,         // Resolution or effect that caused it
+      source: string,
+      source_id: UUID,
       timestamp: ISODate
     }
   ],
 
-  // Temporary effects
   temporary_effects: [
     {
       effect_id: UUID,
-      name: string,            // "bless", "haste", "rage"
+      name: string,
       source: string,
-      stat_modifiers: map,     // {dexterity: +2, ac: +1}
+      stat_modifiers: map,
       duration_type: enum["rounds", "minutes", "scene", "concentration"],
       duration_remaining: int,
       applied_at: ISODate,
@@ -1419,12 +1022,10 @@ async def run_combat_round(encounter_id: UUID) -> RoundResult:
     }
   ],
 
-  // Inventory changes (not yet canonized)
   inventory_changes: [
     {change_type: enum["add", "remove", "use"], item: string, quantity: int}
   ],
 
-  // For diff/canonization
   created_at: ISODate,
   updated_at: ISODate,
   canonized: bool,
@@ -1432,69 +1033,29 @@ async def run_combat_round(encounter_id: UUID) -> RoundResult:
 }
 ```
 
-**MCP Tools:**
+**MCP Tools (CRUD only):**
 ```python
 # Working state lifecycle
-mongodb_init_working_state(entity_id, scene_id) -> state_id  # Load from Neo4j
+mongodb_create_working_state(entity_id, scene_id, story_id, base_stats, current_stats, resources) -> state_id
 mongodb_get_working_state(entity_id, scene_id) -> CharacterWorkingState
-mongodb_delete_working_state(state_id)  # Cleanup after scene
+mongodb_get_working_state_by_id(state_id) -> CharacterWorkingState
+mongodb_list_working_states(scene_id?, story_id?, canonized?, limit?, offset?) -> list[CharacterWorkingState]
+mongodb_update_working_state(state_id, current_stats?, resources?)
+mongodb_delete_working_state(state_id)
 
-# Stat/resource modification
-mongodb_modify_stat(state_id, stat, change, source, source_id)
-mongodb_modify_resource(state_id, resource, change, source, source_id)
-mongodb_set_resource(state_id, resource, value)
+# Modifications tracking
+mongodb_add_modification(state_id, stat_or_resource, change, source, source_id)
 
 # Temporary effects
-mongodb_add_temp_effect(state_id, effect) -> effect_id
+mongodb_add_temp_effect(state_id, name, source, stat_modifiers, duration_type, duration_remaining)
+mongodb_update_temp_effect(state_id, effect_id, duration_remaining?)
 mongodb_remove_temp_effect(state_id, effect_id)
-mongodb_tick_effect_durations(state_id)  # Called at round/turn end
-mongodb_get_expired_effects(state_id) -> list[Effect]
 
-# Effective stat calculation
-def get_effective_stat(state: CharacterWorkingState, stat: str) -> int:
-    base = state.current_stats.get(stat, 0)
-    for effect in state.temporary_effects:
-        if stat in effect.stat_modifiers:
-            base += effect.stat_modifiers[stat]
-    return base
+# Inventory changes
+mongodb_add_inventory_change(state_id, change_type, item, quantity)
 
-# Canonization
-mongodb_get_state_diff(state_id) -> StateDiff  # What changed from base
+# Canonization marker
 mongodb_mark_canonized(state_id)
-
-# Sync to Neo4j
-async def canonize_working_state(state_id: UUID):
-    state = await mongodb_get_working_state(state_id)
-    diff = await mongodb_get_state_diff(state_id)
-
-    # Only permanent changes go to Neo4j
-    permanent_changes = filter_permanent(diff)
-
-    if permanent_changes.hp_change:
-        await neo4j_update_entity(state.entity_id, {
-            "stats.hp.current": state.resources.hp.current
-        })
-
-    if permanent_changes.stat_changes:
-        for stat, value in permanent_changes.stat_changes.items():
-            await neo4j_update_entity(state.entity_id, {
-                f"stats.{stat}": value
-            })
-
-    # Mark canonized
-    await mongodb_mark_canonized(state_id)
 ```
 
-**Integration with Scene Loop:**
-```python
-# At scene start (S1):
-for entity_id in scene.participant_ids:
-    await mongodb_init_working_state(entity_id, scene.id)
-
-# During turns (S2-S5):
-# All stat/resource changes go to working state, not Neo4j
-
-# At scene end (S6):
-for entity_id in scene.participant_ids:
-    await canonize_working_state(entity_id, scene.id)
-```
+> **Note:** State initialization from Neo4j, effective stat calculation, duration ticking, and canonization sync to Neo4j live in agents layer.

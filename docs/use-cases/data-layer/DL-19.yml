@@ -1,0 +1,132 @@
+# DL-19: Historical Queries & State Reconstruction
+# =================================================
+
+id: "DL-19"
+title: "Historical Queries & State Reconstruction"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement the ability to reconstruct entity state at any past point in time
+  using the change log. Supports time-travel queries, version comparison, and
+  controlled revert operations. Works by reverse-applying changes from current
+  state to target timestamp.
+
+acceptance_criteria:
+  - "get_entity_at_time returns entity state at specified timestamp"
+  - "get_fact_at_time returns fact state at specified timestamp"
+  - "compare_entity_versions shows diff between two timestamps"
+  - "get_entity_timeline returns chronological list of changes"
+  - "revert_entity_to_time restores past state (creates new change record)"
+  - "Revert operations preserve full history (no deletions)"
+  - "Revert creates explanatory fact documenting the action"
+  - "Supports entity, fact, relationship, and party reconstruction"
+  - "Performance acceptable for entities with <1000 changes"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-18"  # Requires change log for history
+
+blocks:
+  - "DL-23"  # World snapshots can use historical queries
+  - "M-33"   # History viewer UI
+  - "Q-8"    # Timeline queries
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/tools/history_tools.py"
+      - "packages/data-layer/tests/test_tools/test_history_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/__init__.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    combined:
+      - name: "get_entity_at_time"
+        authority: ["*"]
+        params: ["entity_id", "target_time"]
+        description: "Reconstruct entity state at past timestamp"
+
+      - name: "get_fact_at_time"
+        authority: ["*"]
+        params: ["fact_id", "target_time"]
+        description: "Reconstruct fact state at past timestamp"
+
+      - name: "compare_entity_versions"
+        authority: ["*"]
+        params: ["entity_id", "time_a", "time_b"]
+        description: "Compare entity state between two timestamps"
+
+      - name: "get_entity_timeline"
+        authority: ["*"]
+        params: ["entity_id", "start_time?", "end_time?", "limit?"]
+        description: "Get chronological list of all changes to entity"
+
+      - name: "revert_entity_to_time"
+        authority: ["CanonKeeper"]
+        params: ["entity_id", "target_time", "reason"]
+        description: "Restore entity to past state (preserves history)"
+
+      - name: "revert_fact_to_time"
+        authority: ["CanonKeeper"]
+        params: ["fact_id", "target_time", "reason"]
+        description: "Restore fact to past state (preserves history)"
+
+  patterns:
+    - "Get current state from Neo4j"
+    - "Query change_log for all changes after target_time"
+    - "Sort changes newest-first for reverse application"
+    - "Reverse-apply each change to reconstruct historical state"
+    - "Revert creates new 'reverted' change type, never deletes history"
+    - "Create fact documenting revert with timestamp and reason"
+
+  notes: |
+    - This is read-heavy query pattern - optimize change_log indexes
+    - For very old states, consider caching reconstructed snapshots
+    - Revert is a forward operation that creates new state matching old
+    - All reverts go through CanonKeeper for authority
+    - Consider batching for entities with many changes
+
+testing:
+  unit_tests:
+    - "test_get_entity_at_time_current: returns current if no changes after"
+    - "test_get_entity_at_time_past: correctly reconstructs past state"
+    - "test_get_entity_at_time_multiple_changes: handles many changes"
+    - "test_compare_versions_diff: shows correct differences"
+    - "test_compare_versions_same: handles identical states"
+    - "test_get_timeline_full: returns all changes chronologically"
+    - "test_get_timeline_range: time range filter works"
+    - "test_revert_creates_change: new change record created"
+    - "test_revert_preserves_history: old changes remain"
+    - "test_revert_creates_fact: explanatory fact created"
+
+  integration_tests:
+    - "test_full_reconstruction: create, update multiple times, reconstruct each version"
+    - "test_revert_workflow: make changes, revert, verify state matches past"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "neo4j"
+    - "mongodb"
+    - "priority-medium"
+    - "time-travel"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/DATA_LAYER_USE_CASES.md#dl-19"
+    - "docs/DATA_LAYER_USE_CASES.md#dl-18"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"

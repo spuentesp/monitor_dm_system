@@ -1,0 +1,141 @@
+# DL-16: Manage Party Inventory & Splits
+# =======================================
+
+id: "DL-16"
+title: "Manage Party Inventory & Splits"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement MongoDB collections for shared party inventory and party split tracking.
+  Party inventory holds items owned collectively by the party (not individual characters).
+  Party splits track when a party temporarily divides and later rejoins.
+  Supports common RPG patterns like shared gold, party loot, and split-party adventures.
+
+acceptance_criteria:
+  - "mongodb_create_party_inventory creates inventory document for party"
+  - "mongodb_add_inventory_item adds item with quantity and notes"
+  - "mongodb_remove_inventory_item removes or decrements item quantity"
+  - "mongodb_transfer_item moves item between party and character inventory"
+  - "mongodb_get_party_inventory returns full inventory with categories"
+  - "mongodb_create_party_split records split with member assignments"
+  - "mongodb_get_active_splits returns current splits for party"
+  - "mongodb_resolve_party_split marks split as rejoined"
+  - "mongodb_get_split_history returns all splits for party"
+  - "Inventory supports item categories (weapons, armor, consumables, treasure, misc)"
+  - "Split tracking includes location and purpose per sub-party"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-15"  # Party must exist
+  - "DL-2"   # Characters for individual inventory transfer
+
+blocks:
+  - "P-13"   # Party management use case
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/party_inventory.py"
+      - "packages/data-layer/tests/test_tools/test_party_inventory_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_create_party_inventory"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["party_id", "initial_gold?", "initial_items?"]
+
+      - name: "mongodb_get_party_inventory"
+        authority: ["*"]
+        params: ["party_id"]
+
+      - name: "mongodb_add_inventory_item"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["party_id", "item_name", "quantity", "category?", "notes?", "value?"]
+
+      - name: "mongodb_remove_inventory_item"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["party_id", "item_name", "quantity?"]
+
+      - name: "mongodb_update_party_gold"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["party_id", "amount", "reason?"]
+
+      - name: "mongodb_transfer_item"
+        authority: ["Orchestrator"]
+        params: ["from_type", "from_id", "to_type", "to_id", "item_name", "quantity"]
+
+      - name: "mongodb_create_party_split"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["party_id", "sub_parties"]
+
+      - name: "mongodb_get_active_splits"
+        authority: ["*"]
+        params: ["party_id"]
+
+      - name: "mongodb_resolve_party_split"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["split_id", "resolution_notes?"]
+
+      - name: "mongodb_get_split_history"
+        authority: ["*"]
+        params: ["party_id", "limit?", "offset?"]
+
+  patterns:
+    - "party_inventories collection: {party_id, gold, items[], created_at, updated_at}"
+    - "items array: [{name, quantity, category, value, notes, added_at}]"
+    - "party_splits collection: {split_id, party_id, sub_parties[], status, created_at, resolved_at}"
+    - "sub_parties array: [{name, member_ids[], location_id, purpose}]"
+    - "Categories enum: weapons, armor, consumables, treasure, quest_items, misc"
+
+  notes: |
+    - Party inventory is separate from individual character inventories
+    - Gold is tracked as integer (copper pieces) for precision
+    - Transfer can be party->character, character->party, or character->character
+    - Splits create virtual sub-parties that share the parent party_id
+    - When split resolves, all members return to main party automatically
+
+testing:
+  unit_tests:
+    - "test_create_inventory_success: creates empty inventory"
+    - "test_create_inventory_with_items: initial items stored"
+    - "test_add_item_new: new item added to inventory"
+    - "test_add_item_existing: quantity incremented"
+    - "test_remove_item_partial: quantity decremented"
+    - "test_remove_item_full: item removed from list"
+    - "test_update_gold_positive: gold increased"
+    - "test_update_gold_negative: gold decreased"
+    - "test_transfer_party_to_character: item moved correctly"
+    - "test_create_split_success: split created with sub-parties"
+    - "test_get_active_splits: returns only unresolved splits"
+    - "test_resolve_split: marks split as resolved"
+
+  integration_tests:
+    - "test_inventory_lifecycle: create, add items, transfer, remove"
+    - "test_split_lifecycle: create split, track sub-parties, resolve"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "mongodb"
+    - "priority-medium"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#39-party-inventories"
+    - "docs/DATA_LAYER_USE_CASES.md#dl-16"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/mongodb.py"

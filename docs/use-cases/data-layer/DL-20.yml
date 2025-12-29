@@ -1,0 +1,139 @@
+# DL-20: Manage Game Systems & Rules
+# ====================================
+
+id: "DL-20"
+title: "Manage Game Systems & Rules"
+category: "data-layer"
+epic: 0
+priority: "high"
+status: "todo"
+
+summary: |
+  Implement MongoDB collections for storing game system definitions and rule
+  overrides. Pure data storage for system-agnostic play configurations.
+  Business logic for rule execution lives in the agents layer utilities.
+
+acceptance_criteria:
+  - "mongodb_create_game_system creates system definition document"
+  - "mongodb_get_game_system returns full system with all fields"
+  - "mongodb_list_game_systems returns available systems with filtering"
+  - "mongodb_update_game_system allows modifying system definitions"
+  - "mongodb_delete_game_system removes custom systems (not built-in)"
+  - "Built-in systems (D&D 5e, Fate, PbtA) seeded and protected"
+  - "mongodb_create_rule_override creates scoped rule modification"
+  - "mongodb_get_rule_override returns override by ID"
+  - "mongodb_list_rule_overrides returns overrides for scope"
+  - "mongodb_update_rule_override modifies override"
+  - "mongodb_delete_rule_override removes override"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-1"   # Systems can be universe-scoped
+
+blocks:
+  - "RS-1"   # Rules engine uses game system data
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/game_systems.py"
+      - "packages/data-layer/tests/test_tools/test_game_system_tools.py"
+      - "packages/data-layer/src/monitor_data/data/builtin_systems.json"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    mongodb:
+      # Game systems CRUD
+      - name: "mongodb_create_game_system"
+        authority: ["*"]
+        params: ["name", "description", "core_mechanic", "attributes", "skills?", "resources?", "custom_dice?"]
+
+      - name: "mongodb_get_game_system"
+        authority: ["*"]
+        params: ["system_id"]
+
+      - name: "mongodb_list_game_systems"
+        authority: ["*"]
+        params: ["include_builtin?", "limit?", "offset?"]
+
+      - name: "mongodb_update_game_system"
+        authority: ["*"]
+        params: ["system_id", "name?", "description?", "core_mechanic?", "attributes?", "skills?", "resources?"]
+
+      - name: "mongodb_delete_game_system"
+        authority: ["*"]
+        params: ["system_id"]
+
+      # Rule overrides CRUD
+      - name: "mongodb_create_rule_override"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["scope", "scope_id", "target", "original", "override", "reason"]
+
+      - name: "mongodb_get_rule_override"
+        authority: ["*"]
+        params: ["override_id"]
+
+      - name: "mongodb_list_rule_overrides"
+        authority: ["*"]
+        params: ["scope", "scope_id", "active_only?"]
+
+      - name: "mongodb_update_rule_override"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["override_id", "active?", "times_used?"]
+
+      - name: "mongodb_delete_rule_override"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["override_id"]
+
+  patterns:
+    - "game_systems collection schema in DATA_LAYER_USE_CASES.md"
+    - "rule_overrides collection schema in DATA_LAYER_USE_CASES.md"
+    - "Core mechanic types stored as enum: d20, dice_pool, percentile, card, narrative"
+    - "Override scopes: one_time, scene, story, universe"
+    - "Built-in systems have is_builtin: true flag"
+
+  notes: |
+    - This is PURE DATA STORAGE - no rule execution logic
+    - Rule execution/interpretation lives in agents layer utilities
+    - Dice formula parsing and rolling is agents layer responsibility
+    - Success evaluation algorithms are agents layer responsibility
+    - Built-in systems loaded from JSON seed file on init
+
+testing:
+  unit_tests:
+    - "test_create_system_success: valid system created"
+    - "test_get_system: returns full system data"
+    - "test_list_systems_includes_builtin: built-in systems appear"
+    - "test_update_system_success: fields updated"
+    - "test_delete_builtin_rejected: cannot delete built-in system"
+    - "test_delete_custom_success: custom system deleted"
+    - "test_create_override_success: override created"
+    - "test_get_override: returns override data"
+    - "test_list_overrides_by_scope: scope filter works"
+    - "test_update_override: fields updated"
+    - "test_delete_override: override removed"
+
+  integration_tests:
+    - "test_builtin_systems_seeded: D&D 5e, Fate available after init"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "mongodb"
+    - "priority-high"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/DATA_LAYER_USE_CASES.md#dl-20"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/mongodb.py"

@@ -63,17 +63,21 @@ Collection: resolutions
 - effects[] (type, description, target_id, magnitude)
 ```
 
-**Required MCP Tools:**
+**Required MCP Tools (Data Layer - CRUD only):**
 ```python
 mongodb_create_resolution(turn_id, action, params) -> resolution_id
 mongodb_get_resolution(resolution_id) -> Resolution
 mongodb_list_resolutions(scene_id) -> list[Resolution]
+mongodb_update_resolution(resolution_id, effects?, description?)
+```
 
-# Core resolution operations
-resolve_action(action, character_id, context) -> Resolution
+**Required Agents Layer Utilities (Business Logic):**
+```python
+# These are NOT MCP tools - they live in agents layer
 roll_dice(formula) -> DiceResult
 evaluate_success(roll, target, modifiers) -> SuccessLevel
 calculate_effects(action, success_level, context) -> list[Effect]
+resolve_action(action, character_id, context) -> Resolution  # Orchestration
 ```
 
 **Impact:** Without this, P-4 (Player Action) and P-9 (Dice Rolls) have no data layer backing.
@@ -115,12 +119,22 @@ calculate_effects(action, success_level, context) -> list[Effect]
 }
 ```
 
-**Required MCP Tools:**
+**Required MCP Tools (Data Layer - CRUD only):**
 ```python
 mongodb_create_combat(scene_id, participants) -> encounter_id
-mongodb_update_combat_state(encounter_id, updates)
-mongodb_advance_combat_turn(encounter_id) -> next_entity_id
-mongodb_end_combat(encounter_id, outcome)
+mongodb_get_combat(encounter_id) -> CombatEncounter
+mongodb_update_combat(encounter_id, status?, round?, turn_order?)
+mongodb_add_combat_participant(encounter_id, entity_id, ...)
+mongodb_update_combat_participant(encounter_id, entity_id, ...)
+mongodb_set_combat_outcome(encounter_id, outcome)
+```
+
+**Required Agents Layer (Business Logic):**
+```python
+# Combat flow orchestration lives in agents layer
+advance_combat_turn(encounter_id) -> next_entity_id  # Orchestrator
+roll_initiative(encounter_id, game_system_id)        # Resolver utility
+check_combat_end(encounter_id) -> bool               # Resolver utility
 ```
 
 ---
@@ -138,16 +152,28 @@ mongodb_end_combat(encounter_id, outcome)
 3. **Hybrid:** Neo4j for permanent stats, MongoDB for temporary effects.
 
 **Recommendation:** Option 3 (Hybrid)
-```python
-# Neo4j: Permanent/base stats
-neo4j_get_entity_stats(entity_id) -> BaseStats
-neo4j_update_entity_stats(entity_id, stat_changes)  # Canonization only
 
-# MongoDB: Session/scene working memory
-mongodb_get_character_sheet(entity_id, scene_id) -> CharacterSheet
-mongodb_update_character_sheet(entity_id, scene_id, changes)
-mongodb_apply_temporary_effect(entity_id, effect)
-mongodb_clear_scene_effects(entity_id, scene_id)
+**Data Layer MCP Tools (CRUD only):**
+```python
+# Neo4j: Permanent/base stats (via existing DL-2)
+neo4j_get_entity(entity_id) -> Entity  # includes stats
+neo4j_update_entity(entity_id, updates)  # CanonKeeper only
+
+# MongoDB: Working state storage (DL-26)
+mongodb_create_working_state(entity_id, scene_id, base_stats, resources)
+mongodb_get_working_state(entity_id, scene_id) -> WorkingState
+mongodb_update_working_state(state_id, current_stats?, resources?)
+mongodb_add_temp_effect(state_id, effect)
+mongodb_remove_temp_effect(state_id, effect_id)
+mongodb_mark_canonized(state_id)
+```
+
+**Agents Layer (Business Logic):**
+```python
+# These are NOT MCP tools - they live in agents layer
+init_working_state_from_neo4j(entity_id, scene_id)  # Orchestrator
+get_effective_stat(state, stat_name) -> int          # Utility
+canonize_working_state(state_id)                     # CanonKeeper
 ```
 
 ---
@@ -201,28 +227,32 @@ mongodb_rejoin_party(split_id)
 
 #### DL-23: Snapshots - Missing Restore Operation
 
-Current DL-23 captures snapshots but doesn't specify restore:
+Current DL-23 captures snapshots but doesn't specify restore.
 
+**Data Layer MCP Tools (CRUD only):**
 ```python
-# ADD to DL-23
+# DL-23 already provides:
+mongodb_create_snapshot(scope, scope_id, name, entities, facts, ...)
+mongodb_get_snapshot(snapshot_id)
+mongodb_list_snapshots(scope?, scope_id?)
+mongodb_delete_snapshot(snapshot_id)
+```
+
+**Agents Layer (Restore Orchestration):**
+```python
+# Restore logic lives in agents layer (CanonKeeper)
 async def restore_snapshot(
     snapshot_id: UUID,
     strategy: RestoreStrategy  # full, entities_only, selective
 ) -> RestoreResult:
     # 1. Begin transaction
     # 2. If full: Delete current state within scope
-    # 3. Recreate entities from snapshot
-    # 4. Recreate facts from snapshot
+    # 3. Recreate entities from snapshot (via neo4j_create_entity)
+    # 4. Recreate facts from snapshot (via neo4j_create_fact)
     # 5. Recreate relationships from snapshot
     # 6. Invalidate Qdrant indices for affected entities
-    # 7. Log restore in change_log
+    # 7. Log restore in change_log (via mongodb_log_change)
     # 8. Commit transaction
-
-class RestoreStrategy(Enum):
-    FULL = "full"                    # Replace everything
-    ENTITIES_ONLY = "entities_only"  # Only restore entities
-    SELECTIVE = "selective"          # User picks what to restore
-    BRANCH = "branch"                # Create new universe from snapshot
 ```
 
 ---

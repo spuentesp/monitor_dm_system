@@ -1,0 +1,132 @@
+# DL-17: Manage Entity Templates
+# ================================
+
+id: "DL-17"
+title: "Manage Entity Templates"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement MongoDB collection for reusable entity templates that can generate
+  EntityInstances with randomized or variable properties. Templates support
+  procedural generation of NPCs, monsters, locations, and items. Includes
+  variable substitution, random table references, and inheritance from archetypes.
+
+acceptance_criteria:
+  - "mongodb_create_template creates template document with schema"
+  - "mongodb_create_template validates archetype_id reference exists"
+  - "mongodb_get_template returns template with all fields"
+  - "mongodb_list_templates supports filtering by universe_id, archetype_id, tags"
+  - "mongodb_update_template allows modifying template fields"
+  - "mongodb_delete_template removes template"
+  - "mongodb_instantiate_template creates EntityInstance from template"
+  - "mongodb_instantiate_template resolves variable expressions"
+  - "mongodb_instantiate_template rolls on referenced random tables"
+  - "Template variables support: {{roll:1d6}}, {{table:names}}, {{pick:a,b,c}}"
+  - "Templates can inherit from other templates"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-1"   # Templates scoped to universe
+  - "DL-2"   # Templates create EntityInstances
+  - "DL-21"  # Random table references
+
+blocks:
+  - "M-31"   # Entity templates management UI
+  - "ST-6"   # Random encounter generation
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/templates.py"
+      - "packages/data-layer/tests/test_tools/test_template_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_create_template"
+        authority: ["*"]
+        params: ["universe_id", "name", "archetype_id", "template_type", "properties", "variables?", "tags?"]
+
+      - name: "mongodb_get_template"
+        authority: ["*"]
+        params: ["template_id"]
+
+      - name: "mongodb_list_templates"
+        authority: ["*"]
+        params: ["universe_id?", "archetype_id?", "template_type?", "tags?", "limit", "offset"]
+
+      - name: "mongodb_update_template"
+        authority: ["*"]
+        params: ["template_id", "name?", "properties?", "variables?", "tags?"]
+
+      - name: "mongodb_delete_template"
+        authority: ["*"]
+        params: ["template_id"]
+
+      - name: "mongodb_instantiate_template"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["template_id", "overrides?", "universe_id?", "name_override?"]
+
+      - name: "mongodb_resolve_template_variables"
+        authority: ["*"]
+        params: ["template_id", "context?"]
+
+  patterns:
+    - "entity_templates collection structure in docs/DATA_LAYER_USE_CASES.md"
+    - "Variable syntax: {{type:params}} where type is roll, table, pick, range, ref"
+    - "Inheritance: parent_template_id allows template extension"
+    - "Tags for categorization: ['goblin', 'enemy', 'forest', 'cr1']"
+    - "Properties mirror EntityInstance schema with variable placeholders"
+
+  notes: |
+    - Templates are NOT entities - they're blueprints for creating entities
+    - Variable resolution happens at instantiation time
+    - Random tables (DL-21) can be referenced by name or ID
+    - Context object can provide overrides and environment data
+    - Generated entities should record source template_id for traceability
+
+testing:
+  unit_tests:
+    - "test_create_template_success: valid params creates template"
+    - "test_create_template_validates_archetype: invalid archetype rejected"
+    - "test_get_template: returns full template data"
+    - "test_list_templates_by_tags: tag filter works"
+    - "test_update_template: properties updated"
+    - "test_delete_template: template removed"
+    - "test_instantiate_basic: creates EntityInstance"
+    - "test_instantiate_with_roll: {{roll:1d6}} resolved"
+    - "test_instantiate_with_table: {{table:names}} resolved"
+    - "test_instantiate_with_pick: {{pick:a,b,c}} resolved"
+    - "test_instantiate_with_overrides: override values used"
+
+  integration_tests:
+    - "test_template_to_entity: full workflow from template to Neo4j entity"
+    - "test_template_inheritance: child template extends parent"
+    - "test_bulk_instantiation: create multiple entities from template"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "mongodb"
+    - "priority-medium"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#311-entity-templates"
+    - "docs/DATA_LAYER_USE_CASES.md#dl-17"
+    - "docs/USE_CASES.md#m-31"
+
+  code:
+    - "packages/data-layer/src/monitor_data/schemas/entities.py"
