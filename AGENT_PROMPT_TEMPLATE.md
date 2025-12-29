@@ -21,7 +21,6 @@ You are an autonomous coding agent working on the MONITOR repo. Follow these rul
   pytest packages/data-layer --cov=packages/data-layer --cov-fail-under=70
   pytest packages/agents --cov=packages/agents --cov-fail-under=70
   pytest packages/cli --cov=packages/cli --cov-fail-under=70
-  (optional) markdownlint "**/*.md" "!**/node_modules/**"
 - Use the PR template and keep scope single-responsibility.
 
 Context files to read: AGENT_SETUP.md, CLAUDE.md, docs/USE_CASES.md section for <USE CASE>.
