@@ -89,14 +89,14 @@ AUTHORITY_MATRIX = {
     # =========================================================================
     # MONGODB OPERATIONS - Scenes
     # =========================================================================
-    "mongodb_create_scene": ["Orchestrator"],
+    "mongodb_create_scene": ["CanonKeeper", "Narrator"],
     "mongodb_get_scene": ["*"],
-    "mongodb_update_scene": ["Orchestrator"],
+    "mongodb_update_scene": ["CanonKeeper", "Narrator"],
     "mongodb_list_scenes": ["*"],
     # =========================================================================
     # MONGODB OPERATIONS - Turns
     # =========================================================================
-    "mongodb_append_turn": ["Narrator", "Orchestrator"],
+    "mongodb_append_turn": ["*"],
     "mongodb_get_turns": ["*"],
     "mongodb_undo_turn": ["Orchestrator"],
     # =========================================================================
