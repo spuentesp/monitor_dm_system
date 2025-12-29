@@ -57,9 +57,11 @@ def _convert_turn_dict_to_response(turn_dict: Dict[str, Any]) -> TurnResponse:
         entity_id=UUID(turn_dict["entity_id"]) if turn_dict.get("entity_id") else None,
         text=turn_dict["text"],
         timestamp=turn_dict["timestamp"],
-        resolution_ref=UUID(turn_dict["resolution_ref"])
-        if turn_dict.get("resolution_ref")
-        else None,
+        resolution_ref=(
+            UUID(turn_dict["resolution_ref"])
+            if turn_dict.get("resolution_ref")
+            else None
+        ),
     )
 
 
@@ -74,7 +76,10 @@ def _convert_scene_doc_to_response(scene_doc: Dict[str, Any]) -> SceneResponse:
         SceneResponse object
     """
     # Convert turns from dict to TurnResponse
-    turns = [_convert_turn_dict_to_response(turn_dict) for turn_dict in scene_doc.get("turns", [])]
+    turns = [
+        _convert_turn_dict_to_response(turn_dict)
+        for turn_dict in scene_doc.get("turns", [])
+    ]
 
     return SceneResponse(
         scene_id=UUID(scene_doc["scene_id"]),
@@ -84,11 +89,17 @@ def _convert_scene_doc_to_response(scene_doc: Dict[str, Any]) -> SceneResponse:
         purpose=scene_doc["purpose"],
         status=SceneStatus(scene_doc["status"]),
         order=scene_doc.get("order"),
-        location_ref=UUID(scene_doc["location_ref"]) if scene_doc.get("location_ref") else None,
-        participating_entities=[UUID(eid) for eid in scene_doc.get("participating_entities", [])],
+        location_ref=(
+            UUID(scene_doc["location_ref"]) if scene_doc.get("location_ref") else None
+        ),
+        participating_entities=[
+            UUID(eid) for eid in scene_doc.get("participating_entities", [])
+        ],
         turns=turns,
         proposed_changes=[UUID(pid) for pid in scene_doc.get("proposed_changes", [])],
-        canonical_outcomes=[UUID(cid) for cid in scene_doc.get("canonical_outcomes", [])],
+        canonical_outcomes=[
+            UUID(cid) for cid in scene_doc.get("canonical_outcomes", [])
+        ],
         summary=scene_doc.get("summary", ""),
         created_at=scene_doc["created_at"],
         updated_at=scene_doc["updated_at"],
@@ -337,7 +348,9 @@ def mongodb_list_scenes(params: SceneFilter) -> SceneListResponse:
     total = scenes_collection.count_documents(filter_query)
 
     # Build sort
-    sort_field = params.sort_by if params.sort_by in ["created_at", "order"] else "created_at"
+    sort_field = (
+        params.sort_by if params.sort_by in ["created_at", "order"] else "created_at"
+    )
     sort_order = -1 if params.sort_order == "desc" else 1
 
     # Query with pagination
@@ -350,7 +363,9 @@ def mongodb_list_scenes(params: SceneFilter) -> SceneListResponse:
 
     scenes = [_convert_scene_doc_to_response(scene_doc) for scene_doc in cursor]
 
-    return SceneListResponse(scenes=scenes, total=total, limit=params.limit, offset=params.offset)
+    return SceneListResponse(
+        scenes=scenes, total=total, limit=params.limit, offset=params.offset
+    )
 
 
 def mongodb_append_turn(scene_id: UUID, params: TurnCreate) -> TurnResponse:
@@ -431,7 +446,7 @@ def mongodb_append_turn(scene_id: UUID, params: TurnCreate) -> TurnResponse:
 
 
 def _convert_proposed_change_doc_to_response(
-    doc: Dict[str, Any]
+    doc: Dict[str, Any],
 ) -> ProposedChangeResponse:
     """
     Convert a proposed change document from MongoDB to a ProposedChangeResponse.
@@ -456,7 +471,9 @@ def _convert_proposed_change_doc_to_response(
             decided_by=dm["decided_by"],
             decided_at=dm["decided_at"],
             reason=dm["reason"],
-            canonical_ref=UUID(dm["canonical_ref"]) if dm.get("canonical_ref") else None,
+            canonical_ref=(
+                UUID(dm["canonical_ref"]) if dm.get("canonical_ref") else None
+            ),
         )
 
     return ProposedChangeResponse(
@@ -508,7 +525,9 @@ def mongodb_create_proposed_change(
     # Verify story exists if story_id provided (and no scene_id)
     if params.story_id and not params.scene_id:
         story_query = "MATCH (s:Story {id: $story_id}) RETURN s.id as id"
-        result = neo4j_client.execute_read(story_query, {"story_id": str(params.story_id)})
+        result = neo4j_client.execute_read(
+            story_query, {"story_id": str(params.story_id)}
+        )
         if not result:
             raise ValueError(f"Story {params.story_id} not found")
 
@@ -631,7 +650,9 @@ def mongodb_list_proposed_changes(
 
     # Build sort
     sort_field = (
-        params.sort_by if params.sort_by in ["created_at", "confidence"] else "created_at"
+        params.sort_by
+        if params.sort_by in ["created_at", "confidence"]
+        else "created_at"
     )
     sort_order = -1 if params.sort_order == "desc" else 1
 
@@ -643,9 +664,7 @@ def mongodb_list_proposed_changes(
         .limit(params.limit)
     )
 
-    proposed_changes = [
-        _convert_proposed_change_doc_to_response(doc) for doc in cursor
-    ]
+    proposed_changes = [_convert_proposed_change_doc_to_response(doc) for doc in cursor]
 
     return ProposedChangeListResponse(
         proposed_changes=proposed_changes,
@@ -710,9 +729,11 @@ def mongodb_update_proposed_change(
         "decided_by": params.decision_metadata.decided_by,
         "decided_at": params.decision_metadata.decided_at,
         "reason": params.decision_metadata.reason,
-        "canonical_ref": str(params.decision_metadata.canonical_ref)
-        if params.decision_metadata.canonical_ref
-        else None,
+        "canonical_ref": (
+            str(params.decision_metadata.canonical_ref)
+            if params.decision_metadata.canonical_ref
+            else None
+        ),
     }
 
     update_doc = {

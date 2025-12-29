@@ -44,7 +44,9 @@ class Evidence(BaseModel):
 class DecisionMetadata(BaseModel):
     """Metadata about CanonKeeper's decision on a proposal."""
 
-    decided_by: str = Field(description="Agent that made the decision (e.g., CanonKeeper)")
+    decided_by: str = Field(
+        description="Agent that made the decision (e.g., CanonKeeper)"
+    )
     decided_at: datetime = Field(description="When the decision was made")
     reason: str = Field(
         description="Rationale for accepting or rejecting the proposal",
