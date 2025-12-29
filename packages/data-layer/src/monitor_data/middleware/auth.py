@@ -55,11 +55,11 @@ AUTHORITY_MATRIX = {
     "neo4j_create_fact": ["CanonKeeper"],
     "neo4j_get_fact": ["*"],
     "neo4j_list_facts": ["*"],
-    "neo4j_retcon_fact": ["CanonKeeper"],
+    "neo4j_update_fact": ["CanonKeeper"],
+    "neo4j_delete_fact": ["CanonKeeper"],
     "neo4j_create_event": ["CanonKeeper"],
     "neo4j_get_event": ["*"],
     "neo4j_list_events": ["*"],
-    "neo4j_link_causal": ["CanonKeeper"],
     # =========================================================================
     # NEO4J OPERATIONS - Stories
     # =========================================================================
