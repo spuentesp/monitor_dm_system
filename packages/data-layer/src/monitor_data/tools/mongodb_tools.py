@@ -10,7 +10,7 @@ MongoDB stores narrative artifacts (scenes, turns) and proposals.
 """
 
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 from uuid import UUID, uuid4
 
 from monitor_data.db.mongodb import get_mongodb_client
@@ -28,6 +28,66 @@ from monitor_data.schemas.base import SceneStatus
 
 
 # =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+
+def _convert_turn_dict_to_response(turn_dict: Dict[str, Any]) -> TurnResponse:
+    """
+    Convert a turn dictionary from MongoDB to a TurnResponse object.
+
+    Args:
+        turn_dict: Turn data from MongoDB document
+
+    Returns:
+        TurnResponse object
+    """
+    return TurnResponse(
+        turn_id=UUID(turn_dict["turn_id"]),
+        speaker=turn_dict["speaker"],
+        entity_id=UUID(turn_dict["entity_id"]) if turn_dict.get("entity_id") else None,
+        text=turn_dict["text"],
+        timestamp=turn_dict["timestamp"],
+        resolution_ref=UUID(turn_dict["resolution_ref"])
+        if turn_dict.get("resolution_ref")
+        else None,
+    )
+
+
+def _convert_scene_doc_to_response(scene_doc: Dict[str, Any]) -> SceneResponse:
+    """
+    Convert a scene document from MongoDB to a SceneResponse object.
+
+    Args:
+        scene_doc: Scene data from MongoDB document
+
+    Returns:
+        SceneResponse object
+    """
+    # Convert turns from dict to TurnResponse
+    turns = [_convert_turn_dict_to_response(turn_dict) for turn_dict in scene_doc.get("turns", [])]
+
+    return SceneResponse(
+        scene_id=UUID(scene_doc["scene_id"]),
+        story_id=UUID(scene_doc["story_id"]),
+        universe_id=UUID(scene_doc["universe_id"]),
+        title=scene_doc["title"],
+        purpose=scene_doc["purpose"],
+        status=SceneStatus(scene_doc["status"]),
+        order=scene_doc.get("order"),
+        location_ref=UUID(scene_doc["location_ref"]) if scene_doc.get("location_ref") else None,
+        participating_entities=[UUID(eid) for eid in scene_doc.get("participating_entities", [])],
+        turns=turns,
+        proposed_changes=[UUID(pid) for pid in scene_doc.get("proposed_changes", [])],
+        canonical_outcomes=[UUID(cid) for cid in scene_doc.get("canonical_outcomes", [])],
+        summary=scene_doc.get("summary", ""),
+        created_at=scene_doc["created_at"],
+        updated_at=scene_doc["updated_at"],
+        completed_at=scene_doc.get("completed_at"),
+    )
+
+
+# =============================================================================
 # SCENE OPERATIONS
 # =============================================================================
 
@@ -36,7 +96,7 @@ def mongodb_create_scene(params: SceneCreate) -> SceneResponse:
     """
     Create a new Scene document in MongoDB.
 
-    Authority: Orchestrator only
+    Authority: CanonKeeper and Narrator agents
     Use Case: DL-4
 
     Args:
@@ -158,47 +218,14 @@ def mongodb_get_scene(scene_id: UUID) -> Optional[SceneResponse]:
     if not scene_doc:
         return None
 
-    # Convert turns from dict to TurnResponse
-    turns = []
-    for turn_dict in scene_doc.get("turns", []):
-        turns.append(
-            TurnResponse(
-                turn_id=UUID(turn_dict["turn_id"]),
-                speaker=turn_dict["speaker"],
-                entity_id=UUID(turn_dict["entity_id"]) if turn_dict.get("entity_id") else None,
-                text=turn_dict["text"],
-                timestamp=turn_dict["timestamp"],
-                resolution_ref=UUID(turn_dict["resolution_ref"])
-                if turn_dict.get("resolution_ref")
-                else None,
-            )
-        )
-
-    return SceneResponse(
-        scene_id=UUID(scene_doc["scene_id"]),
-        story_id=UUID(scene_doc["story_id"]),
-        universe_id=UUID(scene_doc["universe_id"]),
-        title=scene_doc["title"],
-        purpose=scene_doc["purpose"],
-        status=SceneStatus(scene_doc["status"]),
-        order=scene_doc.get("order"),
-        location_ref=UUID(scene_doc["location_ref"]) if scene_doc.get("location_ref") else None,
-        participating_entities=[UUID(eid) for eid in scene_doc.get("participating_entities", [])],
-        turns=turns,
-        proposed_changes=[UUID(pid) for pid in scene_doc.get("proposed_changes", [])],
-        canonical_outcomes=[UUID(cid) for cid in scene_doc.get("canonical_outcomes", [])],
-        summary=scene_doc.get("summary", ""),
-        created_at=scene_doc["created_at"],
-        updated_at=scene_doc["updated_at"],
-        completed_at=scene_doc.get("completed_at"),
-    )
+    return _convert_scene_doc_to_response(scene_doc)
 
 
 def mongodb_update_scene(scene_id: UUID, params: SceneUpdate) -> SceneResponse:
     """
     Update a Scene's mutable fields with status transition enforcement.
 
-    Authority: Orchestrator only
+    Authority: CanonKeeper and Narrator agents
     Use Case: DL-4
 
     Valid status transitions: active → finalizing → completed
@@ -312,52 +339,7 @@ def mongodb_list_scenes(params: SceneFilter) -> SceneListResponse:
         .limit(params.limit)
     )
 
-    scenes = []
-    for scene_doc in cursor:
-        # Convert turns from dict to TurnResponse
-        turns = []
-        for turn_dict in scene_doc.get("turns", []):
-            turns.append(
-                TurnResponse(
-                    turn_id=UUID(turn_dict["turn_id"]),
-                    speaker=turn_dict["speaker"],
-                    entity_id=UUID(turn_dict["entity_id"])
-                    if turn_dict.get("entity_id")
-                    else None,
-                    text=turn_dict["text"],
-                    timestamp=turn_dict["timestamp"],
-                    resolution_ref=UUID(turn_dict["resolution_ref"])
-                    if turn_dict.get("resolution_ref")
-                    else None,
-                )
-            )
-
-        scenes.append(
-            SceneResponse(
-                scene_id=UUID(scene_doc["scene_id"]),
-                story_id=UUID(scene_doc["story_id"]),
-                universe_id=UUID(scene_doc["universe_id"]),
-                title=scene_doc["title"],
-                purpose=scene_doc["purpose"],
-                status=SceneStatus(scene_doc["status"]),
-                order=scene_doc.get("order"),
-                location_ref=UUID(scene_doc["location_ref"])
-                if scene_doc.get("location_ref")
-                else None,
-                participating_entities=[
-                    UUID(eid) for eid in scene_doc.get("participating_entities", [])
-                ],
-                turns=turns,
-                proposed_changes=[UUID(pid) for pid in scene_doc.get("proposed_changes", [])],
-                canonical_outcomes=[
-                    UUID(cid) for cid in scene_doc.get("canonical_outcomes", [])
-                ],
-                summary=scene_doc.get("summary", ""),
-                created_at=scene_doc["created_at"],
-                updated_at=scene_doc["updated_at"],
-                completed_at=scene_doc.get("completed_at"),
-            )
-        )
+    scenes = [_convert_scene_doc_to_response(scene_doc) for scene_doc in cursor]
 
     return SceneListResponse(scenes=scenes, total=total, limit=params.limit, offset=params.offset)
 
@@ -366,7 +348,7 @@ def mongodb_append_turn(scene_id: UUID, params: TurnCreate) -> TurnResponse:
     """
     Append a turn to a scene with proper ordering.
 
-    Authority: All agents (primarily Narrator and Orchestrator)
+    Authority: * (all agents; typically Narrator and Orchestrator)
     Use Case: DL-4
 
     Args:

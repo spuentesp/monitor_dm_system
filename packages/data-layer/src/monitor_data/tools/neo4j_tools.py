@@ -2200,8 +2200,7 @@ def neo4j_update_story(story_id: UUID, params: StoryUpdate) -> StoryResponse:
     set_clause = ", ".join(set_clauses)
     update_query = "MATCH (s:Story {id: $id})\n" "SET " + set_clause + "\n" "RETURN s"
 
-    result = client.execute_write(update_query, update_params)
-    s = result[0]["s"]
+    client.execute_write(update_query, update_params)
 
     # Get scene count and participants
     story_data = neo4j_get_story(story_id)

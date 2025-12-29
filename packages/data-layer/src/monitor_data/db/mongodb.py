@@ -20,7 +20,7 @@ Collections:
 """
 
 import os
-from typing import Optional, Dict, Any, List
+from typing import Optional
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.database import Database
 from pymongo.collection import Collection
@@ -33,10 +33,6 @@ class MongoDBClient:
     Thread-safe singleton client for MongoDB operations.
     Manages connection lifecycle and provides collection access.
     """
-
-    _instance: Optional["MongoDBClient"] = None
-    _client: Optional[MongoClient] = None
-    _db: Optional[Database] = None
 
     def __init__(
         self,
@@ -54,6 +50,7 @@ class MongoDBClient:
         self.database_name = database or os.getenv("MONGODB_DATABASE", "monitor")
         self._client = None
         self._db = None
+        self._indexes_created = False
 
     def connect(self) -> None:
         """
@@ -64,7 +61,9 @@ class MongoDBClient:
         if self._client is None:
             self._client = MongoClient(self.uri)
             self._db = self._client[self.database_name]
-            self._create_indexes()
+            if not self._indexes_created:
+                self._create_indexes()
+                self._indexes_created = True
 
     def close(self) -> None:
         """Close MongoDB connection."""
@@ -72,6 +71,7 @@ class MongoDBClient:
             self._client.close()
             self._client = None
             self._db = None
+            self._indexes_created = False
 
     def verify_connectivity(self) -> bool:
         """
