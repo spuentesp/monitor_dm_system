@@ -119,7 +119,7 @@ def get_all_issues() -> dict[str, dict[str, Any]]:
                     "number": issue.get("number"),
                     "state": issue.get("state"),
                     "title": title,
-                    "labels": [l.get("name") for l in issue.get("labels", [])],
+                    "labels": [label.get("name") for label in issue.get("labels", [])],
                     "body": issue.get("body", ""),
                 }
     except json.JSONDecodeError:
