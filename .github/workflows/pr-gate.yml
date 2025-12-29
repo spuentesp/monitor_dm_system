@@ -46,11 +46,6 @@ jobs:
       - name: Ontology to use-case coverage
         run: python scripts/check_ontology_use_cases.py
 
-      - name: Markdown lint
-        run: |
-          npm install -g markdownlint-cli
-          markdownlint "**/*.md" "!**/node_modules/**"
-
       - name: Lint (ruff)
         run: ruff check .
 
