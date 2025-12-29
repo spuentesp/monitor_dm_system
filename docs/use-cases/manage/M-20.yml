@@ -1,0 +1,99 @@
+# M-20: Delete Entity
+# ===================
+
+id: "M-20"
+title: "Delete Entity"
+category: "manage"
+epic: 3
+priority: "medium"
+status: "todo"
+
+summary: |
+  Soft-delete an entity by setting canon_level to 'retconned'. Shows
+  impact warning (facts, relationships, memories affected). Hard delete
+  available for admin use.
+
+actor: "User"
+trigger: "Entity -> Delete or Manage -> Entity -> Delete <UUID>"
+
+flow:
+  - "Retrieve Entity and related data counts"
+  - "Display warning: 'This will affect X facts, Y relationships'"
+  - "Require confirmation (type entity name)"
+  - "Soft delete: set canon_level = 'retconned'"
+  - "Set deleted_at timestamp"
+  - "Confirm deletion"
+
+acceptance_criteria:
+  - "Impact warning shows accurate counts"
+  - "Confirmation requires typing exact entity name"
+  - "Soft delete sets canon_level = 'retconned'"
+  - "Related facts marked as retconned (optional cascade)"
+  - "deleted_at timestamp set"
+  - "Soft-deleted entities excluded from normal queries"
+  - "Hard delete permanently removes (admin only)"
+
+depends_on:
+  - "DL-2"  # Entity CRUD
+  - "M-16"  # View Entity
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/entity.py"
+
+  cli_commands:
+    - command: "monitor manage entity delete <UUID>"
+      description: "Soft delete"
+    - command: "monitor manage entity delete <UUID> --hard"
+      description: "Permanent delete (admin)"
+    - command: "monitor manage entity delete <UUID> --cascade"
+      description: "Also delete related facts"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_entity"
+        authority: ["*"]
+      - name: "neo4j_soft_delete_entity"
+        authority: ["CanonKeeper"]
+      - name: "neo4j_hard_delete_entity"
+        authority: ["CanonKeeper"]
+
+  patterns:
+    - "Always prefer soft delete"
+    - "Use transactions for cascade"
+
+  notes: |
+    - Characters with memories may need special handling
+    - Consider what happens to owned objects
+
+testing:
+  unit_tests:
+    - "test_soft_delete_entity: sets retconned status"
+    - "test_delete_confirmation: requires confirmation"
+    - "test_delete_cascade: related facts affected"
+    - "test_hard_delete: permanently removes"
+
+  integration_tests:
+    - "test_delete_entity_cli: CLI confirmation flow"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-3"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 3: Character & Identity"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-20-delete-entity"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

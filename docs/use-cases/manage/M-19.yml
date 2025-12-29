@@ -1,0 +1,100 @@
+# M-19: Edit Entity
+# =================
+
+id: "M-19"
+title: "Edit Entity"
+category: "manage"
+epic: 3
+priority: "medium"
+status: "todo"
+
+summary: |
+  Modify an existing entity's properties, description, and state tags.
+  Entity type cannot be changed after creation. Supports type-specific
+  property editing.
+
+actor: "User"
+trigger: "Entity -> Edit or Manage -> Entity -> Edit <UUID>"
+
+flow:
+  - "Retrieve current Entity data"
+  - "Display current values"
+  - "Allow editing: name, description, properties, state_tags"
+  - "Entity type is immutable"
+  - "Validate changes based on entity type"
+  - "Update Neo4j node"
+  - "Confirm changes"
+
+acceptance_criteria:
+  - "neo4j_update_entity updates specified fields only"
+  - "Entity type cannot be changed"
+  - "Type-specific properties validated"
+  - "State tags can be added/removed"
+  - "updated_at timestamp set on modification"
+  - "CLI supports interactive and flag-based editing"
+
+depends_on:
+  - "DL-2"  # Entity CRUD
+  - "M-16"  # View Entity
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/entity.py"
+
+  cli_commands:
+    - command: "monitor manage entity edit <UUID>"
+      description: "Interactive edit"
+    - command: "monitor manage entity edit <UUID> --name 'New Name'"
+      description: "Update name"
+    - command: "monitor manage entity edit <UUID> --add-tag wounded"
+      description: "Add state tag"
+    - command: "monitor manage entity edit <UUID> --remove-tag alive"
+      description: "Remove state tag"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_entity"
+        authority: ["*"]
+      - name: "neo4j_update_entity"
+        authority: ["CanonKeeper"]
+
+  patterns:
+    - "Use COALESCE for optional updates"
+    - "Validate state tag changes"
+
+  notes: |
+    - State tag changes should be logged for history
+    - Consider adding change reason for significant edits
+
+testing:
+  unit_tests:
+    - "test_edit_entity_name: name updates"
+    - "test_edit_entity_description: description updates"
+    - "test_edit_entity_add_tag: tag added"
+    - "test_edit_entity_remove_tag: tag removed"
+    - "test_edit_entity_type_immutable: type change rejected"
+
+  integration_tests:
+    - "test_edit_entity_cli: CLI edit flow works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-3"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 3: Character & Identity"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-19-edit-entity"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

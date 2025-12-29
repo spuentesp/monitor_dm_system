@@ -1,0 +1,150 @@
+# DL-25: Manage Combat State
+# ===========================
+
+id: "DL-25"
+title: "Manage Combat State"
+category: "data-layer"
+epic: 0
+priority: "critical"
+status: "todo"
+
+summary: |
+  Implement MongoDB collection for storing combat encounter state. Pure data
+  storage for initiative order, turn progression, participant status, conditions,
+  and resources. Combat flow orchestration and defeat detection live in the
+  agents layer.
+
+acceptance_criteria:
+  - "mongodb_create_combat creates combat encounter document"
+  - "mongodb_get_combat returns full combat state"
+  - "mongodb_list_combats supports filtering by scene_id, story_id, status"
+  - "mongodb_update_combat updates status, round, current_turn_index"
+  - "mongodb_delete_combat removes combat encounter"
+  - "mongodb_add_combat_participant adds participant to encounter"
+  - "mongodb_update_combat_participant updates participant fields"
+  - "mongodb_remove_combat_participant removes participant"
+  - "mongodb_add_combat_log_entry appends to combat log"
+  - "mongodb_set_combat_outcome sets final outcome"
+  - "Participants store initiative, conditions, resources snapshot"
+  - "Environment data stored (terrain, lighting, hazards)"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-4"   # Combat belongs to scene
+  - "DL-2"   # Participants are entities
+
+blocks:
+  - "P-16"   # Combat encounter management
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/combat.py"
+      - "packages/data-layer/tests/test_tools/test_combat_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    mongodb:
+      # Combat encounter CRUD
+      - name: "mongodb_create_combat"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["scene_id", "story_id", "participants?", "environment?"]
+
+      - name: "mongodb_get_combat"
+        authority: ["*"]
+        params: ["encounter_id"]
+
+      - name: "mongodb_list_combats"
+        authority: ["*"]
+        params: ["scene_id?", "story_id?", "status?", "limit?", "offset?"]
+
+      - name: "mongodb_update_combat"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["encounter_id", "status?", "round?", "turn_order?", "current_turn_index?"]
+
+      - name: "mongodb_delete_combat"
+        authority: ["CanonKeeper"]
+        params: ["encounter_id"]
+
+      # Participant management
+      - name: "mongodb_add_combat_participant"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["encounter_id", "entity_id", "name", "side", "initiative_value?", "resources?"]
+
+      - name: "mongodb_update_combat_participant"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["encounter_id", "entity_id", "initiative_value?", "is_active?", "conditions?", "resources?", "position?"]
+
+      - name: "mongodb_remove_combat_participant"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["encounter_id", "entity_id"]
+
+      # Combat log
+      - name: "mongodb_add_combat_log_entry"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["encounter_id", "round", "turn", "actor_id", "action", "resolution_id?", "summary"]
+
+      # Outcome
+      - name: "mongodb_set_combat_outcome"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["encounter_id", "result", "winning_side?", "survivors?", "casualties?", "loot?", "xp_awarded?"]
+
+  patterns:
+    - "combat_encounters collection schema in DATA_LAYER_USE_CASES.md"
+    - "Status enum: initializing, initiative, active, paused, resolved"
+    - "Side enum: pc, ally, enemy, neutral"
+    - "Participant structure: {entity_id, name, side, initiative_value, is_active, conditions[], resources{}}"
+    - "Condition structure: {name, source, duration_type, duration_remaining}"
+    - "Environment: {terrain, lighting, hazards[], cover_positions[]}"
+    - "Combat log: [{round, turn, actor_id, action, resolution_id, summary, timestamp}]"
+    - "Outcome: {result, winning_side, survivors[], casualties[], loot[], xp_awarded}"
+
+  notes: |
+    - This is PURE DATA STORAGE - no combat flow logic
+    - Initiative rolling lives in agents layer utilities
+    - Turn advancement logic lives in agents layer
+    - Defeat detection lives in agents layer
+    - Damage/healing application lives in agents layer
+    - Condition duration ticking lives in agents layer
+
+testing:
+  unit_tests:
+    - "test_create_combat_success: combat created"
+    - "test_get_combat: returns full state"
+    - "test_list_by_scene: scene filter works"
+    - "test_list_by_status: status filter works"
+    - "test_update_combat_round: round updated"
+    - "test_update_combat_status: status updated"
+    - "test_delete_combat: combat removed"
+    - "test_add_participant: participant added"
+    - "test_update_participant_initiative: initiative updated"
+    - "test_update_participant_conditions: conditions updated"
+    - "test_update_participant_resources: resources updated"
+    - "test_remove_participant: participant removed"
+    - "test_add_log_entry: log entry appended"
+    - "test_set_outcome: outcome stored"
+
+  integration_tests:
+    - "test_combat_with_participants: full participant lifecycle"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "mongodb"
+    - "priority-critical"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/DATA_LAYER_USE_CASES.md#dl-25"
+
+  code:
+    - "packages/data-layer/src/monitor_data/schemas/scenes.py"

@@ -1,0 +1,133 @@
+# M-17: Create Object
+# ===================
+
+id: "M-17"
+title: "Create Object"
+category: "manage"
+epic: 3
+priority: "medium"
+status: "todo"
+
+summary: |
+  Create an object entity (item, artifact, equipment). Objects can be
+  owned by characters, located at places, and have magical or mundane
+  properties.
+
+actor: "User"
+trigger: "Create Entity -> Object"
+
+flow:
+  - "Prompt: Name"
+  - "Prompt: Object type (weapon, armor, tool, artifact, consumable, treasure)"
+  - "Prompt: Description"
+  - "Prompt: Rarity (common, uncommon, rare, legendary, artifact)"
+  - "Prompt: Is magical? (yes/no)"
+  - "IF magical: Prompt for magical properties"
+  - "Select owner (optional, character)"
+  - "Select location (optional, if not owned)"
+  - "Create EntityInstance in Neo4j"
+  - "Create ownership/location relationships"
+  - "Confirm creation"
+
+acceptance_criteria:
+  - "neo4j_create_entity creates object node with entity_type='object'"
+  - "Object type validated against allowed values"
+  - "Rarity level stored and queryable"
+  - "Magical properties stored for magical items"
+  - "OWNS relationship created when owner specified"
+  - "LOCATED_AT relationship created when location specified"
+  - "Object cannot be both owned and unowned-at-location simultaneously"
+
+depends_on:
+  - "DL-2"  # Entity CRUD
+  - "M-12"  # Create Entity router
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/entity.py"
+
+  cli_commands:
+    - command: "monitor manage entity create --type object --universe <UUID>"
+      description: "Interactive object creation"
+    - command: "monitor manage entity create --type object --universe <UUID> --name 'The One Ring'"
+      description: "Quick creation"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_entity"
+        authority: ["CanonKeeper"]
+      - name: "neo4j_create_relationship"
+        authority: ["CanonKeeper"]
+        relationships: ["OWNS", "LOCATED_AT"]
+
+  object_types:
+    - "weapon"      # Swords, bows, staves
+    - "armor"       # Shields, helmets, chainmail
+    - "tool"        # Lockpicks, rope, torches
+    - "artifact"    # Powerful magical items
+    - "consumable"  # Potions, scrolls, food
+    - "treasure"    # Gold, gems, valuables
+    - "container"   # Bags, chests, pouches
+    - "vehicle"     # Carts, ships (also location)
+    - "clothing"    # Cloaks, rings, amulets
+    - "other"
+
+  rarity_levels:
+    - "common"
+    - "uncommon"
+    - "rare"
+    - "very_rare"
+    - "legendary"
+    - "artifact"    # Unique, world-changing
+
+  object_properties: |
+    class ObjectProperties(BaseModel):
+        object_type: ObjectType
+        rarity: RarityLevel
+        is_magical: bool = False
+        magical_properties: Optional[List[str]]
+        value: Optional[str]  # "worthless", "cheap", "moderate", "expensive", "priceless"
+        weight: Optional[str]  # "tiny", "light", "medium", "heavy", "immovable"
+        requires_attunement: bool = False
+
+  patterns:
+    - "Follow DL-2 entity creation pattern"
+    - "Use OWNS for character possession"
+
+  notes: |
+    - Object ownership can change via gameplay
+    - Magical properties help LLM describe effects
+    - Consider adding equipment slots for characters
+
+testing:
+  unit_tests:
+    - "test_create_object_basic: minimal object created"
+    - "test_create_object_owned: owner relationship created"
+    - "test_create_object_magical: magical properties stored"
+    - "test_create_object_types: all types valid"
+
+  integration_tests:
+    - "test_object_ownership_transfer: ownership can change"
+    - "test_object_cli: CLI object creation works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-3"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 3: Character & Identity"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-17-create-object"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

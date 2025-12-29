@@ -1,0 +1,140 @@
+# M-23: Create Axiom
+# ==================
+
+id: "M-23"
+title: "Create Axiom"
+category: "manage"
+epic: 1
+priority: "high"
+status: "todo"
+
+summary: |
+  Create an axiom (fundamental world rule) for a universe. Axioms define
+  what is always true, possible, or impossible in the world. They guide
+  the LLM's understanding of world physics and metaphysics.
+
+actor: "User"
+trigger: "Manage -> Axioms -> Create"
+
+flow:
+  - "Select universe"
+  - "Prompt: Axiom statement (clear, declarative)"
+  - "Prompt: Axiom type (physics, magic, social, metaphysics)"
+  - "Prompt: Scope (universal, regional, conditional)"
+  - "Prompt: Source reference (optional, document/snippet)"
+  - "Create Axiom node in Neo4j"
+  - "Link to source if provided"
+  - "Confirm creation"
+
+acceptance_criteria:
+  - "neo4j_create_axiom creates axiom node with universe_id"
+  - "Axiom statement is clear and declarative"
+  - "Axiom type categorizes the rule"
+  - "Scope defines where/when axiom applies"
+  - "SUPPORTED_BY relationship to source if provided"
+  - "Axioms queryable for context assembly"
+  - "Duplicate detection warns of similar axioms"
+
+depends_on:
+  - "DL-13" # Axioms CRUD
+  - "M-4"   # Universe must exist
+
+blocks:
+  - "P-4"   # Action resolution considers axioms
+
+implementation:
+  layer: 3
+
+  files:
+    create:
+      - "packages/cli/src/monitor_cli/commands/manage/axiom.py"
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/__init__.py"
+
+  cli_commands:
+    - command: "monitor manage axiom create --universe <UUID>"
+      description: "Interactive axiom creation"
+    - command: "monitor manage axiom create --universe <UUID> --statement 'Magic requires verbal components'"
+      description: "Quick creation"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_axiom"
+        authority: ["CanonKeeper"]
+      - name: "neo4j_create_relationship"
+        authority: ["CanonKeeper"]
+        relationship: "SUPPORTED_BY"
+
+  axiom_types:
+    - "physics"     # Laws of nature
+    - "magic"       # How magic works
+    - "social"      # Cultural universals
+    - "metaphysics" # Existence, reality
+    - "temporal"    # Time mechanics
+    - "planar"      # Dimensional rules
+    - "divine"      # God/deity rules
+    - "biological"  # Life and death rules
+
+  axiom_scopes:
+    - "universal"   # Always true everywhere
+    - "regional"    # True in specific places
+    - "conditional" # True under conditions
+    - "temporal"    # True at certain times
+
+  axiom_examples:
+    - "Magic requires spoken words and gestures"
+    - "The dead cannot be permanently resurrected"
+    - "Dragons are intelligent and can speak"
+    - "Time flows linearly and cannot be reversed"
+    - "Gods cannot directly intervene in mortal affairs"
+
+  axiom_schema: |
+    class Axiom(BaseModel):
+        id: UUID
+        universe_id: UUID
+        statement: str = Field(min_length=10, max_length=500)
+        axiom_type: AxiomType
+        scope: AxiomScope
+        conditions: Optional[str]  # If conditional scope
+        exceptions: List[str] = []  # Known exceptions
+        source_refs: List[UUID] = []  # Supporting sources
+        canon_level: str = "canon"
+
+  patterns:
+    - "Use DL-13 axiom operations"
+    - "Link to sources for provenance"
+
+  notes: |
+    - Axioms are foundational - changing them affects world consistency
+    - Consider axiom conflict detection
+    - Axioms should be used in LLM context for consistency
+
+testing:
+  unit_tests:
+    - "test_create_axiom_basic: axiom created"
+    - "test_create_axiom_with_source: source linked"
+    - "test_axiom_types: all types valid"
+    - "test_axiom_scope: scope stored correctly"
+
+  integration_tests:
+    - "test_axiom_in_context: axiom retrieved for scene"
+    - "test_axiom_cli: CLI flow works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "manage"
+    - "cli"
+    - "priority-high"
+
+  milestone: "EPIC 1: World & Multiverse"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-23-create-axiom"
+    - "docs/ontology/ONTOLOGY.md#26-axioms"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

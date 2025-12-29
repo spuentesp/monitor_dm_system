@@ -1,0 +1,151 @@
+# M-30: Manage World Time
+# ========================
+
+id: "M-30"
+title: "Manage World Time"
+category: "manage"
+epic: 6
+priority: "medium"
+status: "todo"
+
+summary: |
+  View and manage the in-world timeline for a universe. Track current date,
+  calendar system, and time passage. Supports custom calendars and
+  time-jump narration.
+
+actor: "User"
+trigger: "Manage -> Time or Universe -> Timeline"
+
+flow:
+  - "Select universe"
+  - "Display current in-world date/time"
+  - "Show timeline of major events"
+  - "Allow time operations:"
+  - "  Advance time (hours, days, months, years)"
+  - "  Set specific date"
+  - "  Define calendar system"
+  - "Create time-skip fact if significant passage"
+  - "Confirm changes"
+
+acceptance_criteria:
+  - "Universe has current_date property"
+  - "Calendar system configurable (Gregorian, custom)"
+  - "Time advancement updates current_date"
+  - "Time skips can generate narrative descriptions"
+  - "Events positioned on timeline correctly"
+  - "Historical queries respect timeline position"
+
+depends_on:
+  - "DL-3"  # Facts (time facts)
+  - "M-4"   # Universe must exist
+
+blocks:
+  - "Q-5"   # View Timeline uses time data
+
+implementation:
+  layer: 3
+
+  files:
+    create:
+      - "packages/cli/src/monitor_cli/commands/manage/time.py"
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/__init__.py"
+
+  cli_commands:
+    - command: "monitor manage time --universe <UUID>"
+      description: "View current time"
+    - command: "monitor manage time advance --universe <UUID> --days 7"
+      description: "Advance time"
+    - command: "monitor manage time set --universe <UUID> --date '3019-03-25'"
+      description: "Set specific date"
+    - command: "monitor manage time calendar --universe <UUID>"
+      description: "Configure calendar"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_universe"
+        authority: ["*"]
+        fields: ["current_date", "calendar_system"]
+      - name: "neo4j_update_universe"
+        authority: ["CanonKeeper"]
+      - name: "neo4j_list_events"
+        authority: ["*"]
+        params: "order_by=timestamp"
+
+  calendar_systems:
+    - "gregorian"    # Standard real-world calendar
+    - "shire"        # Shire Reckoning (LotR)
+    - "harptos"      # Forgotten Realms calendar
+    - "imperial"     # Warhammer Imperial calendar
+    - "custom"       # User-defined
+
+  time_schema: |
+    class WorldTime(BaseModel):
+        universe_id: UUID
+        calendar_system: str = "gregorian"
+        current_date: str  # ISO format or custom
+        current_era: Optional[str]  # "Third Age", "Year of the Dragon"
+        epoch: Optional[datetime]  # Real-world reference point
+
+    class TimeAdvancement(BaseModel):
+        years: int = 0
+        months: int = 0
+        days: int = 0
+        hours: int = 0
+        narrative: Optional[str]  # "Winter passes..."
+
+  output_format: |
+    WORLD TIME: Middle-earth
+    ═══════════════════════════════════════════════════════════
+
+    Current Date: March 25, 3019 (Third Age)
+    Calendar: Shire Reckoning
+
+    ─────────────────────────────────────────────────────────
+    RECENT TIMELINE
+    ─────────────────────────────────────────────────────────
+      March 25, 3019  │ [NOW]
+      March 15, 3019  │ The Battle of the Pelennor Fields
+      January 15, 3019│ The Fellowship enters Moria
+      October 25, 3018│ Council of Elrond
+
+    ─────────────────────────────────────────────────────────
+    ACTIONS: [A]dvance Time  [S]et Date  [C]alendar  [B]ack
+
+  patterns:
+    - "Use universe properties for time storage"
+    - "Generate narrative for time skips"
+
+  notes: |
+    - Time affects aging, seasonal descriptions
+    - Consider time zones for planetary scales
+    - Time-sensitive facts use current_date for validity
+
+testing:
+  unit_tests:
+    - "test_get_world_time: current date returned"
+    - "test_advance_time_days: date advances correctly"
+    - "test_advance_time_months: month rollover works"
+    - "test_set_time: specific date set"
+    - "test_calendar_systems: all systems work"
+
+  integration_tests:
+    - "test_time_in_narrative: time affects scene opening"
+    - "test_time_cli: CLI flow works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-6"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 6: Session & Timeline"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-30-manage-world-time"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

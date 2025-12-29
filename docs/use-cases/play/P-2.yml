@@ -1,0 +1,153 @@
+# P-2: Start Scene
+# =================
+
+id: "P-2"
+title: "Start Scene"
+category: "play"
+epic: 4
+priority: "high"
+status: "todo"
+
+summary: |
+  Begin a new scene within an active story. Sets location, participants,
+  purpose, and generates opening narration. Transitions to the turn loop.
+
+actor: "User/Orchestrator"
+trigger: "New story started, or previous scene ended"
+
+flow:
+  - "Prompt: Scene title (or auto-generate from context)"
+  - "Prompt: Scene purpose (combat, exploration, social, rest, travel)"
+  - "Select location (existing entity or create -> M-14)"
+  - "Confirm participating entities (PCs + relevant NPCs)"
+  - "Create Scene document in MongoDB"
+  - "Narrator generates opening description"
+  - "Display scene opening"
+  - "Transition to P-3 (Turn loop)"
+
+acceptance_criteria:
+  - "mongodb_create_scene creates scene document with story_id"
+  - "Scene purpose affects narrator tone and pacing"
+  - "Location validated as existing entity"
+  - "Participating entities tracked in scene document"
+  - "Opening narration generated via Narrator agent"
+  - "Opening turn appended to scene turns array"
+  - "Scene status set to 'active'"
+  - "Context assembly includes location and entity data"
+
+depends_on:
+  - "DL-4"  # Story/Scene/Turn CRUD
+  - "P-1"   # Story must exist
+
+blocks:
+  - "P-3"   # Turn Loop needs scene
+
+implementation:
+  layer: 2  # Agents layer
+
+  files:
+    modify:
+      - "packages/agents/src/monitor_agents/orchestrator.py"
+      - "packages/agents/src/monitor_agents/narrator.py"
+      - "packages/agents/src/monitor_agents/context_assembly.py"
+
+  cli_commands:
+    - command: "monitor play scene --story <UUID>"
+      description: "Start new scene in story"
+    - command: "monitor play scene --story <UUID> --title 'Tavern Encounter'"
+      description: "Quick scene creation"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_entity"
+        authority: ["*"]
+        purpose: "Validate location"
+      - name: "neo4j_list_entities"
+        authority: ["*"]
+        purpose: "Get available entities"
+    mongodb:
+      - name: "mongodb_create_scene"
+        collection: "scenes"
+      - name: "mongodb_append_turn"
+        collection: "scenes"
+    qdrant:
+      - name: "qdrant_search"
+        collection: "scene_chunks"
+        purpose: "Get similar scenes for context"
+
+  scene_purposes:
+    - "combat"      # Fighting, action
+    - "exploration" # Discovery, investigation
+    - "social"      # Dialogue, negotiation
+    - "rest"        # Downtime, recovery
+    - "travel"      # Journey between locations
+    - "puzzle"      # Problem-solving
+    - "stealth"     # Infiltration, evasion
+    - "mixed"       # Multiple purposes
+
+  scene_schema: |
+    class Scene(BaseModel):
+        id: UUID
+        story_id: UUID
+        title: str
+        purpose: ScenePurpose
+        status: str = "active"  # active, completed, abandoned
+        location_ref: UUID
+        participating_entities: List[UUID]
+        turns: List[Turn] = []
+        created_at: datetime
+        updated_at: datetime
+
+  agent_flow: |
+    Orchestrator.start_scene(story_id, params):
+        1. Collect scene parameters
+        2. Create scene document
+        3. Assemble context:
+           - Location details
+           - Entity information
+           - Recent story events
+           - Similar past scenes (RAG)
+        4. Narrator.generate_scene_opening(context)
+        5. Append opening turn
+        6. Display to user
+        7. Enter turn loop (P-3)
+
+  patterns:
+    - "Context assembly before narration"
+    - "RAG for similar scene retrieval"
+
+  notes: |
+    - Scene opening sets the mood
+    - Purpose helps Narrator choose appropriate style
+    - Consider weather/time of day from world time
+
+testing:
+  unit_tests:
+    - "test_start_scene_basic: scene created"
+    - "test_start_scene_with_location: location validated"
+    - "test_start_scene_opening: narration generated"
+    - "test_start_scene_context: context assembled"
+
+  integration_tests:
+    - "test_scene_to_turn_flow: P-2 -> P-3 transition"
+    - "test_scene_opening_quality: narration appropriate"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-4"
+    - "play"
+    - "agents"
+    - "priority-high"
+
+  milestone: "EPIC 4: Autonomous GM"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#p-2-start-scene"
+    - "docs/architecture/AGENT_ORCHESTRATION.md"
+
+  code:
+    - "packages/agents/src/monitor_agents/orchestrator.py"
+    - "packages/data-layer/src/monitor_data/schemas/scenes.py"

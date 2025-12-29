@@ -1,0 +1,146 @@
+# P-1: Start New Story
+# ====================
+
+id: "P-1"
+title: "Start New Story"
+category: "play"
+epic: 4
+priority: "high"
+status: "todo"
+
+summary: |
+  Initialize a new story within a universe. The entry point for solo RPG play.
+  Creates story node, story outline, and transitions to scene creation.
+  Supports campaign, arc, episode, and one-shot story types.
+
+actor: "User"
+trigger: "Play -> New Story"
+
+preconditions:
+  - "At least one universe exists (or create during flow)"
+  - "At least one PC exists or will be created"
+
+flow:
+  - "Select universe (or create new -> M-4)"
+  - "Prompt: Story title"
+  - "Prompt: Story type (campaign, arc, episode, one-shot)"
+  - "Prompt: Theme (optional)"
+  - "Prompt: Premise (optional)"
+  - "Select/create participating PCs (-> M-13)"
+  - "Create Story node in Neo4j"
+  - "Create story_outline in MongoDB"
+  - "Transition to P-2 (Start first scene)"
+
+acceptance_criteria:
+  - "neo4j_create_story creates Story node with required fields"
+  - "Story linked to universe via HAS_STORY relationship"
+  - "mongodb_create_story_outline creates outline document"
+  - "Story type validates against allowed values"
+  - "At least one PC must be selected/created"
+  - "Story status set to 'active'"
+  - "Automatic transition to P-2 after creation"
+  - "Unit tests cover all story types"
+
+depends_on:
+  - "DL-4"  # Story/Scene/Turn CRUD
+  - "DL-6"  # Story outlines
+  - "M-4"   # Universe must exist
+  - "M-13"  # Character creation
+
+blocks:
+  - "P-2"   # Start Scene needs story
+  - "P-3"   # Turn Loop needs story
+
+implementation:
+  layer: 2  # Agents layer orchestrates
+
+  files:
+    create:
+      - "packages/agents/src/monitor_agents/orchestrator.py"
+      - "packages/cli/src/monitor_cli/commands/play.py"
+    modify:
+      - "packages/cli/src/monitor_cli/main.py"
+
+  cli_commands:
+    - command: "monitor play new"
+      description: "Interactive story creation"
+    - command: "monitor play new --universe <UUID> --title 'Epic Quest'"
+      description: "Quick story creation"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_universe"
+        authority: ["*"]
+      - name: "neo4j_create_story"
+        authority: ["CanonKeeper"]
+    mongodb:
+      - name: "mongodb_create_story_outline"
+        collection: "story_outlines"
+
+  story_types:
+    - "campaign"   # Long-running, multiple arcs
+    - "arc"        # Multi-session storyline
+    - "episode"    # Single session, part of larger story
+    - "one-shot"   # Standalone session
+
+  story_schema: |
+    class Story(BaseModel):
+        id: UUID
+        universe_id: UUID
+        title: str = Field(min_length=1, max_length=200)
+        story_type: StoryType
+        theme: Optional[str]
+        premise: Optional[str]
+        status: str = "active"  # active, paused, completed, archived
+        pc_ids: List[UUID]
+        created_at: datetime
+        updated_at: datetime
+
+  agent_flow: |
+    Orchestrator.start_new_story(universe_id, params):
+        1. Validate universe exists
+        2. Collect story parameters
+        3. Create Story node (via CanonKeeper)
+        4. Create story_outline document
+        5. Transition to start_scene()
+
+  patterns:
+    - "Orchestrator coordinates the flow"
+    - "CanonKeeper authority for Neo4j writes"
+
+  notes: |
+    - Story premise helps set tone for narrator
+    - Consider adding story templates for common setups
+    - PC selection should show available characters
+
+testing:
+  unit_tests:
+    - "test_start_story_campaign: campaign created"
+    - "test_start_story_oneshot: one-shot created"
+    - "test_start_story_with_pcs: PCs linked"
+    - "test_start_story_no_universe: error handled"
+    - "test_start_story_outline: outline created"
+
+  integration_tests:
+    - "test_story_to_scene_flow: P-1 -> P-2 transition"
+    - "test_start_story_cli: CLI interactive flow"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-4"
+    - "play"
+    - "agents"
+    - "priority-high"
+
+  milestone: "EPIC 4: Autonomous GM"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#p-1-start-new-story"
+    - "docs/architecture/AGENT_ORCHESTRATION.md"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/stories.py"

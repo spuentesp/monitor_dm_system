@@ -1,0 +1,132 @@
+# M-10: View Story
+# ================
+
+id: "M-10"
+title: "View Story"
+category: "manage"
+epic: 6
+priority: "medium"
+status: "todo"
+
+summary: |
+  Display detailed information about a specific Story including metadata,
+  scene list with summaries, participating characters, plot threads, and
+  event timeline.
+
+actor: "User"
+trigger: "Select story from list or Manage -> Story -> View <UUID>"
+
+flow:
+  - "Retrieve Story by ID"
+  - "Display basic info (title, type, theme, premise, status)"
+  - "List scenes with summaries"
+  - "Show participating characters"
+  - "Display plot threads (open and resolved)"
+  - "Show event timeline"
+  - "Display available actions (Continue, Edit, Archive, Delete)"
+
+acceptance_criteria:
+  - "neo4j_get_story returns full story data"
+  - "Scene list shows title, status, turn count"
+  - "Plot threads categorized by status (open/resolved)"
+  - "Event timeline shows chronological events"
+  - "Participating characters listed with roles"
+  - "Actions displayed as interactive options"
+
+depends_on:
+  - "DL-4"  # Story/Scene/Turn CRUD
+  - "DL-6"  # Plot threads
+  - "M-9"   # List Stories
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/story.py"
+
+  cli_commands:
+    - command: "monitor manage story view <UUID>"
+      description: "View story details"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_story"
+        authority: ["*"]
+      - name: "neo4j_list_plot_threads"
+        authority: ["*"]
+      - name: "neo4j_list_events"
+        authority: ["*"]
+    mongodb:
+      - name: "mongodb_list_scenes"
+        collection: "scenes"
+
+  output_format: |
+    ══════════════════════════════════════════════════════════
+    STORY: The Fellowship's Journey
+    ══════════════════════════════════════════════════════════
+
+    Type: Campaign    Theme: Epic Quest    Status: active
+    Universe: Middle-earth
+
+    Premise:
+      A fellowship of nine must carry the One Ring to Mount Doom
+      to destroy it and defeat Sauron once and for all.
+
+    ─────────────────────────────────────────────────────────
+    SCENES (12)
+    ─────────────────────────────────────────────────────────
+      1. The Council of Elrond     [completed]   24 turns
+      2. Journey Through Moria     [completed]   18 turns
+      3. Lothlórien                [active]      12 turns
+
+    ─────────────────────────────────────────────────────────
+    CHARACTERS
+    ─────────────────────────────────────────────────────────
+      Frodo (PC), Gandalf, Aragorn, Legolas, Gimli...
+
+    ─────────────────────────────────────────────────────────
+    PLOT THREADS
+    ─────────────────────────────────────────────────────────
+      [OPEN] What happened to Gandalf in Moria?
+      [OPEN] The growing influence of the Ring on Frodo
+      [RESOLVED] Who will join the Fellowship?
+
+    ─────────────────────────────────────────────────────────
+    ACTIONS: [C]ontinue  [E]dit  [A]rchive  [D]elete  [B]ack
+
+  patterns:
+    - "Use Rich library for formatted output"
+
+  notes: |
+    - Consider adding --json flag for export
+
+testing:
+  unit_tests:
+    - "test_view_story_full: returns all story details"
+    - "test_view_story_not_found: 404 handled gracefully"
+    - "test_view_story_with_scenes: scenes listed correctly"
+    - "test_view_story_with_threads: plot threads shown"
+
+  integration_tests:
+    - "test_view_story_cli: CLI output formatted correctly"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-6"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 6: Session & Timeline"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-10-view-story"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/stories.py"

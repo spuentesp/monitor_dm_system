@@ -1,0 +1,130 @@
+# M-14: Create Location
+# =====================
+
+id: "M-14"
+title: "Create Location"
+category: "manage"
+epic: 3
+priority: "high"
+status: "todo"
+
+summary: |
+  Create a location entity (city, building, region, planet, room, wilderness).
+  Supports hierarchical containment (location within location) and
+  spatial properties.
+
+actor: "User"
+trigger: "Create Entity -> Location"
+
+flow:
+  - "Prompt: Name"
+  - "Prompt: Location type (city, building, region, planet, room, wilderness)"
+  - "Prompt: Description"
+  - "Prompt: Is exterior? (yes/no)"
+  - "Select parent location (optional, for hierarchy)"
+  - "Create EntityInstance in Neo4j"
+  - "IF parent: create LOCATED_IN edge"
+  - "Confirm creation"
+
+acceptance_criteria:
+  - "neo4j_create_entity creates location node with entity_type='location'"
+  - "Location type validated against allowed values"
+  - "is_exterior property stored correctly"
+  - "Parent location selection shows locations in same universe"
+  - "LOCATED_IN relationship created when parent selected"
+  - "Location hierarchy navigable (city -> district -> building -> room)"
+  - "Unit tests cover hierarchical locations"
+
+depends_on:
+  - "DL-2"  # Entity CRUD
+  - "M-12"  # Create Entity router
+
+blocks:
+  - "P-2"   # Scenes need locations
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/entity.py"
+
+  cli_commands:
+    - command: "monitor manage entity create --type location --universe <UUID>"
+      description: "Interactive location creation"
+    - command: "monitor manage entity create --type location --universe <UUID> --name 'Rivendell' --location-type city"
+      description: "Quick creation"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_list_entities"
+        authority: ["*"]
+        params: "type='location'"
+      - name: "neo4j_create_entity"
+        authority: ["CanonKeeper"]
+      - name: "neo4j_create_relationship"
+        authority: ["CanonKeeper"]
+        relationship: "LOCATED_IN"
+
+  location_types:
+    - "planet"     # Largest scale
+    - "continent"
+    - "region"
+    - "country"
+    - "city"
+    - "district"
+    - "building"
+    - "room"
+    - "wilderness"
+    - "dungeon"
+    - "vehicle"    # Ships, spacecraft
+    - "other"
+
+  location_properties: |
+    class LocationProperties(BaseModel):
+        location_type: LocationType
+        is_exterior: bool = True
+        climate: Optional[str]
+        terrain: Optional[str]
+        population: Optional[str]  # "empty", "sparse", "moderate", "crowded"
+        danger_level: Optional[str]  # "safe", "low", "moderate", "high", "extreme"
+
+  patterns:
+    - "Follow DL-2 entity creation pattern"
+    - "Use spatial relationships (LOCATED_IN, CONNECTED_TO)"
+
+  notes: |
+    - Consider adding map coordinates for visualization
+    - Danger level helps with encounter generation
+    - Vehicle locations can move between parent locations
+
+testing:
+  unit_tests:
+    - "test_create_location_basic: minimal location created"
+    - "test_create_location_with_parent: hierarchy established"
+    - "test_create_location_types: all types valid"
+    - "test_create_location_exterior: is_exterior stored"
+
+  integration_tests:
+    - "test_location_hierarchy: nested locations navigable"
+    - "test_location_cli: CLI location creation works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-3"
+    - "manage"
+    - "cli"
+    - "priority-high"
+
+  milestone: "EPIC 3: Character & Identity"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-14-create-location"
+    - "docs/ontology/ONTOLOGY.md#22-entities"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/entities.py"

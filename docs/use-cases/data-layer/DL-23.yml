@@ -1,0 +1,140 @@
+# DL-23: Manage World Snapshots
+# ==============================
+
+id: "DL-23"
+title: "Manage World Snapshots"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement MongoDB collection for storing point-in-time snapshots of world
+  state. Enables backup, comparison, branching, and "what-if" exploration.
+  Snapshots capture entities, facts, relationships, and axioms from Neo4j.
+  Supports automatic snapshots at milestones and manual captures.
+
+acceptance_criteria:
+  - "mongodb_create_snapshot captures current Neo4j state for scope"
+  - "mongodb_get_snapshot returns full snapshot data"
+  - "mongodb_list_snapshots lists snapshots by scope with pagination"
+  - "mongodb_delete_snapshot removes snapshot document"
+  - "Snapshots support universe, story, or region scope"
+  - "Snapshot captures all entities, facts, relationships, axioms in scope"
+  - "mongodb_compare_snapshots shows diff between two snapshots"
+  - "mongodb_compare_to_current shows diff between snapshot and live state"
+  - "Snapshot lineage tracked for forked universes"
+  - "Automatic triggers: story_start, milestone, pre_branch, pre_flashback"
+  - "Size metrics tracked: entity_count, fact_count, total_size_kb"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-1"   # Snapshots scoped to universe
+  - "DL-2"   # Captures entity state
+  - "DL-3"   # Captures fact state
+  - "DL-4"   # Story state included
+
+blocks:
+  - "M-34"   # World snapshots management UI
+  - "M-35"   # Universe fork use case
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/world_snapshots.py"
+      - "packages/data-layer/tests/test_tools/test_snapshot_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_create_snapshot"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["scope", "scope_id", "name", "description?", "trigger"]
+
+      - name: "mongodb_get_snapshot"
+        authority: ["*"]
+        params: ["snapshot_id"]
+
+      - name: "mongodb_list_snapshots"
+        authority: ["*"]
+        params: ["scope?", "scope_id?", "trigger?", "limit?", "offset?"]
+
+      - name: "mongodb_delete_snapshot"
+        authority: ["CanonKeeper"]
+        params: ["snapshot_id"]
+
+      - name: "mongodb_compare_snapshots"
+        authority: ["*"]
+        params: ["snapshot_a_id", "snapshot_b_id"]
+
+      - name: "mongodb_compare_to_current"
+        authority: ["*"]
+        params: ["snapshot_id"]
+
+      - name: "mongodb_restore_snapshot"
+        authority: ["CanonKeeper"]
+        params: ["snapshot_id", "target_scope_id?"]
+
+  patterns:
+    - "world_snapshots collection: {snapshot_id, scope, scope_id, name, trigger, entities[], facts[], relationships[], axioms[]}"
+    - "Scope enum: universe, story, region"
+    - "Trigger enum: manual, story_start, milestone, pre_branch, pre_flashback, scheduled"
+    - "Captured entities: {entity_id, entity_type, name, properties, state_tags}"
+    - "Captured facts: {fact_id, fact_type, statement, properties}"
+    - "Captured relationships: {relationship_id, type, from_id, to_id, properties}"
+    - "Story state captured: {current_scene_id, scene_count, turn_count, story_status}"
+    - "Lineage: parent_snapshot_id, branched_to[] for fork tracking"
+
+  notes: |
+    - Snapshots are denormalized copies of Neo4j data
+    - Large snapshots may take time to capture - consider batching
+    - Restore operation creates new data in target scope, doesn't overwrite
+    - Size metrics help identify bloated worlds
+    - Scheduled snapshots could be implemented as cron job
+    - For universe forks, create snapshot first, then new universe from it
+    - Consider compression for large snapshots
+
+testing:
+  unit_tests:
+    - "test_create_snapshot_success: snapshot captured with all data"
+    - "test_create_snapshot_universe: captures all universe entities"
+    - "test_create_snapshot_story: captures story-scoped entities"
+    - "test_get_snapshot: returns full snapshot data"
+    - "test_list_snapshots_by_scope: scope filter works"
+    - "test_list_snapshots_by_trigger: trigger filter works"
+    - "test_delete_snapshot: snapshot removed"
+    - "test_compare_snapshots_diff: differences identified"
+    - "test_compare_snapshots_same: identical snapshots recognized"
+    - "test_compare_to_current: changes since snapshot shown"
+    - "test_size_metrics: entity_count, total_size_kb calculated"
+
+  integration_tests:
+    - "test_snapshot_full_workflow: create entities, snapshot, modify, compare"
+    - "test_restore_to_new_universe: snapshot used to fork universe"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "mongodb"
+    - "neo4j"
+    - "priority-medium"
+    - "backup"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/DATA_LAYER_USE_CASES.md#dl-23"
+    - "docs/USE_CASES.md#m-34"
+    - "docs/USE_CASES.md#m-35"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/db/mongodb.py"

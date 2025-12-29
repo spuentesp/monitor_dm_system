@@ -1,0 +1,133 @@
+# M-13: Create Character
+# ======================
+
+id: "M-13"
+title: "Create Character"
+category: "manage"
+epic: 3
+priority: "high"
+status: "todo"
+
+summary: |
+  Create a character entity (PC or NPC) with name, role, description,
+  optional archetype linkage, and character sheet for detailed characters.
+  Supports stats, abilities, equipment, and relationships.
+
+actor: "User"
+trigger: "Create Entity -> Character"
+
+flow:
+  - "Prompt: Name"
+  - "Prompt: Role (PC, NPC, antagonist, ally)"
+  - "Prompt: Description"
+  - "Select archetype (from EntityArchetype) or custom"
+  - "IF PC or detailed NPC:"
+  - "  Create character sheet (stats, resources, abilities)"
+  - "Create EntityInstance in Neo4j"
+  - "IF archetype: link DERIVES_FROM"
+  - "Create character_sheet in MongoDB (if applicable)"
+  - "Confirm creation"
+
+acceptance_criteria:
+  - "neo4j_create_entity creates character node with entity_type='character'"
+  - "Role validated against allowed values (PC, NPC, antagonist, ally)"
+  - "Archetype selection shows available archetypes for universe"
+  - "DERIVES_FROM relationship created when archetype selected"
+  - "Character sheet stored in MongoDB for PCs and detailed NPCs"
+  - "Stats use system-appropriate schema (D&D, Pathfinder, etc.)"
+  - "Initial state_tags include 'alive'"
+  - "Unit tests cover all creation paths"
+
+depends_on:
+  - "DL-2"  # Entity CRUD
+  - "M-12"  # Create Entity router
+
+blocks:
+  - "P-1"   # Stories need characters
+  - "M-22"  # Memories attached to characters
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/entity.py"
+
+  cli_commands:
+    - command: "monitor manage entity create --type character --universe <UUID>"
+      description: "Interactive character creation"
+    - command: "monitor manage entity create --type character --universe <UUID> --name 'Gandalf' --role NPC"
+      description: "Quick creation"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_list_archetypes"
+        authority: ["*"]
+      - name: "neo4j_create_entity"
+        authority: ["CanonKeeper"]
+      - name: "neo4j_create_relationship"
+        authority: ["CanonKeeper"]
+    mongodb:
+      - name: "mongodb_create_character_sheet"
+        collection: "character_sheets"
+
+  character_roles:
+    - "PC"         # Player Character
+    - "NPC"        # Non-Player Character
+    - "antagonist" # Villain/Opponent
+    - "ally"       # Friendly NPC
+    - "neutral"    # Neither friend nor foe
+
+  character_sheet_schema: |
+    class CharacterSheet(BaseModel):
+        entity_id: UUID
+        stats: Dict[str, int]  # STR, DEX, CON, INT, WIS, CHA
+        resources: Dict[str, int]  # hp_max, hp_current, mp, etc.
+        abilities: List[str]
+        equipment: List[str]
+        backstory: Optional[str]
+        personality_traits: List[str]
+        ideals: Optional[str]
+        bonds: Optional[str]
+        flaws: Optional[str]
+
+  patterns:
+    - "Follow DL-2 entity creation pattern"
+    - "Use CanonKeeper authority for writes"
+
+  notes: |
+    - Stats schema should adapt to game system (RS-1)
+    - Consider adding character generation wizard
+    - Personality traits help LLM roleplay NPCs
+
+testing:
+  unit_tests:
+    - "test_create_character_basic: minimal character created"
+    - "test_create_character_with_archetype: derives from archetype"
+    - "test_create_character_pc_sheet: character sheet created"
+    - "test_create_character_npc_sheet: detailed NPC has sheet"
+    - "test_create_character_stats: stats validation works"
+
+  integration_tests:
+    - "test_character_full_flow: create with sheet and archetype"
+    - "test_character_cli: CLI character creation works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-3"
+    - "manage"
+    - "cli"
+    - "priority-high"
+
+  milestone: "EPIC 3: Character & Identity"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-13-create-character"
+    - "docs/ontology/ONTOLOGY.md#22-entities"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/entities.py"

@@ -1,0 +1,148 @@
+# DL-15: Manage Parties
+# =====================
+
+id: "DL-15"
+title: "Manage Parties"
+category: "data-layer"
+epic: 0
+priority: "high"
+status: "todo"
+
+summary: |
+  Implement CRUD operations for Party nodes in Neo4j and party membership tracking.
+  A Party represents a group of player characters traveling/acting together in a story.
+  Supports active PC switching, party splits, formation tracking, and status management.
+  Critical for solo RPG play with multiple characters (P-13).
+
+acceptance_criteria:
+  - "neo4j_create_party creates Party node linked to Story"
+  - "neo4j_create_party validates story_id exists"
+  - "neo4j_add_party_member creates MEMBER_OF edge from EntityInstance to Party"
+  - "neo4j_add_party_member validates entity is a character type"
+  - "neo4j_remove_party_member removes MEMBER_OF edge"
+  - "neo4j_set_active_pc updates Party.active_pc_id"
+  - "neo4j_get_party returns party with all members and their roles"
+  - "neo4j_update_party_status changes status enum (traveling, camping, in_scene, combat, split, resting)"
+  - "neo4j_update_party_location updates location_id reference"
+  - "neo4j_list_parties supports filtering by story_id and status"
+  - "neo4j_delete_party removes party and all MEMBER_OF edges"
+  - "Party.formation stores ordered list of member positions"
+  - "All write operations enforce appropriate authority"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-1"  # Parties belong to stories in universes
+  - "DL-2"  # Party members are EntityInstances
+  - "DL-4"  # Parties are scoped to stories
+
+blocks:
+  - "DL-16"  # Party inventory depends on parties
+  - "P-13"   # Party management use case
+  - "P-16"   # Combat encounter management
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/parties.py"
+      - "packages/data-layer/tests/test_tools/test_party_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_party"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["story_id", "name", "initial_member_ids?", "active_pc_id?", "location_id?"]
+
+      - name: "neo4j_get_party"
+        authority: ["*"]
+        params: ["party_id"]
+
+      - name: "neo4j_list_parties"
+        authority: ["*"]
+        params: ["story_id?", "status?", "limit", "offset"]
+
+      - name: "neo4j_add_party_member"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["party_id", "entity_id", "role?", "position?"]
+
+      - name: "neo4j_remove_party_member"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["party_id", "entity_id"]
+
+      - name: "neo4j_set_active_pc"
+        authority: ["Orchestrator"]
+        params: ["party_id", "entity_id"]
+
+      - name: "neo4j_update_party_status"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["party_id", "status"]
+
+      - name: "neo4j_update_party_location"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["party_id", "location_id"]
+
+      - name: "neo4j_update_party_formation"
+        authority: ["Orchestrator"]
+        params: ["party_id", "formation"]
+
+      - name: "neo4j_delete_party"
+        authority: ["CanonKeeper"]
+        params: ["party_id"]
+
+  patterns:
+    - "Party node: (Party {id, story_id, name, status, active_pc_id, location_id, formation, created_at, updated_at})"
+    - "Membership edge: (EntityInstance)-[:MEMBER_OF {role, position, joined_at}]->(Party)"
+    - "Location edge: (Party)-[:LOCATED_AT]->(EntityInstance) where entity is location"
+    - "Status enum: traveling, camping, in_scene, combat, split, resting"
+
+  notes: |
+    - One party per story is typical, but multiple parties allowed for party splits
+    - active_pc_id determines whose turn it is in non-combat situations
+    - formation is an ordered list of entity_ids for marching order
+    - When party splits, create new Party node with subset of members
+    - Party status affects available actions and scene transitions
+
+testing:
+  unit_tests:
+    - "test_create_party_success: valid params creates Party node"
+    - "test_create_party_with_members: initial_member_ids creates MEMBER_OF edges"
+    - "test_add_member_success: adds MEMBER_OF edge"
+    - "test_add_member_validates_character: non-character entity rejected"
+    - "test_remove_member_success: removes MEMBER_OF edge"
+    - "test_set_active_pc_success: updates active_pc_id"
+    - "test_set_active_pc_validates_member: non-member rejected"
+    - "test_update_status_valid: status enum transition works"
+    - "test_update_location_valid: location_id updated"
+    - "test_get_party_with_members: returns full party data"
+    - "test_list_parties_by_story: story filter works"
+    - "test_delete_party_removes_edges: cascade removes MEMBER_OF"
+
+  integration_tests:
+    - "test_party_lifecycle: create party with members, update status, add/remove members"
+    - "test_party_split: split party into two, rejoin"
+    - "test_active_pc_switching: cycle through party members"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "neo4j"
+    - "priority-high"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#28-party"
+    - "docs/DATA_LAYER_USE_CASES.md#dl-15"
+    - "docs/USE_CASES.md#p-13"
+
+  code:
+    - "packages/data-layer/src/monitor_data/schemas/entities.py"

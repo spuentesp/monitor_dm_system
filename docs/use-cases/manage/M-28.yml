@@ -1,0 +1,103 @@
+# M-28: List Scenes (in Story)
+# ============================
+
+id: "M-28"
+title: "List Scenes (in Story)"
+category: "manage"
+epic: 6
+priority: "medium"
+status: "todo"
+
+summary: |
+  Display all scenes within a story with summaries, status, and turn counts.
+  Supports filtering by status and sorting by chronology or recency.
+
+actor: "User"
+trigger: "Story -> Scenes or Manage -> Scenes --story <UUID>"
+
+flow:
+  - "Select or specify story"
+  - "Query all scenes for story"
+  - "Display: Title, Status, Turn Count, Last Updated"
+  - "Support filtering by status (active, completed, draft)"
+  - "Allow selection to view scene details (-> M-29)"
+
+acceptance_criteria:
+  - "mongodb_list_scenes returns all scenes for story"
+  - "Scene list shows title, status, turn_count, updated_at"
+  - "Filter by status works correctly"
+  - "Scenes ordered chronologically by default"
+  - "Empty state shows appropriate message"
+  - "Pagination supported"
+
+depends_on:
+  - "DL-4"  # Story/Scene/Turn CRUD
+  - "M-10"  # View Story
+
+blocks:
+  - "M-29"  # View Scene
+
+implementation:
+  layer: 3
+
+  files:
+    create:
+      - "packages/cli/src/monitor_cli/commands/manage/scene.py"
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/__init__.py"
+
+  cli_commands:
+    - command: "monitor manage scene list --story <UUID>"
+      description: "List all scenes in story"
+    - command: "monitor manage scene list --story <UUID> --status active"
+      description: "Filter by status"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_list_scenes"
+        collection: "scenes"
+
+  output_format: |
+    SCENES: The Fellowship's Journey
+    ═══════════════════════════════════════════════════════════
+
+     # │ Title                    │ Status    │ Turns │ Updated
+    ───┼──────────────────────────┼───────────┼───────┼────────────
+     1 │ The Council of Elrond    │ completed │ 24    │ 2024-01-15
+     2 │ Journey Through Moria    │ completed │ 18    │ 2024-01-18
+     3 │ Lothlórien               │ active    │ 12    │ 2024-01-20
+
+  patterns:
+    - "Use Rich library for table formatting"
+
+  notes: |
+    - Consider showing location for each scene
+    - May want to show scene duration/playtime
+
+testing:
+  unit_tests:
+    - "test_list_scenes_all: returns all for story"
+    - "test_list_scenes_by_status: filter works"
+    - "test_list_scenes_empty: empty list handled"
+    - "test_list_scenes_order: chronological order"
+
+  integration_tests:
+    - "test_list_scenes_cli: CLI output formatted"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-6"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 6: Session & Timeline"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-28-list-scenes-in-story"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/scenes.py"

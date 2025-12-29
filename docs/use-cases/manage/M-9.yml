@@ -1,0 +1,127 @@
+# M-9: List Stories
+# =================
+
+id: "M-9"
+title: "List Stories"
+category: "manage"
+epic: 6
+priority: "medium"
+status: "todo"
+
+summary: |
+  Display all Stories with summary information. Supports filtering by
+  universe, status (active, completed, archived), and story type.
+  Shows scene count and last played date.
+
+actor: "User"
+trigger: "Manage -> Stories"
+
+flow:
+  - "Query all Stories (optionally filtered)"
+  - "For each, get scene count and last activity"
+  - "Display table: Title, Universe, Status, Type, Scenes, Last Played"
+  - "Support filtering by universe, status, type"
+  - "Support sorting by title, last_played, scene_count"
+  - "Allow selection to view details (-> M-10)"
+
+acceptance_criteria:
+  - "neo4j_list_stories returns stories with scene counts"
+  - "Table displays title, universe, status, type, scene_count, last_played"
+  - "Filter by universe_id works correctly"
+  - "Filter by status (active, completed, archived) works"
+  - "Filter by type (campaign, arc, episode, one-shot) works"
+  - "Sorting options work correctly"
+  - "Pagination supported (--limit, --offset)"
+  - "Empty state shows appropriate message"
+
+depends_on:
+  - "DL-4"  # Story/Scene/Turn CRUD
+
+blocks:
+  - "M-10"  # View Story
+  - "M-11"  # Edit Story
+
+implementation:
+  layer: 3
+
+  files:
+    create:
+      - "packages/cli/src/monitor_cli/commands/manage/story.py"
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/__init__.py"
+
+  cli_commands:
+    - command: "monitor manage story list"
+      description: "List all stories"
+    - command: "monitor manage story list --universe <UUID>"
+      description: "Filter by universe"
+    - command: "monitor manage story list --status active"
+      description: "Filter by status"
+    - command: "monitor manage story list --type campaign"
+      description: "Filter by type"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_list_stories"
+        authority: ["*"]
+        cypher: |
+          MATCH (s:Story)
+          WHERE s.canon_level <> 'retconned'
+            AND ($universe_id IS NULL OR s.universe_id = $universe_id)
+            AND ($status IS NULL OR s.status = $status)
+            AND ($story_type IS NULL OR s.story_type = $story_type)
+          OPTIONAL MATCH (u:Universe {id: s.universe_id})
+          RETURN s.id, s.title, u.name AS universe_name, s.status,
+                 s.story_type, s.updated_at AS last_played
+          ORDER BY s.updated_at DESC
+          SKIP $offset LIMIT $limit
+    mongodb:
+      - name: "Get scene counts per story"
+        collection: "scenes"
+        operation: "aggregate"
+
+  output_format: |
+    Stories
+    ───────────────────────────────────────────────────────────────────
+     # │ Title                    │ Universe      │ Status   │ Scenes
+    ───┼──────────────────────────┼───────────────┼──────────┼────────
+     1 │ The Fellowship's Journey │ Middle-earth  │ active   │ 12
+     2 │ Cyberpunk Heist          │ Night City    │ active   │ 5
+     3 │ Dragon's Lair            │ Forgotten R.  │ completed│ 8
+
+  patterns:
+    - "Use Rich library for table formatting"
+    - "Follow existing list command patterns"
+
+  notes: |
+    - Scene count requires MongoDB aggregation
+    - Consider caching counts for performance
+
+testing:
+  unit_tests:
+    - "test_list_stories_all: returns all non-retconned"
+    - "test_list_stories_by_universe: filter works"
+    - "test_list_stories_by_status: filter works"
+    - "test_list_stories_by_type: filter works"
+    - "test_list_stories_pagination: limit/offset work"
+
+  integration_tests:
+    - "test_list_stories_cli: CLI output formatted correctly"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-6"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 6: Session & Timeline"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-9-list-stories"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/stories.py"

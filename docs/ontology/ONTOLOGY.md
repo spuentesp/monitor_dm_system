@@ -354,6 +354,43 @@ The `properties` map contains type-specific fields defined in ENTITY_TAXONOMY.md
 
 ---
 
+### 2.8 Parties
+
+#### Party (adventuring group)
+```cypher
+(:Party {
+  id: UUID,
+  story_id: UUID,
+  name: string,  // "The Fellowship", "Dragon Slayers"
+  status: enum["traveling", "camping", "in_scene", "combat", "split", "resting"],
+  formation: list,  // ordered entity_ids for marching order
+  location_id: UUID,  // current location (EntityInstance)
+  created_at: timestamp,
+  updated_at: timestamp
+})
+```
+
+**Purpose:** Track a group of characters traveling/acting together.
+**Relations:**
+- `(:Story)-[:HAS_PARTY]->(:Party)`
+- `(:EntityInstance)-[:MEMBER_OF {role, position, joined_at}]->(:Party)`
+- `(:Party)-[:ACTIVE_PC]->(:EntityInstance)` // current player focus
+- `(:Party)-[:LOCATED_IN]->(:EntityInstance)` // current location
+
+**MEMBER_OF Edge Properties:**
+```cypher
+[:MEMBER_OF {
+  role: enum["pc", "companion", "hireling", "mount", "prisoner"],
+  position: enum["front", "middle", "rear"],  // marching order
+  joined_at: timestamp,
+  left_at: timestamp  // null if still member
+}]
+```
+
+**Note:** A story typically has one party, but complex stories may have multiple (e.g., rival adventuring groups).
+
+---
+
 ## 3. MongoDB Narrative Layer
 
 MongoDB stores narrative artifacts, proposals, and working memory.
@@ -372,7 +409,13 @@ Collection: scenes
   title: string,
   purpose: string,
 
-  status: enum["active", "finalizing", "completed"],
+  status: enum["active", "paused", "finalizing", "completed", "aborted"],
+
+  // Temporal context (for flashbacks, flash-forwards, dreams)
+  temporal_mode: enum["present", "flashback", "flash_forward", "dream"],
+  time_ref: ISODate,  // when this scene occurs in-universe
+  time_description: string,  // "15 years ago", "The night before"
+  parent_scene_id: UUID,  // for nested scenes (flashback returns to parent)
 
   // Canonical references
   order: int,  // optional ordering within the Story
@@ -671,6 +714,322 @@ Index: { story_id: 1 } unique
 
 ---
 
+### 3.9 Party Inventories
+
+```javascript
+Collection: party_inventories
+
+{
+  _id: ObjectId,
+  party_id: UUID,  // references Neo4j Party
+
+  items: [
+    {
+      item_id: UUID,
+      name: string,
+      quantity: int,
+      weight: float,
+      owner_id: UUID,  // who's carrying it (null = party shared)
+      properties: map,
+      equipped: bool
+    }
+  ],
+
+  gold: int,
+  encumbrance: {
+    current: float,
+    max: float
+  },
+
+  created_at: ISODate,
+  updated_at: ISODate
+}
+
+Index: { party_id: 1 } unique
+```
+
+---
+
+### 3.10 Party Splits
+
+```javascript
+Collection: party_splits
+
+{
+  _id: ObjectId,
+  split_id: UUID,
+  party_id: UUID,
+
+  groups: [
+    {
+      group_index: int,
+      members: [UUID],  // EntityInstance IDs
+      location_id: UUID,
+      status: enum["active", "offscreen", "waiting"],
+      offscreen_summary: string  // what happened while player was away
+    }
+  ],
+
+  active_group_index: int,  // which group player is following
+
+  split_at: ISODate,
+  reunited_at: ISODate
+}
+
+Index: { party_id: 1 }
+Index: { split_id: 1 } unique
+```
+
+---
+
+### 3.11 Entity Templates
+
+```javascript
+Collection: entity_templates
+
+{
+  _id: ObjectId,
+  template_id: UUID,
+  universe_id: UUID,
+
+  name: string,
+  description: string,
+
+  entity_type: enum["character", "faction", "location", "object", "concept", "organization"],
+  base_properties: map,
+
+  variable_properties: [
+    {
+      property_path: string,
+      generation_type: enum["fixed", "choice", "range", "pattern", "table", "llm"],
+      options: [string],
+      range: [int, int],
+      pattern: string,
+      table_id: UUID
+    }
+  ],
+
+  naming_pattern: {
+    type: enum["pattern", "numbered", "list", "llm", "user"],
+    pattern: string,
+    adjectives: [string],
+    nouns: [string],
+    name_list: [string]
+  },
+
+  stat_generation: {
+    method: string,
+    formulas: map,
+    constraints: map
+  },
+
+  default_state_tags: [string],
+  equipment_options: [map],
+
+  parent_template_id: UUID,  // for template inheritance
+
+  usage_count: int,
+  created_at: ISODate,
+  updated_at: ISODate
+}
+
+Index: { universe_id: 1, entity_type: 1 }
+Index: { template_id: 1 } unique
+```
+
+---
+
+### 3.12 Change Log (Audit Trail)
+
+```javascript
+Collection: change_log
+
+{
+  _id: ObjectId,
+  change_id: UUID,
+
+  subject_type: enum["entity", "fact", "event", "story", "scene", "relationship", "axiom", "party"],
+  subject_id: UUID,
+
+  change_type: enum["created", "updated", "deleted", "state_tag_added", "state_tag_removed", "relationship_added", "relationship_removed", "reverted"],
+
+  timestamp: ISODate,
+
+  field_path: string,  // e.g., "state_tags", "properties.hp"
+  old_value: any,
+  new_value: any,
+
+  state_before: map,  // full snapshot (optional)
+  state_after: map,
+
+  author: string,  // "CanonKeeper", "User:123", "System"
+  authority: enum["source", "gm", "player", "system"],
+
+  evidence_type: string,  // "scene", "turn", "proposal", "manual"
+  evidence_id: UUID,
+  reason: string,
+
+  transaction_id: UUID  // groups related changes
+}
+
+Index: { subject_type: 1, subject_id: 1, timestamp: -1 }
+Index: { timestamp: -1 }
+Index: { transaction_id: 1 }
+Index: { author: 1, timestamp: -1 }
+```
+
+**Note:** This is an append-only collection. Records are never updated or deleted.
+
+---
+
+### 3.13 Game Systems
+
+```javascript
+Collection: game_systems
+
+{
+  _id: ObjectId,
+  system_id: UUID,
+
+  name: string,
+  description: string,
+  version: string,
+
+  core_mechanic: {
+    type: enum["d20", "dice_pool", "percentile", "card", "narrative"],
+    formula: string,
+    success_type: enum["meet_or_beat", "count_successes", "highest_wins"],
+    success_threshold: string,
+    critical_success: string,
+    critical_failure: string,
+    partial_success: string
+  },
+
+  attributes: [
+    {
+      name: string,
+      abbreviation: string,
+      min_value: int,
+      max_value: int,
+      default_value: int,
+      modifier_formula: string
+    }
+  ],
+
+  skills: [
+    {
+      name: string,
+      attribute: string,
+      category: string,
+      trained_bonus: int,
+      description: string
+    }
+  ],
+
+  resources: [
+    {
+      name: string,
+      abbreviation: string,
+      max_formula: string,
+      recovery_rules: string,
+      depleted_effect: string
+    }
+  ],
+
+  combat: {
+    initiative_formula: string,
+    action_economy: map,
+    damage_types: [string]
+  },
+
+  custom_dice: map,  // {"advantage": "2d20kh1"}
+
+  character_template: {
+    sections: [map],
+    creation: map,
+    advancement: map
+  },
+
+  is_builtin: bool,
+  created_at: ISODate,
+  updated_at: ISODate
+}
+
+Index: { system_id: 1 } unique
+Index: { name: 1 }
+```
+
+---
+
+### 3.14 Rule Overrides
+
+```javascript
+Collection: rule_overrides
+
+{
+  _id: ObjectId,
+  override_id: UUID,
+
+  scope: enum["one_time", "scene", "story", "universe"],
+  scope_id: UUID,
+
+  target: enum["dice", "threshold", "resource", "skill", "custom"],
+  original: string,
+  override: string,
+
+  reason: string,
+  created_by: string,
+
+  times_used: int,
+  active: bool,
+
+  created_at: ISODate
+}
+
+Index: { scope: 1, scope_id: 1, active: 1 }
+Index: { override_id: 1 } unique
+```
+
+---
+
+### 3.15 Random Tables
+
+```javascript
+Collection: random_tables
+
+{
+  _id: ObjectId,
+  table_id: UUID,
+  universe_id: UUID,  // null for global tables
+
+  name: string,
+  description: string,
+  table_type: enum["encounter", "loot", "name", "trait", "weather", "rumor", "custom"],
+
+  dice_formula: string,  // "1d100", "2d6"
+  weighted: bool,
+
+  entries: [
+    {
+      min_roll: int,
+      max_roll: int,
+      weight: float,
+      value: string,
+      subtable_id: UUID,
+      conditions: map
+    }
+  ],
+
+  created_at: ISODate,
+  updated_at: ISODate
+}
+
+Index: { universe_id: 1, table_type: 1 }
+Index: { table_id: 1 } unique
+```
+
+---
+
 ## 4. Qdrant Semantic Index Layer
 
 Qdrant stores embeddings with metadata pointing to canonical sources.
@@ -746,11 +1105,16 @@ Qdrant stores embeddings with metadata pointing to canonical sources.
 | Universe | Neo4j | MongoDB (proposals) | CanonKeeper |
 | Fact/Event | Neo4j | MongoDB (ProposedChange) | CanonKeeper |
 | Entity | Neo4j | MongoDB (ProposedChange) | CanonKeeper |
+| Party | Neo4j | - | Orchestrator (GM authority) |
 | Scene | MongoDB | - | Orchestrator |
 | Turn | MongoDB | - | Narrator |
 | ProposedChange | MongoDB | - | Resolver, Narrator |
 | Memory | MongoDB | - | MemoryManager |
 | Embedding | Qdrant | - | Indexer |
+| EntityTemplate | MongoDB | - | User (GM authority) |
+| GameSystem | MongoDB | - | User (GM authority) |
+| ChangeLog | MongoDB | - | Middleware (auto-capture) |
+| RandomTable | MongoDB | - | User (GM authority) |
 
 ### 5.3 Canonization Flow
 
@@ -840,13 +1204,32 @@ Every canonical node in Neo4j MUST link to evidence:
 
 To implement this ontology:
 
-- [ ] Neo4j schema constraints (UUIDs, required properties)
-- [ ] MongoDB schema validation (JSON Schema)
-- [ ] Qdrant collection creation with proper indices
+**Neo4j:**
+- [ ] Schema constraints (UUIDs, required properties)
+- [ ] Party node type with status enum
+- [ ] MEMBER_OF edge with role/position properties
+- [ ] ACTIVE_PC edge constraint (one per party)
+
+**MongoDB:**
+- [ ] Schema validation (JSON Schema) for all collections
+- [ ] scenes: temporal_mode, parent_scene_id fields
+- [ ] party_inventories collection
+- [ ] party_splits collection
+- [ ] entity_templates collection
+- [ ] change_log collection with append-only constraint
+- [ ] game_systems collection
+- [ ] rule_overrides collection
+- [ ] random_tables collection
+
+**Qdrant:**
+- [ ] Collection creation with proper indices
+
+**Infrastructure:**
 - [ ] Cross-reference validation (ensure UUIDs exist)
 - [ ] Migration scripts from v1.0 (if applicable)
 - [ ] API contracts per layer
 - [ ] Agent read/write authority enforcement
+- [ ] Change log middleware integration (auto-capture writes)
 
 ---
 

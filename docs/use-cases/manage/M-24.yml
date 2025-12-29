@@ -1,0 +1,105 @@
+# M-24: List Axioms
+# =================
+
+id: "M-24"
+title: "List Axioms"
+category: "manage"
+epic: 1
+priority: "medium"
+status: "todo"
+
+summary: |
+  Display all axioms for a universe, grouped by type. Supports filtering
+  by axiom type and scope. Shows source references and any exceptions.
+
+actor: "User"
+trigger: "Manage -> Axioms"
+
+flow:
+  - "Select universe"
+  - "Query all axioms for universe"
+  - "Group by axiom type"
+  - "Display: Statement, Type, Scope, Sources"
+  - "Support filtering by type, scope"
+  - "Allow selection to view details"
+
+acceptance_criteria:
+  - "neo4j_list_axioms returns all axioms for universe"
+  - "Axioms grouped by type in display"
+  - "Filter by type works correctly"
+  - "Filter by scope works correctly"
+  - "Source count shown for each axiom"
+  - "Pagination supported"
+
+depends_on:
+  - "DL-13" # Axioms CRUD
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/axiom.py"
+
+  cli_commands:
+    - command: "monitor manage axiom list --universe <UUID>"
+      description: "List all axioms"
+    - command: "monitor manage axiom list --universe <UUID> --type magic"
+      description: "Filter by type"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_list_axioms"
+        authority: ["*"]
+
+  output_format: |
+    AXIOMS: Middle-earth
+    ═════════════════════════════════════════════════════════
+
+    MAGIC (3)
+    ─────────────────────────────────────────────────────────
+      1. Magic requires spoken words and gestures  [universal]
+      2. The One Ring corrupts all who bear it     [universal]
+      3. Elven magic is tied to nature             [regional]
+
+    DIVINE (2)
+    ─────────────────────────────────────────────────────────
+      1. The Valar cannot walk Middle-earth        [universal]
+      2. Eru Ilúvatar does not intervene directly  [universal]
+
+  patterns:
+    - "Use Rich library for formatted output"
+    - "Group by axiom_type"
+
+  notes: |
+    - Consider showing conflict warnings
+    - Show which axioms have exceptions
+
+testing:
+  unit_tests:
+    - "test_list_axioms_all: returns all for universe"
+    - "test_list_axioms_by_type: filter works"
+    - "test_list_axioms_by_scope: filter works"
+    - "test_list_axioms_empty: empty list handled"
+
+  integration_tests:
+    - "test_list_axioms_cli: CLI output formatted"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 1: World & Multiverse"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-24-list-axioms"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

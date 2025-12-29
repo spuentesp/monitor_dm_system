@@ -1,0 +1,136 @@
+# M-15: Create Faction/Organization
+# ==================================
+
+id: "M-15"
+title: "Create Faction/Organization"
+category: "manage"
+epic: 3
+priority: "medium"
+status: "todo"
+
+summary: |
+  Create a faction or organization entity (political, military, religious,
+  guild, cult, company). Supports leadership, membership, goals, and
+  inter-faction relationships.
+
+actor: "User"
+trigger: "Create Entity -> Faction"
+
+flow:
+  - "Prompt: Name"
+  - "Prompt: Faction type (political, military, religious, guild, cult, company)"
+  - "Prompt: Description"
+  - "Prompt: Scope (local, regional, global)"
+  - "Prompt: Leadership (link to existing character or create)"
+  - "Create EntityInstance in Neo4j"
+  - "IF leader selected: create MEMBER_OF edge with role='leader'"
+  - "Confirm creation"
+
+acceptance_criteria:
+  - "neo4j_create_entity creates faction node with entity_type='faction'"
+  - "Faction type validated against allowed values"
+  - "Scope determines visibility/influence in queries"
+  - "Leader character linked via MEMBER_OF with role='leader'"
+  - "Faction can exist without leader (leaderless, council)"
+  - "Goals stored as list in properties"
+  - "Unit tests cover faction with and without leader"
+
+depends_on:
+  - "DL-2"  # Entity CRUD
+  - "DL-14" # Relationships
+  - "M-12"  # Create Entity router
+
+blocks:
+  - "ST-2"  # Faction goal modeling
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/entity.py"
+
+  cli_commands:
+    - command: "monitor manage entity create --type faction --universe <UUID>"
+      description: "Interactive faction creation"
+    - command: "monitor manage entity create --type faction --universe <UUID> --name 'The Fellowship'"
+      description: "Quick creation"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_list_entities"
+        authority: ["*"]
+        params: "type='character'"
+      - name: "neo4j_create_entity"
+        authority: ["CanonKeeper"]
+      - name: "neo4j_create_relationship"
+        authority: ["CanonKeeper"]
+        relationship: "MEMBER_OF"
+
+  faction_types:
+    - "political"   # Governments, parties
+    - "military"    # Armies, militias
+    - "religious"   # Churches, cults
+    - "guild"       # Trade guilds, artisans
+    - "cult"        # Secret societies
+    - "company"     # Merchants, corporations
+    - "criminal"    # Thieves guilds, cartels
+    - "academic"    # Schools, universities
+    - "adventuring" # Adventuring parties
+    - "other"
+
+  faction_scopes:
+    - "local"       # Single city/region
+    - "regional"    # Multiple cities
+    - "national"    # Entire country
+    - "continental" # Multiple nations
+    - "global"      # Worldwide
+    - "planar"      # Multi-dimensional
+
+  faction_properties: |
+    class FactionProperties(BaseModel):
+        faction_type: FactionType
+        scope: FactionScope
+        alignment: Optional[str]  # Lawful Good, Chaotic Neutral, etc.
+        goals: List[str] = []
+        resources: Optional[str]  # "poor", "moderate", "wealthy", "vast"
+        influence: Optional[str]  # "none", "minor", "significant", "dominant"
+
+  patterns:
+    - "Follow DL-2 entity creation pattern"
+    - "Use MEMBER_OF relationship with role property"
+
+  notes: |
+    - Factions are key for political intrigue campaigns
+    - Goals help LLM generate faction-appropriate actions
+    - Consider adding faction reputation tracking
+
+testing:
+  unit_tests:
+    - "test_create_faction_basic: minimal faction created"
+    - "test_create_faction_with_leader: leader linked"
+    - "test_create_faction_types: all types valid"
+    - "test_create_faction_goals: goals stored"
+
+  integration_tests:
+    - "test_faction_membership: members can be added"
+    - "test_faction_cli: CLI faction creation works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-3"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 3: Character & Identity"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-15-create-factionorganization"
+    - "docs/ontology/ONTOLOGY.md#22-entities"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/entities.py"

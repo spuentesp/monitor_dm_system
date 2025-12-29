@@ -1,0 +1,138 @@
+# M-26: Create Fact (GM Override)
+# ================================
+
+id: "M-26"
+title: "Create Fact (GM Override)"
+category: "manage"
+epic: 6
+priority: "high"
+status: "todo"
+
+summary: |
+  Manually create a canonical fact without going through gameplay.
+  Used for GM-established truths, retcons, or facts from sources.
+  Bypasses the normal proposal process.
+
+actor: "User (GM)"
+trigger: "Manage -> Facts -> Create"
+
+flow:
+  - "Select universe"
+  - "Select related entities (subject, object)"
+  - "Prompt: Fact statement"
+  - "Prompt: Fact type (attribute, relationship, event, state)"
+  - "Prompt: Temporal scope (permanent, temporary, historical)"
+  - "Prompt: Source reference (optional)"
+  - "Create Fact node in Neo4j"
+  - "Link to entities and source"
+  - "Confirm creation"
+
+acceptance_criteria:
+  - "neo4j_create_fact creates fact node with canon_level='canon'"
+  - "Fact linked to subject and object entities"
+  - "Fact type validated against allowed values"
+  - "Temporal scope determines fact visibility in timeline"
+  - "Source reference creates SUPPORTED_BY edge"
+  - "Created by CanonKeeper authority"
+  - "Fact appears in entity views and queries"
+
+depends_on:
+  - "DL-3"  # Facts CRUD
+  - "M-4"   # Universe must exist
+
+blocks:
+  - "Q-4"   # Explore Facts uses facts
+
+implementation:
+  layer: 3
+
+  files:
+    create:
+      - "packages/cli/src/monitor_cli/commands/manage/fact.py"
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/__init__.py"
+
+  cli_commands:
+    - command: "monitor manage fact create --universe <UUID>"
+      description: "Interactive fact creation"
+    - command: "monitor manage fact create --universe <UUID> --subject <UUID> --statement 'Is the king of Gondor'"
+      description: "Quick creation"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_fact"
+        authority: ["CanonKeeper"]
+      - name: "neo4j_create_relationship"
+        authority: ["CanonKeeper"]
+        relationships: ["SUBJECT_OF", "OBJECT_OF", "SUPPORTED_BY"]
+
+  fact_types:
+    - "attribute"    # Property of entity (age, color, size)
+    - "relationship" # Connection between entities
+    - "event"        # Something that happened
+    - "state"        # Current condition
+    - "belief"       # What an entity believes (may be false)
+    - "rumor"        # Unverified information
+
+  temporal_scopes:
+    - "permanent"    # Always true
+    - "current"      # True now, may change
+    - "historical"   # Was true in past
+    - "future"       # Will be true (prophecy)
+    - "conditional"  # True under conditions
+
+  fact_schema: |
+    class Fact(BaseModel):
+        id: UUID
+        universe_id: UUID
+        subject_id: Optional[UUID]
+        object_id: Optional[UUID]
+        statement: str = Field(min_length=1, max_length=500)
+        fact_type: FactType
+        temporal_scope: TemporalScope
+        valid_from: Optional[datetime]
+        valid_until: Optional[datetime]
+        confidence: float = Field(ge=0.0, le=1.0, default=1.0)
+        canon_level: str = "canon"
+        source_refs: List[UUID] = []
+
+  patterns:
+    - "Use DL-3 fact operations"
+    - "Link to entities with SUBJECT_OF, OBJECT_OF"
+
+  notes: |
+    - GM override bypasses proposal process
+    - Consider adding change history for facts
+    - Confidence < 1.0 indicates uncertainty
+
+testing:
+  unit_tests:
+    - "test_create_fact_basic: fact created"
+    - "test_create_fact_with_entities: entity links created"
+    - "test_create_fact_with_source: source linked"
+    - "test_create_fact_temporal: temporal scope stored"
+    - "test_fact_types: all types valid"
+
+  integration_tests:
+    - "test_fact_in_query: fact appears in entity view"
+    - "test_fact_cli: CLI flow works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-6"
+    - "manage"
+    - "cli"
+    - "priority-high"
+
+  milestone: "EPIC 6: Session & Timeline"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-26-create-fact-gm-override"
+    - "docs/ontology/ONTOLOGY.md#24-facts-events"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/facts.py"

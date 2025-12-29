@@ -1,0 +1,140 @@
+# P-6: Answer Question
+# ====================
+
+id: "P-6"
+title: "Answer Question"
+category: "play"
+epic: 4
+priority: "medium"
+status: "todo"
+
+summary: |
+  Process player questions about the environment, entities, or situation.
+  Determines question type (perception, knowledge, lore) and queries
+  appropriate sources to provide in-character answers.
+
+actor: "User"
+trigger: "User asks about environment, entities, situation"
+
+examples:
+  - "What do I see?"
+  - "Who is in the room?"
+  - "What do I know about orcs?"
+
+flow:
+  - "Parse question type:"
+  - "  Perception: What's observable (environment, entities)"
+  - "  Knowledge: What PC knows (facts, memories)"
+  - "  Lore: What exists in universe (axioms, canon)"
+  - "Query appropriate sources"
+  - "Filter by PC's knowledge/perception limits"
+  - "Generate answer in GM voice"
+  - "Return to P-3"
+
+acceptance_criteria:
+  - "Question type correctly identified"
+  - "Perception queries check current scene entities"
+  - "Knowledge queries check PC memories and facts"
+  - "Lore queries check universe axioms and canon"
+  - "PC knowledge limits respected (no meta-gaming)"
+  - "Answer formatted appropriately for question type"
+  - "Can distinguish IC from OOC questions"
+
+depends_on:
+  - "DL-2"  # Entities
+  - "DL-3"  # Facts
+  - "DL-7"  # Memories
+  - "DL-13" # Axioms
+  - "P-3"   # Turn Loop
+
+blocks: []
+
+implementation:
+  layer: 2  # Agents layer
+
+  files:
+    modify:
+      - "packages/agents/src/monitor_agents/narrator.py"
+      - "packages/agents/src/monitor_agents/context_assembly.py"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_list_entities"
+        authority: ["*"]
+        purpose: "Scene entities"
+      - name: "neo4j_list_facts"
+        authority: ["*"]
+        purpose: "Known facts"
+      - name: "neo4j_list_axioms"
+        authority: ["*"]
+        purpose: "Universe rules"
+    mongodb:
+      - name: "mongodb_list_memories"
+        collection: "memories"
+        purpose: "PC memories"
+    qdrant:
+      - name: "qdrant_search"
+        purpose: "Semantic search"
+
+  question_types:
+    - "perception"   # What can be seen/heard/sensed
+    - "knowledge"    # What the PC knows
+    - "lore"         # Universal truths
+    - "tactical"     # Combat/situation analysis
+    - "meta"         # OOC rules questions
+
+  answer_flow: |
+    async def answer_question(question: str, context: Context) -> str:
+        question_type = classify_question(question)
+
+        match question_type:
+            case QuestionType.PERCEPTION:
+                data = await get_observable_data(context)
+            case QuestionType.KNOWLEDGE:
+                data = await get_pc_knowledge(context.pc_id, question)
+            case QuestionType.LORE:
+                data = await get_universe_lore(context.universe_id, question)
+            case QuestionType.TACTICAL:
+                data = await get_tactical_info(context)
+            case QuestionType.META:
+                return handle_meta_question(question)
+
+        return format_answer(data, question_type)
+
+  patterns:
+    - "Query appropriate data sources"
+    - "Respect knowledge boundaries"
+
+  notes: |
+    - Perception limited by scene lighting, obstacles
+    - Knowledge limited by PC background, memories
+    - Consider hidden information mechanics
+
+testing:
+  unit_tests:
+    - "test_question_perception: 'What do I see?' -> perception"
+    - "test_question_knowledge: 'What do I know?' -> knowledge"
+    - "test_question_lore: 'How does magic work?' -> lore"
+    - "test_answer_perception: observable entities returned"
+    - "test_answer_knowledge: PC knowledge returned"
+
+  integration_tests:
+    - "test_question_full_flow: question -> query -> answer"
+    - "test_knowledge_limits: hidden info not revealed"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-4"
+    - "play"
+    - "agents"
+
+  milestone: "EPIC 4: Autonomous GM"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#p-6-answer-question"
+
+  code:
+    - "packages/agents/src/monitor_agents/narrator.py"

@@ -1,0 +1,105 @@
+# M-11: Edit Story
+# ================
+
+id: "M-11"
+title: "Edit Story"
+category: "manage"
+epic: 6
+priority: "medium"
+status: "todo"
+
+summary: |
+  Modify an existing Story's metadata including title, theme, premise,
+  and status. Cannot modify story type after creation.
+
+actor: "User"
+trigger: "Story -> Edit or Manage -> Story -> Edit <UUID>"
+
+flow:
+  - "Retrieve current Story data"
+  - "Display current values"
+  - "Allow editing: title, theme, premise, status"
+  - "Validate changes"
+  - "Update Neo4j node"
+  - "Confirm changes"
+
+acceptance_criteria:
+  - "neo4j_update_story updates specified fields only"
+  - "Story type cannot be changed after creation"
+  - "Status transitions validated (e.g., can't go from archived to active)"
+  - "updated_at timestamp set on modification"
+  - "CLI supports interactive and flag-based editing"
+
+depends_on:
+  - "DL-4"  # Story/Scene/Turn CRUD
+  - "M-10"  # View Story
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/story.py"
+
+  cli_commands:
+    - command: "monitor manage story edit <UUID>"
+      description: "Interactive edit"
+    - command: "monitor manage story edit <UUID> --status completed"
+      description: "Update status"
+    - command: "monitor manage story edit <UUID> --title 'New Title'"
+      description: "Update title"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_story"
+        authority: ["*"]
+      - name: "neo4j_update_story"
+        authority: ["CanonKeeper"]
+
+  status_transitions:
+    active:
+      - "completed"
+      - "paused"
+      - "archived"
+    paused:
+      - "active"
+      - "archived"
+    completed:
+      - "archived"
+    archived: []  # Terminal state
+
+  patterns:
+    - "Use COALESCE for optional updates"
+
+  notes: |
+    - Status transitions should be validated
+    - Consider adding story_type migration for campaigns
+
+testing:
+  unit_tests:
+    - "test_edit_story_title: title updates"
+    - "test_edit_story_status: status transitions work"
+    - "test_edit_story_invalid_transition: bad transition rejected"
+    - "test_edit_story_type_immutable: type change rejected"
+
+  integration_tests:
+    - "test_edit_story_cli: CLI edit flow works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-6"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 6: Session & Timeline"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-11-edit-story"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

@@ -1753,6 +1753,239 @@ def display_recap(title: str, recap: str):
 
 ---
 
+## P-13: Party Management
+
+**Actor:** User
+**Trigger:** During story creation (P-1), scene setup (P-2), or mid-scene via meta-command
+
+**Purpose:** Manage a party of PCs/NPCs that travel and act together, supporting solo play with multiple characters.
+
+**Flow:**
+
+1. **Party Setup (during P-1 or M-*):**
+   - Create party entity (group type)
+   - Add initial members (PCs and companion NPCs)
+   - Designate "active PC" (primary player focus)
+   - Set party formation/marching order (optional)
+
+2. **During Play (P-3):**
+   - Switch active PC perspective (`/switch <character>`)
+   - View party status (`/party`)
+   - Manage party inventory (`/inventory`)
+   - Handle party-wide checks (e.g., group stealth)
+
+3. **Split Party:**
+   - Designate groups when party splits
+   - Scene focuses on one group at a time
+   - System tracks what "off-screen" group is doing
+   - Rejoin triggers when groups reunite
+
+4. **Party Actions:**
+   - Collective actions (travel, rest, camp)
+   - Resource sharing (gold, supplies)
+   - Formation-based combat bonuses
+
+**Meta Commands:**
+
+| Command | Description |
+|---------|-------------|
+| `/party` | Show party status |
+| `/party add <name>` | Add entity to party |
+| `/party remove <name>` | Remove from party |
+| `/switch <name>` | Change active PC |
+| `/inventory` | Show party inventory |
+| `/split <group1> <group2>` | Split party into groups |
+| `/rejoin` | Reunite split party |
+
+### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# Party CRUD (Neo4j)
+neo4j_create_party(story_id, name, members) -> party_id
+neo4j_get_party(party_id) -> Party
+neo4j_add_party_member(party_id, entity_id, role, position)
+neo4j_remove_party_member(party_id, entity_id)
+neo4j_set_active_pc(party_id, entity_id)
+neo4j_update_party(party_id, params)
+
+# Inventory & Splits (MongoDB)
+mongodb_get_party_inventory(party_id) -> Inventory
+mongodb_update_party_inventory(party_id, changes)
+mongodb_create_party_split(party_id, groups) -> split_id
+mongodb_update_party_split(split_id, active_group)
+mongodb_resolve_party_split(split_id)
+```
+
+**Layer 2 (Agents):**
+- `Orchestrator.create_party(story_id, members)` — Initialize party
+- `Orchestrator.switch_active_pc(party_id, entity_id)` — Change focus
+- `Orchestrator.split_party(party_id, groups)` — Handle party split
+- `Narrator.generate_offscreen_summary(group, duration)` — What happened to other group
+- `ContextAssembly.get_party_context(party_id)` — Full party state for prompts
+
+**Layer 3 (CLI):**
+```bash
+# During story creation
+monitor play new --party "Aragorn,Legolas,Gimli,Frodo,Sam"
+
+# Meta commands in REPL
+> /party
+> /switch Frodo
+> /inventory
+```
+
+**Party Schema:**
+```python
+@dataclass
+class Party:
+    id: UUID
+    story_id: UUID
+    name: str
+
+    members: list[PartyMember]
+    active_pc_id: UUID
+
+    formation: list[UUID] | None
+    status: PartyStatus  # traveling, camping, in_scene, combat, split, resting
+
+    created_at: datetime
+    updated_at: datetime
+
+@dataclass
+class PartyMember:
+    entity_id: UUID
+    name: str
+    role: PartyRole  # pc, companion, hireling, mount, prisoner
+    position: str | None  # front, middle, rear
+    joined_at: datetime
+    left_at: datetime | None
+```
+
+**Database Writes:**
+
+| Database | Node/Collection | Data |
+|----------|-----------------|------|
+| Neo4j | `:Party` | `{id, story_id, name, status, created_at}` |
+| Neo4j | `[:MEMBER_OF]` | Edge: Entity → Party with role/position |
+| Neo4j | `[:ACTIVE_PC]` | Edge: Party → current active EntityInstance |
+| MongoDB | `party_inventories` | `{party_id, items, gold, encumbrance}` |
+| MongoDB | `party_splits` | `{party_id, groups, active_group_index}` |
+
+---
+
+## P-14: Flashback Mode
+
+**Actor:** User or Narrator (AI-triggered)
+**Trigger:** User command `/flashback`, narrative prompt, or backstory exploration
+
+**Purpose:** Play scenes from the past to establish character history, reveal information, or resolve mysteries.
+
+**Flow:**
+
+1. **Trigger Flashback:**
+   - User requests: `/flashback "How did Gandalf first meet Bilbo?"`
+   - Narrator suggests: "Do you want to play out this memory?"
+   - System detects backstory hook
+
+2. **Set Temporal Context:**
+   - When: "50 years before the current story"
+   - Where: Select or create location
+   - Who: Select participating entities (may include younger versions)
+
+3. **Enter Flashback Scene:**
+   - Create scene with `temporal_mode: "flashback"`
+   - Narrator sets the stage in past tense
+   - Player actions are in past tense ("You approached the door")
+
+4. **Play Flashback:**
+   - Normal turn loop (P-3) with modified context
+   - Proposals marked with `authority: "historical"`
+   - Facts created are backdated to flashback time_ref
+
+5. **Flashback Resolution:**
+   - Scene ends naturally or via `/flashback end`
+   - Narrator transitions back to present
+   - Relevant information now available in character memories
+
+6. **Canonization:**
+   - Facts from flashback become canon with historical timestamps
+   - Character memories updated with flashback content
+   - NPCs met in flashback may appear in present
+
+**Meta Commands:**
+
+| Command | Description |
+|---------|-------------|
+| `/flashback "<prompt>"` | Initiate flashback |
+| `/flashback end` | End flashback, return to present |
+| `/flashback abort` | Cancel flashback without canonizing |
+| `/when` | Check current temporal context |
+
+### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# Modified scene creation:
+mongodb_create_scene(story_id, params, temporal_mode="flashback", time_ref=past_date)
+
+# Flashback-specific queries:
+neo4j_get_entity_at_time(entity_id, time_ref) -> Entity
+neo4j_list_facts_at_time(universe_id, time_ref) -> list[Fact]
+
+# Backdated fact creation:
+neo4j_create_fact(params, time_ref=past_date, authority="historical")
+```
+
+**Layer 2 (Agents):**
+- `Orchestrator.enter_flashback(story_id, prompt, time_ref)` — Initialize flashback
+- `Orchestrator.exit_flashback(scene_id, canonize=True)` — Return to present
+- `ContextAssembly.get_historical_context(universe_id, time_ref)` — World state at past time
+- `Narrator.generate_flashback_opening(prompt, context)` — Set the past scene
+- `Narrator.generate_flashback_transition(direction)` — "The memory fades..."
+- `MemoryManager.create_memories_from_flashback(scene_id, entities)` — Convert to memories
+
+**Layer 3 (CLI):**
+```bash
+# In REPL
+> /flashback "The day I found the sword"
+# System enters flashback mode with past-tense narration
+
+> /flashback end
+# Returns to present, canonizes flashback facts
+```
+
+**Flashback Schema:**
+```python
+@dataclass
+class FlashbackContext:
+    id: UUID
+    story_id: UUID
+    parent_scene_id: UUID  # Scene we return to after
+
+    prompt: str
+    time_ref: WorldDate
+    time_description: str  # "15 years ago"
+
+    location_id: UUID
+    participating_entities: list[UUID]
+
+    status: FlashbackStatus  # active, completed, aborted
+
+    facts_established: list[UUID]
+    memories_created: list[UUID]
+```
+
+**Database Writes:**
+
+| Database | Collection/Node | Data |
+|----------|-----------------|------|
+| MongoDB | `scenes` | Scene with `temporal_mode: "flashback"`, `parent_scene_id` |
+| Neo4j | `:Fact` | Facts with historical `time_ref` and `authority: "historical"` |
+| MongoDB | `memories` | Memories created from flashback for participating characters |
+
+---
+
 # Epic 2: MANAGE (World Administration)
 
 > As a user, I want to create, edit, and organize all narrative elements.
@@ -2891,6 +3124,489 @@ async def advance_time(universe_id: UUID, duration: TimeDuration, reason: str):
 
 ---
 
+### M-31: Entity Templates
+
+**Actor:** User (GM/World Designer)
+**Trigger:** Manage → Templates, or during entity creation
+
+**Purpose:** Create reusable entity templates for efficient world-building and consistent entity generation.
+
+**Flow:**
+
+1. **Create Template:**
+   - Base on existing entity OR create from scratch
+   - Define fixed properties (type, base description)
+   - Define variable properties (name patterns, stat ranges)
+   - Define randomization rules
+
+2. **Configure Template:**
+   - Property overrides
+   - Naming patterns ("$ADJECTIVE Guard", "Orc #$N")
+   - Stat generation rules ("3d6 for STR", "roll on table")
+   - Equipment loadout options
+   - State tag defaults
+
+3. **Use Template:**
+   - Instantiate single entity
+   - Bulk generate N entities
+   - Quick-spawn during scene (`/spawn "Orc" 3`)
+
+4. **Template Inheritance:**
+   - Templates can derive from other templates
+   - Override specific properties
+   - Chain: "Elite Orc" → "Orc Warrior" → "Orc" → "Humanoid"
+
+#### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# Template CRUD (MongoDB)
+mongodb_create_entity_template(universe_id, params) -> template_id
+mongodb_get_entity_template(template_id) -> EntityTemplate
+mongodb_list_entity_templates(universe_id, entity_type=None) -> list[TemplateSummary]
+mongodb_update_entity_template(template_id, params)
+mongodb_delete_entity_template(template_id)
+
+# Template instantiation
+mongodb_instantiate_template(template_id, overrides={}) -> entity_params
+mongodb_bulk_instantiate_template(template_id, count, overrides={}) -> list[entity_params]
+
+# Actual entity creation
+neo4j_create_entity(universe_id, entity_type, params)
+```
+
+**Layer 2 (Agents):**
+- `Orchestrator.create_template_from_entity(entity_id)` — Generate template from existing
+- `Orchestrator.instantiate_template(template_id, overrides)` — Create entity from template
+- `Orchestrator.bulk_spawn(template_id, count, location_id)` — Mass creation
+- `Narrator.generate_template_variation(template, seed)` — Add unique flavor
+
+**Layer 3 (CLI):**
+```bash
+# Template management
+monitor manage template create --from-entity <UUID> --name "Generic Guard"
+monitor manage template list --universe <UUID>
+monitor manage template view <TEMPLATE_ID>
+monitor manage template edit <TEMPLATE_ID>
+
+# Template instantiation
+monitor manage entity create --template "Generic Guard" --name "Bob"
+monitor manage entity spawn --template "Orc Warrior" --count 5 --location <UUID>
+
+# Quick spawn during play (meta command)
+> /spawn "Orc Warrior" 3
+```
+
+**Template Schema:**
+```python
+@dataclass
+class EntityTemplate:
+    id: UUID
+    universe_id: UUID
+    name: str
+    description: str
+
+    entity_type: EntityType
+    base_properties: dict
+
+    variable_properties: list[VariableProperty]
+    naming_pattern: NamingPattern
+    stat_generation: StatGeneration | None
+
+    default_state_tags: list[str]
+    equipment_options: list[EquipmentOption] | None
+
+    parent_template_id: UUID | None  # Inheritance
+
+    usage_count: int
+    created_at: datetime
+    updated_at: datetime
+
+class GenerationType(Enum):
+    FIXED = "fixed"        # Always the same
+    CHOICE = "choice"      # Random from list
+    RANGE = "range"        # Random number in range
+    PATTERN = "pattern"    # Text pattern
+    TABLE = "table"        # Roll on random table
+    LLM = "llm"            # Generate with AI
+```
+
+**Database Writes:**
+
+| Database | Collection | Data |
+|----------|------------|------|
+| MongoDB | `entity_templates` | Template definitions |
+| Neo4j | `:EntityInstance` | Instantiated entities |
+| Neo4j | `[:INSTANTIATED_FROM]` | Optional link to template |
+
+---
+
+### M-32: Manage Archetypes
+
+**Actor:** User (GM/World Designer)
+**Trigger:** Manage → Archetypes
+
+**Purpose:** CRUD operations for EntityArchetype nodes (species, classes, concepts).
+
+**Flow:**
+
+1. **List Archetypes:**
+   - Filter by entity_type (character, faction, location, etc.)
+   - Show usage count (how many instances derive from each)
+
+2. **Create Archetype:**
+   - Define type-specific properties
+   - Optionally link to source (rulebook reference)
+   - Set canon_level (proposed, canon)
+
+3. **Edit Archetype:**
+   - Update properties
+   - Changes don't cascade to instances (instances copy at creation time)
+
+4. **View Archetype Usage:**
+   - List all EntityInstances that DERIVES_FROM this archetype
+   - Show property inheritance
+
+#### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+neo4j_create_archetype(universe_id, entity_type, params) -> archetype_id
+neo4j_get_archetype(archetype_id) -> EntityArchetype
+neo4j_list_archetypes(universe_id, entity_type=None) -> list[EntityArchetype]
+neo4j_update_archetype(archetype_id, params)
+neo4j_delete_archetype(archetype_id)  # Only if no instances derive from it
+neo4j_list_archetype_instances(archetype_id) -> list[EntityInstance]
+```
+
+**Layer 2 (Agents):**
+- `Orchestrator.create_archetype(universe_id, params)` — Create archetype
+- `Orchestrator.list_archetypes(universe_id, filters)` — List with usage stats
+
+**Layer 3 (CLI):**
+```bash
+monitor manage archetype create --universe <UUID> --type character --name "Wizard"
+monitor manage archetype list --universe <UUID>
+monitor manage archetype view <ARCHETYPE_ID>
+monitor manage archetype instances <ARCHETYPE_ID>  # Show derived entities
+```
+
+**Database Writes:**
+
+| Database | Node | Data |
+|----------|------|------|
+| Neo4j | `:EntityArchetype` | `{id, universe_id, name, entity_type, properties, canon_level}` |
+
+---
+
+### M-33: Manage Random Tables
+
+**Actor:** User (GM/World Designer)
+**Trigger:** Manage → Tables
+
+**Purpose:** Create and manage random tables for procedural generation.
+
+**Flow:**
+
+1. **Create Table:**
+   - Name and type (encounter, loot, name, trait, weather, etc.)
+   - Dice formula (1d100, 2d6, etc.)
+   - Entries with ranges or weights
+
+2. **Use Table:**
+   - Roll from template generation (M-31)
+   - Roll from CLI (`/roll table "Rumors"`)
+   - Roll from encounter generation
+
+3. **Subtables:**
+   - Entries can reference other tables
+   - "Roll on subtable X"
+
+#### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+mongodb_create_random_table(universe_id, params) -> table_id
+mongodb_get_random_table(table_id) -> RandomTable
+mongodb_list_random_tables(universe_id, table_type=None)
+mongodb_roll_on_table(table_id) -> RollResult
+```
+
+**Layer 3 (CLI):**
+```bash
+monitor manage table create --universe <UUID> --name "Random Rumors"
+monitor manage table roll <TABLE_ID>
+
+# In play REPL
+> /roll table "Random Rumors"
+```
+
+---
+
+### M-34: World Snapshots
+
+**Actor:** User (GM/World Designer)
+**Trigger:** Manage → Snapshot, or automatic (story milestones)
+
+**Purpose:** Create point-in-time snapshots of world state for backup, comparison, branching, or "what-if" exploration.
+
+**Flow:**
+
+1. **Create Snapshot:**
+   - Select scope: Universe, region, or story
+   - Name snapshot (e.g., "Before the Battle of Helm's Deep")
+   - Optionally add description/notes
+   - System captures current state of all entities, facts, and relationships
+
+2. **Automatic Snapshots:**
+   - Story start (P-1)
+   - Before major events (marked by GM)
+   - At story milestones
+   - Before timeline branches (P-14 flashback)
+
+3. **View Snapshot:**
+   - Compare current state to snapshot
+   - Highlight changes (added, modified, deleted)
+   - Generate diff report
+
+4. **Restore Snapshot:**
+   - Revert to snapshot state (destructive)
+   - Branch from snapshot (creates new timeline)
+   - Selective restore (specific entities only)
+
+5. **Branch from Snapshot:**
+   - Create parallel universe from snapshot
+   - Explore "what-if" scenarios
+   - Independent evolution from branch point
+
+#### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# Snapshot management
+mongodb_create_snapshot(scope, scope_id, params) -> snapshot_id
+mongodb_get_snapshot(snapshot_id) -> WorldSnapshot
+mongodb_list_snapshots(scope_id) -> list[WorldSnapshotSummary]
+mongodb_delete_snapshot(snapshot_id)
+
+# Capture current state
+async def capture_snapshot(scope: SnapshotScope, scope_id: UUID) -> Snapshot:
+    if scope == SnapshotScope.UNIVERSE:
+        entities = await neo4j_list_entities(universe_id=scope_id)
+        facts = await neo4j_list_facts(universe_id=scope_id)
+        relationships = await neo4j_list_relationships(universe_id=scope_id)
+        axioms = await neo4j_list_axioms(universe_id=scope_id)
+    elif scope == SnapshotScope.STORY:
+        # Capture story-related entities and story state
+        ...
+
+    return Snapshot(
+        scope=scope,
+        scope_id=scope_id,
+        entities=entities,
+        facts=facts,
+        relationships=relationships,
+        axioms=axioms,
+        captured_at=datetime.now()
+    )
+
+# Compare states
+mongodb_compare_snapshots(snapshot_a_id, snapshot_b_id) -> SnapshotDiff
+mongodb_compare_to_current(snapshot_id, scope_id) -> SnapshotDiff
+```
+
+**Layer 2 (Agents):**
+- `CanonKeeper.create_snapshot(scope, scope_id, params)` — Capture state
+- `CanonKeeper.restore_snapshot(snapshot_id, mode)` — Restore state
+- `Orchestrator.branch_from_snapshot(snapshot_id, new_universe_name)` — Create branch
+
+**Layer 3 (CLI):**
+```bash
+monitor manage snapshot create --universe <UUID> --name "Pre-War State"
+monitor manage snapshot create --story <UUID> --name "Before Final Battle"
+monitor manage snapshot list --universe <UUID>
+monitor manage snapshot view <SNAPSHOT_ID>
+monitor manage snapshot compare <SNAPSHOT_ID> --to-current
+monitor manage snapshot compare <SNAPSHOT_A> <SNAPSHOT_B>
+monitor manage snapshot restore <SNAPSHOT_ID>
+monitor manage snapshot branch <SNAPSHOT_ID> --name "What-If Timeline"
+```
+
+**World Snapshot Schema:**
+```python
+@dataclass
+class WorldSnapshot:
+    id: UUID
+    name: str
+    description: str | None
+
+    scope: SnapshotScope  # universe, story, region
+    scope_id: UUID
+
+    # Captured state
+    entities: list[EntityState]
+    facts: list[FactState]
+    relationships: list[RelationshipState]
+    axioms: list[AxiomState]
+
+    # For story scope
+    story_state: StoryState | None
+    scene_count: int
+    turn_count: int
+
+    # Metadata
+    trigger: SnapshotTrigger  # manual, story_start, milestone, pre_branch
+    created_at: datetime
+    created_by: str  # "system" or user ID
+
+    # Size metrics
+    entity_count: int
+    fact_count: int
+    total_size_kb: int
+
+class SnapshotScope(Enum):
+    UNIVERSE = "universe"
+    STORY = "story"
+    REGION = "region"
+
+class SnapshotTrigger(Enum):
+    MANUAL = "manual"
+    STORY_START = "story_start"
+    MILESTONE = "milestone"
+    PRE_BRANCH = "pre_branch"
+    PRE_FLASHBACK = "pre_flashback"
+    SCHEDULED = "scheduled"
+
+@dataclass
+class EntityState:
+    entity_id: UUID
+    entity_type: str
+    name: str
+    properties: dict
+    state_tags: list[str]
+
+@dataclass
+class SnapshotDiff:
+    snapshot_a_id: UUID
+    snapshot_b_id: UUID | None  # None = compare to current
+
+    added_entities: list[UUID]
+    modified_entities: list[EntityDiff]
+    deleted_entities: list[UUID]
+
+    added_facts: list[UUID]
+    modified_facts: list[FactDiff]
+    deleted_facts: list[UUID]
+
+    added_relationships: list[UUID]
+    deleted_relationships: list[UUID]
+
+    summary: str  # Human-readable summary
+
+@dataclass
+class EntityDiff:
+    entity_id: UUID
+    name: str
+    changed_properties: dict[str, tuple[Any, Any]]  # {prop: (old, new)}
+    added_state_tags: list[str]
+    removed_state_tags: list[str]
+```
+
+**Snapshot Comparison Prompt:**
+```python
+SNAPSHOT_COMPARE_PROMPT = """
+Compare these two world states and provide a narrative summary of changes.
+
+Snapshot A (captured {time_a}): {name_a}
+Snapshot B (captured {time_b}): {name_b}
+
+Added entities: {added_entities}
+Deleted entities: {deleted_entities}
+Modified entities: {modified_entities}
+Added facts: {added_facts}
+Deleted facts: {deleted_facts}
+
+Provide:
+1. Brief narrative summary of what changed (1-2 paragraphs)
+2. Most significant changes (bullet points)
+3. Any potential continuity issues or inconsistencies
+"""
+```
+
+---
+
+### M-35: Universe Fork
+
+**Actor:** User (GM/World Designer)
+**Trigger:** Manage → Universe → Fork
+
+**Purpose:** Create an alternate universe that branches from an existing one, allowing "what-if" exploration without affecting the original.
+
+**Flow:**
+
+1. **Select Branch Point:**
+   - From current state
+   - From a snapshot (M-34)
+   - From a specific point in time
+
+2. **Configure Fork:**
+   - Name new universe
+   - Describe divergence point
+   - Select what to copy (all, entities only, etc.)
+
+3. **Create Fork:**
+   - Copy universe structure
+   - Copy entities and relationships
+   - Copy facts (up to branch point)
+   - Mark as branch of original
+
+4. **Divergent Evolution:**
+   - Changes in fork don't affect original
+   - Track relationship to parent universe
+   - Optionally sync specific elements later
+
+#### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+neo4j_fork_universe(universe_id, params) -> new_universe_id
+neo4j_get_universe_lineage(universe_id) -> list[UniverseLineage]
+```
+
+**Layer 2 (Agents):**
+- `CanonKeeper.fork_universe(universe_id, branch_point, params)` — Create fork
+
+**Layer 3 (CLI):**
+```bash
+monitor manage universe fork <UNIVERSE_ID> --name "Dark Timeline"
+monitor manage universe fork <UNIVERSE_ID> --from-snapshot <SNAPSHOT_ID>
+monitor manage universe lineage <UNIVERSE_ID>  # Show parent/children
+```
+
+**Universe Fork Schema:**
+```python
+@dataclass
+class UniverseFork:
+    id: UUID
+    parent_universe_id: UUID
+    name: str
+    description: str
+
+    branch_point: BranchPoint
+    divergence_description: str  # What's different
+
+    # Tracking
+    created_at: datetime
+    facts_at_fork: int
+    entities_at_fork: int
+
+@dataclass
+class BranchPoint:
+    type: str  # "current", "snapshot", "timestamp"
+    reference_id: UUID | None  # Snapshot ID if from snapshot
+    timestamp: datetime | None  # If from timestamp
+```
+
 ---
 
 # Epic 3: QUERY (Canon Exploration)
@@ -3335,6 +4051,115 @@ monitor query compare --names "Gandalf" "Saruman" --universe <UUID>
 
 ---
 
+## Q-10: Audit Trail / History View
+
+**Actor:** User (GM, Admin)
+**Trigger:** Query → History, Entity → History, or troubleshooting
+
+**Purpose:** View the complete history of changes to any entity, fact, or story element.
+
+**Flow:**
+
+1. **Select Subject:**
+   - Entity, Fact, Story, Scene, or Universe
+   - Or view global recent changes
+
+2. **View History:**
+   - Chronological list of all changes
+   - Filter by: time range, author, change type
+   - Show: what changed, who changed it, when, why (evidence)
+
+3. **Drill Down:**
+   - Click change to see full details
+   - View before/after state
+   - View related changes (cascading effects)
+
+4. **Actions:**
+   - Compare versions
+   - Revert to previous state (with new fact as explanation)
+   - Export history
+
+### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# History queries (MongoDB change_log)
+mongodb_get_entity_history(entity_id, limit=50) -> list[ChangeRecord]
+mongodb_get_fact_history(fact_id) -> list[ChangeRecord]
+mongodb_get_story_history(story_id, include_scenes=True) -> list[ChangeRecord]
+mongodb_get_recent_changes(universe_id=None, limit=50, filters={}) -> list[ChangeRecord]
+
+# Comparison
+mongodb_compare_versions(subject_id, time_a, time_b) -> Comparison
+
+# Historical state reconstruction (DL-19)
+neo4j_get_entity_at_time(entity_id, timestamp) -> Entity
+
+# Revert (creates new change, doesn't delete)
+neo4j_revert_to_version(entity_id, timestamp, reason) -> fact_id
+```
+
+**Layer 2 (Agents):**
+- `ContextAssembly.get_entity_history(entity_id)` — Compile full history
+- `ContextAssembly.compare_versions(entity_id, time_a, time_b)` — Diff two states
+- `CanonKeeper.revert_entity(entity_id, timestamp, reason)` — Create reverting fact
+- `Narrator.explain_history(history)` — Generate human-readable summary
+
+**Layer 3 (CLI):**
+```bash
+# View entity history
+monitor query history --entity <UUID>
+monitor query history --entity <UUID> --since "2025-01-01"
+
+# View fact history
+monitor query history --fact <UUID>
+
+# View story/scene history
+monitor query history --story <UUID>
+
+# View universe-wide recent changes
+monitor query history --universe <UUID> --limit 100
+
+# Compare versions
+monitor query compare --entity <UUID> --time-a "2025-01-01" --time-b "2025-06-01"
+
+# Revert
+monitor manage entity revert <UUID> --to "2025-01-01" --reason "Incorrect data"
+```
+
+**Change Record Schema:**
+```python
+@dataclass
+class ChangeRecord:
+    id: UUID
+    subject_type: SubjectType  # entity, fact, story, scene, relationship, axiom
+    subject_id: UUID
+
+    change_type: ChangeType  # created, updated, deleted, state_tag_added, etc.
+    timestamp: datetime
+
+    field_path: str | None     # "state_tags", "properties.hp"
+    old_value: Any
+    new_value: Any
+
+    author: str                # "CanonKeeper", "User:123", "System"
+    authority: str             # "gm", "player", "system"
+
+    evidence_type: str | None  # "scene", "turn", "proposal", "manual"
+    evidence_id: UUID | None
+    reason: str | None
+
+    transaction_id: UUID | None  # Groups related changes
+```
+
+**Database Reads:**
+
+| Database | Collection | Query |
+|----------|------------|-------|
+| MongoDB | `change_log` | `WHERE subject_id = ? ORDER BY timestamp DESC` |
+| Neo4j | Entity | Current state for comparison |
+| MongoDB | `change_log` | Transaction group queries |
+
 ---
 
 # Epic 4: INGEST (Knowledge Import)
@@ -3771,6 +4596,191 @@ MONITOR - Auto-GM
 
 ---
 
+## SYS-11: Error Recovery & Resilience
+
+**Actor:** System (automatic) or Operator (manual)
+**Trigger:** Database failure, LLM rate limit, network error, or corrupted data detection
+
+**Purpose:** Handle failures gracefully without data loss or session corruption.
+
+**Flow:**
+
+1. **Error Detection:**
+   - Database connection failures (Neo4j, MongoDB, Qdrant)
+   - LLM API rate limits or timeouts
+   - Network connectivity issues
+   - Data validation failures
+   - Corrupted state detection
+
+2. **Automatic Recovery:**
+   - **DB Connection:** Exponential backoff retry (3 attempts)
+   - **LLM Rate Limit:** Queue requests, notify user of delay
+   - **Partial Failure:** Transaction rollback, preserve last-known-good state
+   - **Session State:** Auto-save every N turns to prevent data loss
+
+3. **Graceful Degradation:**
+   - If Qdrant unavailable → fallback to keyword search
+   - If LLM unavailable → offer dice-only resolution mode
+   - If Neo4j unavailable → read-only mode from MongoDB cache
+
+4. **Manual Recovery:**
+   - Operator can trigger health check
+   - Force reconnection to services
+   - Restore from last checkpoint
+   - Export session for offline recovery
+
+5. **User Notification:**
+   - Clear error messages (not stack traces)
+   - Recovery options presented
+   - Session state preserved
+
+### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# Health checks
+neo4j_health_check() -> HealthStatus
+mongodb_health_check() -> HealthStatus
+qdrant_health_check() -> HealthStatus
+minio_health_check() -> HealthStatus
+
+# Connection management
+neo4j_reconnect(max_attempts=3, backoff=True)
+mongodb_reconnect(max_attempts=3, backoff=True)
+
+# Checkpointing
+mongodb_create_checkpoint(session_id) -> checkpoint_id
+mongodb_restore_checkpoint(checkpoint_id) -> SessionState
+mongodb_list_checkpoints(session_id) -> list[Checkpoint]
+```
+
+**Layer 2 (Agents):**
+- `Orchestrator.handle_error(error, context)` — Route to appropriate recovery
+- `Orchestrator.enter_degraded_mode(unavailable_services)` — Graceful degradation
+- `Orchestrator.create_session_checkpoint()` — Auto-save
+
+**Layer 3 (CLI):**
+```bash
+monitor system health                    # Check all services
+monitor system reconnect --service neo4j # Force reconnection
+monitor system checkpoints --session <UUID>
+monitor system restore --checkpoint <UUID>
+```
+
+**Error Handling Schema:**
+```python
+@dataclass
+class HealthStatus:
+    service: str
+    status: ServiceStatus  # healthy, degraded, unavailable
+    latency_ms: int
+    last_check: datetime
+    error: str | None
+
+class ServiceStatus(Enum):
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"      # Working but slow/limited
+    UNAVAILABLE = "unavailable"
+    UNKNOWN = "unknown"
+
+@dataclass
+class Checkpoint:
+    id: UUID
+    session_id: UUID
+    scene_id: UUID
+    turn_number: int
+    state_snapshot: dict
+    created_at: datetime
+    reason: str  # "auto", "manual", "pre_risky_operation"
+```
+
+**Auto-Checkpoint Triggers:**
+```python
+AUTO_CHECKPOINT_TRIGGERS = [
+    "every_10_turns",
+    "scene_end",
+    "before_canonization",
+    "before_combat",
+    "user_request"
+]
+
+async def maybe_checkpoint(trigger: str, session: Session):
+    if trigger in session.checkpoint_policy:
+        await mongodb_create_checkpoint(session.id)
+```
+
+**Degraded Mode Capabilities:**
+
+| Service Unavailable | Capabilities Lost | Fallback |
+|---------------------|-------------------|----------|
+| Neo4j | Canon writes | Read from cache, queue writes |
+| MongoDB | Scene persistence | Local buffer, sync later |
+| Qdrant | Semantic search | Keyword search via OpenSearch |
+| OpenSearch | Keyword search | Basic string matching |
+| LLM API | Narration, NPC dialogue | Dice-only mode, player narrates |
+| MinIO | Document storage | Skip media, text-only |
+
+---
+
+## SYS-12: Logging & Observability
+
+**Actor:** Operator
+**Trigger:** Debugging, performance monitoring, audit requirements
+
+**Purpose:** Comprehensive logging for debugging, performance analysis, and compliance.
+
+**Flow:**
+
+1. **Log Levels:**
+   - ERROR: Failures requiring attention
+   - WARN: Recoverable issues
+   - INFO: Normal operations (session start/end, canonization)
+   - DEBUG: Detailed operation traces
+   - TRACE: Full request/response payloads (dev only)
+
+2. **Log Categories:**
+   - `session.*` — User session events
+   - `agent.*` — Agent operations
+   - `db.*` — Database operations
+   - `llm.*` — LLM API calls
+   - `error.*` — Error events
+
+3. **Metrics:**
+   - Request latency (p50, p95, p99)
+   - LLM token usage
+   - Database query times
+   - Error rates by category
+   - Active sessions
+
+4. **Structured Logging:**
+   - JSON format for machine parsing
+   - Correlation IDs for request tracing
+   - User/session context in all logs
+
+### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# Logging middleware
+def log_operation(operation: str, params: dict, result: Any, duration_ms: int):
+    logger.info({
+        "operation": operation,
+        "params": sanitize(params),  # Remove sensitive data
+        "duration_ms": duration_ms,
+        "correlation_id": get_correlation_id(),
+        "session_id": get_session_id()
+    })
+```
+
+**Layer 3 (CLI):**
+```bash
+monitor system logs --level INFO --since "1h"
+monitor system logs --category agent.narrator --limit 100
+monitor system metrics --service llm
+```
+
+---
+
 # Epic 6: CO-PILOT (Human GM Assistant)
 
 > As a human Game Master, I want AI assistance during and after sessions without replacing my authority.
@@ -4124,6 +5134,227 @@ class Conflict:
     description: str
     severity: Severity  # critical, major, minor
     suggested_resolutions: list[Resolution]
+```
+
+---
+
+## CF-6: Generate Player Handouts
+
+**Actor:** Human GM
+**Trigger:** Co-Pilot → Handouts
+
+**Purpose:** Create summaries and reference documents for players based on what their characters know.
+
+**Flow:**
+
+1. **Select Scope:**
+   - Specific character (what they know)
+   - Party (shared knowledge)
+   - Story so far (campaign summary)
+   - Location (travel guide)
+   - NPC (relationship summary)
+
+2. **Configure Handout:**
+   - Perspective: In-character vs out-of-character
+   - Detail level: Brief, standard, detailed
+   - Include/exclude: Secrets, rumors, speculation
+   - Format: Prose, bullet points, table
+
+3. **Generate Handout:**
+   - System gathers relevant facts, memories, scenes
+   - Filters by character knowledge (what PC has witnessed)
+   - Excludes GM-only information
+   - Generates formatted output
+
+4. **Review & Export:**
+   - GM reviews and edits
+   - Export as Markdown, PDF, or image
+   - Optionally save to story documents
+
+**Handout Types:**
+
+| Type | Contents | Use Case |
+|------|----------|----------|
+| Session Recap | What happened last session | Remind players |
+| Character Dossier | What PC knows about NPC | Investigation |
+| Location Guide | Known facts about place | Exploration |
+| Quest Log | Active plot threads from PC perspective | Tracking |
+| Lore Summary | World knowledge PC has learned | Reference |
+| Relationship Map | Known relationships between NPCs | Intrigue |
+
+### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# Gather character knowledge
+neo4j_list_facts(entity_ids=[character_id], witnessed_by=character_id)
+mongodb_list_memories(entity_id=character_id, importance_min=0.5)
+mongodb_list_scenes(participant_ids=[character_id])
+neo4j_list_relationships(entity_id=character_id, known=True)
+```
+
+**Layer 2 (Agents):**
+- `ContextAssembly.get_character_knowledge(character_id)` — What PC knows
+- `Narrator.generate_handout(knowledge, format, style)` — Create prose
+- `Narrator.format_as_table(knowledge, columns)` — Create structured output
+
+**Layer 3 (CLI):**
+```bash
+monitor copilot handout --character <UUID> --type recap
+monitor copilot handout --party --type quest_log
+monitor copilot handout --location <UUID> --format markdown
+monitor copilot handout --npc <UUID> --perspective in_character
+```
+
+**Handout Schema:**
+```python
+@dataclass
+class Handout:
+    id: UUID
+    story_id: UUID
+    title: str
+    handout_type: HandoutType
+    perspective: Perspective  # in_character, out_of_character
+    scope_entity_id: UUID | None  # Character, location, NPC
+
+    content: str
+    format: Format  # prose, bullets, table, mixed
+
+    includes_secrets: bool
+    includes_rumors: bool
+
+    created_at: datetime
+    exported_at: datetime | None
+
+class HandoutType(Enum):
+    SESSION_RECAP = "session_recap"
+    CHARACTER_DOSSIER = "character_dossier"
+    LOCATION_GUIDE = "location_guide"
+    QUEST_LOG = "quest_log"
+    LORE_SUMMARY = "lore_summary"
+    RELATIONSHIP_MAP = "relationship_map"
+    CUSTOM = "custom"
+```
+
+---
+
+## CF-7: Session Prep Assistant
+
+**Actor:** Human GM
+**Trigger:** Co-Pilot → Prep (before session)
+
+**Purpose:** Help GM prepare for upcoming session with contextual briefing and suggestions.
+
+**Flow:**
+
+1. **Pre-Session Briefing:**
+   - Recap: What happened in previous sessions
+   - Dangling threads: Unresolved plot points
+   - NPC status: Where key NPCs are, what they want
+   - World state: Time, location, active events
+   - Player intentions: Stated goals (if recorded)
+
+2. **Suggested Prep:**
+   - NPCs likely to appear (based on location/plot)
+   - Scenes that might occur
+   - Rolls that might be needed
+   - Reference materials to review
+
+3. **Checklist Generation:**
+   - Customizable prep checklist
+   - Mark items as ready
+   - Generate missing content on demand
+
+4. **Quick Content Generation:**
+   - Generate NPC names/traits
+   - Generate location descriptions
+   - Generate rumors/hooks
+   - Roll on random tables
+
+### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# Gather story state
+neo4j_get_story(story_id)
+neo4j_list_plot_threads(story_id, status="open")
+neo4j_list_entities(story_id, type="character", role="npc")
+mongodb_get_story_outline(story_id)
+mongodb_list_scenes(story_id, limit=5, order="desc")
+```
+
+**Layer 2 (Agents):**
+- `ContextAssembly.generate_session_briefing(story_id)` — Full context
+- `Narrator.suggest_session_content(context)` — What might happen
+- `Narrator.generate_prep_checklist(context, template)` — Customized checklist
+
+**Layer 3 (CLI):**
+```bash
+monitor copilot prep --story <UUID>
+monitor copilot prep --story <UUID> --quick  # Just briefing
+monitor copilot prep --story <UUID> --checklist
+```
+
+**Session Prep Schema:**
+```python
+@dataclass
+class SessionBriefing:
+    story_id: UUID
+    generated_at: datetime
+
+    # Recap
+    last_session_summary: str
+    sessions_since_last_play: int
+
+    # Current State
+    world_date: WorldDate
+    party_location: str
+    party_status: str
+
+    # Dangling Threads
+    open_threads: list[PlotThreadSummary]
+    urgent_deadlines: list[Deadline]
+
+    # NPCs
+    active_npcs: list[NPCSummary]
+    npc_intentions: dict[UUID, str]  # What each NPC wants
+
+    # Suggestions
+    likely_scenes: list[str]
+    potential_encounters: list[str]
+    hooks_to_introduce: list[str]
+
+    # Prep Checklist
+    checklist: list[PrepItem]
+
+@dataclass
+class PrepItem:
+    category: str  # "npc", "location", "combat", "lore"
+    description: str
+    status: PrepStatus  # pending, ready, skipped
+    generated_content: str | None
+```
+
+**Session Prep Prompt:**
+```python
+PREP_PROMPT = """
+You are helping a GM prepare for their next session.
+
+Story: {story_title}
+Last Session: {last_session_summary}
+Open Threads: {open_threads}
+Active NPCs: {active_npcs}
+Party Location: {party_location}
+
+Generate a session prep briefing that includes:
+1. Key things to remember from last session
+2. What NPCs are doing "off-screen"
+3. Likely player actions and how to handle them
+4. 2-3 potential scenes that could occur
+5. Any prep work needed (maps, stat blocks, etc.)
+
+Keep it concise and actionable.
+"""
 ```
 
 ---
@@ -4578,6 +5809,295 @@ For each concern, suggest specific adjustments that:
 
 ---
 
+## ST-6: Generate Random Encounters
+
+**Actor:** Human GM or System (automatic during travel)
+**Trigger:** Story → Encounters, or automatic during time passage
+
+**Purpose:** Procedurally generate context-appropriate encounters using world state and random tables.
+
+**Flow:**
+
+1. **Trigger Encounter:**
+   - Manual: GM requests encounter
+   - Automatic: During travel, rest, or time passage
+   - Roll chance based on location danger level
+
+2. **Determine Parameters:**
+   - Location type (wilderness, urban, dungeon)
+   - Time of day
+   - Party level/strength
+   - Recent events (faction activity, weather)
+   - Story context (active threats, nearby NPCs)
+
+3. **Generate Encounter:**
+   - Roll on appropriate random table (M-33)
+   - Or use LLM generation with context
+   - Adjust difficulty based on party
+
+4. **Flesh Out Details:**
+   - Generate NPC names/traits if needed
+   - Determine NPC motivations
+   - Set terrain/environmental factors
+   - Create tactical situation
+
+5. **Present Options:**
+   - Combat encounter
+   - Social encounter
+   - Environmental challenge
+   - Discovery/lore reveal
+   - Nothing (false alarm)
+
+### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# Random tables
+mongodb_roll_on_table(table_id) -> RollResult
+mongodb_list_random_tables(universe_id, table_type="encounter")
+
+# Context gathering
+neo4j_list_entities(location_id, type="character", role="npc")
+neo4j_list_facts(location_id, type="threat")
+neo4j_get_entity(location_id)  # Location properties
+```
+
+**Layer 2 (Agents):**
+- `Resolver.check_random_encounter(context)` — Roll for encounter
+- `Narrator.generate_encounter(params, context)` — Create encounter details
+- `Orchestrator.trigger_encounter(encounter)` — Start encounter scene
+
+**Layer 3 (CLI):**
+```bash
+monitor story encounter --story <UUID>
+monitor story encounter --story <UUID> --type combat
+monitor story encounter --story <UUID> --difficulty hard
+monitor story encounter --story <UUID> --table <TABLE_ID>
+
+# In play REPL
+> /encounter
+> /encounter social
+```
+
+**Encounter Schema:**
+```python
+@dataclass
+class Encounter:
+    id: UUID
+    story_id: UUID
+    location_id: UUID
+
+    encounter_type: EncounterType  # combat, social, environmental, discovery
+    difficulty: Difficulty  # trivial, easy, medium, hard, deadly
+    source: EncounterSource  # table_roll, llm_generated, manual
+
+    title: str
+    description: str
+
+    participants: list[EncounterParticipant]
+    terrain: TerrainDescription | None
+    environmental_factors: list[str]
+
+    motivations: dict[UUID, str]  # NPC motivations
+    potential_outcomes: list[str]
+
+    table_id: UUID | None  # If from random table
+    roll_result: int | None
+
+class EncounterType(Enum):
+    COMBAT = "combat"
+    SOCIAL = "social"
+    ENVIRONMENTAL = "environmental"
+    DISCOVERY = "discovery"
+    PUZZLE = "puzzle"
+    CHASE = "chase"
+    MIXED = "mixed"
+
+@dataclass
+class EncounterParticipant:
+    entity_id: UUID | None  # Existing entity or None for new
+    name: str
+    role: str  # enemy, neutral, ally, environmental
+    template_id: UUID | None  # For spawning from template
+    count: int  # Number of this type
+```
+
+**Encounter Generation Prompt:**
+```python
+ENCOUNTER_PROMPT = """
+Generate a {encounter_type} encounter for this situation:
+
+Location: {location_description}
+Time: {time_of_day}
+Weather: {weather}
+Party: {party_summary}
+Recent Events: {recent_events}
+Active Threats: {active_threats}
+
+Requirements:
+- Difficulty: {difficulty}
+- Should fit the narrative context
+- Include clear motivations for NPCs
+- Provide multiple resolution paths
+
+Generate:
+1. Encounter title and brief description
+2. Participants and their goals
+3. Environmental factors
+4. 2-3 potential outcomes
+"""
+```
+
+---
+
+## ST-7: Scheduled World Events
+
+**Actor:** System (automatic) or GM (manual trigger)
+**Trigger:** Time advancement (M-30) reaches event date
+
+**Purpose:** Trigger pre-planned events when world time reaches their scheduled date.
+
+**Flow:**
+
+1. **Define Scheduled Event:**
+   - Event description
+   - Trigger date/time (world time)
+   - Scope: Universe, region, location
+   - Visibility: Public, faction-specific, secret
+   - Consequences if not addressed
+
+2. **Event Monitoring:**
+   - System tracks all scheduled events
+   - When time advances, check for triggered events
+   - Events can trigger other events (cascades)
+
+3. **Event Firing:**
+   - Create notification for GM
+   - Optionally auto-generate narration
+   - Update world state (facts, entity states)
+   - Advance related plot threads
+
+4. **Event Types:**
+   - **Fixed:** Happens at exact time regardless
+   - **Conditional:** Happens if conditions met
+   - **Recurring:** Repeats on schedule
+   - **Deadline:** Something bad if not addressed by date
+
+### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# Event management
+neo4j_create_scheduled_event(universe_id, params) -> event_id
+neo4j_list_scheduled_events(universe_id, before=date) -> list[ScheduledEvent]
+neo4j_get_scheduled_event(event_id) -> ScheduledEvent
+neo4j_update_scheduled_event(event_id, params)
+neo4j_fire_scheduled_event(event_id) -> list[Consequence]
+
+# During time advancement
+async def check_scheduled_events(universe_id, old_date, new_date):
+    events = await neo4j_list_scheduled_events(
+        universe_id,
+        after=old_date,
+        before=new_date
+    )
+    for event in events:
+        if event.should_fire(new_date):
+            await fire_event(event)
+```
+
+**Layer 2 (Agents):**
+- `Orchestrator.schedule_event(params)` — Create scheduled event
+- `Orchestrator.check_scheduled_events(time_delta)` — Check during time advance
+- `Narrator.describe_event_occurrence(event)` — Generate narration
+- `CanonKeeper.apply_event_consequences(event)` — Update world state
+
+**Layer 3 (CLI):**
+```bash
+monitor story event schedule --universe <UUID> --date "Year 1, Month 3, Day 15"
+monitor story event list --universe <UUID>
+monitor story event trigger <EVENT_ID>  # Manual trigger
+```
+
+**Scheduled Event Schema:**
+```python
+@dataclass
+class ScheduledEvent:
+    id: UUID
+    universe_id: UUID
+    story_id: UUID | None  # If story-specific
+
+    title: str
+    description: str
+
+    trigger_date: WorldDate
+    event_type: EventType  # fixed, conditional, recurring, deadline
+
+    scope: EventScope  # universe, region, location
+    scope_id: UUID | None  # Region/location ID
+
+    visibility: Visibility  # public, faction, secret
+    visible_to: list[UUID]  # Faction/entity IDs if not public
+
+    conditions: list[EventCondition] | None  # For conditional events
+    recurrence: RecurrenceRule | None  # For recurring events
+
+    consequences: list[EventConsequence]
+    missed_consequences: list[EventConsequence] | None  # For deadlines
+
+    status: EventStatus  # scheduled, fired, cancelled, missed
+    fired_at: WorldDate | None
+
+class EventType(Enum):
+    FIXED = "fixed"
+    CONDITIONAL = "conditional"
+    RECURRING = "recurring"
+    DEADLINE = "deadline"
+
+@dataclass
+class EventConsequence:
+    type: ConsequenceType  # fact, state_change, entity_spawn, notification
+    content: dict
+    automatic: bool  # Apply automatically or require GM approval
+
+@dataclass
+class RecurrenceRule:
+    interval: str  # "daily", "weekly", "monthly", "yearly"
+    count: int | None  # Number of occurrences, None = infinite
+    until: WorldDate | None  # End date
+```
+
+**Example Scheduled Events:**
+
+```python
+# Festival (recurring)
+ScheduledEvent(
+    title="Harvest Festival",
+    trigger_date=WorldDate(month=9, day=21),
+    event_type=EventType.RECURRING,
+    recurrence=RecurrenceRule(interval="yearly"),
+    consequences=[
+        EventConsequence(type="fact", content={"statement": "Harvest Festival begins"}),
+        EventConsequence(type="state_change", content={"location_id": city_id, "tag": "celebrating"})
+    ]
+)
+
+# Deadline
+ScheduledEvent(
+    title="Villain's Ritual Completes",
+    trigger_date=WorldDate(year=1, month=6, day=1),
+    event_type=EventType.DEADLINE,
+    consequences=[
+        EventConsequence(type="fact", content={"statement": "The dark ritual is complete"})
+    ],
+    missed_consequences=[
+        EventConsequence(type="fact", content={"statement": "Darkness spreads across the land"})
+    ]
+)
+```
+
+---
+
 # Epic 8: RULES (Game System Definition)
 
 > As a user, I want to define and manage RPG rule systems so I can play any game, not just D&D.
@@ -5001,6 +6521,330 @@ async def resolve_with_overrides(
 
 ---
 
+## RS-5: Card-Based Mechanics
+
+**Actor:** User (GM/System Designer)
+**Trigger:** Manage → Rules → Card System, or during play with card-based game
+
+**Purpose:** Support RPG systems that use cards instead of or alongside dice (e.g., Savage Worlds Adventure Cards, Castle Falkenstein, Dragonlance SAGA, Through the Breach).
+
+**Flow:**
+
+1. **Define Card Deck:**
+   - Standard playing cards (52-card, with/without jokers)
+   - Tarot deck (78 cards, major/minor arcana)
+   - Custom deck (game-specific cards)
+   - Define card meanings/values
+
+2. **Configure Deck Behavior:**
+   - Reshuffle triggers (joker drawn, between scenes, manual)
+   - Discard pile visibility
+   - Card persistence (hands, holds, reserves)
+   - Multiple simultaneous decks
+
+3. **Draw Mechanics:**
+   - Single draw
+   - Multiple draw (best of, choose from)
+   - Opposed draws
+   - Hand management (hold cards for later)
+
+4. **Card-to-Outcome Mapping:**
+   - Suits → Types of success/effect
+   - Values → Degree of success
+   - Face cards → Special outcomes
+   - Jokers → Critical effects
+
+5. **Integration with Dice:**
+   - Cards for initiative, dice for checks
+   - Cards modify dice rolls
+   - Hybrid resolution systems
+
+### Implementation
+
+**Layer 1 (Data Layer):**
+```python
+# Deck management
+mongodb_create_deck(game_system_id, params) -> deck_id
+mongodb_get_deck_state(story_id, deck_id) -> DeckState
+mongodb_draw_cards(story_id, deck_id, count=1) -> list[Card]
+mongodb_return_cards(story_id, deck_id, cards, to="discard")  # discard or deck
+mongodb_shuffle_deck(story_id, deck_id, include_discard=True)
+mongodb_peek_deck(story_id, deck_id, count=1) -> list[Card]  # GM only
+
+# Hand management (for systems with persistent hands)
+mongodb_get_hand(story_id, entity_id) -> Hand
+mongodb_add_to_hand(story_id, entity_id, cards)
+mongodb_play_from_hand(story_id, entity_id, card_id) -> Card
+mongodb_discard_hand(story_id, entity_id)
+```
+
+**Layer 2 (Agents):**
+- `Resolver.draw_cards(deck_id, count, purpose)` — Draw and interpret
+- `Resolver.resolve_card_check(character_id, skill, cards)` — Apply card-based resolution
+- `Orchestrator.deal_initiative_cards(participants)` — For card-based initiative
+- `CanonKeeper.record_card_play(entity_id, card, outcome)` — Log card usage
+
+**Layer 3 (CLI):**
+```bash
+# Deck management
+monitor rules deck create --system <SYSTEM_ID> --type standard
+monitor rules deck create --system <SYSTEM_ID> --type tarot
+monitor rules deck create --system <SYSTEM_ID> --type custom --file ./deck.json
+
+# In play REPL
+> /draw                    # Draw one card
+> /draw 3                  # Draw three cards
+> /draw 3 best             # Draw three, keep best
+> /draw initiative         # Deal initiative cards
+> /hand                    # View current hand
+> /play <CARD>             # Play from hand
+> /shuffle                 # Shuffle discard back into deck
+> /deck status             # Show cards remaining, discards
+
+# Deck state queries
+monitor play deck-status --story <UUID>
+```
+
+**Card System Schema:**
+```python
+@dataclass
+class CardDeck:
+    id: UUID
+    game_system_id: UUID
+    name: str
+    deck_type: DeckType  # standard, tarot, custom
+
+    # Card definitions
+    cards: list[CardDefinition]
+    include_jokers: bool = True
+    joker_count: int = 2
+
+    # Deck behavior
+    reshuffle_on: list[ReshuffleTrigger]  # joker, scene_end, manual, empty
+    show_discards: bool = True
+    allow_hands: bool = False
+    max_hand_size: int | None = None
+
+    # Interpretation rules
+    suit_meanings: dict[str, str]  # {"hearts": "social", "spades": "combat"}
+    value_scale: dict[str, int]  # {"ace": 1, "king": 13} or {"ace": 14}
+    special_cards: list[SpecialCard]
+
+class DeckType(Enum):
+    STANDARD = "standard"    # 52-card poker deck
+    STANDARD_JOKERS = "standard_jokers"  # 54-card with jokers
+    TAROT = "tarot"          # 78-card tarot
+    CUSTOM = "custom"        # User-defined deck
+
+@dataclass
+class CardDefinition:
+    id: str                  # "hearts_ace", "major_fool", etc.
+    suit: str | None         # "hearts", "major_arcana", etc.
+    value: str               # "ace", "2", "king", "fool"
+    numeric_value: int       # For comparison
+    display_name: str        # "Ace of Hearts"
+    short_name: str          # "A♥"
+    meaning: str | None      # Optional interpretation text
+
+@dataclass
+class SpecialCard:
+    card_id: str             # Which card
+    effect: str              # What happens when drawn
+    trigger_reshuffle: bool = False
+
+@dataclass
+class DeckState:
+    deck_id: UUID
+    story_id: UUID
+
+    # Current state
+    draw_pile: list[str]     # Card IDs remaining (shuffled order)
+    discard_pile: list[str]  # Card IDs in discard
+    held_cards: dict[UUID, list[str]]  # entity_id -> held card IDs
+
+    # Statistics
+    total_draws: int
+    cards_remaining: int
+    jokers_drawn: int
+    last_shuffled: datetime
+    last_draw: datetime | None
+
+@dataclass
+class Hand:
+    entity_id: UUID
+    cards: list[Card]
+    max_size: int | None
+    drawn_this_scene: int
+
+@dataclass
+class CardDraw:
+    id: UUID
+    story_id: UUID
+    scene_id: UUID
+    turn_id: UUID | None
+
+    deck_id: UUID
+    drawn_by: UUID | None   # Entity ID
+    cards: list[Card]
+    draw_type: DrawType     # single, multiple_best, multiple_choose, opposed
+    purpose: str            # "initiative", "skill_check", "damage", etc.
+
+    interpretation: str     # What the draw means
+    outcome: str           # The resolved result
+
+    drawn_at: datetime
+
+class DrawType(Enum):
+    SINGLE = "single"
+    MULTIPLE_BEST = "multiple_best"     # Draw N, keep highest
+    MULTIPLE_CHOOSE = "multiple_choose"  # Draw N, player chooses
+    OPPOSED = "opposed"                  # Two-party draw
+    HAND_PLAY = "hand_play"             # Played from hand
+
+@dataclass
+class Card:
+    definition: CardDefinition
+    deck_id: UUID
+    instance_id: str         # Unique for this specific card in deck
+```
+
+**Card Resolution:**
+```python
+async def resolve_card_check(
+    character: Entity,
+    skill: str,
+    difficulty: str,
+    deck_id: UUID,
+    context: Context
+) -> Resolution:
+    # 1. Get game system's card rules
+    deck = await mongodb_get_deck(deck_id)
+    system = await mongodb_get_game_system(deck.game_system_id)
+
+    # 2. Draw card(s) based on system rules
+    cards = await mongodb_draw_cards(context.story_id, deck_id, count=1)
+
+    # 3. Calculate skill modifier (if hybrid system)
+    skill_value = character.skills.get(skill, 0)
+
+    # 4. Interpret card result
+    card = cards[0]
+    base_value = card.numeric_value + skill_value
+
+    # 5. Apply suit effects (if applicable)
+    suit_bonus = system.card_rules.suit_effects.get(card.suit, {})
+
+    # 6. Check for special cards
+    if card.id in [sc.card_id for sc in deck.special_cards]:
+        special = next(sc for sc in deck.special_cards if sc.card_id == card.id)
+        if special.trigger_reshuffle:
+            await mongodb_shuffle_deck(context.story_id, deck_id)
+
+    # 7. Determine outcome
+    success = base_value >= difficulty_threshold
+
+    return CardResolution(
+        card=card,
+        base_value=base_value,
+        modifiers=suit_bonus,
+        success=success,
+        description=f"Drew {card.display_name} + {skill_value} = {base_value}"
+    )
+```
+
+**Card-Based Initiative (Savage Worlds style):**
+```python
+async def deal_initiative(
+    participants: list[Entity],
+    story_id: UUID,
+    deck_id: UUID
+) -> list[InitiativeOrder]:
+    # 1. Shuffle if new round
+    await mongodb_shuffle_deck(story_id, deck_id)
+
+    # 2. Deal one card per participant
+    initiative = []
+    for entity in participants:
+        cards = await mongodb_draw_cards(story_id, deck_id, count=1)
+        card = cards[0]
+
+        # Check for edge: Quick (deal two, keep better)
+        if entity.has_edge("Quick"):
+            extra = await mongodb_draw_cards(story_id, deck_id, count=1)
+            if extra[0].numeric_value > card.numeric_value:
+                card = extra[0]
+
+        initiative.append(InitiativeOrder(
+            entity_id=entity.id,
+            card=card,
+            value=card.numeric_value,
+            suit_order=SUIT_ORDER[card.suit]  # spades > hearts > diamonds > clubs
+        ))
+
+    # 3. Sort by card value (suit breaks ties)
+    initiative.sort(key=lambda x: (x.value, x.suit_order), reverse=True)
+
+    # 4. Check for Joker (act any time, +2 to all rolls)
+    for init in initiative:
+        if init.card.value == "joker":
+            init.joker_bonus = True
+            init.act_when_desired = True
+
+    return initiative
+```
+
+**Built-in Deck Types:**
+```python
+STANDARD_52 = CardDeck(
+    name="Standard Playing Cards",
+    deck_type=DeckType.STANDARD,
+    cards=[
+        CardDefinition(f"{suit}_{value}", suit, value, numeric_value, ...)
+        for suit in ["hearts", "diamonds", "clubs", "spades"]
+        for value, numeric_value in [
+            ("2", 2), ("3", 3), ("4", 4), ("5", 5), ("6", 6),
+            ("7", 7), ("8", 8), ("9", 9), ("10", 10),
+            ("jack", 11), ("queen", 12), ("king", 13), ("ace", 14)
+        ]
+    ],
+    include_jokers=False
+)
+
+SAVAGE_WORLDS_DECK = CardDeck(
+    name="Savage Worlds Initiative Deck",
+    deck_type=DeckType.STANDARD_JOKERS,
+    cards=[...],  # 54 cards
+    include_jokers=True,
+    joker_count=2,
+    reshuffle_on=[ReshuffleTrigger.JOKER],
+    special_cards=[
+        SpecialCard("joker_red", "Act any time, +2 to all trait rolls", trigger_reshuffle=True),
+        SpecialCard("joker_black", "Act any time, +2 to all trait rolls", trigger_reshuffle=True)
+    ],
+    suit_meanings={
+        "spades": "Fastest suit (wins ties)",
+        "hearts": "Second fastest",
+        "diamonds": "Third",
+        "clubs": "Slowest suit"
+    }
+)
+
+TAROT_78 = CardDeck(
+    name="Tarot Deck",
+    deck_type=DeckType.TAROT,
+    cards=[
+        # Major Arcana (0-21)
+        CardDefinition("major_fool", "major_arcana", "fool", 0, "The Fool", "0"),
+        CardDefinition("major_magician", "major_arcana", "magician", 1, "The Magician", "I"),
+        # ... 20 more major arcana
+        # Minor Arcana (suits: wands, cups, swords, pentacles)
+        # ... 56 minor arcana cards
+    ]
+)
+```
+
+---
+
 # Dice Module Specification
 
 ## Notation
@@ -5082,13 +6926,54 @@ def roll_dice(formula: str) -> DiceRoll:
 
 | Epic | Use Cases | Priority |
 |------|-----------|----------|
-| DATA LAYER | DL-1 to DL-14 | Phase 0 (Foundational) |
-| PLAY | P-1 to P-12 | Phase 1 (MVP) |
-| MANAGE | M-1 to M-29 | Phase 1-2 |
-| QUERY | Q-1 to Q-9 | Phase 2 |
+| DATA LAYER | DL-1 to DL-26 | Phase 0 (Foundational) |
+| PLAY | P-1 to P-17 | Phase 1 (MVP) |
+| MANAGE | M-1 to M-35 | Phase 1-2 |
+| QUERY | Q-1 to Q-10 | Phase 2 |
 | INGEST | I-1 to I-6 | Phase 3 |
-| SYSTEM | SYS-1 to SYS-10 | Phase 1 |
+| CO-PILOT | CF-1 to CF-7 | Phase 2 |
+| STORY | ST-1 to ST-8 | Phase 2-3 |
+| RULES | RS-1 to RS-5 | Phase 2 |
+| SYSTEM | SYS-1 to SYS-12 | Phase 1 |
 | DOCS | DOC-1 | Phase 1 |
+
+**Total: 137 use cases** (up from 96)
+
+## New Use Cases (v2.1)
+
+| ID | Name | Description |
+|----|------|-------------|
+| P-13 | Party Management | Multi-character party with switching, inventory, splits |
+| P-14 | Flashback Mode | Play scenes in the past, create historical facts |
+| M-31 | Entity Templates | Reusable templates for bulk entity creation |
+| M-32 | Manage Archetypes | CRUD for EntityArchetype nodes |
+| M-33 | Manage Random Tables | Random table creation and rolling |
+| M-34 | World Snapshots | Point-in-time state capture, comparison, restore |
+| M-35 | Universe Fork | Create alternate timeline branches from snapshots |
+| Q-10 | Audit Trail | Change history, version comparison, revert |
+| CF-6 | Generate Player Handouts | Create distributable handouts from world data |
+| CF-7 | Session Prep Assistant | Generate prep materials and suggestions for GMs |
+| ST-6 | Generate Random Encounters | Context-aware procedural encounter generation |
+| ST-7 | Scheduled World Events | Automatic event triggers on time advancement |
+| RS-5 | Card-Based Mechanics | Support for card-based RPG resolution systems |
+| SYS-11 | Error Recovery | Graceful degradation and service failure handling |
+| SYS-12 | Logging & Observability | Structured logging, metrics, and diagnostics |
+| DL-15 | Manage Parties | Neo4j party nodes and membership edges |
+| DL-16 | Party Inventory & Splits | MongoDB inventory and split tracking |
+| DL-17 | Entity Templates | MongoDB template storage and instantiation |
+| DL-18 | Change Log | Event sourcing for audit trail |
+| DL-19 | Historical Queries | State reconstruction at any point in time |
+| DL-20 | Game Systems & Rules | MongoDB game system definitions |
+| DL-21 | Random Tables | MongoDB random table storage |
+| DL-22 | Card Deck State | MongoDB card deck state and hand tracking |
+| DL-23 | World Snapshots | MongoDB snapshot capture, comparison, restore |
+| DL-24 | Turn Resolutions | **CRITICAL** - Dice/card resolution mechanics |
+| DL-25 | Combat State | Combat encounter tracking and turn management |
+| DL-26 | Character Working State | Scene-scoped stat/resource tracking |
+| P-15 | Autonomous PC Actions | PC-Agent generates character actions |
+| P-16 | Combat Encounter Management | Full combat loop with initiative and rounds |
+| P-17 | Social Encounter Management | NPC interaction with disposition tracking |
+| ST-8 | Automatic Story Planning | Story Planner generates outline and beats |
 
 ## MVP (Phase 1)
 
@@ -5097,16 +6982,20 @@ Core gameplay loop:
 - M-4, M-5 (create/list universe)
 - P-1, P-2, P-3, P-4, P-8 (story, scene, turn, action, canonize)
 - P-9 (dice rolls)
+- **P-13 (party management)** ← NEW: Critical for solo play
 - M-12, M-13 (create entities, characters)
+- **M-31 (entity templates)** ← NEW: Major productivity gain
 
 ## Phase 0
 
 Data layer foundation:
-- DL-1 to DL-14 (all data access MCP tools, auth/validation, indices)
+- DL-1 to DL-14 (core data access MCP tools, auth/validation, indices)
+- **DL-15 to DL-26** ← NEW: Party, templates, audit trail, game systems, cards, snapshots, **resolutions, combat, working state**
 - Tasks:
-  - Create Pydantic schemas for all DL objects (universes, entities, axioms, facts/events, relationships/state tags, stories/scenes/turns, proposed changes, story outlines/plot threads, memories, sources/documents/snippets/ingest proposals, binaries, embeddings, search docs).
+  - Create Pydantic schemas for all DL objects (universes, entities, axioms, facts/events, relationships/state tags, stories/scenes/turns, proposed changes, story outlines/plot threads, memories, sources/documents/snippets/ingest proposals, binaries, embeddings, search docs, **parties, templates, change_log, game_systems, random_tables, card_decks, deck_states, world_snapshots, resolutions, combat_encounters, character_working_state**).
   - Implement DB clients (Neo4j, MongoDB, Qdrant, MinIO, OpenSearch) and health checks.
   - Implement MCP tools for each DL use case with auth/validation middleware.
+  - **Implement change_log middleware for automatic audit capture.**
   - Docker/dev setup: ensure infra/docker-compose is runnable; add sample .env for services.
   - Provide template/parent files agents can copy (one schema/tool pattern per store) to accelerate implementation.
   - Data-layer perspectives are detailed in `docs/DATA_LAYER_USE_CASES.md`.
@@ -5115,19 +7004,28 @@ Data layer foundation:
 
 Management and query:
 - M-* (all entity CRUD)
-- Q-1 to Q-9 (search and exploration)
+- **M-32, M-33** ← NEW: Archetypes, random tables
+- **M-34, M-35** ← NEW: World snapshots, universe fork
+- Q-1 to Q-10 (search, exploration, **history**)
 - P-10, P-11 (combat, conversation modes)
+- **P-14** ← NEW: Flashback mode
+- CF-1 to CF-5 (co-pilot features)
+- **CF-6, CF-7** ← NEW: Player handouts, session prep
+- RS-1 to RS-4 (rules systems)
+- **RS-5** ← NEW: Card-based mechanics
 
 ## Phase 3
 
-Ingestion:
+Ingestion & planning:
 - I-1 to I-6 (full ingestion pipeline)
+- ST-1 to ST-5 (story planning tools)
+- **ST-6, ST-7** ← NEW: Random encounters, scheduled events
 
 ## Phase 4
 
-Polish:
-- Q-8, Q-9 (compare, keyword search)
+Polish & observability:
 - SYS-7, SYS-8, SYS-9, SYS-10 (export/import, backup verify, retention)
+- **SYS-11, SYS-12** ← NEW: Error recovery, logging/observability
 - Advanced gameplay features
 
 ---
@@ -5140,10 +7038,24 @@ Polish:
 | P-4 Action | handlers | Resolver | mongodb, neo4j |
 | P-8 Canonize | handlers | CanonKeeper, Indexer | neo4j, qdrant |
 | P-9 Dice | handlers | Resolver | - |
+| **P-13 Party** | repl/meta-commands | Orchestrator | neo4j, mongodb |
+| **P-14 Flashback** | repl/meta-commands | Orchestrator, Narrator | neo4j, mongodb |
 | M-4 Create Universe | commands/manage | - | neo4j_tools |
 | M-13 Create Character | commands/manage | - | neo4j, mongodb |
+| **M-31 Templates** | commands/manage | Orchestrator | mongodb, neo4j |
+| **M-32 Archetypes** | commands/manage | - | neo4j |
+| **M-34 Snapshots** | commands/manage | CanonKeeper | mongodb, neo4j |
+| **M-35 Fork** | commands/manage | CanonKeeper | neo4j |
 | Q-1 Search | commands/query | ContextAssembly | qdrant, neo4j |
+| **Q-10 History** | commands/query | ContextAssembly | mongodb (change_log) |
 | I-1 Upload | commands/ingest | Indexer | minio, mongodb, qdrant |
+| **CF-6 Handouts** | commands/copilot | Narrator | mongodb, neo4j |
+| **CF-7 Session Prep** | commands/copilot | Narrator, ContextAssembly | all tools |
+| **ST-6 Encounters** | commands/story, repl | Narrator, Resolver | mongodb, neo4j |
+| **ST-7 Scheduled Events** | automatic, commands/story | Orchestrator, CanonKeeper | neo4j |
+| **RS-5 Cards** | repl, commands/rules | Resolver | mongodb |
+| **SYS-11 Recovery** | automatic | all agents | all tools |
+| **SYS-12 Logging** | automatic | all agents | - |
 
 ---
 

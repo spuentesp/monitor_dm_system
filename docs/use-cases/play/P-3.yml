@@ -1,0 +1,166 @@
+# P-3: Turn Loop (Core Gameplay)
+# ===============================
+
+id: "P-3"
+title: "Turn Loop (Core Gameplay)"
+category: "play"
+epic: 4
+priority: "critical"
+status: "todo"
+
+summary: |
+  The heart of the game. Continuous loop that processes user input,
+  routes to appropriate handlers (action, dialogue, question, meta),
+  generates responses, and checks for scene end conditions.
+
+actor: "User"
+trigger: "Within active scene"
+
+flow:
+  - "LOOP:"
+  - "  1. Display: location, present entities, recent context"
+  - "  2. Prompt: await user input"
+  - "  3. Parse input type:"
+  - "     - Action -> P-4"
+  - "     - Dialogue -> P-5"
+  - "     - Question -> P-6"
+  - "     - Meta-command -> P-7"
+  - "  4. Process through appropriate handler"
+  - "  5. Narrator generates response"
+  - "  6. Append turns to MongoDB"
+  - "  7. Check: should scene end?"
+  - "  8. IF end -> P-8"
+  - "  9. ELSE -> continue loop"
+
+acceptance_criteria:
+  - "Turn loop maintains state across iterations"
+  - "Input parsing correctly categorizes user input"
+  - "Each input type routes to correct handler"
+  - "Context refreshed each turn iteration"
+  - "User turn and GM turn both appended to scene"
+  - "Scene end conditions detected (combat over, goal achieved, etc.)"
+  - "Meta-commands handled without creating turns"
+  - "Error handling doesn't break loop"
+
+depends_on:
+  - "DL-4"  # Story/Scene/Turn CRUD
+  - "P-2"   # Scene must exist
+
+blocks:
+  - "P-4"   # Resolve Action
+  - "P-5"   # Handle Dialogue
+  - "P-6"   # Answer Question
+  - "P-7"   # Meta-Commands
+  - "P-8"   # End Scene
+
+implementation:
+  layer: 2  # Agents layer
+
+  files:
+    modify:
+      - "packages/agents/src/monitor_agents/orchestrator.py"
+      - "packages/agents/src/monitor_agents/narrator.py"
+      - "packages/cli/src/monitor_cli/repl/session.py"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_get_scene"
+        collection: "scenes"
+      - name: "mongodb_get_turns"
+        collection: "scenes"
+        params: "limit=10"
+      - name: "mongodb_append_turn"
+        collection: "scenes"
+      - name: "mongodb_create_proposal"
+        collection: "proposed_changes"
+
+  turn_states:
+    - "AWAITING_INPUT"   # Waiting for user
+    - "PROCESSING"       # Parsing input
+    - "RESOLVING"        # Action resolution
+    - "RESPONDING"       # Narrator generating
+    - "CHECKING_END"     # Scene end check
+
+  input_parsing: |
+    def parse_input(text: str) -> InputType:
+        if text.startswith("/"):
+            return InputType.META_COMMAND
+        if text.startswith('"') or "say" in text.lower():
+            return InputType.DIALOGUE
+        if "?" in text or text.lower().startswith(
+            ("what", "who", "where", "how", "why", "when")
+        ):
+            return InputType.QUESTION
+        return InputType.ACTION
+
+  turn_schema: |
+    class Turn(BaseModel):
+        turn_id: UUID
+        speaker: str  # "user", "gm", "entity"
+        entity_id: Optional[UUID]  # If speaker is entity
+        text: str
+        input_type: Optional[InputType]
+        resolution_ref: Optional[UUID]  # Link to resolution
+        timestamp: datetime
+
+  agent_flow: |
+    Orchestrator.run_turn_loop(scene_id):
+        while scene.status == "active":
+            1. context = ContextAssembly.get_scene_context(scene_id)
+            2. display_context(context)
+            3. user_input = await_input()
+            4. input_type = parse_input(user_input)
+            5. append_turn(speaker="user", text=user_input)
+
+            6. match input_type:
+               ACTION -> response = Resolver.resolve_action(...)
+               DIALOGUE -> response = Narrator.handle_dialogue(...)
+               QUESTION -> response = Narrator.answer_question(...)
+               META -> handle_meta_command(...)
+
+            7. append_turn(speaker="gm", text=response)
+            8. if should_end_scene(context):
+                   break
+
+  patterns:
+    - "State machine for turn phases"
+    - "Context refreshed each iteration"
+    - "Proposals created for state changes"
+
+  notes: |
+    - Turn loop is the core gameplay experience
+    - Performance critical - optimize context assembly
+    - Consider turn history limits for context
+
+testing:
+  unit_tests:
+    - "test_parse_input_action: 'I attack' -> ACTION"
+    - "test_parse_input_dialogue: '\"Hello\"' -> DIALOGUE"
+    - "test_parse_input_question: 'What do I see?' -> QUESTION"
+    - "test_parse_input_meta: '/save' -> META_COMMAND"
+    - "test_turn_append: turns stored correctly"
+    - "test_scene_end_detection: end conditions work"
+
+  integration_tests:
+    - "test_turn_loop_full: complete loop iteration"
+    - "test_turn_loop_action_flow: action -> resolution -> response"
+    - "test_turn_loop_dialogue_flow: dialogue -> NPC response"
+
+  coverage_minimum: 85
+
+github:
+  labels:
+    - "epic-4"
+    - "play"
+    - "agents"
+    - "priority-critical"
+
+  milestone: "EPIC 4: Autonomous GM"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#p-3-turn-loop-core-gameplay"
+    - "docs/architecture/AGENT_ORCHESTRATION.md"
+
+  code:
+    - "packages/agents/src/monitor_agents/orchestrator.py"

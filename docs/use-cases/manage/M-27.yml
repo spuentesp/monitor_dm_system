@@ -1,0 +1,129 @@
+# M-27: View/Edit Fact
+# ====================
+
+id: "M-27"
+title: "View/Edit Fact"
+category: "manage"
+epic: 6
+priority: "medium"
+status: "todo"
+
+summary: |
+  View detailed information about a fact and optionally edit it.
+  Shows related entities, source provenance, and timeline context.
+  Editing creates a new version while preserving history.
+
+actor: "User"
+trigger: "Fact -> View or Manage -> Fact -> View <UUID>"
+
+flow:
+  - "Retrieve Fact by ID"
+  - "Display: statement, type, scope, confidence"
+  - "Show related entities (subject, object)"
+  - "Show source references"
+  - "Show temporal context (when valid)"
+  - "IF editing:"
+  - "  Allow changes to statement, confidence, scope"
+  - "  Cannot change subject/object (create new fact instead)"
+  - "  Update Neo4j, preserve history"
+  - "Confirm changes"
+
+acceptance_criteria:
+  - "neo4j_get_fact returns full fact data with relationships"
+  - "Related entities displayed with links"
+  - "Source provenance chain shown"
+  - "Temporal validity shown on timeline"
+  - "Edit updates fact, preserves previous version"
+  - "Subject/object entities cannot be changed"
+
+depends_on:
+  - "DL-3"  # Facts CRUD
+  - "M-26"  # Create Fact
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/fact.py"
+
+  cli_commands:
+    - command: "monitor manage fact view <UUID>"
+      description: "View fact details"
+    - command: "monitor manage fact edit <UUID>"
+      description: "Interactive edit"
+    - command: "monitor manage fact edit <UUID> --confidence 0.8"
+      description: "Update confidence"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_fact"
+        authority: ["*"]
+      - name: "neo4j_update_fact"
+        authority: ["CanonKeeper"]
+
+  output_format: |
+    ══════════════════════════════════════════════════════════
+    FACT: Aragorn is the heir to the throne of Gondor
+    ══════════════════════════════════════════════════════════
+
+    Type: attribute            Scope: permanent
+    Confidence: 100%           Canon: canon
+
+    ─────────────────────────────────────────────────────────
+    ENTITIES
+    ─────────────────────────────────────────────────────────
+      Subject: Aragorn (character)
+      Object:  Throne of Gondor (object)
+
+    ─────────────────────────────────────────────────────────
+    PROVENANCE
+    ─────────────────────────────────────────────────────────
+      Source: The Lord of the Rings (document)
+        └─ Chapter: The Council of Elrond
+
+    ─────────────────────────────────────────────────────────
+    TIMELINE
+    ─────────────────────────────────────────────────────────
+      Valid from: Third Age beginning
+      Valid until: (ongoing)
+
+    ─────────────────────────────────────────────────────────
+    ACTIONS: [E]dit  [D]elete  [H]istory  [B]ack
+
+  patterns:
+    - "Use Rich library for formatted output"
+    - "Version facts on edit"
+
+  notes: |
+    - Consider adding fact comparison
+    - Show conflicting facts if any
+
+testing:
+  unit_tests:
+    - "test_view_fact_full: all details shown"
+    - "test_view_fact_relationships: entities linked"
+    - "test_edit_fact_confidence: confidence updates"
+    - "test_edit_fact_preserves_history: version created"
+
+  integration_tests:
+    - "test_fact_view_cli: CLI output formatted"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-6"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 6: Session & Timeline"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-27-viewedit-fact"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

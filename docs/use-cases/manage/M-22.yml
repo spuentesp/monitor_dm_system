@@ -1,0 +1,138 @@
+# M-22: Manage Memories (Characters only)
+# =======================================
+
+id: "M-22"
+title: "Manage Memories"
+category: "manage"
+epic: 3
+priority: "high"
+status: "todo"
+
+summary: |
+  Create, view, and manage memories for character entities. Memories are
+  text snippets representing what a character knows, remembers, or has
+  experienced. Used for NPC knowledge and dialogue generation.
+
+actor: "User"
+trigger: "Character -> Memories or Manage -> Memories"
+
+flow:
+  - "Select character entity"
+  - "List existing memories (with importance, source)"
+  - "Add new memory:"
+  - "  Prompt: Memory text"
+  - "  Prompt: Importance (0-1 scale)"
+  - "  Prompt: Source (scene, manual, ingest)"
+  - "Create memory in MongoDB"
+  - "Embed memory in Qdrant for semantic search"
+  - "Confirm creation"
+
+acceptance_criteria:
+  - "mongodb_create_memory stores memory document"
+  - "Memory linked to character entity_id"
+  - "Importance score (0-1) stored for ranking"
+  - "Source tracking (scene_id, manual, ingest)"
+  - "qdrant_embed_memory creates vector embedding"
+  - "qdrant_search_memories retrieves relevant memories"
+  - "Memories searchable by text and importance"
+  - "Memory can be edited or deleted"
+
+depends_on:
+  - "DL-7"  # Memories CRUD
+  - "DL-10" # Vector index
+  - "M-13"  # Character must exist
+
+blocks:
+  - "P-5"   # Dialogue uses memories
+
+implementation:
+  layer: 3
+
+  files:
+    create:
+      - "packages/cli/src/monitor_cli/commands/manage/memory.py"
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/__init__.py"
+
+  cli_commands:
+    - command: "monitor manage memory list --character <UUID>"
+      description: "List character memories"
+    - command: "monitor manage memory add --character <UUID> --text 'Remembers the duke's betrayal'"
+      description: "Add memory"
+    - command: "monitor manage memory search --character <UUID> --query 'duke'"
+      description: "Semantic search memories"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_create_memory"
+        collection: "memories"
+      - name: "mongodb_list_memories"
+        collection: "memories"
+      - name: "mongodb_update_memory"
+        collection: "memories"
+      - name: "mongodb_delete_memory"
+        collection: "memories"
+    qdrant:
+      - name: "qdrant_embed_memory"
+        collection: "memories"
+      - name: "qdrant_search_memories"
+        collection: "memories"
+
+  memory_schema: |
+    class CharacterMemory(BaseModel):
+        id: UUID
+        entity_id: UUID  # Character this belongs to
+        text: str = Field(min_length=1, max_length=2000)
+        importance: float = Field(ge=0.0, le=1.0, default=0.5)
+        source_type: MemorySource  # scene, manual, ingest
+        source_id: Optional[UUID]  # scene_id if from scene
+        tags: List[str] = []
+        created_at: datetime
+        accessed_at: Optional[datetime]  # Last time retrieved
+
+    class MemorySource(str, Enum):
+        SCENE = "scene"      # Created during gameplay
+        MANUAL = "manual"    # User-created
+        INGEST = "ingest"    # From document ingestion
+        DERIVED = "derived"  # Inferred by system
+
+  patterns:
+    - "Use DL-7 memory operations"
+    - "Embed on create, re-embed on update"
+
+  notes: |
+    - Memories decay over time (reduce importance)
+    - Consider memory consolidation (merge similar)
+    - accessed_at helps track which memories are used
+
+testing:
+  unit_tests:
+    - "test_create_memory: memory stored"
+    - "test_memory_embedding: vector created"
+    - "test_search_memories: semantic search works"
+    - "test_memory_importance: ranking by importance"
+    - "test_memory_source: source tracking works"
+
+  integration_tests:
+    - "test_memory_cli: CLI flow works"
+    - "test_memory_in_dialogue: memories used in NPC response"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-3"
+    - "manage"
+    - "cli"
+    - "priority-high"
+
+  milestone: "EPIC 3: Character & Identity"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-22-manage-memories"
+    - "docs/ontology/ONTOLOGY.md#27-memories"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+    - "packages/data-layer/src/monitor_data/db/qdrant.py"

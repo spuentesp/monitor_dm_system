@@ -1,0 +1,109 @@
+# M-3: List Multiverses
+# =====================
+
+id: "M-3"
+title: "List Multiverses"
+category: "manage"
+epic: 1
+priority: "medium"
+status: "todo"
+
+summary: |
+  Display all Multiverses under the Omniverse with summary information
+  including universe counts and system names. Supports filtering and
+  sorting for large collections.
+
+actor: "User"
+trigger: "Manage -> Multiverses"
+
+flow:
+  - "Query all Multiverses from Omniverse"
+  - "For each, count child Universes"
+  - "Display table: Name, System, Universe Count, Created"
+  - "Support sorting by name, system, or universe count"
+  - "Allow selection to view details (-> M-6 equivalent for multiverse)"
+
+acceptance_criteria:
+  - "neo4j_list_multiverses returns all multiverses with counts"
+  - "Table displays id, name, system_name, universe_count"
+  - "Empty state shows 'No multiverses found' message"
+  - "Sorting works by name (default), system, count"
+  - "Pagination supported for large lists (--limit, --offset)"
+  - "Unit tests cover list, empty, and pagination"
+
+depends_on:
+  - "DL-1"  # Universe/Multiverse CRUD
+  - "M-1"   # Omniverse must exist
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/multiverse.py"
+
+  cli_commands:
+    - command: "monitor manage multiverse list"
+      description: "List all multiverses"
+    - command: "monitor manage multiverse list --sort system"
+      description: "Sort by system name"
+    - command: "monitor manage multiverse list --limit 10 --offset 0"
+      description: "Paginated list"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_list_multiverses"
+        authority: ["*"]
+        cypher: |
+          MATCH (m:Multiverse)<-[:CONTAINS]-(o:Omniverse)
+          OPTIONAL MATCH (m)-[:CONTAINS]->(u:Universe)
+          WHERE u.canon_level <> 'retconned' OR u IS NULL
+          RETURN m.id, m.name, m.system_name, m.created_at,
+                 count(u) AS universe_count
+          ORDER BY m.name
+          SKIP $offset LIMIT $limit
+
+  output_format: |
+    Multiverses
+    ─────────────────────────────────────────────────
+     # │ Name             │ System    │ Universes │ Created
+    ───┼──────────────────┼───────────┼───────────┼──────────
+     1 │ D&D Worlds       │ D&D 5e    │ 3         │ 2024-01-15
+     2 │ Sci-Fi Settings  │ Custom    │ 1         │ 2024-01-20
+
+  patterns:
+    - "Use Rich library for table formatting"
+    - "Follow existing list command patterns"
+
+  notes: |
+    - Consider caching counts for performance
+    - Universe count excludes retconned universes
+
+testing:
+  unit_tests:
+    - "test_list_multiverses_success: returns list with counts"
+    - "test_list_multiverses_empty: returns empty list gracefully"
+    - "test_list_multiverses_pagination: limit/offset work"
+    - "test_list_multiverses_sorting: sort options work"
+
+  integration_tests:
+    - "test_list_multiverses_cli: CLI output formatted correctly"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 1: World & Multiverse"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-3-list-multiverses"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

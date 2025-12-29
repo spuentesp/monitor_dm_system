@@ -1,0 +1,152 @@
+# DL-22: Manage Card Deck State
+# ==============================
+
+id: "DL-22"
+title: "Manage Card Deck State"
+category: "data-layer"
+epic: 0
+priority: "medium"
+status: "todo"
+
+summary: |
+  Implement MongoDB collections for storing card deck definitions and runtime
+  deck state. Pure data storage for deck structures, draw/discard piles, and
+  hands. Shuffle algorithms and draw logic live in the agents layer utilities.
+
+acceptance_criteria:
+  - "mongodb_create_card_deck creates deck definition with cards"
+  - "mongodb_get_card_deck returns deck definition"
+  - "mongodb_list_card_decks lists decks by game system"
+  - "mongodb_update_card_deck modifies deck definition"
+  - "mongodb_delete_card_deck removes deck definition"
+  - "mongodb_create_deck_state creates runtime state for story"
+  - "mongodb_get_deck_state returns current deck state"
+  - "mongodb_update_deck_state updates draw_pile, discard_pile, held_cards"
+  - "mongodb_delete_deck_state removes runtime state"
+  - "mongodb_create_card_draw logs a card draw event"
+  - "mongodb_list_card_draws returns draw history"
+  - "Deck types: standard, standard_jokers, tarot, custom"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-20"  # Deck definitions tied to game systems
+  - "DL-4"   # Deck state scoped to story
+
+blocks:
+  - "RS-5"   # Card-based mechanics use case
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/card_decks.py"
+      - "packages/data-layer/tests/test_tools/test_card_deck_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    mongodb:
+      # Deck definitions CRUD
+      - name: "mongodb_create_card_deck"
+        authority: ["*"]
+        params: ["game_system_id", "name", "deck_type", "cards", "include_jokers?", "reshuffle_on?", "suit_meanings?"]
+
+      - name: "mongodb_get_card_deck"
+        authority: ["*"]
+        params: ["deck_id"]
+
+      - name: "mongodb_list_card_decks"
+        authority: ["*"]
+        params: ["game_system_id?", "deck_type?", "limit?", "offset?"]
+
+      - name: "mongodb_update_card_deck"
+        authority: ["*"]
+        params: ["deck_id", "name?", "cards?", "reshuffle_on?", "suit_meanings?"]
+
+      - name: "mongodb_delete_card_deck"
+        authority: ["*"]
+        params: ["deck_id"]
+
+      # Runtime state CRUD
+      - name: "mongodb_create_deck_state"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["deck_id", "story_id", "draw_pile", "discard_pile?", "held_cards?"]
+
+      - name: "mongodb_get_deck_state"
+        authority: ["*"]
+        params: ["state_id"]
+
+      - name: "mongodb_get_deck_state_by_story"
+        authority: ["*"]
+        params: ["story_id", "deck_id"]
+
+      - name: "mongodb_update_deck_state"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["state_id", "draw_pile?", "discard_pile?", "held_cards?", "total_draws?", "last_draw?"]
+
+      - name: "mongodb_delete_deck_state"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["state_id"]
+
+      # Draw history
+      - name: "mongodb_create_card_draw"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["state_id", "scene_id?", "turn_id?", "drawn_by", "cards", "draw_type", "purpose?", "interpretation?"]
+
+      - name: "mongodb_list_card_draws"
+        authority: ["*"]
+        params: ["state_id?", "scene_id?", "drawn_by?", "limit?", "offset?"]
+
+  patterns:
+    - "card_decks collection: {deck_id, game_system_id, name, deck_type, cards[], suit_meanings}"
+    - "deck_states collection: {state_id, deck_id, story_id, draw_pile[], discard_pile[], held_cards{}}"
+    - "card_draws collection: {draw_id, state_id, scene_id, drawn_by, cards[], purpose, interpretation}"
+    - "Card structure: {card_id, suit, value, numeric_value, display_name, short_name}"
+    - "Deck types enum: standard, standard_jokers, tarot, custom"
+    - "held_cards is map: entity_id -> [card_id]"
+
+  notes: |
+    - This is PURE DATA STORAGE - no shuffle or draw logic
+    - Shuffle algorithm lives in agents layer utilities
+    - Card draw selection lives in agents layer utilities
+    - Hand management logic lives in agents layer utilities
+    - Joker reshuffle trigger logic lives in agents layer
+
+testing:
+  unit_tests:
+    - "test_create_deck_success: deck definition created"
+    - "test_get_deck: returns full deck with cards"
+    - "test_list_decks_by_system: game_system filter works"
+    - "test_update_deck: fields updated"
+    - "test_delete_deck: deck removed"
+    - "test_create_state_success: runtime state created"
+    - "test_get_state: returns current state"
+    - "test_get_state_by_story: finds state for story+deck"
+    - "test_update_state_draw_pile: draw_pile updated"
+    - "test_update_state_held_cards: held_cards updated"
+    - "test_delete_state: runtime state removed"
+    - "test_create_draw: draw logged"
+    - "test_list_draws_by_scene: scene filter works"
+
+  integration_tests:
+    - "test_deck_with_state: create deck, create state, update state"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "mongodb"
+    - "priority-medium"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/DATA_LAYER_USE_CASES.md#dl-22"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/mongodb.py"

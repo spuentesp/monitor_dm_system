@@ -1,0 +1,122 @@
+# DL-24: Manage Turn Resolutions
+# ===============================
+
+id: "DL-24"
+title: "Manage Turn Resolutions"
+category: "data-layer"
+epic: 0
+priority: "critical"
+status: "todo"
+
+summary: |
+  Implement MongoDB collection for storing mechanical resolution records for
+  player/NPC actions during gameplay. Pure data storage for resolution documents
+  including dice results, success levels, and effects. Resolution logic (dice
+  rolling, success evaluation) lives in the agents layer utilities.
+
+acceptance_criteria:
+  - "mongodb_create_resolution creates resolution document"
+  - "mongodb_get_resolution returns resolution with all fields"
+  - "mongodb_list_resolutions supports filtering by scene_id, turn_id, actor_id"
+  - "mongodb_update_resolution allows updating effects, description, notes"
+  - "mongodb_delete_resolution removes resolution record"
+  - "Resolution stores action, action_type, resolution_type"
+  - "Resolution stores mechanics (formula, modifiers, target, roll result)"
+  - "Resolution stores success_level and margin"
+  - "Resolution stores effects array"
+  - "Contested resolutions store opposed roll data"
+  - "Card-based resolutions store card_draw data"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-4"   # Resolutions belong to turns
+  - "DL-20"  # References game system
+
+blocks:
+  - "P-4"    # Player action use case
+  - "P-9"    # Dice roll mechanics
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/resolutions.py"
+      - "packages/data-layer/tests/test_tools/test_resolution_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_create_resolution"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["turn_id", "scene_id", "story_id", "actor_id", "action", "action_type", "resolution_type", "mechanics", "success_level", "margin?", "effects?", "description?"]
+
+      - name: "mongodb_get_resolution"
+        authority: ["*"]
+        params: ["resolution_id"]
+
+      - name: "mongodb_list_resolutions"
+        authority: ["*"]
+        params: ["scene_id?", "turn_id?", "actor_id?", "action_type?", "success_level?", "limit?", "offset?"]
+
+      - name: "mongodb_update_resolution"
+        authority: ["Orchestrator", "CanonKeeper"]
+        params: ["resolution_id", "effects?", "description?", "gm_notes?"]
+
+      - name: "mongodb_delete_resolution"
+        authority: ["CanonKeeper"]
+        params: ["resolution_id"]
+
+  patterns:
+    - "resolutions collection schema in DATA_LAYER_USE_CASES.md"
+    - "Action types enum: combat, skill, social, exploration, magic, other"
+    - "Resolution types enum: dice, card, narrative, deterministic, contested"
+    - "Success levels enum: critical_success, success, partial_success, failure, critical_failure"
+    - "Mechanics structure: {game_system_id, formula, modifiers[], target, roll{}}"
+    - "Roll structure: {raw_rolls[], kept_rolls[], total, natural, critical, fumble}"
+    - "Effects structure: {effect_type, target_id, magnitude, damage_type?, condition?, duration, description}"
+
+  notes: |
+    - This is PURE DATA STORAGE - no dice rolling or evaluation logic
+    - Dice rolling algorithm lives in agents layer utilities
+    - Success evaluation logic lives in agents layer utilities
+    - Damage calculation lives in agents layer utilities
+    - Effect application lives in agents layer utilities
+    - The resolution record is the OUTPUT of agents layer processing
+
+testing:
+  unit_tests:
+    - "test_create_resolution_success: resolution created"
+    - "test_create_resolution_all_fields: all fields stored correctly"
+    - "test_get_resolution: returns full resolution"
+    - "test_list_by_scene: scene_id filter works"
+    - "test_list_by_turn: turn_id filter works"
+    - "test_list_by_actor: actor_id filter works"
+    - "test_list_by_success_level: success_level filter works"
+    - "test_update_resolution: effects and notes updated"
+    - "test_delete_resolution: resolution removed"
+    - "test_contested_resolution: opposed roll data stored"
+    - "test_card_resolution: card_draw data stored"
+
+  integration_tests:
+    - "test_resolution_linked_to_turn: turn_id reference valid"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "mongodb"
+    - "priority-critical"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/DATA_LAYER_USE_CASES.md#dl-24"
+
+  code:
+    - "packages/data-layer/src/monitor_data/schemas/scenes.py"

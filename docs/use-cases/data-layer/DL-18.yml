@@ -1,0 +1,126 @@
+# DL-18: Manage Change Log (Event Sourcing)
+# ==========================================
+
+id: "DL-18"
+title: "Manage Change Log (Event Sourcing)"
+category: "data-layer"
+epic: 0
+priority: "high"
+status: "todo"
+
+summary: |
+  Implement append-only change log in MongoDB for recording all changes to canonical
+  data. Provides audit trail and enables historical state reconstruction. All Neo4j
+  write operations automatically log to this collection. Supports filtering by subject,
+  time range, change type, and author.
+
+acceptance_criteria:
+  - "mongodb_log_change creates append-only change record"
+  - "All Neo4j write operations auto-capture to change_log"
+  - "Change records include subject_type, subject_id, change_type"
+  - "Change records include old_value and new_value"
+  - "Change records include author and authority level"
+  - "Change records include evidence_type and evidence_id"
+  - "Related changes grouped by transaction_id"
+  - "mongodb_get_change_history returns paginated history for subject"
+  - "mongodb_get_changes_by_time returns changes in time range"
+  - "mongodb_get_changes_by_author returns changes by specific author"
+  - "Indexes on subject_id+timestamp, timestamp, transaction_id, author"
+  - "Collection is append-only (no updates or deletes)"
+  - "Unit tests achieve >= 80% coverage"
+
+depends_on:
+  - "DL-1"   # Change log tracks universe-scoped data
+  - "DL-2"   # Tracks entity changes
+  - "DL-3"   # Tracks fact/event changes
+  - "DL-4"   # Scenes and turns as evidence
+
+blocks:
+  - "DL-19"  # Historical queries depend on change log
+  - "M-32"   # Audit trail UI
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/change_log.py"
+      - "packages/data-layer/tests/test_tools/test_change_log_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_log_change"
+        authority: ["*"]
+        params: ["subject_type", "subject_id", "change_type", "old_value", "new_value", "author", "evidence_type?", "evidence_id?", "transaction_id?", "reason?"]
+
+      - name: "mongodb_get_change_history"
+        authority: ["*"]
+        params: ["subject_type", "subject_id", "limit?", "offset?", "start_time?", "end_time?"]
+
+      - name: "mongodb_get_changes_by_time"
+        authority: ["*"]
+        params: ["start_time", "end_time", "subject_type?", "limit?", "offset?"]
+
+      - name: "mongodb_get_changes_by_author"
+        authority: ["*"]
+        params: ["author", "limit?", "offset?", "start_time?", "end_time?"]
+
+      - name: "mongodb_get_transaction_changes"
+        authority: ["*"]
+        params: ["transaction_id"]
+
+  patterns:
+    - "Append-only collection - NEVER update or delete records"
+    - "Auto-capture in middleware for all Neo4j writes"
+    - "Transaction grouping for atomic multi-change operations"
+    - "Change types: created, updated, deleted, state_tag_added, state_tag_removed, relationship_added, relationship_removed, reverted"
+    - "Authority levels: source, gm, player, system"
+
+  notes: |
+    - This is the foundation for event sourcing pattern
+    - All write operations MUST call log_change() before returning
+    - Middleware integration ensures no writes escape logging
+    - Field_path uses dot notation: "properties.hp", "state_tags"
+    - For complex changes, store full state_before/state_after snapshots
+    - Keep change records forever for compliance and debugging
+
+testing:
+  unit_tests:
+    - "test_log_change_success: creates change record"
+    - "test_log_change_fields: all required fields present"
+    - "test_get_history_by_subject: returns changes for entity"
+    - "test_get_history_pagination: limit/offset works"
+    - "test_get_changes_by_time: time range filter works"
+    - "test_get_changes_by_author: author filter works"
+    - "test_transaction_grouping: related changes grouped"
+    - "test_indexes_exist: required indexes created"
+
+  integration_tests:
+    - "test_neo4j_write_logs_change: entity create logs automatically"
+    - "test_update_logs_old_and_new: both values captured"
+    - "test_multiple_changes_same_transaction: atomic grouping"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-0"
+    - "data-layer"
+    - "mongodb"
+    - "priority-high"
+    - "event-sourcing"
+
+  milestone: "EPIC 0: Data Layer Access"
+
+references:
+  docs:
+    - "docs/DATA_LAYER_USE_CASES.md#dl-18"
+    - "docs/architecture/DATABASE_INTEGRATION.md"
+
+  code:
+    - "packages/data-layer/src/monitor_data/db/mongodb.py"
+    - "packages/data-layer/src/monitor_data/middleware/auth.py"

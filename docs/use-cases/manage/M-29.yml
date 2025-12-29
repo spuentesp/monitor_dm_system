@@ -1,0 +1,133 @@
+# M-29: View Scene
+# ================
+
+id: "M-29"
+title: "View Scene"
+category: "manage"
+epic: 6
+priority: "medium"
+status: "todo"
+
+summary: |
+  Display detailed information about a scene including location, participants,
+  full turn log, and proposals generated during the scene.
+
+actor: "User"
+trigger: "Scene -> View or Manage -> Scene -> View <UUID>"
+
+flow:
+  - "Retrieve Scene by ID"
+  - "Display: title, purpose, status, location"
+  - "Show participating entities"
+  - "Display turn log (scrollable)"
+  - "Show proposals created during scene"
+  - "Show facts established"
+  - "Display available actions (Continue, Export, Delete)"
+
+acceptance_criteria:
+  - "mongodb_get_scene returns full scene data"
+  - "Turn log displays speaker and text for each turn"
+  - "Participating entities linked to their views"
+  - "Location displayed with link"
+  - "Proposals listed with status"
+  - "Facts established during scene shown"
+
+depends_on:
+  - "DL-4"  # Story/Scene/Turn CRUD
+  - "M-28"  # List Scenes
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/scene.py"
+
+  cli_commands:
+    - command: "monitor manage scene view <UUID>"
+      description: "View scene details"
+    - command: "monitor manage scene view <UUID> --turns"
+      description: "Show full turn log"
+    - command: "monitor manage scene view <UUID> --export md"
+      description: "Export as markdown"
+
+  database_operations:
+    mongodb:
+      - name: "mongodb_get_scene"
+        collection: "scenes"
+      - name: "mongodb_get_turns"
+        collection: "scenes"
+      - name: "mongodb_list_proposals"
+        collection: "proposed_changes"
+
+  output_format: |
+    ══════════════════════════════════════════════════════════
+    SCENE: The Council of Elrond
+    ══════════════════════════════════════════════════════════
+
+    Story: The Fellowship's Journey
+    Purpose: Social / Decision
+    Status: completed
+    Location: Rivendell - House of Elrond
+
+    ─────────────────────────────────────────────────────────
+    PARTICIPANTS
+    ─────────────────────────────────────────────────────────
+      Frodo (PC), Gandalf, Elrond, Aragorn, Legolas, Gimli,
+      Boromir, Bilbo, Glorfindel
+
+    ─────────────────────────────────────────────────────────
+    TURN LOG (24 turns)
+    ─────────────────────────────────────────────────────────
+      [GM] The great hall of Elrond is filled with the
+           representatives of the free peoples...
+      [Frodo] I will take the Ring to Mordor.
+      [Gandalf] I will help you bear this burden...
+      ... (21 more turns)
+
+    ─────────────────────────────────────────────────────────
+    ESTABLISHED FACTS
+    ─────────────────────────────────────────────────────────
+      • The Fellowship of the Ring was formed
+      • Frodo accepted the quest to destroy the Ring
+
+    ─────────────────────────────────────────────────────────
+    ACTIONS: [C]ontinue  [E]xport  [D]elete  [B]ack
+
+  patterns:
+    - "Use Rich library for formatted output"
+    - "Paginate turn log for long scenes"
+
+  notes: |
+    - Export useful for sharing recaps
+    - Consider audio/video export for recorded sessions
+
+testing:
+  unit_tests:
+    - "test_view_scene_full: all details shown"
+    - "test_view_scene_turns: turn log displayed"
+    - "test_view_scene_participants: entities listed"
+    - "test_view_scene_export: export works"
+
+  integration_tests:
+    - "test_view_scene_cli: CLI output formatted"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-6"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 6: Session & Timeline"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-29-view-scene"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/scenes.py"
