@@ -1,0 +1,124 @@
+# M-12: Create Entity
+# ===================
+
+id: "M-12"
+title: "Create Entity"
+category: "manage"
+epic: 3
+priority: "high"
+status: "todo"
+
+summary: |
+  Generic entity creation that routes to type-specific handlers based on
+  entity type selection. Serves as the entry point for creating characters,
+  locations, factions, objects, and concepts.
+
+actor: "User"
+trigger: "Manage -> Entities -> Create"
+
+flow:
+  - "Select universe"
+  - "Select entity type (character, location, faction, object, concept)"
+  - "Route to type-specific handler"
+  - "Return to entity list after creation"
+
+acceptance_criteria:
+  - "Entity type selection presented with descriptions"
+  - "Routing to correct handler based on type"
+  - "Character -> M-13"
+  - "Location -> M-14"
+  - "Faction/Organization -> M-15"
+  - "Object -> M-17"
+  - "Concept -> M-18"
+  - "Universe selection validates universe exists"
+
+depends_on:
+  - "DL-2"  # Entity CRUD
+  - "M-4"   # Universe must exist
+
+blocks:
+  - "M-13"  # Create Character
+  - "M-14"  # Create Location
+  - "M-15"  # Create Faction
+  - "M-17"  # Create Object
+  - "M-18"  # Create Concept
+
+implementation:
+  layer: 3
+
+  files:
+    create:
+      - "packages/cli/src/monitor_cli/commands/manage/entity.py"
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/__init__.py"
+
+  cli_commands:
+    - command: "monitor manage entity create"
+      description: "Interactive entity creation"
+    - command: "monitor manage entity create --universe <UUID> --type character"
+      description: "Direct to type-specific handler"
+
+  entity_types:
+    - type: "character"
+      description: "Persons, creatures, beings with agency"
+      handler: "M-13"
+    - type: "location"
+      description: "Places, regions, buildings, realms"
+      handler: "M-14"
+    - type: "faction"
+      description: "Groups, organizations, political entities"
+      handler: "M-15"
+    - type: "object"
+      description: "Items, artifacts, equipment"
+      handler: "M-17"
+    - type: "concept"
+      description: "Abstract ideas, magic systems, religions"
+      handler: "M-18"
+
+  routing_logic: |
+    ENTITY_HANDLERS = {
+        EntityType.CHARACTER: create_character,    # M-13
+        EntityType.LOCATION: create_location,      # M-14
+        EntityType.FACTION: create_faction,        # M-15
+        EntityType.OBJECT: create_object,          # M-17
+        EntityType.CONCEPT: create_concept,        # M-18
+        EntityType.ORGANIZATION: create_faction,   # Same as faction
+    }
+
+  patterns:
+    - "Use factory pattern for entity creation"
+    - "Route to specialized handlers"
+
+  notes: |
+    - This is a routing use case, not a direct creation
+    - Each type has specific fields and validation
+
+testing:
+  unit_tests:
+    - "test_entity_type_selection: all types available"
+    - "test_entity_routing_character: routes to M-13"
+    - "test_entity_routing_location: routes to M-14"
+    - "test_entity_universe_validation: bad universe rejected"
+
+  integration_tests:
+    - "test_entity_create_cli: CLI routing works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-3"
+    - "manage"
+    - "cli"
+    - "priority-high"
+
+  milestone: "EPIC 3: Character & Identity"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-12-create-entity"
+    - "docs/ontology/ONTOLOGY.md#22-entities"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/entities.py"

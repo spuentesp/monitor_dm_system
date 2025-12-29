@@ -1,0 +1,165 @@
+# M-4: Create Universe
+# ====================
+
+id: "M-4"
+title: "Create Universe"
+category: "manage"
+epic: 1
+priority: "high"
+status: "todo"
+
+summary: |
+  Create a new Universe within a Multiverse. A Universe is a self-contained
+  fictional world with its own genre, tone, technology level, and internal
+  consistency. All entities, facts, and stories exist within a Universe.
+
+actor: "User"
+trigger: "Manage -> Universes -> Create"
+
+flow:
+  - "Select multiverse (or create new -> M-2)"
+  - "Prompt: Universe name"
+  - "Prompt: Genre (fantasy, sci-fi, horror, modern, etc.)"
+  - "Prompt: Tone (serious, humorous, dark, epic)"
+  - "Prompt: Tech level (medieval, renaissance, modern, futuristic)"
+  - "Prompt: Description"
+  - "Create Universe node in Neo4j"
+  - "Link to Multiverse with CONTAINS edge"
+  - "Confirm creation with universe_id"
+
+acceptance_criteria:
+  - "neo4j_create_universe creates node with all required fields"
+  - "Multiverse selection validates multiverse exists"
+  - "Genre, tone, tech_level use predefined enums"
+  - "Universe linked to Multiverse via CONTAINS relationship"
+  - "Name uniqueness enforced within Multiverse"
+  - "CLI supports both interactive and flag-based modes"
+  - "Pydantic validation rejects invalid inputs"
+  - "Unit tests cover success, validation, and duplicate handling"
+
+depends_on:
+  - "DL-1"  # Universe/Multiverse CRUD
+  - "M-2"   # Multiverse must exist to contain Universe
+
+blocks:
+  - "M-12"  # Entities need Universe
+  - "M-23"  # Axioms need Universe
+  - "P-1"   # Stories need Universe
+
+implementation:
+  layer: 3
+
+  files:
+    create:
+      - "packages/cli/src/monitor_cli/commands/manage/universe.py"
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/__init__.py"
+
+  cli_commands:
+    - command: "monitor manage universe create"
+      description: "Interactive universe creation"
+    - command: "monitor manage universe create --multiverse <UUID> --name 'Middle-earth' --genre fantasy --tone epic --tech medieval"
+      description: "Flag-based creation"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_universe"
+        authority: ["CanonKeeper"]
+        cypher: |
+          MATCH (m:Multiverse {id: $multiverse_id})
+          CREATE (u:Universe {
+            id: $id,
+            multiverse_id: $multiverse_id,
+            name: $name,
+            description: $description,
+            genre: $genre,
+            tone: $tone,
+            tech_level: $tech_level,
+            canon_level: 'canon',
+            created_at: datetime()
+          })
+          CREATE (m)-[:CONTAINS]->(u)
+          RETURN u
+
+  validation:
+    enums:
+      Genre:
+        - "fantasy"
+        - "sci-fi"
+        - "horror"
+        - "modern"
+        - "historical"
+        - "superhero"
+        - "post-apocalyptic"
+        - "steampunk"
+        - "cyberpunk"
+        - "other"
+      Tone:
+        - "serious"
+        - "humorous"
+        - "dark"
+        - "epic"
+        - "lighthearted"
+        - "gritty"
+        - "whimsical"
+      TechLevel:
+        - "primitive"
+        - "medieval"
+        - "renaissance"
+        - "industrial"
+        - "modern"
+        - "near-future"
+        - "futuristic"
+        - "mixed"
+        - "magical"
+
+    pydantic_model: |
+      class CreateUniverseParams(BaseModel):
+          multiverse_id: UUID
+          name: str = Field(min_length=1, max_length=100)
+          genre: Genre
+          tone: Tone
+          tech_level: TechLevel
+          description: str = Field(max_length=2000, default="")
+
+  patterns:
+    - "Follow DL-1 universe creation pattern"
+    - "Use CanonKeeper authority for writes"
+
+  notes: |
+    - Universe is the main container for all world content
+    - Genre/tone/tech help LLM maintain consistency
+    - Consider adding axiom templates based on genre
+
+testing:
+  unit_tests:
+    - "test_create_universe_success: valid params creates node"
+    - "test_create_universe_invalid_multiverse: bad multiverse_id fails"
+    - "test_create_universe_invalid_genre: bad genre rejected"
+    - "test_create_universe_duplicate: duplicate name fails"
+    - "test_create_universe_missing_required: missing name fails"
+
+  integration_tests:
+    - "test_universe_lifecycle: create, verify, access in database"
+    - "test_universe_cli_interactive: CLI prompts work"
+    - "test_universe_cli_flags: Flag-based creation works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "manage"
+    - "cli"
+    - "priority-high"
+
+  milestone: "EPIC 1: World & Multiverse"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#21-world-structure"
+    - "docs/USE_CASES.md#m-4-create-universe"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/universe.py"

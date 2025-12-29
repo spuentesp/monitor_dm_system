@@ -1,0 +1,132 @@
+# M-6: View Universe
+# ==================
+
+id: "M-6"
+title: "View Universe"
+category: "manage"
+epic: 1
+priority: "medium"
+status: "todo"
+
+summary: |
+  Display detailed information about a specific Universe including metadata,
+  entity counts by type, recent stories, sources, and activity. Provides
+  navigation to related management actions.
+
+actor: "User"
+trigger: "Select universe from list or Manage -> Universe -> View <UUID>"
+
+flow:
+  - "Retrieve Universe by ID or name"
+  - "Display basic info (name, genre, tone, tech level, description)"
+  - "Show entity counts grouped by type (characters, locations, factions)"
+  - "List recent stories (top 5)"
+  - "List sources (top 5)"
+  - "Show recent activity (last 5 events)"
+  - "Display available actions (Edit, Delete, Explore, Start Story)"
+
+acceptance_criteria:
+  - "neo4j_get_universe returns full universe data"
+  - "neo4j_get_universe_stats returns counts by entity type"
+  - "Universe can be retrieved by ID or exact name"
+  - "Entity counts grouped by type (character, location, faction, etc.)"
+  - "Stories listed with status and scene count"
+  - "Sources listed with document count"
+  - "Actions displayed as interactive options in CLI"
+
+depends_on:
+  - "DL-1"  # Universe/Multiverse CRUD
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/universe.py"
+
+  cli_commands:
+    - command: "monitor manage universe view <UUID>"
+      description: "View universe by ID"
+    - command: "monitor manage universe view --name 'Middle-earth'"
+      description: "View universe by name"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_universe"
+        authority: ["*"]
+      - name: "neo4j_get_universe_stats"
+        authority: ["*"]
+        cypher: |
+          MATCH (u:Universe {id: $universe_id})
+          OPTIONAL MATCH (u)-[:HAS_ENTITY]->(e:EntityInstance)
+          WHERE e.canon_level <> 'retconned'
+          WITH u, e.entity_type AS type, count(e) AS count
+          RETURN u, collect({type: type, count: count}) AS entity_counts
+      - name: "neo4j_list_stories"
+        authority: ["*"]
+      - name: "neo4j_list_sources"
+        authority: ["*"]
+
+  output_format: |
+    ══════════════════════════════════════════════════════════
+    UNIVERSE: Middle-earth
+    ══════════════════════════════════════════════════════════
+
+    Genre: Fantasy          Tone: Epic
+    Tech Level: Medieval    Canon: canon
+
+    Description:
+      The world of J.R.R. Tolkien's legendarium, home to hobbits,
+      elves, dwarves, and the epic struggle against Sauron.
+
+    ─────────────────────────────────────────────────────────
+    ENTITIES (127 total)
+    ─────────────────────────────────────────────────────────
+      Characters: 45    Locations: 38    Factions: 12
+      Objects: 22       Concepts: 10
+
+    ─────────────────────────────────────────────────────────
+    RECENT STORIES
+    ─────────────────────────────────────────────────────────
+      1. The Fellowship's Journey    [active]    12 scenes
+      2. Scouring of the Shire       [completed] 8 scenes
+
+    ─────────────────────────────────────────────────────────
+    ACTIONS: [E]dit  [D]elete  [S]tart Story  [Q]uery  [B]ack
+
+  patterns:
+    - "Use Rich library for formatted output"
+    - "Follow detail view patterns"
+
+  notes: |
+    - Consider lazy loading for large stats
+    - Add --json flag for machine-readable output
+
+testing:
+  unit_tests:
+    - "test_view_universe_by_id: returns full details"
+    - "test_view_universe_by_name: name lookup works"
+    - "test_view_universe_not_found: 404 handled gracefully"
+    - "test_view_universe_stats: entity counts correct"
+
+  integration_tests:
+    - "test_view_universe_cli: CLI output formatted correctly"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 1: World & Multiverse"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-6-view-universe"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

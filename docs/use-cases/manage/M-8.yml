@@ -1,0 +1,134 @@
+# M-8: Delete Universe
+# ====================
+
+id: "M-8"
+title: "Delete Universe"
+category: "manage"
+epic: 1
+priority: "medium"
+status: "todo"
+
+summary: |
+  Soft-delete a Universe and all its contents by setting canon_level to
+  'retconned'. Requires confirmation and displays impact warning.
+  Hard delete available with --hard flag for admin use.
+
+actor: "User"
+trigger: "Universe -> Delete or Manage -> Universe -> Delete <UUID>"
+
+flow:
+  - "Retrieve Universe statistics (story count, entity count)"
+  - "Display warning: 'This will affect X stories, Y entities, Z facts'"
+  - "Require confirmation (type universe name to confirm)"
+  - "Soft delete: set canon_level = 'retconned' on all nodes"
+  - "Set deleted_at timestamp"
+  - "Confirm deletion"
+
+acceptance_criteria:
+  - "Impact warning shows accurate counts"
+  - "Confirmation requires typing exact universe name"
+  - "Soft delete sets canon_level = 'retconned' on universe"
+  - "Soft delete cascades to all child nodes (entities, facts, stories)"
+  - "deleted_at timestamp set on all affected nodes"
+  - "Soft-deleted universes excluded from normal queries"
+  - "Hard delete (--hard) permanently removes nodes (admin only)"
+  - "Hard delete requires double confirmation"
+
+depends_on:
+  - "DL-1"  # Universe/Multiverse CRUD
+  - "M-6"   # View Universe
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/universe.py"
+
+  cli_commands:
+    - command: "monitor manage universe delete <UUID>"
+      description: "Soft delete (retcon)"
+    - command: "monitor manage universe delete <UUID> --hard"
+      description: "Permanent delete (admin)"
+    - command: "monitor manage universe delete <UUID> --force"
+      description: "Skip confirmation (dangerous)"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_universe_stats"
+        authority: ["*"]
+      - name: "neo4j_soft_delete_universe"
+        authority: ["CanonKeeper"]
+        cypher: |
+          MATCH (u:Universe {id: $universe_id})
+          SET u.canon_level = 'retconned', u.deleted_at = datetime()
+          WITH u
+          OPTIONAL MATCH (u)-[:HAS_STORY]->(s:Story)
+          SET s.canon_level = 'retconned', s.deleted_at = datetime()
+          WITH u
+          OPTIONAL MATCH (u)-[:HAS_ENTITY]->(e)
+          SET e.canon_level = 'retconned', e.deleted_at = datetime()
+          WITH u
+          OPTIONAL MATCH (u)-[:HAS_AXIOM]->(a:Axiom)
+          SET a.canon_level = 'retconned', a.deleted_at = datetime()
+          RETURN count(*) AS affected_nodes
+      - name: "neo4j_hard_delete_universe"
+        authority: ["CanonKeeper"]
+        cypher: |
+          MATCH (u:Universe {id: $universe_id})
+          OPTIONAL MATCH (u)-[r]-()
+          DELETE r
+          WITH u
+          DETACH DELETE u
+          RETURN true AS deleted
+
+  confirmation_flow: |
+    ⚠️  WARNING: Delete Universe 'Middle-earth'
+
+    This will affect:
+      • 3 stories (12 scenes)
+      • 127 entities
+      • 456 facts
+      • 38 axioms
+
+    Type 'Middle-earth' to confirm deletion: _
+
+  patterns:
+    - "Use transactions for cascade operations"
+    - "Always prefer soft delete"
+
+  notes: |
+    - Soft delete is reversible (set canon_level back to 'canon')
+    - Consider adding neo4j_restore_universe for undo
+    - Hard delete should be rare and logged
+
+testing:
+  unit_tests:
+    - "test_soft_delete_universe: sets retconned status"
+    - "test_soft_delete_cascades: child nodes also retconned"
+    - "test_delete_confirmation_required: fails without confirm"
+    - "test_hard_delete: permanently removes nodes"
+    - "test_delete_not_found: 404 handled gracefully"
+
+  integration_tests:
+    - "test_delete_universe_cli: CLI confirmation flow works"
+    - "test_deleted_universe_hidden: excluded from queries"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 1: World & Multiverse"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-8-delete-universe"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

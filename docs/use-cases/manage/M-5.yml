@@ -1,0 +1,118 @@
+# M-5: List Universes
+# ===================
+
+id: "M-5"
+title: "List Universes"
+category: "manage"
+epic: 1
+priority: "medium"
+status: "todo"
+
+summary: |
+  Display all Universes with summary information including story and entity
+  counts. Supports filtering by multiverse, genre, and sorting options.
+
+actor: "User"
+trigger: "Manage -> Universes"
+
+flow:
+  - "Query all Universes (optionally filtered by multiverse)"
+  - "For each, count stories and entities"
+  - "Display table: Name, Genre, Stories, Entities"
+  - "Support filtering by multiverse, genre"
+  - "Support sorting by name, genre, counts"
+  - "Allow selection to view details (-> M-6)"
+
+acceptance_criteria:
+  - "neo4j_list_universes returns all universes with counts"
+  - "Table displays name, genre, story_count, entity_count"
+  - "Filter by multiverse_id works correctly"
+  - "Filter by genre works correctly"
+  - "Retconned universes excluded by default"
+  - "Sorting works by name (default), genre, counts"
+  - "Pagination supported (--limit, --offset)"
+  - "Empty state shows appropriate message"
+
+depends_on:
+  - "DL-1"  # Universe/Multiverse CRUD
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/universe.py"
+
+  cli_commands:
+    - command: "monitor manage universe list"
+      description: "List all universes"
+    - command: "monitor manage universe list --multiverse <UUID>"
+      description: "Filter by multiverse"
+    - command: "monitor manage universe list --genre fantasy"
+      description: "Filter by genre"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_list_universes"
+        authority: ["*"]
+        cypher: |
+          MATCH (u:Universe)
+          WHERE u.canon_level <> 'retconned'
+            AND ($multiverse_id IS NULL OR u.multiverse_id = $multiverse_id)
+            AND ($genre IS NULL OR u.genre = $genre)
+          OPTIONAL MATCH (u)-[:HAS_STORY]->(s:Story)
+          WHERE s.canon_level <> 'retconned'
+          OPTIONAL MATCH (u)-[:HAS_ENTITY]->(e:EntityInstance)
+          WHERE e.canon_level <> 'retconned'
+          RETURN u.id, u.name, u.genre, u.tone,
+                 count(DISTINCT s) AS story_count,
+                 count(DISTINCT e) AS entity_count
+          ORDER BY u.name
+          SKIP $offset LIMIT $limit
+
+  output_format: |
+    Universes
+    ─────────────────────────────────────────────────────────
+     # │ Name              │ Genre    │ Stories │ Entities
+    ───┼───────────────────┼──────────┼─────────┼──────────
+     1 │ Middle-earth      │ Fantasy  │ 3       │ 127
+     2 │ Forgotten Realms  │ Fantasy  │ 1       │ 456
+     3 │ Cyberpunk 2077    │ Cyberpunk│ 2       │ 89
+
+  patterns:
+    - "Use Rich library for table formatting"
+    - "Follow existing list command patterns"
+
+  notes: |
+    - Entity count may be expensive for large worlds - consider caching
+    - Show --include-retconned flag for admin access
+
+testing:
+  unit_tests:
+    - "test_list_universes_all: returns all non-retconned"
+    - "test_list_universes_by_multiverse: filter works"
+    - "test_list_universes_by_genre: filter works"
+    - "test_list_universes_pagination: limit/offset work"
+    - "test_list_universes_empty: empty list handled"
+
+  integration_tests:
+    - "test_list_universes_cli: CLI output formatted correctly"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 1: World & Multiverse"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-5-list-universes"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

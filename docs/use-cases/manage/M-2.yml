@@ -1,0 +1,118 @@
+# M-2: Create Multiverse
+# ======================
+
+id: "M-2"
+title: "Create Multiverse"
+category: "manage"
+epic: 1
+priority: "high"
+status: "todo"
+
+summary: |
+  Create a new Multiverse node under the Omniverse. A Multiverse groups related
+  Universes that share a game system or thematic connection. Each Multiverse
+  can have its own rule system (D&D 5e, Pathfinder, etc.).
+
+actor: "User"
+trigger: "Manage -> Multiverses -> Create"
+
+flow:
+  - "Prompt: Multiverse name"
+  - "Prompt: System name (D&D 5e, Pathfinder, etc.)"
+  - "Prompt: Description"
+  - "Create Multiverse node in Neo4j"
+  - "Link to Omniverse with CONTAINS edge"
+  - "Confirm creation"
+
+acceptance_criteria:
+  - "neo4j_create_multiverse creates node with required fields"
+  - "Multiverse is linked to Omniverse via CONTAINS relationship"
+  - "Name validation prevents duplicates within Omniverse"
+  - "System name is stored for rule system reference"
+  - "CLI provides both interactive and flag-based creation"
+  - "Success confirmation displays multiverse_id"
+  - "Unit tests cover success and validation failures"
+
+depends_on:
+  - "DL-1"  # Universe/Multiverse CRUD
+  - "M-1"   # Omniverse must exist
+
+blocks:
+  - "M-4"  # Create Universe needs Multiverse
+
+implementation:
+  layer: 3
+
+  files:
+    create:
+      - "packages/cli/src/monitor_cli/commands/manage/multiverse.py"
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/__init__.py"
+
+  cli_commands:
+    - command: "monitor manage multiverse create"
+      description: "Interactive multiverse creation"
+    - command: "monitor manage multiverse create --name 'D&D Worlds' --system 'D&D 5e'"
+      description: "Flag-based creation"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_multiverse"
+        authority: ["CanonKeeper"]
+        cypher: |
+          MATCH (o:Omniverse)
+          CREATE (m:Multiverse {
+            id: $id,
+            name: $name,
+            system_name: $system_name,
+            description: $description,
+            created_at: datetime()
+          })
+          CREATE (o)-[:CONTAINS]->(m)
+          RETURN m
+
+  validation:
+    pydantic_model: |
+      class CreateMultiverseParams(BaseModel):
+          name: str = Field(min_length=1, max_length=100)
+          system_name: str = Field(max_length=50)
+          description: str = Field(max_length=2000, default="")
+
+  patterns:
+    - "Follow DL-1 creation pattern"
+    - "Use CanonKeeper authority for writes"
+
+  notes: |
+    - System name helps link to RS-* (Rules System) use cases
+    - Consider adding system validation against known systems
+
+testing:
+  unit_tests:
+    - "test_create_multiverse_success: valid params creates node"
+    - "test_create_multiverse_duplicate: duplicate name fails"
+    - "test_create_multiverse_missing_omniverse: fails gracefully"
+    - "test_create_multiverse_validation: invalid params rejected"
+
+  integration_tests:
+    - "test_multiverse_lifecycle: create and verify in database"
+    - "test_multiverse_cli: CLI command works correctly"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "manage"
+    - "cli"
+    - "priority-high"
+
+  milestone: "EPIC 1: World & Multiverse"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#21-world-structure"
+    - "docs/USE_CASES.md#m-2-create-multiverse"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
+    - "packages/data-layer/src/monitor_data/schemas/universe.py"

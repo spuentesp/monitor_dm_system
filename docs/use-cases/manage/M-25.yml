@@ -1,0 +1,92 @@
+# M-25: Edit Axiom
+# ================
+
+id: "M-25"
+title: "Edit Axiom"
+category: "manage"
+epic: 1
+priority: "medium"
+status: "todo"
+
+summary: |
+  Modify an existing axiom's statement, type, scope, or exceptions.
+  Changing axioms may affect world consistency, so warnings are shown.
+
+actor: "User"
+trigger: "Axiom -> Edit or Manage -> Axiom -> Edit <UUID>"
+
+flow:
+  - "Retrieve current Axiom data"
+  - "Display current values"
+  - "Allow editing: statement, type, scope, exceptions"
+  - "Show warning if axiom is referenced by facts/events"
+  - "Update Neo4j node"
+  - "Confirm changes"
+
+acceptance_criteria:
+  - "neo4j_update_axiom updates specified fields"
+  - "Warning shown if axiom has dependent facts"
+  - "Statement changes logged for history"
+  - "updated_at timestamp set"
+  - "Exceptions list can be modified"
+
+depends_on:
+  - "DL-13" # Axioms CRUD
+  - "M-24"  # List Axioms
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/axiom.py"
+
+  cli_commands:
+    - command: "monitor manage axiom edit <UUID>"
+      description: "Interactive edit"
+    - command: "monitor manage axiom edit <UUID> --add-exception 'Except for Maiar'"
+      description: "Add exception"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_axiom"
+        authority: ["*"]
+      - name: "neo4j_update_axiom"
+        authority: ["CanonKeeper"]
+
+  patterns:
+    - "Use COALESCE for optional updates"
+    - "Log axiom changes for history"
+
+  notes: |
+    - Changing axioms is significant - consider requiring reason
+    - May want to version axioms instead of overwrite
+
+testing:
+  unit_tests:
+    - "test_edit_axiom_statement: statement updates"
+    - "test_edit_axiom_exception: exception added"
+    - "test_edit_axiom_type: type changes"
+    - "test_edit_axiom_warning: dependent facts trigger warning"
+
+  integration_tests:
+    - "test_edit_axiom_cli: CLI edit flow works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 1: World & Multiverse"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-25-edit-axiom"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

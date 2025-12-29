@@ -1,0 +1,104 @@
+# M-1: Manage Omniverse
+# ======================
+
+id: "M-1"
+title: "Manage Omniverse"
+category: "manage"
+epic: 1
+priority: "high"
+status: "todo"
+
+summary: |
+  Initialize and manage the root Omniverse node that serves as the top-level
+  container for all Multiverses. The Omniverse is typically a singleton created
+  on first run. Provides view and basic configuration for the root node.
+
+actor: "User"
+trigger: "System initialization or Manage -> Omniverse"
+
+flow:
+  - "Check if Omniverse exists"
+  - "IF not exists: Create singleton Omniverse node"
+  - "Display Omniverse metadata (name, created_at)"
+  - "List child Multiverses with counts"
+  - "Allow editing Omniverse name/description"
+
+acceptance_criteria:
+  - "System auto-creates Omniverse on first run if not exists"
+  - "neo4j_get_omniverse returns the singleton Omniverse node"
+  - "neo4j_ensure_omniverse creates node only if missing"
+  - "Omniverse displays count of child Multiverses"
+  - "User can edit Omniverse name and description"
+  - "Only one Omniverse can exist (singleton enforced)"
+  - "Unit tests cover initialization and retrieval"
+
+depends_on:
+  - "DL-1"  # Multiverse/Universe CRUD must exist
+
+blocks:
+  - "M-2"  # Create Multiverse needs Omniverse
+  - "M-3"  # List Multiverses needs Omniverse
+
+implementation:
+  layer: 3  # CLI layer, calls agents
+
+  files:
+    create:
+      - "packages/cli/src/monitor_cli/commands/manage/omniverse.py"
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/__init__.py"
+      - "packages/agents/src/monitor_agents/orchestrator.py"
+
+  cli_commands:
+    - command: "monitor manage omniverse"
+      description: "View Omniverse details"
+    - command: "monitor manage omniverse edit --name 'New Name'"
+      description: "Edit Omniverse metadata"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_omniverse"
+        authority: ["*"]
+      - name: "neo4j_ensure_omniverse"
+        authority: ["CanonKeeper"]
+      - name: "neo4j_update_omniverse"
+        authority: ["CanonKeeper"]
+
+  patterns:
+    - "Follow CLI command pattern from packages/cli/src/monitor_cli/commands/"
+    - "Use Typer for CLI commands"
+
+  notes: |
+    - Omniverse is created automatically on first system run
+    - Should be a singleton - enforce at database level with constraint
+    - Consider adding neo4j_ensure_omniverse to system startup
+
+testing:
+  unit_tests:
+    - "test_get_omniverse_exists: returns existing omniverse"
+    - "test_ensure_omniverse_creates: creates if missing"
+    - "test_ensure_omniverse_noop: does nothing if exists"
+    - "test_update_omniverse: updates name/description"
+
+  integration_tests:
+    - "test_omniverse_singleton: only one can exist"
+    - "test_omniverse_cli: CLI commands work correctly"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "manage"
+    - "cli"
+    - "priority-high"
+
+  milestone: "EPIC 1: World & Multiverse"
+
+references:
+  docs:
+    - "docs/ontology/ONTOLOGY.md#21-world-structure"
+    - "docs/USE_CASES.md#m-1-manage-omniverse"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

@@ -1,0 +1,149 @@
+# P-4: Resolve Action
+# ===================
+
+id: "P-4"
+title: "Resolve Action"
+category: "play"
+epic: 5
+priority: "high"
+status: "todo"
+
+summary: |
+  Process player-declared actions (attack, skill checks, interactions).
+  Determines resolution type (dice, narrative, auto), executes mechanics,
+  creates proposals for state changes, and returns outcome to narrator.
+
+actor: "User"
+trigger: "User declares action ('I attack', 'I pick the lock', 'I climb')"
+
+flow:
+  - "Parse action intent"
+  - "Identify target entities, difficulty"
+  - "Determine resolution type:"
+  - "  Dice: Roll required (combat, skill checks)"
+  - "  Narrative: GM decides (trivial actions)"
+  - "  Auto-success/fail: Guaranteed outcomes"
+  - "IF dice:"
+  - "  Calculate difficulty (DC)"
+  - "  -> P-9 (Dice roll)"
+  - "  Determine success level"
+  - "Create ProposedChanges (state changes, damage)"
+  - "Narrator describes outcome"
+  - "Return to P-3"
+
+acceptance_criteria:
+  - "Action intent parsed correctly (verb, target, modifiers)"
+  - "Resolution type determined based on context"
+  - "DC calculated considering circumstances"
+  - "Dice rolls executed via P-9"
+  - "Outcome determined (critical_success to critical_failure)"
+  - "ProposedChanges created for state modifications"
+  - "Narrator receives outcome context for description"
+  - "Unit tests cover all resolution types"
+
+depends_on:
+  - "DL-3"  # Facts for state changes
+  - "DL-5"  # Proposed changes
+  - "P-3"   # Turn Loop
+  - "P-9"   # Dice Roll
+
+blocks: []
+
+implementation:
+  layer: 2  # Agents layer
+
+  files:
+    create:
+      - "packages/agents/src/monitor_agents/resolver.py"
+    modify:
+      - "packages/agents/src/monitor_agents/narrator.py"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_entity"
+        authority: ["*"]
+        purpose: "Get target entity state"
+    mongodb:
+      - name: "mongodb_create_resolution"
+        collection: "resolutions"
+      - name: "mongodb_create_proposal"
+        collection: "proposed_changes"
+
+  resolution_types:
+    - "dice"         # Requires roll
+    - "narrative"    # GM decides
+    - "auto_success" # Guaranteed success
+    - "auto_fail"    # Impossible action
+
+  outcomes:
+    - "critical_success"  # Roll >= DC + 10
+    - "success"           # Roll >= DC
+    - "partial"           # Roll >= DC - 5
+    - "failure"           # Roll >= DC - 10
+    - "critical_failure"  # Roll < DC - 10
+
+  resolution_logic: |
+    class Resolver:
+        def determine_resolution_type(action: str, context: Context) -> ResolutionType:
+            if is_combat_action(action):
+                return ResolutionType.DICE
+            if is_trivial(action, context):
+                return ResolutionType.AUTO_SUCCESS
+            if is_impossible(action, context):
+                return ResolutionType.AUTO_FAIL
+            return ResolutionType.DICE
+
+        def calculate_dc(action: str, context: Context) -> int:
+            """DCs: 5 trivial, 10 easy, 15 medium, 20 hard, 25 very hard, 30 impossible"""
+            base_dc = 10
+            modifiers = get_circumstance_modifiers(context)
+            return base_dc + modifiers
+
+        def determine_outcome(roll: int, dc: int) -> Outcome:
+            diff = roll - dc
+            if diff >= 10: return Outcome.CRITICAL_SUCCESS
+            if diff >= 0: return Outcome.SUCCESS
+            if diff >= -5: return Outcome.PARTIAL
+            if diff >= -10: return Outcome.FAILURE
+            return Outcome.CRITICAL_FAILURE
+
+  patterns:
+    - "Resolver handles mechanics"
+    - "Narrator handles description"
+    - "ProposedChanges for state"
+
+  notes: |
+    - DC calculation should consider game system (RS-1)
+    - Combat actions need more detailed handling
+    - Consider advantage/disadvantage mechanics
+
+testing:
+  unit_tests:
+    - "test_parse_action_attack: attack action parsed"
+    - "test_resolution_type_combat: combat -> dice"
+    - "test_resolution_type_trivial: trivial -> auto_success"
+    - "test_calculate_dc: DC calculated correctly"
+    - "test_determine_outcome: outcomes mapped correctly"
+    - "test_proposal_created: state changes proposed"
+
+  integration_tests:
+    - "test_action_full_flow: action -> resolution -> narration"
+    - "test_combat_action: damage applied via proposals"
+
+  coverage_minimum: 85
+
+github:
+  labels:
+    - "epic-5"
+    - "play"
+    - "agents"
+    - "priority-high"
+
+  milestone: "EPIC 5: Rules & Randomization"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#p-4-resolve-action"
+
+  code:
+    - "packages/agents/src/monitor_agents/resolver.py"

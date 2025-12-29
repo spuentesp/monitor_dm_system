@@ -1,0 +1,141 @@
+# M-21: Manage Relationships
+# ==========================
+
+id: "M-21"
+title: "Manage Relationships"
+category: "manage"
+epic: 3
+priority: "high"
+status: "todo"
+
+summary: |
+  Create, view, update, and delete relationships between entities.
+  Supports all relationship types: membership, ownership, social,
+  spatial, and participation. Relationships can have properties.
+
+actor: "User"
+trigger: "Entity -> Add Relationship or Manage -> Relationships"
+
+flow:
+  - "Select source entity"
+  - "Select relationship type"
+  - "Select target entity"
+  - "Add relationship properties (role, since, notes)"
+  - "Create relationship in Neo4j"
+  - "Confirm creation"
+
+acceptance_criteria:
+  - "neo4j_create_relationship creates typed edge between entities"
+  - "All relationship types supported (MEMBER_OF, OWNS, ALLY_OF, etc.)"
+  - "Relationship properties stored (role, since, strength)"
+  - "Bidirectional relationships handled correctly"
+  - "Relationship can be updated (change properties)"
+  - "Relationship can be deleted"
+  - "Duplicate relationships prevented"
+
+depends_on:
+  - "DL-2"  # Entity CRUD
+  - "DL-14" # Relationships CRUD
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    create:
+      - "packages/cli/src/monitor_cli/commands/manage/relationship.py"
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/__init__.py"
+
+  cli_commands:
+    - command: "monitor manage relationship create --from <UUID> --to <UUID> --type ALLY_OF"
+      description: "Create relationship"
+    - command: "monitor manage relationship list --entity <UUID>"
+      description: "List entity relationships"
+    - command: "monitor manage relationship delete --from <UUID> --to <UUID> --type ALLY_OF"
+      description: "Delete relationship"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_relationship"
+        authority: ["CanonKeeper"]
+      - name: "neo4j_list_relationships"
+        authority: ["*"]
+      - name: "neo4j_update_relationship"
+        authority: ["CanonKeeper"]
+      - name: "neo4j_delete_relationship"
+        authority: ["CanonKeeper"]
+
+  relationship_types:
+    membership:
+      - "MEMBER_OF"      # Character belongs to faction
+      - "LEADS"          # Character leads faction
+      - "SERVES"         # Character serves another
+    ownership:
+      - "OWNS"           # Character owns object
+      - "WIELDS"         # Character uses weapon
+      - "WEARS"          # Character wears item
+    social:
+      - "ALLY_OF"        # Friendly relationship
+      - "ENEMY_OF"       # Hostile relationship
+      - "KNOWS"          # Acquaintance
+      - "RELATED_TO"     # Family relation
+      - "LOVES"          # Romantic relationship
+      - "FEARS"          # Fear relationship
+    spatial:
+      - "LOCATED_IN"     # Entity is at location
+      - "CONNECTED_TO"   # Locations connected
+      - "CONTAINS"       # Location contains another
+    participation:
+      - "PARTICIPATED_IN" # Entity in event
+      - "WITNESSED"       # Entity saw event
+      - "CAUSED"          # Entity caused event
+
+  relationship_properties: |
+    class RelationshipProperties(BaseModel):
+        role: Optional[str]  # "leader", "member", "ally"
+        since: Optional[datetime]  # When relationship started
+        strength: Optional[str]  # "weak", "moderate", "strong"
+        notes: Optional[str]
+        is_secret: bool = False  # Hidden from some characters
+
+  patterns:
+    - "Use DL-14 relationship operations"
+    - "Validate entity types for relationship"
+
+  notes: |
+    - Some relationships imply reciprocals (ALLY_OF is mutual)
+    - Consider relationship history tracking
+    - Secret relationships visible only to certain queries
+
+testing:
+  unit_tests:
+    - "test_create_relationship: edge created"
+    - "test_relationship_properties: properties stored"
+    - "test_relationship_types: all types work"
+    - "test_duplicate_prevention: duplicates rejected"
+    - "test_delete_relationship: edge removed"
+
+  integration_tests:
+    - "test_relationship_cli: CLI flow works"
+    - "test_bidirectional: mutual relationships work"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-3"
+    - "manage"
+    - "cli"
+    - "priority-high"
+
+  milestone: "EPIC 3: Character & Identity"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-21-manage-relationships"
+    - "docs/ontology/ONTOLOGY.md#25-relationships"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

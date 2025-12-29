@@ -1,0 +1,120 @@
+# M-18: Create Concept
+# ====================
+
+id: "M-18"
+title: "Create Concept"
+category: "manage"
+epic: 3
+priority: "medium"
+status: "todo"
+
+summary: |
+  Create a concept entity representing abstract ideas, magic systems,
+  religions, philosophies, or other intangible elements of the world.
+  Concepts define the metaphysics and culture of the universe.
+
+actor: "User"
+trigger: "Create Entity -> Concept"
+
+flow:
+  - "Prompt: Name"
+  - "Prompt: Concept type (magic_system, religion, philosophy, custom, language)"
+  - "Prompt: Description"
+  - "Prompt: Scope (universal, regional, cultural)"
+  - "Create EntityInstance in Neo4j"
+  - "Confirm creation"
+
+acceptance_criteria:
+  - "neo4j_create_entity creates concept node with entity_type='concept'"
+  - "Concept type validated against allowed values"
+  - "Scope determines where concept applies"
+  - "Concepts can be linked to axioms for formal rules"
+  - "Concepts can be believed/practiced by characters/factions"
+
+depends_on:
+  - "DL-2"  # Entity CRUD
+  - "M-12"  # Create Entity router
+
+blocks:
+  - "M-23"  # Axioms often tied to concepts
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/entity.py"
+
+  cli_commands:
+    - command: "monitor manage entity create --type concept --universe <UUID>"
+      description: "Interactive concept creation"
+    - command: "monitor manage entity create --type concept --universe <UUID> --name 'The Force'"
+      description: "Quick creation"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_create_entity"
+        authority: ["CanonKeeper"]
+
+  concept_types:
+    - "magic_system"  # How magic works
+    - "religion"      # Deities, practices, beliefs
+    - "philosophy"    # Schools of thought
+    - "custom"        # Cultural practices
+    - "language"      # Communication systems
+    - "technology"    # How tech works in-world
+    - "economy"       # Trade, currency systems
+    - "law"           # Legal systems
+    - "art"           # Artistic traditions
+    - "other"
+
+  concept_scopes:
+    - "universal"     # Applies everywhere in universe
+    - "planar"        # Specific planes/dimensions
+    - "regional"      # Geographic limitation
+    - "cultural"      # Specific cultures/peoples
+    - "individual"    # Single entity belief
+
+  concept_properties: |
+    class ConceptProperties(BaseModel):
+        concept_type: ConceptType
+        scope: ConceptScope
+        practitioners: Optional[str]  # Who uses/believes this
+        origin: Optional[str]  # How it came to be
+        impact: Optional[str]  # Effect on the world
+
+  patterns:
+    - "Follow DL-2 entity creation pattern"
+    - "Link to axioms for formal rules"
+
+  notes: |
+    - Concepts help define universe's internal logic
+    - Magic systems especially important for consistency
+    - Consider linking concepts to sources (where documented)
+
+testing:
+  unit_tests:
+    - "test_create_concept_basic: minimal concept created"
+    - "test_create_concept_types: all types valid"
+    - "test_create_concept_scope: scope stored correctly"
+
+  integration_tests:
+    - "test_concept_with_axiom: concept linked to axiom"
+    - "test_concept_cli: CLI concept creation works"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-3"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 3: Character & Identity"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-18-create-concept"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"

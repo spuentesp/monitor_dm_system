@@ -1,0 +1,140 @@
+# M-16: View Entity
+# =================
+
+id: "M-16"
+title: "View Entity"
+category: "manage"
+epic: 3
+priority: "medium"
+status: "todo"
+
+summary: |
+  Display detailed information about any entity including basic info,
+  type-specific properties, state tags, relationships, related facts,
+  and for characters: character sheet and memories.
+
+actor: "User"
+trigger: "Select entity from list or Manage -> Entity -> View <UUID>"
+
+flow:
+  - "Retrieve Entity by ID"
+  - "Display basic info (name, type, description)"
+  - "Show type-specific properties"
+  - "Display current state tags"
+  - "List relationships (allies, enemies, members, locations)"
+  - "Show facts involving this entity"
+  - "IF character: show character sheet and memories"
+  - "Display available actions (Edit, Delete, Add Relationship)"
+
+acceptance_criteria:
+  - "neo4j_get_entity returns full entity data with relationships"
+  - "Properties displayed based on entity type"
+  - "State tags shown with current values"
+  - "Relationships grouped by type (spatial, social, membership)"
+  - "Facts involving entity listed chronologically"
+  - "Character sheet displayed for characters with sheets"
+  - "Memories listed for characters (recent first)"
+  - "Actions context-appropriate"
+
+depends_on:
+  - "DL-2"  # Entity CRUD
+  - "DL-14" # Relationships
+
+blocks: []
+
+implementation:
+  layer: 3
+
+  files:
+    modify:
+      - "packages/cli/src/monitor_cli/commands/manage/entity.py"
+
+  cli_commands:
+    - command: "monitor manage entity view <UUID>"
+      description: "View entity by ID"
+    - command: "monitor manage entity view --name 'Gandalf' --universe <UUID>"
+      description: "View by name"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_entity"
+        authority: ["*"]
+      - name: "neo4j_list_relationships"
+        authority: ["*"]
+      - name: "neo4j_list_facts"
+        authority: ["*"]
+        params: "entity_id=<id>"
+    mongodb:
+      - name: "mongodb_get_character_sheet"
+        collection: "character_sheets"
+      - name: "mongodb_list_memories"
+        collection: "memories"
+
+  output_format: |
+    ══════════════════════════════════════════════════════════
+    CHARACTER: Gandalf the Grey
+    ══════════════════════════════════════════════════════════
+
+    Type: Character (NPC - ally)
+    Archetype: Wizard
+
+    Description:
+      An Istari wizard, one of the Maiar, sent to Middle-earth
+      to oppose Sauron. Known for his wisdom and fireworks.
+
+    ─────────────────────────────────────────────────────────
+    STATE TAGS: alive, transformed
+    ─────────────────────────────────────────────────────────
+
+    ─────────────────────────────────────────────────────────
+    RELATIONSHIPS
+    ─────────────────────────────────────────────────────────
+      MEMBER_OF:  The Fellowship (role: guide)
+      ALLY_OF:    Frodo, Aragorn, Bilbo
+      ENEMY_OF:   Saruman, Sauron
+      LOCATED_AT: Lothlórien (current)
+
+    ─────────────────────────────────────────────────────────
+    RECENT FACTS
+    ─────────────────────────────────────────────────────────
+      • Fell fighting the Balrog in Moria
+      • Was granted entry to Lothlórien by Galadriel
+
+    ─────────────────────────────────────────────────────────
+    ACTIONS: [E]dit  [D]elete  [R]elationship  [M]emory  [B]ack
+
+  patterns:
+    - "Use Rich library for formatted output"
+    - "Type-specific rendering"
+
+  notes: |
+    - Consider adding --json flag for export
+    - Character sheet only for characters with sheets
+
+testing:
+  unit_tests:
+    - "test_view_entity_character: character details shown"
+    - "test_view_entity_location: location details shown"
+    - "test_view_entity_with_sheet: character sheet displayed"
+    - "test_view_entity_relationships: relationships grouped"
+    - "test_view_entity_not_found: 404 handled gracefully"
+
+  integration_tests:
+    - "test_view_entity_cli: CLI output formatted correctly"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-3"
+    - "manage"
+    - "cli"
+
+  milestone: "EPIC 3: Character & Identity"
+
+references:
+  docs:
+    - "docs/USE_CASES.md#m-16-view-entity"
+
+  code:
+    - "packages/data-layer/src/monitor_data/tools/neo4j_tools.py"
