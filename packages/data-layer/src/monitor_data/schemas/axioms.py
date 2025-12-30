@@ -41,7 +41,7 @@ class AxiomCreate(BaseModel):
     )
     snippet_ids: Optional[List[str]] = Field(
         default=None,
-        description="Snippet IDs supporting this axiom (stored for reference)",
+        description="Snippet IDs from MongoDB (stored for reference only, not as Neo4j edges)",
     )
 
     # Canonization metadata
@@ -75,8 +75,13 @@ class AxiomResponse(BaseModel):
     created_at: datetime
 
     # Provenance data (populated by get operations)
-    source_ids: List[UUID] = Field(default_factory=list)
-    snippet_ids: List[str] = Field(default_factory=list)
+    source_ids: List[UUID] = Field(
+        default_factory=list, description="Neo4j Source UUIDs linked via SUPPORTED_BY"
+    )
+    snippet_ids: List[str] = Field(
+        default_factory=list, 
+        description="MongoDB Snippet IDs (stored in axiom metadata, not as Neo4j edges)"
+    )
 
     model_config = {"from_attributes": True}
 

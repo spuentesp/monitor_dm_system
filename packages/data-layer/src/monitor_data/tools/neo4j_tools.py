@@ -2432,18 +2432,21 @@ def neo4j_create_axiom(params: AxiomCreate) -> AxiomResponse:
         },
     )
 
-    # Create SUPPORTED_BY edges to sources
+    # Create SUPPORTED_BY edges to sources (batched for performance)
     if params.source_ids:
         source_edge_query = """
         MATCH (a:Axiom {id: $axiom_id})
-        MATCH (s:Source {id: $source_id})
+        UNWIND $source_ids as source_id
+        MATCH (s:Source {id: source_id})
         CREATE (a)-[:SUPPORTED_BY]->(s)
         """
-        for source_id in params.source_ids:
-            client.execute_write(
-                source_edge_query,
-                {"axiom_id": str(axiom_id), "source_id": str(source_id)},
-            )
+        client.execute_write(
+            source_edge_query,
+            {
+                "axiom_id": str(axiom_id),
+                "source_ids": [str(sid) for sid in params.source_ids],
+            },
+        )
 
     # Retrieve with relationships
     axiom = neo4j_get_axiom(axiom_id)
@@ -2491,7 +2494,7 @@ def neo4j_get_axiom(axiom_id: UUID) -> Optional[AxiomResponse]:
         authority=a["authority"],
         created_at=a["created_at"],
         source_ids=[UUID(sid) for sid in record["source_ids"] if sid],
-        snippet_ids=[],  # Snippets not stored in Neo4j
+        snippet_ids=[],  # Snippet IDs not stored in Neo4j (they're MongoDB references)
     )
 
 
@@ -2569,7 +2572,7 @@ def neo4j_list_axioms(filters: Optional[AxiomFilter] = None) -> List[AxiomRespon
                 authority=a["authority"],
                 created_at=a["created_at"],
                 source_ids=[UUID(sid) for sid in record["source_ids"] if sid],
-                snippet_ids=[],  # Snippets not stored in Neo4j
+                snippet_ids=[],  # Snippet IDs not stored in Neo4j (they're MongoDB references)
             )
         )
 
@@ -2595,16 +2598,7 @@ def neo4j_update_axiom(axiom_id: UUID, params: AxiomUpdate) -> AxiomResponse:
     """
     client = get_neo4j_client()
 
-    # Verify axiom exists
-    verify_query = """
-    MATCH (a:Axiom {id: $axiom_id})
-    RETURN a.id as id
-    """
-    result = client.execute_read(verify_query, {"axiom_id": str(axiom_id)})
-    if not result:
-        raise ValueError(f"Axiom {axiom_id} not found")
-
-    # Build SET clause for only provided fields
+    # Build SET clause for only provided fields (early check before DB access)
     set_clauses = []
     update_params = {"axiom_id": str(axiom_id)}
 
@@ -2621,8 +2615,20 @@ def neo4j_update_axiom(axiom_id: UUID, params: AxiomUpdate) -> AxiomResponse:
         update_params["confidence"] = params.confidence
 
     if not set_clauses:
-        # No updates provided, just return current axiom
-        return neo4j_get_axiom(axiom_id)
+        # No updates provided, return current axiom without DB write
+        axiom = neo4j_get_axiom(axiom_id)
+        if axiom is None:
+            raise ValueError(f"Axiom {axiom_id} not found")
+        return axiom
+
+    # Verify axiom exists before updating
+    verify_query = """
+    MATCH (a:Axiom {id: $axiom_id})
+    RETURN a.id as id
+    """
+    result = client.execute_read(verify_query, {"axiom_id": str(axiom_id)})
+    if not result:
+        raise ValueError(f"Axiom {axiom_id} not found")
 
     set_clause = "SET " + ", ".join(set_clauses)
 
