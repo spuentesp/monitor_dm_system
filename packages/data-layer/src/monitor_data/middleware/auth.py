@@ -159,6 +159,14 @@ AUTHORITY_MATRIX = {
     "qdrant_search_memories": ["*"],
     "qdrant_delete_vectors": ["Indexer"],
     # =========================================================================
+    # OPENSEARCH OPERATIONS - Text Search (DL-11)
+    # =========================================================================
+    "opensearch_index_document": ["*"],
+    "opensearch_get_document": ["*"],
+    "opensearch_search": ["*"],
+    "opensearch_delete_document": ["*"],
+    "opensearch_delete_by_query": ["*"],
+    # =========================================================================
     # COMPOSITE OPERATIONS
     # =========================================================================
     "composite_get_entity_full": ["*"],
