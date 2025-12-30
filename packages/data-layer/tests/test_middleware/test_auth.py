@@ -59,6 +59,17 @@ def test_check_authority_narrator_cannot_create_story():
     assert check_authority("neo4j_create_story", "Narrator") is False
 
 
+def test_check_authority_qdrant_operations_allow_all():
+    """All agents can use Qdrant operations."""
+    assert check_authority("qdrant_upsert", "CanonKeeper") is True
+    assert check_authority("qdrant_upsert", "Narrator") is True
+    assert check_authority("qdrant_upsert", "Orchestrator") is True
+    assert check_authority("qdrant_search", "CanonKeeper") is True
+    assert check_authority("qdrant_search", "Narrator") is True
+    assert check_authority("qdrant_delete", "CanonKeeper") is True
+    assert check_authority("qdrant_delete", "Narrator") is True
+
+
 # =============================================================================
 # TESTS: get_allowed_agents
 # =============================================================================
