@@ -53,7 +53,7 @@ jobs:
         run: black --check .
 
       - name: Type check (mypy)
-        run: mypy packages
+        run: MYPY_CACHE_DIR=/tmp/mypy-cache mypy packages/data-layer/src packages/agents/src packages/cli/src
 
       - name: Run package tests (unit + integration with coverage)
         run: |

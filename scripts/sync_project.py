@@ -65,6 +65,7 @@ def run_graphql(query: str, variables: dict[str, Any] = None) -> dict:
 # DATA LOADING
 # =============================================================================
 
+
 def load_use_cases(category: str = None) -> dict[str, dict[str, Any]]:
     """Load all use case YAML files."""
     use_cases = {}
@@ -101,10 +102,18 @@ def load_use_cases(category: str = None) -> dict[str, dict[str, Any]]:
 
 def get_all_issues() -> dict[str, dict[str, Any]]:
     """Get all GitHub issues keyed by use case ID."""
-    result = run_gh([
-        "issue", "list", "--state", "all", "--limit", "500",
-        "--json", "number,title,state,labels,body"
-    ])
+    result = run_gh(
+        [
+            "issue",
+            "list",
+            "--state",
+            "all",
+            "--limit",
+            "500",
+            "--json",
+            "number,title,state,labels,body",
+        ]
+    )
     if result.returncode != 0:
         return {}
 
@@ -130,10 +139,18 @@ def get_all_issues() -> dict[str, dict[str, Any]]:
 
 def get_open_prs() -> dict[int, dict[str, Any]]:
     """Get open PRs and their linked issues."""
-    result = run_gh([
-        "pr", "list", "--state", "open", "--limit", "100",
-        "--json", "number,title,body,headRefName"
-    ])
+    result = run_gh(
+        [
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            "100",
+            "--json",
+            "number,title,body,headRefName",
+        ]
+    )
     if result.returncode != 0:
         return {}
 
@@ -144,7 +161,12 @@ def get_open_prs() -> dict[int, dict[str, Any]]:
             body = pr.get("body", "") or ""
             # Extract linked issue (handles both #39 and owner/repo#39 formats)
             import re
-            match = re.search(r"(?:Fixes|Closes|Resolves)\s*(?:[\w-]+/[\w-]+)?#(\d+)", body, re.IGNORECASE)
+
+            match = re.search(
+                r"(?:Fixes|Closes|Resolves)\s*(?:[\w-]+/[\w-]+)?#(\d+)",
+                body,
+                re.IGNORECASE,
+            )
             linked_issue = int(match.group(1)) if match else None
 
             prs[pr["number"]] = {
@@ -160,10 +182,14 @@ def get_open_prs() -> dict[int, dict[str, Any]]:
 
 def get_issue_github_blocked(issue_number: int) -> int:
     """Get GitHub native blocked_by count for an issue."""
-    result = run_gh([
-        "api", f"repos/:owner/:repo/issues/{issue_number}",
-        "--jq", ".issue_dependencies_summary.blocked_by // 0"
-    ])
+    result = run_gh(
+        [
+            "api",
+            f"repos/:owner/:repo/issues/{issue_number}",
+            "--jq",
+            ".issue_dependencies_summary.blocked_by // 0",
+        ]
+    )
     try:
         return int(result.stdout.strip())
     except (ValueError, AttributeError):
@@ -173,6 +199,7 @@ def get_issue_github_blocked(issue_number: int) -> int:
 # =============================================================================
 # STATUS COMPUTATION
 # =============================================================================
+
 
 def compute_status(
     uc_id: str,
@@ -231,7 +258,11 @@ def compute_status(
             "id": uc_id,
             "status": "Todo",
             "blocked": True,
-            "reason": f"Blocked by: {', '.join(unsatisfied)}" if unsatisfied else f"GitHub blocked by {github_blocked}",
+            "reason": (
+                f"Blocked by: {', '.join(unsatisfied)}"
+                if unsatisfied
+                else f"GitHub blocked by {github_blocked}"
+            ),
             "issue_number": issue_number,
             "unsatisfied_deps": unsatisfied,
             "github_blocked": github_blocked,
@@ -249,6 +280,7 @@ def compute_status(
 # =============================================================================
 # PROJECT SYNC
 # =============================================================================
+
 
 def get_project_metadata() -> dict[str, Any]:
     """Get project ID and field metadata."""
@@ -281,8 +313,7 @@ def get_project_metadata() -> dict[str, Any]:
         if field.get("name") == "Status":
             fields["status_field_id"] = field.get("id")
             fields["status_options"] = {
-                opt["name"]: opt["id"]
-                for opt in field.get("options", [])
+                opt["name"]: opt["id"] for opt in field.get("options", [])
             }
 
     return {
@@ -311,7 +342,9 @@ def get_project_items(project_id: str) -> dict[int, str]:
     """
     result = run_graphql(query, {"projectId": project_id})
     items = {}
-    for node in result.get("data", {}).get("node", {}).get("items", {}).get("nodes", []):
+    for node in (
+        result.get("data", {}).get("node", {}).get("items", {}).get("nodes", [])
+    ):
         content = node.get("content", {})
         if content and content.get("number"):
             items[content["number"]] = node["id"]
@@ -341,12 +374,15 @@ def update_project_item_status(
       }
     }
     """
-    result = run_graphql(query, {
-        "projectId": project_id,
-        "itemId": item_id,
-        "fieldId": field_id,
-        "optionId": option_id,
-    })
+    result = run_graphql(
+        query,
+        {
+            "projectId": project_id,
+            "itemId": item_id,
+            "fieldId": field_id,
+            "optionId": option_id,
+        },
+    )
     return "errors" not in result
 
 
@@ -356,14 +392,35 @@ def sync_labels(issue_number: int, blocked: bool, dry_run: bool = False) -> None
         return
 
     if blocked:
-        run_gh(["issue", "edit", str(issue_number), "--add-label", "blocked", "--remove-label", "ready"])
+        run_gh(
+            [
+                "issue",
+                "edit",
+                str(issue_number),
+                "--add-label",
+                "blocked",
+                "--remove-label",
+                "ready",
+            ]
+        )
     else:
-        run_gh(["issue", "edit", str(issue_number), "--add-label", "ready", "--remove-label", "blocked"])
+        run_gh(
+            [
+                "issue",
+                "edit",
+                str(issue_number),
+                "--add-label",
+                "ready",
+                "--remove-label",
+                "blocked",
+            ]
+        )
 
 
 # =============================================================================
 # MAIN
 # =============================================================================
+
 
 def print_status_table(statuses: list[dict], verbose: bool = False) -> None:
     """Print status table."""
@@ -395,15 +452,25 @@ def print_status_table(statuses: list[dict], verbose: bool = False) -> None:
             reason = s.get("reason", "")
             print(f"   #{s.get('issue_number', '?'):3} {s['id']}: {reason}")
 
-    print(f"\nSummary: {len(done)} done, {len(in_progress)} in progress, {len(ready)} ready, {len(blocked)} blocked")
+    print(
+        f"\nSummary: {len(done)} done, {len(in_progress)} in progress, {len(ready)} ready, {len(blocked)} blocked"
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sync GitHub Project & Issues")
-    parser.add_argument("--status", "-s", action="store_true", help="Show current status")
-    parser.add_argument("--ready", "-r", action="store_true", help="Show only ready items")
-    parser.add_argument("--blocked", "-b", action="store_true", help="Show only blocked items")
-    parser.add_argument("--sync", action="store_true", help="Sync project status from current state")
+    parser.add_argument(
+        "--status", "-s", action="store_true", help="Show current status"
+    )
+    parser.add_argument(
+        "--ready", "-r", action="store_true", help="Show only ready items"
+    )
+    parser.add_argument(
+        "--blocked", "-b", action="store_true", help="Show only blocked items"
+    )
+    parser.add_argument(
+        "--sync", action="store_true", help="Sync project status from current state"
+    )
     parser.add_argument("--dry-run", action="store_true", help="Preview changes")
     parser.add_argument("--category", "-c", help="Filter by category")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
@@ -418,7 +485,10 @@ def main() -> int:
     use_cases = load_use_cases(args.category)
     issues = get_all_issues()
     prs = get_open_prs()
-    print(f"  {len(use_cases)} use cases, {len(issues)} issues, {len(prs)} open PRs", file=sys.stderr)
+    print(
+        f"  {len(use_cases)} use cases, {len(issues)} issues, {len(prs)} open PRs",
+        file=sys.stderr,
+    )
 
     # Compute status for all use cases
     statuses = []
@@ -430,7 +500,9 @@ def main() -> int:
 
     # Filter if needed
     if args.ready:
-        statuses = [s for s in statuses if s["status"] == "Todo" and not s.get("blocked")]
+        statuses = [
+            s for s in statuses if s["status"] == "Todo" and not s.get("blocked")
+        ]
     elif args.blocked:
         statuses = [s for s in statuses if s["status"] == "Todo" and s.get("blocked")]
 
@@ -478,7 +550,9 @@ def main() -> int:
 
             # Also sync labels
             if status["status"] == "Todo":
-                sync_labels(issue_num, status.get("blocked", False), dry_run=args.dry_run)
+                sync_labels(
+                    issue_num, status.get("blocked", False), dry_run=args.dry_run
+                )
 
         print(f"\n{'Would update' if args.dry_run else 'Updated'} {updated} items")
 

@@ -29,8 +29,12 @@ def git_commits(base: str) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Require use-case ID in each commit message.")
-    parser.add_argument("--base", required=True, help="Base commit-ish to diff against.")
+    parser = argparse.ArgumentParser(
+        description="Require use-case ID in each commit message."
+    )
+    parser.add_argument(
+        "--base", required=True, help="Base commit-ish to diff against."
+    )
     args = parser.parse_args()
 
     commits = git_commits(args.base)

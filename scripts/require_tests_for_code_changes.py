@@ -21,7 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def git_diff(base: str) -> list[str]:
     result = subprocess.run(
-        ["git", "diff", "--name-only", base, "HEAD"], capture_output=True, text=True, check=True
+        ["git", "diff", "--name-only", base, "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
@@ -38,8 +41,12 @@ def is_test_path(path: str) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Fail if code changes lack test changes.")
-    parser.add_argument("--base", required=True, help="Base commit-ish to diff against.")
+    parser = argparse.ArgumentParser(
+        description="Fail if code changes lack test changes."
+    )
+    parser.add_argument(
+        "--base", required=True, help="Base commit-ish to diff against."
+    )
     args = parser.parse_args()
 
     changed = git_diff(args.base)

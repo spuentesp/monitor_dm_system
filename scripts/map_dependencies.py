@@ -32,8 +32,17 @@ USE_CASES_DIR = ROOT / "docs" / "use-cases"
 def get_all_issues() -> dict[str, dict[str, Any]]:
     """Get all issues from GitHub, keyed by use case ID."""
     result = subprocess.run(
-        ["gh", "issue", "list", "--state", "all", "--limit", "500", "--json",
-         "number,title,state"],
+        [
+            "gh",
+            "issue",
+            "list",
+            "--state",
+            "all",
+            "--limit",
+            "500",
+            "--json",
+            "number,title,state",
+        ],
         capture_output=True,
         text=True,
     )
@@ -195,7 +204,9 @@ def generate_ascii(
 
     lines.append("")
     lines.append("=" * 70)
-    lines.append("Legend: ✅ = Completed, ⬜ = Open, ✓ = Dep satisfied, ✗ = Dep pending")
+    lines.append(
+        "Legend: ✅ = Completed, ⬜ = Open, ✓ = Dep satisfied, ✗ = Dep pending"
+    )
     lines.append("=" * 70)
 
     return "\n".join(lines)
@@ -375,17 +386,20 @@ def main() -> int:
         description="Map and visualize use case dependencies"
     )
     parser.add_argument(
-        "--format", "-f",
+        "--format",
+        "-f",
         choices=["ascii", "mermaid", "dot", "json"],
         default="ascii",
         help="Output format (default: ascii)",
     )
     parser.add_argument(
-        "--category", "-c",
+        "--category",
+        "-c",
         help="Filter by category (e.g., data-layer)",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Output file (default: stdout)",
     )
     parser.add_argument(

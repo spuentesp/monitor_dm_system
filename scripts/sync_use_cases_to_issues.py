@@ -61,7 +61,15 @@ def get_project_id(owner: str, project_number: int) -> str | None:
 def add_issue_to_project(project_number: int, owner: str, issue_url: str) -> bool:
     """Add an issue to a GitHub project."""
     result = run_gh(
-        ["project", "item-add", str(project_number), "--owner", owner, "--url", issue_url],
+        [
+            "project",
+            "item-add",
+            str(project_number),
+            "--owner",
+            owner,
+            "--url",
+            issue_url,
+        ],
         check=False,
     )
     return result.returncode == 0
@@ -138,7 +146,9 @@ def format_issue_body(uc: dict[str, Any]) -> str:
     lines = []
 
     # Header with metadata
-    lines.append(f"**Category:** {uc['category']} | **Epic:** {uc['epic']} | **Priority:** {uc.get('priority', 'medium')}")
+    lines.append(
+        f"**Category:** {uc['category']} | **Epic:** {uc['epic']} | **Priority:** {uc.get('priority', 'medium')}"
+    )
     lines.append("")
 
     # Summary
@@ -252,7 +262,18 @@ def find_existing_issue(uc_id: str) -> int | None:
     """Find existing issue by use case ID in title."""
     # Search both open and closed issues
     result = run_gh(
-        ["issue", "list", "--search", f"{uc_id} in:title", "--state", "all", "--json", "number,title", "--limit", "20"],
+        [
+            "issue",
+            "list",
+            "--search",
+            f"{uc_id} in:title",
+            "--state",
+            "all",
+            "--json",
+            "number,title",
+            "--limit",
+            "20",
+        ],
         check=False,
     )
     if result.returncode != 0:
@@ -262,7 +283,9 @@ def find_existing_issue(uc_id: str) -> int | None:
         issues = json.loads(result.stdout)
         for issue in issues:
             # Match exact ID at start of title
-            if issue["title"].startswith(f"{uc_id}:") or issue["title"].startswith(f"{uc_id} "):
+            if issue["title"].startswith(f"{uc_id}:") or issue["title"].startswith(
+                f"{uc_id} "
+            ):
                 return issue["number"]
     except json.JSONDecodeError:
         pass
@@ -396,14 +419,34 @@ def ensure_labels_exist(use_cases: list[dict[str, Any]], dry_run: bool = False) 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sync use cases to GitHub issues")
-    parser.add_argument("--dry-run", action="store_true", help="Preview without making changes")
-    parser.add_argument("--filter", type=str, help="Filter by ID pattern (e.g., 'DL-*')")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Preview without making changes"
+    )
+    parser.add_argument(
+        "--filter", type=str, help="Filter by ID pattern (e.g., 'DL-*')"
+    )
     parser.add_argument("--category", type=str, help="Filter by category")
-    parser.add_argument("--create-only", action="store_true", help="Only create new, don't update existing")
-    parser.add_argument("--update-only", action="store_true", help="Only update existing, don't create new")
-    parser.add_argument("--skip-milestone", action="store_true", help="Skip milestone assignment")
-    parser.add_argument("--check-only", action="store_true", help="Only check for duplicates, don't create/update")
-    parser.add_argument("--project", type=int, help="Add created issues to this project number")
+    parser.add_argument(
+        "--create-only",
+        action="store_true",
+        help="Only create new, don't update existing",
+    )
+    parser.add_argument(
+        "--update-only",
+        action="store_true",
+        help="Only update existing, don't create new",
+    )
+    parser.add_argument(
+        "--skip-milestone", action="store_true", help="Skip milestone assignment"
+    )
+    parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="Only check for duplicates, don't create/update",
+    )
+    parser.add_argument(
+        "--project", type=int, help="Add created issues to this project number"
+    )
     args = parser.parse_args()
 
     print("=" * 70)
@@ -512,7 +555,9 @@ def main() -> int:
     print("=" * 70)
     if args.check_only:
         print("  CHECK COMPLETE")
-        print(f"  Existing issues: {len(existing_issues)}, Missing: {len(use_cases) - len(existing_issues)}")
+        print(
+            f"  Existing issues: {len(existing_issues)}, Missing: {len(use_cases) - len(existing_issues)}"
+        )
         if existing_issues:
             print()
             print("  Existing issues:")

@@ -38,7 +38,12 @@ class FakeMCPClient:
     calls: list[FakeCall] = field(default_factory=list)
     responses: dict[str, Any] = field(default_factory=dict)
 
-    async def call(self, tool_name: str, params: dict[str, Any], context: dict[str, Any] | None = None) -> Any:
+    async def call(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+        context: dict[str, Any] | None = None,
+    ) -> Any:
         ctx = context or {}
         self.calls.append(FakeCall(tool_name, params, ctx))
         if tool_name in self.responses:

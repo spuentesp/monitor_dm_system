@@ -43,7 +43,9 @@ def pr_body_from_event() -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Require a use-case ID reference.")
-    parser.add_argument("--base", required=True, help="Base commit-ish to diff against.")
+    parser.add_argument(
+        "--base", required=True, help="Base commit-ish to diff against."
+    )
     args = parser.parse_args()
 
     text = git_commit_messages(args.base) + "\n" + pr_body_from_event()

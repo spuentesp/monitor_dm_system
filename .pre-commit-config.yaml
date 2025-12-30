@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/psf/black
-    rev: 23.12.1
+    rev: 24.8.0
     hooks:
       - id: black
         language_version: python3
@@ -9,27 +9,21 @@ repos:
     hooks:
       - id: ruff
         args: ["--fix"]
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.7.1
-    hooks:
-      - id: mypy
-        additional_dependencies: []
   - repo: local
     hooks:
+      - id: mypy
+        name: mypy
+        entry: bash -c "export MYPY_CACHE_DIR=/tmp/mypy-cache; PYTHONPATH=packages/data-layer/src:packages/agents/src:packages/cli/src /home/sebas/.pyenv/versions/3.11.9/bin/python3.11 -m mypy packages/data-layer/src packages/agents/src packages/cli/src"
+        language: system
+        pass_filenames: false
       - id: pytest-unit
         name: pytest-unit
-        entry: bash -c "pytest packages/data-layer packages/agents packages/cli -m 'not integration and not e2e'"
+        entry: bash -c "PYTHONPATH=packages/data-layer/src:packages/agents/src:packages/cli/src /home/sebas/.pyenv/versions/3.11.9/bin/python3.11 -m pytest packages/data-layer packages/agents packages/cli -m 'not integration and not e2e'"
         language: system
-        types: [python]
         pass_filenames: false
       - id: ci-check
         name: ci-check (ruff, black, mypy, layer boundaries, unit tests)
-        entry: >
-          bash -c "python3 scripts/check_layer_dependencies.py &&
-          python3 -m ruff check . &&
-          python3 -m black --check . &&
-          python3 -m mypy packages &&
-          pytest packages/data-layer packages/agents packages/cli -m 'not integration and not e2e'"
+        entry: bash -c "export MYPY_CACHE_DIR=/tmp/mypy-cache; export PYTHONPATH=packages/data-layer/src:packages/agents/src:packages/cli/src; /home/sebas/.pyenv/versions/3.11.9/bin/python3.11 scripts/check_layer_dependencies.py && ruff check . && black --check . && /home/sebas/.pyenv/versions/3.11.9/bin/python3.11 -m mypy packages/data-layer/src packages/agents/src packages/cli/src && /home/sebas/.pyenv/versions/3.11.9/bin/python3.11 -m pytest packages/data-layer packages/agents packages/cli -m 'not integration and not e2e'"
         language: system
         pass_filenames: false
         stages: [push]
