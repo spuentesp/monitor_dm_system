@@ -80,6 +80,8 @@ AUTHORITY_MATRIX = {
     "neo4j_create_axiom": ["CanonKeeper"],
     "neo4j_get_axiom": ["*"],
     "neo4j_list_axioms": ["*"],
+    "neo4j_update_axiom": ["CanonKeeper"],
+    "neo4j_delete_axiom": ["CanonKeeper"],
     # =========================================================================
     # NEO4J OPERATIONS - Plot Threads
     # =========================================================================

@@ -62,6 +62,18 @@ class AxiomAuthority(str, Enum):
     SYSTEM = "system"
 
 
+class AxiomDomain(str, Enum):
+    """Domain classification for Axiom nodes.
+    
+    Categorizes the type of world rule or constraint.
+    """
+    
+    PHYSICS = "physics"
+    MAGIC = "magic"
+    SOCIETY = "society"
+    METAPHYSICS = "metaphysics"
+
+
 class EntityType(str, Enum):
     """Entity classification."""
 
