@@ -9,7 +9,6 @@ These tools expose Qdrant vector operations via the MCP server.
 Vector operations enable semantic search across narrative content.
 """
 
-
 from qdrant_client.models import (
     PointStruct,
     Filter,
@@ -97,7 +96,7 @@ def qdrant_upsert_batch(params: VectorUpsertBatch) -> VectorUpsertBatchResponse:
         VectorUpsertBatchResponse with count of upserted points
 
     Raises:
-        ValueError: If points are empty or vector dimensions inconsistent
+        ValueError: If points are empty, vector dimensions inconsistent, or required fields missing
     """
     if not params.points:
         raise ValueError("Points list cannot be empty")
@@ -105,14 +104,25 @@ def qdrant_upsert_batch(params: VectorUpsertBatch) -> VectorUpsertBatchResponse:
     client = get_qdrant_client()
     qdrant = client.get_client()
 
-    # Ensure collection exists (use first vector's size)
-    first_vector = params.points[0].get("vector", [])
-    vector_size = len(first_vector)
+    # Validate first point and get vector size
+    first_point = params.points[0]
+    if "vector" not in first_point or not first_point["vector"]:
+        raise ValueError("First point must contain a non-empty 'vector' field")
+    if "id" not in first_point:
+        raise ValueError("First point must contain an 'id' field")
+
+    vector_size = len(first_point["vector"])
     client.ensure_collection(params.collection, vector_size)
 
-    # Convert to PointStruct objects
+    # Convert to PointStruct objects with validation
     points = []
-    for p in params.points:
+    for i, p in enumerate(params.points):
+        # Validate required fields
+        if "id" not in p:
+            raise ValueError(f"Point at index {i} missing required 'id' field")
+        if "vector" not in p:
+            raise ValueError(f"Point at index {i} missing required 'vector' field")
+
         point = PointStruct(
             id=p["id"],
             vector=p["vector"],
@@ -333,16 +343,22 @@ def qdrant_get_collection_info(params: CollectionInfoRequest) -> CollectionInfo:
         CollectionInfo with collection statistics
 
     Raises:
-        ValueError: If collection doesn't exist
+        ValueError: If collection doesn't exist or other errors occur
     """
+    from qdrant_client.http.exceptions import ResponseHandlingException
+
     client = get_qdrant_client()
     qdrant = client.get_client()
 
     # Get collection info
     try:
         collection = qdrant.get_collection(params.collection)
-    except Exception as e:
+    except ResponseHandlingException as e:
+        # Collection not found or API error
         raise ValueError(f"Collection {params.collection} not found: {e}")
+    except Exception as e:
+        # Network or other unexpected errors
+        raise ValueError(f"Failed to get collection info for {params.collection}: {e}")
 
     return CollectionInfo(
         collection=params.collection,

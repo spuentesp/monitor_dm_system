@@ -168,6 +168,41 @@ def test_upsert_batch_empty_points(mock_get_client: Mock, mock_qdrant_client: Mo
         qdrant_upsert_batch(params)
 
 
+@patch("monitor_data.tools.qdrant_tools.get_qdrant_client")
+def test_upsert_batch_missing_vector(mock_get_client: Mock, mock_qdrant_client: Mock):
+    """Test that batch upsert raises error when vector field is missing."""
+    mock_get_client.return_value = mock_qdrant_client
+
+    params = VectorUpsertBatch(
+        collection="scenes",
+        points=[{"id": "test-id", "payload": {}}],  # Missing vector
+    )
+
+    with pytest.raises(ValueError, match="must contain a non-empty 'vector' field"):
+        qdrant_upsert_batch(params)
+
+
+@patch("monitor_data.tools.qdrant_tools.get_qdrant_client")
+def test_upsert_batch_missing_id(
+    mock_get_client: Mock, mock_qdrant_client: Mock, sample_vector
+):
+    """Test that batch upsert raises error when id field is missing."""
+    mock_get_client.return_value = mock_qdrant_client
+
+    params = VectorUpsertBatch(
+        collection="scenes",
+        points=[
+            {"id": "test-1", "vector": sample_vector},
+            {"vector": sample_vector},  # Missing id
+        ],
+    )
+
+    with pytest.raises(
+        ValueError, match="Point at index 1 missing required 'id' field"
+    ):
+        qdrant_upsert_batch(params)
+
+
 # =============================================================================
 # TESTS: qdrant_search
 # =============================================================================
@@ -368,5 +403,7 @@ def test_get_collection_info_not_found(mock_get_client: Mock, mock_qdrant_client
 
     params = CollectionInfoRequest(collection="nonexistent")
 
-    with pytest.raises(ValueError, match="Collection nonexistent not found"):
+    with pytest.raises(
+        ValueError, match="Failed to get collection info for nonexistent"
+    ):
         qdrant_get_collection_info(params)
