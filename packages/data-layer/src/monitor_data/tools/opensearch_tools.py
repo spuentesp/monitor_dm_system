@@ -10,7 +10,6 @@ OpenSearch provides full-text search for narratives, facts, and documents.
 """
 
 from typing import Optional, Dict, Any, List
-from uuid import UUID
 
 from monitor_data.db.opensearch import get_opensearch_client
 
