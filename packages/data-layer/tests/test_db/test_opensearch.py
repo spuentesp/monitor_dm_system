@@ -8,8 +8,7 @@ Tests cover:
 - Singleton pattern
 """
 
-from typing import Dict, Any
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import pytest
 
 from opensearchpy import NotFoundError

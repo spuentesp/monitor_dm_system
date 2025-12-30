@@ -10,7 +10,7 @@ Tests cover:
 """
 
 from typing import Dict, Any
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import pytest
@@ -405,7 +405,7 @@ def test_search_without_highlighting(
         }
     }
 
-    result = opensearch_search(
+    opensearch_search(
         index="snippets",
         query="text",
         highlight=False,
@@ -430,7 +430,7 @@ def test_search_with_pagination(
         }
     }
 
-    result = opensearch_search(
+    opensearch_search(
         index="snippets",
         query="forest",
         from_=20,
@@ -457,7 +457,7 @@ def test_search_empty_query_matches_all(
         }
     }
 
-    result = opensearch_search(
+    opensearch_search(
         index="snippets",
         query="",
     )
