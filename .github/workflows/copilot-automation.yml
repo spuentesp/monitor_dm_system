@@ -323,6 +323,8 @@ jobs:
       actions: read
       checks: read
     steps:
+      - uses: actions/checkout@v4
+
       - name: Wait for CI to complete
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -520,6 +522,8 @@ jobs:
       pull-requests: write
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - name: Check merge conditions
         id: check
         env:
