@@ -41,10 +41,10 @@ class OpenSearchClient:
         Initialize OpenSearch client.
 
         Args:
-            hosts: List of OpenSearch hosts (default: from OPENSEARCH_HOSTS env var)
-            http_auth: Tuple of (username, password) (default: from env vars)
+            hosts: List of OpenSearch hosts (default: from OPENSEARCH_HOST and OPENSEARCH_PORT env vars)
+            http_auth: Tuple of (username, password) (default: from OPENSEARCH_USER and OPENSEARCH_PASSWORD)
             use_ssl: Whether to use SSL (default: from OPENSEARCH_USE_SSL env var)
-            verify_certs: Whether to verify SSL certificates (default: from env)
+            verify_certs: Whether to verify SSL certificates (default: from OPENSEARCH_VERIFY_CERTS env var)
         """
         # Get configuration from environment
         default_host = os.getenv("OPENSEARCH_HOST", "localhost")

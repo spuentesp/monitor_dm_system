@@ -112,7 +112,7 @@ def opensearch_search(
     Use Case: DL-11
 
     Args:
-        index: Index name(s) - can be single index or comma-separated list
+        index: Index name to search
         query: Search query string (keyword or phrase)
         filters: Optional filters to apply:
             {
