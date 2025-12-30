@@ -15,6 +15,7 @@ from qdrant_client.models import (
     FieldCondition,
     MatchValue,
 )
+from qdrant_client.http.exceptions import ResponseHandlingException
 
 from monitor_data.db.qdrant import get_qdrant_client
 from monitor_data.schemas.vectors import (
@@ -345,8 +346,6 @@ def qdrant_get_collection_info(params: CollectionInfoRequest) -> CollectionInfo:
     Raises:
         ValueError: If collection doesn't exist or other errors occur
     """
-    from qdrant_client.http.exceptions import ResponseHandlingException
-
     client = get_qdrant_client()
     qdrant = client.get_client()
 
