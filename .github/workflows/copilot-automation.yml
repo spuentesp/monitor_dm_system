@@ -226,6 +226,14 @@ jobs:
               for label in labels:
                   run_gh(["issue", "edit", str(issue_num), "--add-label", label])
 
+          def assign_copilot(issue_num):
+              """Assign Copilot to an issue and trigger it to start."""
+              # Assign Copilot
+              run_gh(["issue", "edit", str(issue_num), "--add-assignee", "Copilot"])
+              # Comment to trigger Copilot
+              run_gh(["issue", "comment", str(issue_num), "--body",
+                     "@copilot please implement this issue following the acceptance criteria and implementation details."])
+
           # Main logic
           cases = get_use_cases()
           print(f"Loaded {len(cases)} use cases")
@@ -255,8 +263,9 @@ jobs:
 
               issue_num = find_github_issue(use_case_id)
               if issue_num:
-                  print(f"  Labeling #{issue_num} ({use_case_id}) for Copilot")
+                  print(f"  Assigning #{issue_num} ({use_case_id}) to Copilot")
                   label_issue(issue_num, ["copilot", "ready-for-copilot"])
+                  assign_copilot(issue_num)
                   queued += 1
               else:
                   print(f"  Warning: Could not find GitHub issue for {use_case_id}")
