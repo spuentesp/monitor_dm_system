@@ -1,0 +1,677 @@
+name: Copilot Automation
+
+# =============================================================================
+# COPILOT AUTOMATION LOOP
+# =============================================================================
+#
+# This workflow automates the full development cycle with GitHub Copilot:
+#
+#   ┌─────────────────────────────────────────────────────────────────────────┐
+#   │                                                                         │
+#   │   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐         │
+#   │   │  Queue   │───▶│  Copilot │───▶│    CI    │───▶│  Review  │         │
+#   │   │  Issue   │    │  Opens   │    │  Tests   │    │    PR    │         │
+#   │   └──────────┘    │    PR    │    └────┬─────┘    └────┬─────┘         │
+#   │        ▲          └──────────┘         │               │               │
+#   │        │                               │               │               │
+#   │        │                          ┌────▼─────┐         │               │
+#   │        │                          │  Failed? │         │               │
+#   │        │                          └────┬─────┘         │               │
+#   │        │                               │               │               │
+#   │        │         ┌──────────┐     YES  │    NO         │               │
+#   │        │         │  Copilot │◀─────────┤               │               │
+#   │        │         │   Fixes  │          │               │               │
+#   │        │         │   Code   │──────────┘               │               │
+#   │        │         └──────────┘                          │               │
+#   │        │              ▲                                │               │
+#   │        │              │ (max 3 attempts)               │               │
+#   │        │              │                                │               │
+#   │        │         ┌────┴─────┐                          │               │
+#   │        │         │  Still   │                     ┌────▼─────┐         │
+#   │        │         │ Failing? │────YES─────────────▶│  Human   │         │
+#   │        │         └──────────┘                     │  Review  │         │
+#   │        │                                          └────┬─────┘         │
+#   │        │                                               │               │
+#   │   ┌────┴─────┐    ┌──────────┐    ┌──────────┐         │               │
+#   │   │  Update  │◀───│  Merge   │◀───│ Approved │◀────────┘               │
+#   │   │  Status  │    │    PR    │    │    ?     │                         │
+#   │   └──────────┘    └──────────┘    └──────────┘                         │
+#   │        │                                                               │
+#   │        └───────────────────────────────────────────────────────────────┘
+#   │                           (loop to next issue)
+#   │
+#   └─────────────────────────────────────────────────────────────────────────┘
+#
+# JOBS:
+#   1. queue-issues      - Find ready issues (dependencies met), label for Copilot
+#   2. pause-copilot     - Budget protection: remove labels to pause queue
+#   3. show-status       - Display current queue and budget status
+#   4. handle-ci-failure - Extract CI logs, comment for Copilot to fix
+#   5. copilot-review    - Request Copilot review on PRs
+#   6. auto-merge        - Enable auto-merge when approved
+#   7. update-on-merge   - Update YAML status, queue next issue
+#   8. scheduled-queue   - Daily check to keep queue populated
+#
+# BUDGET PROTECTION:
+#   - Tracks Copilot PRs per month
+#   - Pauses queue when limit reached
+#   - Escalates to human after 3 failed fix attempts
+#
+
+on:
+  # Manual trigger to queue next issues
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'queue'
+        type: choice
+        options:
+          - queue        # Find and label ready issues
+          - pause        # Remove copilot labels (budget protection)
+          - status       # Show current queue status
+      max_issues:
+        description: 'Max issues to queue'
+        required: false
+        default: '1'
+        type: string
+
+  # Auto-trigger on schedule
+  schedule:
+    - cron: '0 8 * * 1-5'  # Weekdays at 8am UTC
+
+  # Trigger review when Copilot opens a PR
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+  # Trigger status update on merge
+  pull_request_target:
+    types: [closed]
+
+env:
+  PROJECT_NUMBER: 1
+  PROJECT_OWNER: spuentesp
+  MAX_COPILOT_PRS_PER_MONTH: 30  # Budget protection
+
+jobs:
+  # ============================================================
+  # JOB 1: Queue issues for Copilot
+  # ============================================================
+  queue-issues:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'queue'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Check budget
+        id: budget
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Count Copilot PRs this month
+          MONTH_START=$(date -d "$(date +%Y-%m-01)" +%Y-%m-%d)
+          COUNT=$(gh pr list \
+            --author "app/github-copilot" \
+            --state all \
+            --search "created:>=$MONTH_START" \
+            --json number \
+            --jq 'length' 2>/dev/null || echo "0")
+
+          echo "Copilot PRs this month: $COUNT / $MAX_COPILOT_PRS_PER_MONTH"
+
+          if [ "$COUNT" -ge "$MAX_COPILOT_PRS_PER_MONTH" ]; then
+            echo "budget_ok=false" >> $GITHUB_OUTPUT
+            echo "::warning::Monthly Copilot budget exhausted!"
+          else
+            echo "budget_ok=true" >> $GITHUB_OUTPUT
+            REMAINING=$((MAX_COPILOT_PRS_PER_MONTH - COUNT))
+            echo "remaining=$REMAINING" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Queue ready issues
+        if: steps.budget.outputs.budget_ok == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAX_ISSUES: ${{ github.event.inputs.max_issues }}
+        run: |
+          python3 << 'EOF'
+          import os
+          import json
+          import subprocess
+          from pathlib import Path
+          import yaml
+
+          def run_gh(args):
+              result = subprocess.run(
+                  ["gh"] + args,
+                  capture_output=True, text=True
+              )
+              return result.stdout.strip()
+
+          def get_use_cases():
+              """Load all YAML use cases."""
+              cases = {}
+              for f in Path("docs/use-cases").rglob("*.yml"):
+                  try:
+                      data = yaml.safe_load(f.read_text())
+                      if data and "id" in data:
+                          cases[data["id"]] = data
+                  except Exception as e:
+                      print(f"Warning: Could not parse {f}: {e}")
+              return cases
+
+          def get_existing_prs():
+              """Get list of open PRs to avoid duplicate work."""
+              result = run_gh(["pr", "list", "--state", "open", "--json", "title"])
+              prs = json.loads(result) if result else []
+              return [pr["title"] for pr in prs]
+
+          def get_issues_with_label(label):
+              """Get issues already labeled."""
+              result = run_gh(["issue", "list", "--label", label, "--state", "open", "--json", "number,title"])
+              return json.loads(result) if result else []
+
+          def find_ready_issues(cases):
+              """Find issues whose dependencies are all done."""
+              ready = []
+              for id, case in cases.items():
+                  status = case.get("status", "todo")
+                  if status == "done":
+                      continue
+
+                  deps = case.get("depends_on", [])
+                  deps_done = all(
+                      cases.get(d, {}).get("status") == "done"
+                      for d in deps
+                  )
+
+                  if deps_done:
+                      priority = case.get("priority", "medium")
+                      ready.append((priority, id, case))
+
+              # Sort by priority
+              priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+              ready.sort(key=lambda x: priority_order.get(x[0], 2))
+              return ready
+
+          def find_github_issue(use_case_id):
+              """Find GitHub issue number for a use case."""
+              result = run_gh([
+                  "issue", "list",
+                  "--search", f'"{use_case_id}" in:title',
+                  "--state", "open",
+                  "--json", "number,title",
+                  "--limit", "5"
+              ])
+              issues = json.loads(result) if result else []
+              for issue in issues:
+                  if issue["title"].startswith(f"{use_case_id}:"):
+                      return issue["number"]
+              return None
+
+          def label_issue(issue_num, labels):
+              """Add labels to an issue."""
+              for label in labels:
+                  run_gh(["issue", "edit", str(issue_num), "--add-label", label])
+
+          # Main logic
+          cases = get_use_cases()
+          print(f"Loaded {len(cases)} use cases")
+
+          ready = find_ready_issues(cases)
+          print(f"Found {len(ready)} ready issues (dependencies met)")
+
+          existing_prs = get_existing_prs()
+          already_labeled = get_issues_with_label("copilot")
+
+          max_to_queue = int(os.environ.get("MAX_ISSUES", "1"))
+          queued = 0
+
+          for priority, use_case_id, case in ready:
+              if queued >= max_to_queue:
+                  break
+
+              # Skip if PR already exists
+              if any(use_case_id in pr for pr in existing_prs):
+                  print(f"  Skipping {use_case_id}: PR already exists")
+                  continue
+
+              # Skip if already labeled
+              if any(use_case_id in issue.get("title", "") for issue in already_labeled):
+                  print(f"  Skipping {use_case_id}: already labeled for Copilot")
+                  continue
+
+              issue_num = find_github_issue(use_case_id)
+              if issue_num:
+                  print(f"  Labeling #{issue_num} ({use_case_id}) for Copilot")
+                  label_issue(issue_num, ["copilot", "ready-for-copilot"])
+                  queued += 1
+              else:
+                  print(f"  Warning: Could not find GitHub issue for {use_case_id}")
+
+          print(f"\nQueued {queued} issues for Copilot")
+          EOF
+
+  # ============================================================
+  # JOB 2: Pause Copilot (budget protection)
+  # ============================================================
+  pause-copilot:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'pause'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Remove Copilot labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Removing 'copilot' and 'ready-for-copilot' labels..."
+
+          gh issue list --label "copilot" --state open --json number --jq '.[].number' | \
+            xargs -I{} gh issue edit {} --remove-label "copilot" --remove-label "ready-for-copilot" 2>/dev/null || true
+
+          echo "Copilot queue paused"
+
+  # ============================================================
+  # JOB 3: Show queue status
+  # ============================================================
+  show-status:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'status'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== Copilot Queue Status ==="
+          echo ""
+
+          echo "Issues labeled for Copilot:"
+          gh issue list --label "copilot" --state open --json number,title --jq '.[] | "  #\(.number): \(.title)"'
+
+          echo ""
+          echo "Open Copilot PRs:"
+          gh pr list --author "app/github-copilot" --state open --json number,title --jq '.[] | "  #\(.number): \(.title)"' || echo "  None"
+
+          echo ""
+          MONTH_START=$(date -d "$(date +%Y-%m-01)" +%Y-%m-%d)
+          COUNT=$(gh pr list --author "app/github-copilot" --state all --search "created:>=$MONTH_START" --json number --jq 'length' 2>/dev/null || echo "0")
+          echo "Copilot PRs this month: $COUNT / $MAX_COPILOT_PRS_PER_MONTH"
+
+  # ============================================================
+  # JOB 4: Handle CI failures - feed logs to Copilot
+  # ============================================================
+  handle-ci-failure:
+    if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      actions: read
+      checks: read
+    steps:
+      - name: Wait for CI to complete
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+          SHA="${{ github.event.pull_request.head.sha }}"
+
+          echo "Waiting for CI checks on $SHA..."
+
+          # Wait up to 10 minutes for checks to complete
+          for i in {1..60}; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$SHA/status --jq '.state')
+            CHECKS=$(gh api repos/${{ github.repository }}/commits/$SHA/check-runs --jq '.check_runs | map(select(.status == "completed")) | length')
+            TOTAL=$(gh api repos/${{ github.repository }}/commits/$SHA/check-runs --jq '.total_count')
+
+            echo "  Attempt $i: status=$STATUS, completed=$CHECKS/$TOTAL"
+
+            if [ "$STATUS" = "success" ]; then
+              echo "CI passed!"
+              echo "ci_failed=false" >> $GITHUB_ENV
+              exit 0
+            elif [ "$STATUS" = "failure" ] || [ "$STATUS" = "error" ]; then
+              echo "CI failed!"
+              echo "ci_failed=true" >> $GITHUB_ENV
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "Timeout waiting for CI"
+          echo "ci_failed=false" >> $GITHUB_ENV
+
+      - name: Extract failure logs
+        if: env.ci_failed == 'true'
+        id: failures
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA="${{ github.event.pull_request.head.sha }}"
+
+          echo "Extracting failed check logs..."
+
+          # Get failed check runs
+          FAILED_CHECKS=$(gh api repos/${{ github.repository }}/commits/$SHA/check-runs \
+            --jq '.check_runs[] | select(.conclusion == "failure") | {name: .name, id: .id}')
+
+          # Create failure report
+          REPORT=""
+
+          while IFS= read -r check; do
+            NAME=$(echo "$check" | jq -r '.name')
+            ID=$(echo "$check" | jq -r '.id')
+
+            echo "Fetching logs for: $NAME (ID: $ID)"
+
+            # Get the job logs
+            LOGS=$(gh api repos/${{ github.repository }}/actions/jobs/$ID/logs 2>/dev/null | tail -100 || echo "Could not fetch logs")
+
+            REPORT="${REPORT}
+          ## Failed: ${NAME}
+
+          \`\`\`
+          ${LOGS}
+          \`\`\`
+          "
+          done <<< "$FAILED_CHECKS"
+
+          # Also check for failed status contexts
+          FAILED_STATUSES=$(gh api repos/${{ github.repository }}/commits/$SHA/status \
+            --jq '.statuses[] | select(.state == "failure" or .state == "error") | .context + ": " + .description')
+
+          if [ -n "$FAILED_STATUSES" ]; then
+            REPORT="${REPORT}
+          ## Failed Status Checks
+
+          ${FAILED_STATUSES}
+          "
+          fi
+
+          # Save to file for the next step
+          echo "$REPORT" > /tmp/failure_report.md
+          echo "report_ready=true" >> $GITHUB_OUTPUT
+
+      - name: Comment with failures for Copilot to fix
+        if: steps.failures.outputs.report_ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+
+          # Check if this is a Copilot PR
+          LABELS=$(gh pr view "$PR_NUM" --json labels --jq '.labels[].name')
+
+          if ! echo "$LABELS" | grep -q "copilot"; then
+            echo "Not a Copilot PR, skipping auto-fix request"
+            exit 0
+          fi
+
+          REPORT=$(cat /tmp/failure_report.md)
+
+          # Post comment requesting fix
+          gh pr comment "$PR_NUM" --body "@github-copilot CI tests have failed. Please fix the following issues:
+
+          ${REPORT}
+
+          **Instructions:**
+          1. Read the error messages carefully
+          2. Fix the failing tests or code issues
+          3. Ensure all changes follow the patterns in \`CLAUDE.md\` and \`ARCHITECTURE.md\`
+          4. Make sure layer boundaries are respected (data-layer -> agents -> cli)
+          5. Run \`pytest\` locally if needed to verify fixes
+
+          Please push the fixes to this branch."
+
+          # Add label to track fix attempts
+          ATTEMPTS=$(gh pr view "$PR_NUM" --json labels --jq '[.labels[].name | select(startswith("fix-attempt-"))] | length')
+          NEW_ATTEMPT=$((ATTEMPTS + 1))
+
+          if [ "$NEW_ATTEMPT" -gt 3 ]; then
+            gh pr comment "$PR_NUM" --body "**Warning:** This PR has failed CI $NEW_ATTEMPT times. Manual intervention may be required."
+            gh pr edit "$PR_NUM" --add-label "needs-human-review"
+          else
+            gh pr edit "$PR_NUM" --add-label "fix-attempt-${NEW_ATTEMPT}"
+          fi
+
+  # ============================================================
+  # JOB 5: Request Copilot review on PRs (after CI passes)
+  # ============================================================
+  copilot-review:
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Check if Copilot review needed
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+
+          # Check if this PR is for a copilot-labeled issue
+          PR_BODY="${{ github.event.pull_request.body }}"
+          ISSUE_NUM=$(echo "$PR_BODY" | grep -oP '(?:Fixes|Closes|Resolves)\s*#\K\d+' | head -1)
+
+          if [ -n "$ISSUE_NUM" ]; then
+            LABELS=$(gh issue view "$ISSUE_NUM" --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+            if echo "$LABELS" | grep -q "copilot"; then
+              echo "needs_review=true" >> $GITHUB_OUTPUT
+            else
+              echo "needs_review=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            # If no linked issue, review anyway for Copilot PRs
+            AUTHOR="${{ github.event.pull_request.user.login }}"
+            if [[ "$AUTHOR" == *"copilot"* ]] || [[ "$AUTHOR" == *"bot"* ]]; then
+              echo "needs_review=true" >> $GITHUB_OUTPUT
+            else
+              echo "needs_review=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Request Copilot review
+        if: steps.check.outputs.needs_review == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+          echo "Requesting Copilot review for PR #$PR_NUM"
+
+          # GitHub Copilot review is requested via the PR review API
+          # This requires Copilot to be enabled for the repository
+          gh pr edit "$PR_NUM" --add-label "copilot-review-requested"
+
+          # Add a comment to trigger Copilot review
+          gh pr comment "$PR_NUM" --body "@github-copilot please review this PR and check:
+          1. Code follows the patterns in CLAUDE.md and ARCHITECTURE.md
+          2. Tests cover the acceptance criteria
+          3. No layer boundary violations
+          4. Authority rules are respected (CanonKeeper for Neo4j writes)"
+
+  # ============================================================
+  # JOB 6: Auto-merge approved PRs
+  # ============================================================
+  auto-merge:
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.action == 'synchronize'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - name: Check merge conditions
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+
+          # Check if PR has copilot label and is approved
+          LABELS=$(gh pr view "$PR_NUM" --json labels --jq '.labels[].name')
+
+          if ! echo "$LABELS" | grep -q "copilot"; then
+            echo "Not a Copilot PR, skipping auto-merge"
+            echo "should_merge=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check review status
+          REVIEW_STATE=$(gh pr view "$PR_NUM" --json reviewDecision --jq '.reviewDecision')
+
+          if [ "$REVIEW_STATE" = "APPROVED" ]; then
+            echo "should_merge=true" >> $GITHUB_OUTPUT
+          else
+            echo "PR not yet approved (state: $REVIEW_STATE)"
+            echo "should_merge=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Enable auto-merge
+        if: steps.check.outputs.should_merge == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+          echo "Enabling auto-merge for PR #$PR_NUM"
+          gh pr merge "$PR_NUM" --auto --squash
+
+  # ============================================================
+  # JOB 7: Update status on merge
+  # ============================================================
+  update-on-merge:
+    if: |
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract use case ID
+        id: extract
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          # Extract ID like "DL-24" or "P-1" from PR title
+          ID=$(echo "$TITLE" | grep -oE '^[A-Z]+-[0-9]+' || echo "")
+
+          if [ -n "$ID" ]; then
+            echo "use_case_id=$ID" >> $GITHUB_OUTPUT
+            echo "Found use case: $ID"
+          else
+            echo "No use case ID found in title"
+            echo "use_case_id=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update YAML status to done
+        if: steps.extract.outputs.use_case_id != ''
+        env:
+          USE_CASE_ID: ${{ steps.extract.outputs.use_case_id }}
+        run: |
+          # Find the YAML file
+          FILE=$(find docs/use-cases -name "${USE_CASE_ID}.yml" -o -name "${USE_CASE_ID}.yaml" | head -1)
+
+          if [ -n "$FILE" ] && [ -f "$FILE" ]; then
+            echo "Updating $FILE to status: done"
+            sed -i 's/status: "todo"/status: "done"/' "$FILE"
+            sed -i "s/status: 'todo'/status: 'done'/" "$FILE"
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add "$FILE"
+            git commit -m "chore: mark ${USE_CASE_ID} as done [skip ci]" || echo "No changes to commit"
+            git push || echo "Nothing to push"
+          else
+            echo "YAML file not found for $USE_CASE_ID"
+          fi
+
+      - name: Remove Copilot labels from issue
+        if: steps.extract.outputs.use_case_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          USE_CASE_ID: ${{ steps.extract.outputs.use_case_id }}
+        run: |
+          # Find and clean up the issue
+          ISSUE_NUM=$(gh issue list \
+            --search "\"$USE_CASE_ID\" in:title" \
+            --state open \
+            --json number \
+            --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [ -n "$ISSUE_NUM" ]; then
+            gh issue edit "$ISSUE_NUM" \
+              --remove-label "copilot" \
+              --remove-label "ready-for-copilot" \
+              --remove-label "copilot-review-requested" 2>/dev/null || true
+          fi
+
+      - name: Queue next issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Triggering queue for next issue..."
+          gh workflow run copilot-automation.yml -f action=queue -f max_issues=1 || echo "Could not trigger next queue"
+
+  # ============================================================
+  # JOB 8: Scheduled queue check
+  # ============================================================
+  scheduled-queue:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check and queue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check budget first
+          MONTH_START=$(date -d "$(date +%Y-%m-01)" +%Y-%m-%d)
+          COUNT=$(gh pr list \
+            --author "app/github-copilot" \
+            --state all \
+            --search "created:>=$MONTH_START" \
+            --json number \
+            --jq 'length' 2>/dev/null || echo "0")
+
+          if [ "$COUNT" -ge "$MAX_COPILOT_PRS_PER_MONTH" ]; then
+            echo "Budget exhausted, skipping queue"
+            exit 0
+          fi
+
+          # Check if there are already labeled issues
+          LABELED=$(gh issue list --label "copilot" --state open --json number --jq 'length')
+
+          if [ "$LABELED" -eq 0 ]; then
+            echo "No issues in queue, triggering queue action"
+            gh workflow run copilot-automation.yml -f action=queue -f max_issues=1
+          else
+            echo "Already have $LABELED issues in queue"
+          fi
