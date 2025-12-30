@@ -9,7 +9,7 @@ Tests cover:
 
 import os
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from monitor_data.db.qdrant import QdrantClient, get_qdrant_client, reset_qdrant_client
 
@@ -69,7 +69,9 @@ def test_qdrant_client_connect_with_api_key(mock_qdrant_sdk: Mock):
     client = QdrantClient(url="http://localhost:6333", api_key="test_key")
     client.connect()
 
-    mock_qdrant_sdk.assert_called_once_with(url="http://localhost:6333", api_key="test_key")
+    mock_qdrant_sdk.assert_called_once_with(
+        url="http://localhost:6333", api_key="test_key"
+    )
     assert client._client is not None
 
 
@@ -104,7 +106,9 @@ def test_qdrant_client_get_client_without_connection():
     client = QdrantClient()
     # Don't call connect()
 
-    with pytest.raises(RuntimeError, match="Qdrant client not connected. Call connect\\(\\) first."):
+    with pytest.raises(
+        RuntimeError, match="Qdrant client not connected. Call connect\\(\\) first."
+    ):
         client.get_client()
 
 
@@ -185,21 +189,21 @@ def test_reset_qdrant_client(mock_qdrant_sdk: Mock):
     """Test that reset_qdrant_client clears singleton."""
     # First, clear any existing instance
     reset_qdrant_client()
-    
+
     mock_client_instance = Mock()
     mock_qdrant_sdk.return_value = mock_client_instance
 
     client1 = get_qdrant_client()
-    
+
     # The mock_client_instance should be returned as the _client attribute
     # We need to check that close was called on the QdrantClient's _client
     assert client1._client is not None
-    
+
     reset_qdrant_client()
-    
+
     # After reset, getting a new client should be a different QdrantClient instance
     client2 = get_qdrant_client()
-    
+
     assert client1 is not client2
     # Verify close was called on the SDK client
     mock_client_instance.close.assert_called_once()

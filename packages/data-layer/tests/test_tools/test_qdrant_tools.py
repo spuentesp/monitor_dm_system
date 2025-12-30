@@ -11,7 +11,7 @@ Tests cover:
 """
 
 from typing import Dict, Any, List
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import pytest

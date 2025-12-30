@@ -17,16 +17,11 @@ Collections:
 """
 
 import os
-from typing import Optional, List, Dict, Any, cast
+from typing import Optional, Any, cast
 from qdrant_client import QdrantClient as QdrantSDK
 from qdrant_client.models import (
     Distance,
     VectorParams,
-    PointStruct,
-    Filter,
-    SearchRequest,
-    FieldCondition,
-    MatchValue,
 )
 
 
@@ -115,7 +110,10 @@ class QdrantClient:
         return self._client
 
     def ensure_collection(
-        self, collection_name: str, vector_size: int, distance: Distance = Distance.COSINE
+        self,
+        collection_name: str,
+        vector_size: int,
+        distance: Distance = Distance.COSINE,
     ) -> None:
         """
         Ensure a collection exists with the specified configuration.

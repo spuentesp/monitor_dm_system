@@ -9,9 +9,7 @@ These schemas define the structure for vector embeddings and payloads
 stored in Qdrant for semantic search across scenes, memories, and snippets.
 """
 
-from datetime import datetime
 from typing import Optional, List, Dict, Any
-from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -37,7 +35,7 @@ DEFAULT_VECTOR_SIZE = 1536
 class VectorPayload(BaseModel):
     """
     Base payload structure for all vector embeddings.
-    
+
     This metadata is stored alongside each vector in Qdrant
     to enable filtered semantic search.
     """

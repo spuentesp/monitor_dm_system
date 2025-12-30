@@ -9,15 +9,12 @@ These tools expose Qdrant vector operations via the MCP server.
 Vector operations enable semantic search across narrative content.
 """
 
-from typing import Dict, List, Any, Optional
-from uuid import UUID
 
 from qdrant_client.models import (
     PointStruct,
     Filter,
     FieldCondition,
     MatchValue,
-    Range,
 )
 
 from monitor_data.db.qdrant import get_qdrant_client
@@ -35,7 +32,6 @@ from monitor_data.schemas.vectors import (
     VectorDeleteResponse,
     VectorDeleteByFilterResponse,
     CollectionInfo,
-    DEFAULT_VECTOR_SIZE,
 )
 
 
@@ -256,7 +252,9 @@ def qdrant_delete(params: VectorDelete) -> VectorDeleteResponse:
     )
 
 
-def qdrant_delete_by_filter(params: VectorDeleteByFilter) -> VectorDeleteByFilterResponse:
+def qdrant_delete_by_filter(
+    params: VectorDeleteByFilter,
+) -> VectorDeleteByFilterResponse:
     """
     Delete vectors matching a filter.
 
