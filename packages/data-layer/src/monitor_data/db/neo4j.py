@@ -11,7 +11,7 @@ transaction management for read/write operations.
 
 import os
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from neo4j import GraphDatabase, Driver
 
@@ -42,16 +42,19 @@ class Neo4jClient:
         Raises:
             ValueError: If password is not provided and NEO4J_PASSWORD env var is not set
         """
-        self.uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        self.user = user or os.getenv("NEO4J_USER", "neo4j")
-        self.password = password or os.getenv("NEO4J_PASSWORD")
+        self.uri: str = cast(
+            str, uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        )
+        self.user: str = cast(str, user or os.getenv("NEO4J_USER", "neo4j"))
+        password_value = password or os.getenv("NEO4J_PASSWORD")
 
-        if not self.password:
+        if not password_value:
             raise ValueError(
                 "Neo4j password is required. "
                 "Provide it via the 'password' parameter or set the NEO4J_PASSWORD environment variable."
             )
 
+        self.password: str = cast(str, password_value)
         self._driver: Optional[Driver] = None
 
     def connect(self) -> None:

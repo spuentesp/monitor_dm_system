@@ -48,9 +48,11 @@ def _convert_turn_dict_to_response(turn_dict: Dict[str, Any]) -> TurnResponse:
         entity_id=UUID(turn_dict["entity_id"]) if turn_dict.get("entity_id") else None,
         text=turn_dict["text"],
         timestamp=turn_dict["timestamp"],
-        resolution_ref=UUID(turn_dict["resolution_ref"])
-        if turn_dict.get("resolution_ref")
-        else None,
+        resolution_ref=(
+            UUID(turn_dict["resolution_ref"])
+            if turn_dict.get("resolution_ref")
+            else None
+        ),
     )
 
 
@@ -65,7 +67,10 @@ def _convert_scene_doc_to_response(scene_doc: Dict[str, Any]) -> SceneResponse:
         SceneResponse object
     """
     # Convert turns from dict to TurnResponse
-    turns = [_convert_turn_dict_to_response(turn_dict) for turn_dict in scene_doc.get("turns", [])]
+    turns = [
+        _convert_turn_dict_to_response(turn_dict)
+        for turn_dict in scene_doc.get("turns", [])
+    ]
 
     return SceneResponse(
         scene_id=UUID(scene_doc["scene_id"]),
@@ -75,11 +80,17 @@ def _convert_scene_doc_to_response(scene_doc: Dict[str, Any]) -> SceneResponse:
         purpose=scene_doc["purpose"],
         status=SceneStatus(scene_doc["status"]),
         order=scene_doc.get("order"),
-        location_ref=UUID(scene_doc["location_ref"]) if scene_doc.get("location_ref") else None,
-        participating_entities=[UUID(eid) for eid in scene_doc.get("participating_entities", [])],
+        location_ref=(
+            UUID(scene_doc["location_ref"]) if scene_doc.get("location_ref") else None
+        ),
+        participating_entities=[
+            UUID(eid) for eid in scene_doc.get("participating_entities", [])
+        ],
         turns=turns,
         proposed_changes=[UUID(pid) for pid in scene_doc.get("proposed_changes", [])],
-        canonical_outcomes=[UUID(cid) for cid in scene_doc.get("canonical_outcomes", [])],
+        canonical_outcomes=[
+            UUID(cid) for cid in scene_doc.get("canonical_outcomes", [])
+        ],
         summary=scene_doc.get("summary", ""),
         created_at=scene_doc["created_at"],
         updated_at=scene_doc["updated_at"],
@@ -328,7 +339,9 @@ def mongodb_list_scenes(params: SceneFilter) -> SceneListResponse:
     total = scenes_collection.count_documents(filter_query)
 
     # Build sort
-    sort_field = params.sort_by if params.sort_by in ["created_at", "order"] else "created_at"
+    sort_field = (
+        params.sort_by if params.sort_by in ["created_at", "order"] else "created_at"
+    )
     sort_order = -1 if params.sort_order == "desc" else 1
 
     # Query with pagination
@@ -341,7 +354,9 @@ def mongodb_list_scenes(params: SceneFilter) -> SceneListResponse:
 
     scenes = [_convert_scene_doc_to_response(scene_doc) for scene_doc in cursor]
 
-    return SceneListResponse(scenes=scenes, total=total, limit=params.limit, offset=params.offset)
+    return SceneListResponse(
+        scenes=scenes, total=total, limit=params.limit, offset=params.offset
+    )
 
 
 def mongodb_append_turn(scene_id: UUID, params: TurnCreate) -> TurnResponse:

@@ -50,6 +50,7 @@ except ImportError:
 # UTILITIES
 # =============================================================================
 
+
 def run_gh(args: list[str], check: bool = False) -> subprocess.CompletedProcess:
     """Run gh CLI command."""
     result = subprocess.run(["gh"] + args, capture_output=True, text=True)
@@ -88,8 +89,18 @@ def load_use_cases(category: str = None) -> dict[str, dict[str, Any]]:
 
 def get_issues() -> dict[str, dict[str, Any]]:
     """Get all GitHub issues keyed by use case ID."""
-    result = run_gh(["issue", "list", "--state", "all", "--limit", "500",
-                     "--json", "number,title,state,labels"])
+    result = run_gh(
+        [
+            "issue",
+            "list",
+            "--state",
+            "all",
+            "--limit",
+            "500",
+            "--json",
+            "number,title,state,labels",
+        ]
+    )
     if result.returncode != 0:
         return {}
     issues = {}
@@ -101,7 +112,7 @@ def get_issues() -> dict[str, dict[str, Any]]:
                 issues[uc_id] = {
                     "number": issue.get("number"),
                     "state": issue.get("state"),
-                    "labels": [l.get("name") for l in issue.get("labels", [])],
+                    "labels": [label.get("name") for label in issue.get("labels", [])],
                 }
     except json.JSONDecodeError:
         pass
@@ -110,15 +121,27 @@ def get_issues() -> dict[str, dict[str, Any]]:
 
 def get_open_prs() -> dict[int, dict[str, Any]]:
     """Get open PRs with linked issues."""
-    result = run_gh(["pr", "list", "--state", "open", "--limit", "100",
-                     "--json", "number,title,body,headRefName"])
+    result = run_gh(
+        [
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            "100",
+            "--json",
+            "number,title,body,headRefName",
+        ]
+    )
     if result.returncode != 0:
         return {}
     prs = {}
     try:
         for pr in json.loads(result.stdout):
             body = pr.get("body", "") or ""
-            match = re.search(r"(?:Fixes|Closes|Resolves)\s*(?:[\w-]+/[\w-]+)?#(\d+)", body, re.I)
+            match = re.search(
+                r"(?:Fixes|Closes|Resolves)\s*(?:[\w-]+/[\w-]+)?#(\d+)", body, re.I
+            )
             prs[pr["number"]] = {
                 "title": pr.get("title"),
                 "branch": pr.get("headRefName"),
@@ -131,8 +154,14 @@ def get_open_prs() -> dict[int, dict[str, Any]]:
 
 def get_github_blocked(issue_number: int) -> int:
     """Get GitHub native blocked_by count."""
-    result = run_gh(["api", f"repos/:owner/:repo/issues/{issue_number}",
-                     "--jq", ".issue_dependencies_summary.blocked_by // 0"])
+    result = run_gh(
+        [
+            "api",
+            f"repos/:owner/:repo/issues/{issue_number}",
+            "--jq",
+            ".issue_dependencies_summary.blocked_by // 0",
+        ]
+    )
     try:
         return int(result.stdout.strip())
     except (ValueError, AttributeError):
@@ -142,6 +171,7 @@ def get_github_blocked(issue_number: int) -> int:
 # =============================================================================
 # STATUS COMMAND
 # =============================================================================
+
 
 def compute_statuses(use_cases, issues, prs, category=None):
     """Compute status for all use cases."""
@@ -238,8 +268,8 @@ def cmd_status(args):
         print(f"\n{icons.get(status_name, '')} {status_name.upper()} ({len(items)}):")
 
         for s in items:
-            issue_ref = f"#{s['issue_number']}" if s.get('issue_number') else ""
-            pr_ref = f" (PR #{s['pr_number']})" if s.get('pr_number') else ""
+            issue_ref = f"#{s['issue_number']}" if s.get("issue_number") else ""
+            pr_ref = f" (PR #{s['pr_number']})" if s.get("pr_number") else ""
             blocked = ""
             if s.get("blocked_by"):
                 blocked = f" ← {', '.join(s['blocked_by'])}"
@@ -248,8 +278,10 @@ def cmd_status(args):
 
     # Summary
     counts = {k: len(v) for k, v in by_status.items()}
-    print(f"\nTotal: {sum(counts.values())} | " +
-          " | ".join(f"{k}: {v}" for k, v in counts.items() if v > 0))
+    print(
+        f"\nTotal: {sum(counts.values())} | "
+        + " | ".join(f"{k}: {v}" for k, v in counts.items() if v > 0)
+    )
 
     return 0
 
@@ -257,6 +289,7 @@ def cmd_status(args):
 # =============================================================================
 # SYNC COMMAND
 # =============================================================================
+
 
 def cmd_sync(args):
     """Sync project status and labels."""
@@ -277,11 +310,16 @@ def cmd_sync(args):
 # DEPS COMMAND
 # =============================================================================
 
+
 def cmd_deps(args):
     """Check or visualize dependencies."""
     if args.use_case:
         # Check specific use case
-        cmd = [sys.executable, str(SCRIPT_DIR / "check_issue_dependencies.py"), args.use_case]
+        cmd = [
+            sys.executable,
+            str(SCRIPT_DIR / "check_issue_dependencies.py"),
+            args.use_case,
+        ]
         if args.verbose:
             cmd.append("--verbose")
     else:
@@ -300,6 +338,7 @@ def cmd_deps(args):
 # LABELS COMMAND
 # =============================================================================
 
+
 def cmd_labels(args):
     """Sync blocked/ready labels."""
     cmd = ["bash", str(SCRIPT_DIR / "sync_github_blockers.sh"), "--add-labels"]
@@ -316,6 +355,7 @@ def cmd_labels(args):
 # CHECK COMMAND
 # =============================================================================
 
+
 def cmd_check(args):
     """Run all checks."""
     print("=" * 60)
@@ -326,9 +366,17 @@ def cmd_check(args):
 
     # Check dependencies
     print("\n→ Checking dependencies...")
-    result = subprocess.run([sys.executable, str(SCRIPT_DIR / "check_issue_dependencies.py"),
-                            "--blocked", "--category", args.category or "data-layer"],
-                           capture_output=True, text=True)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_DIR / "check_issue_dependencies.py"),
+            "--blocked",
+            "--category",
+            args.category or "data-layer",
+        ],
+        capture_output=True,
+        text=True,
+    )
     blocked_count = result.stdout.count("🚫")
     print(f"  {blocked_count} blocked items found")
 
@@ -367,10 +415,18 @@ def cmd_check(args):
 # PR COMMAND
 # =============================================================================
 
+
 def cmd_pr(args):
     """Show PR status and linked issue."""
-    result = run_gh(["pr", "view", str(args.number), "--json",
-                     "number,title,state,body,headRefName,mergeable,reviewDecision"])
+    result = run_gh(
+        [
+            "pr",
+            "view",
+            str(args.number),
+            "--json",
+            "number,title,state,body,headRefName,mergeable,reviewDecision",
+        ]
+    )
     if result.returncode != 0:
         print(f"Error: Could not find PR #{args.number}", file=sys.stderr)
         return 1
@@ -382,7 +438,9 @@ def cmd_pr(args):
         return 1
 
     body = pr.get("body", "") or ""
-    match = re.search(r"(?:Fixes|Closes|Resolves)\s*(?:[\w-]+/[\w-]+)?#(\d+)", body, re.I)
+    match = re.search(
+        r"(?:Fixes|Closes|Resolves)\s*(?:[\w-]+/[\w-]+)?#(\d+)", body, re.I
+    )
     linked_issue = int(match.group(1)) if match else None
 
     print(f"PR #{pr['number']}: {pr['title']}")
@@ -394,7 +452,9 @@ def cmd_pr(args):
     if linked_issue:
         print(f"  Linked Issue: #{linked_issue}")
         # Get issue info
-        issue_result = run_gh(["issue", "view", str(linked_issue), "--json", "title,state"])
+        issue_result = run_gh(
+            ["issue", "view", str(linked_issue), "--json", "title,state"]
+        )
         if issue_result.returncode == 0:
             issue = json.loads(issue_result.stdout)
             print(f"    → {issue['title']}")
@@ -409,6 +469,7 @@ def cmd_pr(args):
 # MAIN
 # =============================================================================
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="MONITOR Project Management CLI",
@@ -421,17 +482,25 @@ Examples:
   monitor deps --format mermaid  Generate dependency diagram
   monitor check                  Run health checks
   monitor pr 66                  Show PR #66 details
-        """
+        """,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # status
     p_status = subparsers.add_parser("status", help="Show project status")
-    p_status.add_argument("--ready", "-r", action="store_true", help="Show only ready items")
-    p_status.add_argument("--blocked", "-b", action="store_true", help="Show only blocked items")
-    p_status.add_argument("--in-progress", "-p", action="store_true", help="Show only in-progress items")
-    p_status.add_argument("--done", "-d", action="store_true", help="Show only done items")
+    p_status.add_argument(
+        "--ready", "-r", action="store_true", help="Show only ready items"
+    )
+    p_status.add_argument(
+        "--blocked", "-b", action="store_true", help="Show only blocked items"
+    )
+    p_status.add_argument(
+        "--in-progress", "-p", action="store_true", help="Show only in-progress items"
+    )
+    p_status.add_argument(
+        "--done", "-d", action="store_true", help="Show only done items"
+    )
     p_status.add_argument("--category", "-c", help="Filter by category")
 
     # sync
@@ -442,7 +511,12 @@ Examples:
     # deps
     p_deps = subparsers.add_parser("deps", help="Check/visualize dependencies")
     p_deps.add_argument("use_case", nargs="?", help="Specific use case to check")
-    p_deps.add_argument("--format", "-f", choices=["ascii", "mermaid", "dot", "json"], help="Output format")
+    p_deps.add_argument(
+        "--format",
+        "-f",
+        choices=["ascii", "mermaid", "dot", "json"],
+        help="Output format",
+    )
     p_deps.add_argument("--category", "-c", help="Filter by category")
     p_deps.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 

@@ -57,7 +57,9 @@ def story_data(universe_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @pytest.fixture
-def scene_data(story_data: Dict[str, Any], universe_data: Dict[str, Any]) -> Dict[str, Any]:
+def scene_data(
+    story_data: Dict[str, Any], universe_data: Dict[str, Any]
+) -> Dict[str, Any]:
     """Provide sample scene data."""
     return {
         "scene_id": str(uuid4()),
@@ -685,5 +687,7 @@ def test_create_scene_invalid_location(
         location_ref=invalid_location_id,
     )
 
-    with pytest.raises(ValueError, match=f"Location entity {invalid_location_id} not found"):
+    with pytest.raises(
+        ValueError, match=f"Location entity {invalid_location_id} not found"
+    ):
         mongodb_create_scene(params)

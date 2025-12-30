@@ -14,7 +14,10 @@ import re
 import sys
 
 # Pattern for human-created branches (require use case ID)
-HUMAN_PATTERN = re.compile(r"^(feature|bugfix)/((?:DL|P|M|Q|I|SYS|CF|ST|RS|DOC)-\d+)-[a-z0-9-]+$", re.IGNORECASE)
+HUMAN_PATTERN = re.compile(
+    r"^(feature|bugfix)/((?:DL|P|M|Q|I|SYS|CF|ST|RS|DOC)-\d+)-[a-z0-9-]+$",
+    re.IGNORECASE,
+)
 
 # Pattern for copilot/bot branches (more flexible - just require reasonable naming)
 COPILOT_PATTERN = re.compile(r"^copilot/[a-z0-9-]+$", re.IGNORECASE)

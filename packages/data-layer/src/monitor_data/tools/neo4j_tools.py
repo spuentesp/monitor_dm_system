@@ -393,8 +393,8 @@ def neo4j_update_universe(
     MATCH (u:Universe {id: $id})
     RETURN u
     """
-    result = client.execute_read(verify_query, {"id": str(universe_id)})
-    if not result:
+    verify_result = client.execute_read(verify_query, {"id": str(universe_id)})
+    if not verify_result:
         raise ValueError(f"Universe {universe_id} not found")
 
     # Build SET clause for only provided fields
@@ -423,21 +423,19 @@ def neo4j_update_universe(
 
     if not set_clauses:
         # No updates, just return current state
-        result = neo4j_get_universe(universe_id)
-        if result is None:
+        existing_universe = neo4j_get_universe(universe_id)
+        if existing_universe is None:
             # This should not happen since we already verified universe exists
             raise ValueError(f"Universe {universe_id} not found after verification")
-        return result
+        return existing_universe
 
     set_clause = ", ".join(set_clauses)
     update_query = (
-        "MATCH (u:Universe {id: $id})\n"
-        "SET " + set_clause + "\n"
-        "RETURN u"
+        "MATCH (u:Universe {id: $id})\n" "SET " + set_clause + "\n" "RETURN u"
     )
 
-    result = client.execute_write(update_query, update_params)
-    u = result[0]["u"]
+    write_result = client.execute_write(update_query, update_params)
+    u = write_result[0]["u"]
 
     return UniverseResponse(
         id=UUID(u["id"]),
@@ -668,7 +666,7 @@ def neo4j_create_entity(params: EntityCreate) -> EntityResponse:
     created_at = datetime.now(timezone.utc)
 
     # Base properties for all entities
-    entity_props = {
+    entity_props: Dict[str, Any] = {
         "id": str(entity_id),
         "universe_id": str(params.universe_id),
         "name": params.name,
@@ -922,10 +920,10 @@ def neo4j_update_entity(entity_id: UUID, params: EntityUpdate) -> EntityResponse
 
     if len(set_clauses) == 1:
         # Only updated_at would be set, so just return current state
-        result = neo4j_get_entity(entity_id)
-        if result is None:
+        existing_entity = neo4j_get_entity(entity_id)
+        if existing_entity is None:
             raise ValueError(f"Entity {entity_id} not found after verification")
-        return result
+        return existing_entity
 
     set_clause = ", ".join(set_clauses)
     update_query = f"""
@@ -935,9 +933,9 @@ def neo4j_update_entity(entity_id: UUID, params: EntityUpdate) -> EntityResponse
     RETURN e, a.id as archetype_id
     """
 
-    result = client.execute_write(update_query, update_params)
-    e = result[0]["e"]
-    archetype_id = result[0].get("archetype_id")
+    write_result = client.execute_write(update_query, update_params)
+    e = write_result[0]["e"]
+    archetype_id = write_result[0].get("archetype_id")
 
     return EntityResponse(
         id=UUID(e["id"]),
@@ -1019,9 +1017,7 @@ def neo4j_delete_entity(entity_id: UUID, force: bool = False) -> Dict[str, Any]:
     }
 
 
-def neo4j_set_state_tags(
-    entity_id: UUID, params: StateTagsUpdate
-) -> EntityResponse:
+def neo4j_set_state_tags(entity_id: UUID, params: StateTagsUpdate) -> EntityResponse:
     """
     Atomically add/remove state tags on an EntityInstance.
 
@@ -1074,10 +1070,10 @@ def neo4j_set_state_tags(
 
     if not update_parts:
         # No changes, return current state
-        result = neo4j_get_entity(entity_id)
-        if result is None:
+        existing_entity = neo4j_get_entity(entity_id)
+        if existing_entity is None:
             raise ValueError(f"Entity {entity_id} not found after verification")
-        return result
+        return existing_entity
 
     update_parts.append("e.updated_at = datetime($updated_at)")
 
@@ -1088,9 +1084,9 @@ def neo4j_set_state_tags(
     RETURN e, a.id as archetype_id
     """
 
-    result = client.execute_write(update_query, update_params)
-    e = result[0]["e"]
-    archetype_id = result[0].get("archetype_id")
+    write_result = client.execute_write(update_query, update_params)
+    e = write_result[0]["e"]
+    archetype_id = write_result[0].get("archetype_id")
 
     return EntityResponse(
         id=UUID(e["id"]),
@@ -1150,7 +1146,9 @@ def neo4j_create_fact(params: FactCreate) -> FactResponse:
         RETURN e.id as id
         """
         for entity_id in params.entity_ids:
-            result = client.execute_read(entity_check_query, {"entity_id": str(entity_id)})
+            result = client.execute_read(
+                entity_check_query, {"entity_id": str(entity_id)}
+            )
             if not result:
                 raise ValueError(f"Entity {entity_id} not found")
 
@@ -1161,7 +1159,9 @@ def neo4j_create_fact(params: FactCreate) -> FactResponse:
         RETURN s.id as id
         """
         for source_id in params.source_ids:
-            result = client.execute_read(source_check_query, {"source_id": str(source_id)})
+            result = client.execute_read(
+                source_check_query, {"source_id": str(source_id)}
+            )
             if not result:
                 raise ValueError(f"Source {source_id} not found")
 
@@ -1182,14 +1182,16 @@ def neo4j_create_fact(params: FactCreate) -> FactResponse:
         MATCH (old:Fact {id: $replaces_id})
         RETURN old.id as id
         """
-        result = client.execute_read(replaces_check_query, {"replaces_id": str(params.replaces)})
+        result = client.execute_read(
+            replaces_check_query, {"replaces_id": str(params.replaces)}
+        )
         if not result:
             raise ValueError(f"Fact to replace {params.replaces} not found")
 
     # Create fact node
     fact_id = uuid4()
     created_at = datetime.now(timezone.utc)
-    
+
     create_query = """
     MATCH (u:Universe {id: $universe_id})
     CREATE (f:Fact {
@@ -1209,7 +1211,7 @@ def neo4j_create_fact(params: FactCreate) -> FactResponse:
     CREATE (u)-[:HAS_FACT]->(f)
     RETURN f
     """
-    
+
     client.execute_write(
         create_query,
         {
@@ -1286,10 +1288,10 @@ def neo4j_create_fact(params: FactCreate) -> FactResponse:
         )
 
     # Retrieve with relationships
-    result = neo4j_get_fact(fact_id)
-    if result is None:
+    fact = neo4j_get_fact(fact_id)
+    if fact is None:
         raise ValueError(f"Failed to retrieve created fact {fact_id}")
-    return result
+    return fact
 
 
 def neo4j_get_fact(fact_id: UUID) -> Optional[FactResponse]:
@@ -1325,7 +1327,7 @@ def neo4j_get_fact(fact_id: UUID) -> Optional[FactResponse]:
 
     record = result[0]
     f = record["f"]
-    
+
     return FactResponse(
         id=UUID(f["id"]),
         universe_id=UUID(f["universe_id"]),
@@ -1362,7 +1364,7 @@ def neo4j_list_facts(filters: Optional[FactFilter] = None) -> List[FactResponse]
     client = get_neo4j_client()
 
     if filters is None:
-        filters = FactFilter()
+        filters = FactFilter()  # type: ignore[call-arg]
 
     # Build WHERE clause
     where_clauses = []
@@ -1389,7 +1391,7 @@ def neo4j_list_facts(filters: Optional[FactFilter] = None) -> List[FactResponse]
         # and combine it with other filters using AND
         where_clauses.insert(0, "e.id = $entity_id")
         where_clause = "WHERE " + " AND ".join(where_clauses)
-        
+
         query = f"""
         MATCH (f:Fact)-[:INVOLVES]->(e)
         {where_clause}
@@ -1408,7 +1410,7 @@ def neo4j_list_facts(filters: Optional[FactFilter] = None) -> List[FactResponse]
         params["entity_id"] = str(filters.entity_id)
     else:
         where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-        
+
         query = f"""
         MATCH (f:Fact)
         {where_clause}
@@ -1504,10 +1506,10 @@ def neo4j_update_fact(fact_id: UUID, params: FactUpdate) -> FactResponse:
 
     if not set_clauses:
         # No updates, just return current state
-        result = neo4j_get_fact(fact_id)
-        if result is None:
+        existing_fact = neo4j_get_fact(fact_id)
+        if existing_fact is None:
             raise ValueError(f"Fact {fact_id} not found after verification")
-        return result
+        return existing_fact
 
     set_clause = ", ".join(set_clauses)
     update_query = f"""
@@ -1519,10 +1521,10 @@ def neo4j_update_fact(fact_id: UUID, params: FactUpdate) -> FactResponse:
     client.execute_write(update_query, update_params)
 
     # Retrieve updated fact with relationships
-    result = neo4j_get_fact(fact_id)
-    if result is None:
+    updated_fact = neo4j_get_fact(fact_id)
+    if updated_fact is None:
         raise ValueError(f"Fact {fact_id} not found after update")
-    return result
+    return updated_fact
 
 
 def neo4j_delete_fact(fact_id: UUID, force: bool = False) -> Dict[str, Any]:
@@ -1615,7 +1617,9 @@ def neo4j_create_event(params: EventCreate) -> EventResponse:
         MATCH (sc:Scene {id: $scene_id})
         RETURN sc.id as id
         """
-        result = client.execute_read(scene_check_query, {"scene_id": str(params.scene_id)})
+        result = client.execute_read(
+            scene_check_query, {"scene_id": str(params.scene_id)}
+        )
         if not result:
             raise ValueError(f"Scene {params.scene_id} not found")
 
@@ -1627,7 +1631,9 @@ def neo4j_create_event(params: EventCreate) -> EventResponse:
         RETURN e.id as id
         """
         for entity_id in params.entity_ids:
-            result = client.execute_read(entity_check_query, {"entity_id": str(entity_id)})
+            result = client.execute_read(
+                entity_check_query, {"entity_id": str(entity_id)}
+            )
             if not result:
                 raise ValueError(f"Entity {entity_id} not found")
 
@@ -1638,7 +1644,9 @@ def neo4j_create_event(params: EventCreate) -> EventResponse:
         RETURN s.id as id
         """
         for source_id in params.source_ids:
-            result = client.execute_read(source_check_query, {"source_id": str(source_id)})
+            result = client.execute_read(
+                source_check_query, {"source_id": str(source_id)}
+            )
             if not result:
                 raise ValueError(f"Source {source_id} not found")
 
@@ -1660,7 +1668,9 @@ def neo4j_create_event(params: EventCreate) -> EventResponse:
         RETURN ev.id as id
         """
         for before_id in params.timeline_before:
-            result = client.execute_read(event_check_query, {"event_id": str(before_id)})
+            result = client.execute_read(
+                event_check_query, {"event_id": str(before_id)}
+            )
             if not result:
                 raise ValueError(f"Timeline before event {before_id} not found")
 
@@ -1671,7 +1681,9 @@ def neo4j_create_event(params: EventCreate) -> EventResponse:
         RETURN ev.id as id
         """
         for caused_id in params.causes:
-            result = client.execute_read(event_check_query, {"event_id": str(caused_id)})
+            result = client.execute_read(
+                event_check_query, {"event_id": str(caused_id)}
+            )
             if not result:
                 raise ValueError(f"Caused event {caused_id} not found")
 
@@ -1786,10 +1798,10 @@ def neo4j_create_event(params: EventCreate) -> EventResponse:
             )
 
     # Retrieve with relationships
-    result = neo4j_get_event(event_id)
-    if result is None:
+    event = neo4j_get_event(event_id)
+    if event is None:
         raise ValueError(f"Failed to retrieve created event {event_id}")
-    return result
+    return event
 
 
 def neo4j_get_event(event_id: UUID) -> Optional[EventResponse]:
@@ -1868,7 +1880,7 @@ def neo4j_list_events(filters: Optional[EventFilter] = None) -> List[EventRespon
     client = get_neo4j_client()
 
     if filters is None:
-        filters = EventFilter()
+        filters = EventFilter()  # type: ignore[call-arg]
 
     # Build WHERE clause
     where_clauses = []
@@ -1903,7 +1915,7 @@ def neo4j_list_events(filters: Optional[EventFilter] = None) -> List[EventRespon
         # and combine it with other filters using AND
         where_clauses.insert(0, "e.id = $entity_id")
         where_clause = "WHERE " + " AND ".join(where_clauses)
-        
+
         query = f"""
         MATCH (ev:Event)-[:INVOLVES]->(e)
         {where_clause}
@@ -1926,7 +1938,7 @@ def neo4j_list_events(filters: Optional[EventFilter] = None) -> List[EventRespon
         params["entity_id"] = str(filters.entity_id)
     else:
         where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-        
+
         query = f"""
         MATCH (ev:Event)
         {where_clause}
@@ -2050,7 +2062,9 @@ def neo4j_create_story(params: StoryCreate) -> StoryResponse:
         "theme": params.theme,
         "premise": params.premise,
         "status": params.status.value,
-        "start_time_ref": params.start_time_ref.isoformat() if params.start_time_ref else None,
+        "start_time_ref": (
+            params.start_time_ref.isoformat() if params.start_time_ref else None
+        ),
         "created_at": created_at.isoformat(),
     }
 
@@ -2118,8 +2132,8 @@ def neo4j_get_story(story_id: UUID) -> Optional[StoryResponse]:
 
     record = result[0]
     s = record["s"]
-    scene_count = record["scene_count"]
-    pc_ids = [UUID(pc_id) for pc_id in record["pc_ids"] if pc_id]
+    scene_count = record.get("scene_count", 0)
+    pc_ids = [UUID(pc_id) for pc_id in record.get("pc_ids", []) if pc_id]
 
     return StoryResponse(
         id=UUID(s["id"]),
@@ -2158,7 +2172,7 @@ def neo4j_update_story(story_id: UUID, params: StoryUpdate) -> StoryResponse:
         ValueError: If story doesn't exist or invalid status transition
     """
     from monitor_data.schemas.base import StoryStatus
-    
+
     client = get_neo4j_client()
 
     # Verify story exists and get current status
@@ -2169,7 +2183,7 @@ def neo4j_update_story(story_id: UUID, params: StoryUpdate) -> StoryResponse:
     result = client.execute_read(verify_query, {"id": str(story_id)})
     if not result:
         raise ValueError(f"Story {story_id} not found")
-    
+
     current_story = result[0]["s"]
 
     # Validate status transition if status is being updated
@@ -2218,10 +2232,10 @@ def neo4j_update_story(story_id: UUID, params: StoryUpdate) -> StoryResponse:
 
     if not set_clauses:
         # No updates, just return current state
-        result = neo4j_get_story(story_id)
-        if result is None:
+        existing_story = neo4j_get_story(story_id)
+        if existing_story is None:
             raise ValueError(f"Story {story_id} not found after verification")
-        return result
+        return existing_story
 
     set_clause = ", ".join(set_clauses)
     update_query = "MATCH (s:Story {id: $id})\n" "SET " + set_clause + "\n" "RETURN s"
@@ -2270,7 +2284,9 @@ def neo4j_list_stories(params: StoryFilter) -> StoryListResponse:
     where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
     # Build ORDER BY clause
-    sort_field = params.sort_by if params.sort_by in ["created_at", "title"] else "created_at"
+    sort_field = (
+        params.sort_by if params.sort_by in ["created_at", "title"] else "created_at"
+    )
     sort_order = "DESC" if params.sort_order == "desc" else "ASC"
     order_clause = f"ORDER BY s.{sort_field} {sort_order}"
 
@@ -2326,6 +2342,6 @@ def neo4j_list_stories(params: StoryFilter) -> StoryListResponse:
             )
         )
 
-    return StoryListResponse(stories=stories, total=total, limit=params.limit, offset=params.offset)
-
-
+    return StoryListResponse(
+        stories=stories, total=total, limit=params.limit, offset=params.offset
+    )

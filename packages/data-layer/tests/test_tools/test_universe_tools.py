@@ -371,7 +371,7 @@ def test_delete_universe_with_force_no_dependencies(
     universe_data: Dict[str, Any],
 ):
     """Test universe deletion with force=True when there are no dependencies.
-    
+
     This verifies that the cascade delete query correctly handles the edge case
     where the universe has no dependent data (empty dependents list).
     """

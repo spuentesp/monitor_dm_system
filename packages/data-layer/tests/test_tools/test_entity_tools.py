@@ -208,9 +208,7 @@ def test_create_instance_with_archetype(
 
 
 @patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
-def test_create_entity_invalid_universe(
-    mock_get_client: Mock, mock_neo4j_client: Mock
-):
+def test_create_entity_invalid_universe(mock_get_client: Mock, mock_neo4j_client: Mock):
     """Test entity creation with invalid universe_id."""
     mock_get_client.return_value = mock_neo4j_client
 
@@ -351,7 +349,10 @@ def test_get_entity_exists(
     """Test getting an existing entity."""
     mock_get_client.return_value = mock_neo4j_client
     mock_neo4j_client.execute_read.return_value = [
-        {"e": entity_instance_data, "archetype_id": entity_instance_data["archetype_id"]}
+        {
+            "e": entity_instance_data,
+            "archetype_id": entity_instance_data["archetype_id"],
+        }
     ]
 
     entity_id = UUID(entity_instance_data["id"])
@@ -416,7 +417,12 @@ def test_list_entities_by_tags(
     # Mock count and list queries
     mock_neo4j_client.execute_read.side_effect = [
         [{"total": 1}],
-        [{"e": entity_instance_data, "archetype_id": entity_instance_data["archetype_id"]}],
+        [
+            {
+                "e": entity_instance_data,
+                "archetype_id": entity_instance_data["archetype_id"],
+            }
+        ],
     ]
 
     filters = EntityFilter(state_tags=["alive", "traveling"])
@@ -708,7 +714,9 @@ def test_set_state_tags_add_and_remove(
         {"e": updated_data, "archetype_id": updated_data["archetype_id"]}
     ]
 
-    params = StateTagsUpdate(add_tags=["wounded", "at_rivendell"], remove_tags=["traveling"])
+    params = StateTagsUpdate(
+        add_tags=["wounded", "at_rivendell"], remove_tags=["traveling"]
+    )
 
     result = neo4j_set_state_tags(UUID(entity_instance_data["id"]), params)
 
@@ -755,7 +763,9 @@ def test_set_state_tags_overlapping_tags_fails():
     """Test that overlapping tags in add and remove lists are rejected."""
     from pydantic import ValidationError
 
-    with pytest.raises(ValidationError, match="Tags cannot appear in both add_tags and remove_tags"):
+    with pytest.raises(
+        ValidationError, match="Tags cannot appear in both add_tags and remove_tags"
+    ):
         StateTagsUpdate(add_tags=["alive", "wounded"], remove_tags=["wounded", "dead"])
 
 

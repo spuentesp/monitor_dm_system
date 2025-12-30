@@ -145,6 +145,7 @@ class CanonicalMetadata(BaseModel):
     authority: Authority
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+
 class BaseResponse(BaseModel):
     """Base response model with common fields."""
 

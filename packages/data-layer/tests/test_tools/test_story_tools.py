@@ -146,9 +146,7 @@ def test_create_story_with_pcs(
 
 
 @patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
-def test_create_story_invalid_universe(
-    mock_get_client: Mock, mock_neo4j_client: Mock
-):
+def test_create_story_invalid_universe(mock_get_client: Mock, mock_neo4j_client: Mock):
     """Test story creation with invalid universe_id."""
     mock_get_client.return_value = mock_neo4j_client
 
@@ -270,6 +268,9 @@ def test_update_story_status(
 ):
     """Test updating story status to completed."""
     mock_get_client.return_value = mock_neo4j_client
+
+    # Start from an active story to allow transition to completed
+    story_data["status"] = StoryStatus.ACTIVE.value
 
     updated_data = story_data.copy()
     updated_data["status"] = StoryStatus.COMPLETED.value

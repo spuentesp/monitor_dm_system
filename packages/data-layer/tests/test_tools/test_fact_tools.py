@@ -120,7 +120,7 @@ def test_create_fact_success(
 
     # Mock get_fact to return created fact
     from monitor_data.schemas.facts import FactResponse
-    
+
     mock_fact_response = FactResponse(
         id=UUID(fact_data["id"]),
         universe_id=UUID(fact_data["universe_id"]),
@@ -154,9 +154,7 @@ def test_create_fact_success(
 
 
 @patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
-def test_create_fact_invalid_universe(
-    mock_get_client: Mock, mock_neo4j_client: Mock
-):
+def test_create_fact_invalid_universe(mock_get_client: Mock, mock_neo4j_client: Mock):
     """Test fact creation with invalid universe_id."""
     mock_get_client.return_value = mock_neo4j_client
 
@@ -193,7 +191,7 @@ def test_create_fact_with_provenance(
     source_id = uuid4()
 
     from monitor_data.schemas.facts import FactResponse
-    
+
     mock_fact_response = FactResponse(
         id=UUID(fact_data["id"]),
         universe_id=UUID(fact_data["universe_id"]),
@@ -250,7 +248,7 @@ def test_create_fact_with_entities(
     mock_neo4j_client.execute_write.return_value = [{"f": fact_data}]
 
     from monitor_data.schemas.facts import FactResponse
-    
+
     mock_fact_response = FactResponse(
         id=UUID(fact_data["id"]),
         universe_id=UUID(fact_data["universe_id"]),
@@ -303,7 +301,7 @@ def test_create_fact_with_retcon(
     mock_neo4j_client.execute_write.return_value = [{"f": fact_data}]
 
     from monitor_data.schemas.facts import FactResponse
-    
+
     mock_fact_response = FactResponse(
         id=UUID(fact_data["id"]),
         universe_id=UUID(fact_data["universe_id"]),
@@ -494,7 +492,7 @@ def test_update_fact_canon_level(
     mock_neo4j_client.execute_write.return_value = [{"f": updated_fact}]
 
     from monitor_data.schemas.facts import FactResponse
-    
+
     mock_fact_response = FactResponse(
         id=UUID(fact_data["id"]),
         universe_id=UUID(fact_data["universe_id"]),
@@ -550,7 +548,7 @@ def test_update_fact_statement(
     mock_neo4j_client.execute_write.return_value = [{"f": updated_fact}]
 
     from monitor_data.schemas.facts import FactResponse
-    
+
     mock_fact_response = FactResponse(
         id=UUID(fact_data["id"]),
         universe_id=UUID(fact_data["universe_id"]),
@@ -659,7 +657,7 @@ def test_create_event_success(
     mock_neo4j_client.execute_write.return_value = [{"ev": event_data}]
 
     from monitor_data.schemas.facts import EventResponse
-    
+
     mock_event_response = EventResponse(
         id=UUID(event_data["id"]),
         universe_id=UUID(event_data["universe_id"]),
@@ -717,7 +715,7 @@ def test_create_event_with_timeline(
     mock_neo4j_client.execute_write.return_value = [{"ev": event_data}]
 
     from monitor_data.schemas.facts import EventResponse
-    
+
     mock_event_response = EventResponse(
         id=UUID(event_data["id"]),
         universe_id=UUID(event_data["universe_id"]),
@@ -774,7 +772,7 @@ def test_create_event_with_causal(
     mock_neo4j_client.execute_write.return_value = [{"ev": event_data}]
 
     from monitor_data.schemas.facts import EventResponse
-    
+
     mock_event_response = EventResponse(
         id=UUID(event_data["id"]),
         universe_id=UUID(event_data["universe_id"]),

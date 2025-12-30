@@ -20,7 +20,7 @@ Collections:
 """
 
 import os
-from typing import Optional
+from typing import Optional, cast
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.database import Database
 from pymongo.collection import Collection
@@ -46,10 +46,14 @@ class MongoDBClient:
             uri: MongoDB connection URI (default: from MONGODB_URI env var)
             database: Database name (default: from MONGODB_DATABASE env var or "monitor")
         """
-        self.uri = uri or os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-        self.database_name = database or os.getenv("MONGODB_DATABASE", "monitor")
-        self._client = None
-        self._db = None
+        self.uri: str = cast(
+            str, uri or os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+        )
+        self.database_name: str = cast(
+            str, database or os.getenv("MONGODB_DATABASE", "monitor")
+        )
+        self._client: Optional[MongoClient] = None
+        self._db: Optional[Database] = None
         self._indexes_created = False
 
     def connect(self) -> None:
@@ -60,6 +64,7 @@ class MongoDBClient:
         """
         if self._client is None:
             self._client = MongoClient(self.uri)
+            assert self.database_name is not None
             self._db = self._client[self.database_name]
             if not self._indexes_created:
                 self._create_indexes()
@@ -83,6 +88,7 @@ class MongoDBClient:
         try:
             if self._client is None:
                 self.connect()
+            assert self._client is not None
             # Ping the server
             self._client.admin.command("ping")
             return True

@@ -42,8 +42,12 @@ def run_gh(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
 def get_issue_dependencies(issue_number: int) -> dict[str, Any]:
     """Get GitHub native issue dependencies for an issue."""
     result = run_gh(
-        ["api", f"repos/:owner/:repo/issues/{issue_number}",
-         "--jq", ".issue_dependencies_summary"],
+        [
+            "api",
+            f"repos/:owner/:repo/issues/{issue_number}",
+            "--jq",
+            ".issue_dependencies_summary",
+        ],
         check=False,
     )
     if result.returncode != 0:
@@ -58,8 +62,16 @@ def get_issue_dependencies(issue_number: int) -> dict[str, Any]:
 def get_all_issues() -> dict[str, dict[str, Any]]:
     """Get all issues from GitHub, keyed by use case ID."""
     result = run_gh(
-        ["issue", "list", "--state", "all", "--limit", "500", "--json",
-         "number,title,state,labels"],
+        [
+            "issue",
+            "list",
+            "--state",
+            "all",
+            "--limit",
+            "500",
+            "--json",
+            "number,title,state,labels",
+        ],
         check=False,
     )
     if result.returncode != 0:
@@ -148,11 +160,13 @@ def check_dependencies(
         elif issues[dep_id]["state"] == "CLOSED":
             satisfied.append(dep_id)
         else:
-            unsatisfied.append({
-                "id": dep_id,
-                "issue": issues[dep_id]["number"],
-                "state": issues[dep_id]["state"],
-            })
+            unsatisfied.append(
+                {
+                    "id": dep_id,
+                    "issue": issues[dep_id]["number"],
+                    "state": issues[dep_id]["state"],
+                }
+            )
 
     # Get issue info for this use case
     issue_info = issues.get(use_case_id, {})
@@ -194,19 +208,22 @@ def print_status(result: dict[str, Any], verbose: bool = False) -> None:
         return
 
     status_icon = "✅" if result["can_start"] else "🚫"
-    issue_ref = f"#{result['issue_number']}" if result.get("issue_number") else "(no issue)"
+    issue_ref = (
+        f"#{result['issue_number']}" if result.get("issue_number") else "(no issue)"
+    )
     state = result.get("issue_state", "")
     state_str = f" [{state}]" if state else ""
 
-    print(f"{status_icon} {result['id']}: {result['title'][:50]} {issue_ref}{state_str}")
+    print(
+        f"{status_icon} {result['id']}: {result['title'][:50]} {issue_ref}{state_str}"
+    )
 
     if verbose or not result["can_start"]:
         if result["satisfied"]:
             print(f"   ✓ Satisfied: {', '.join(result['satisfied'])}")
         if result["unsatisfied"]:
             blocked_str = ", ".join(
-                f"{u['id']} (#{u['issue']} {u['state']})"
-                for u in result["unsatisfied"]
+                f"{u['id']} (#{u['issue']} {u['state']})" for u in result["unsatisfied"]
             )
             print(f"   ✗ YAML deps blocked by: {blocked_str}")
         if result["missing_issues"]:
@@ -228,22 +245,26 @@ def main() -> int:
         help="Use case ID to check (e.g., DL-4)",
     )
     parser.add_argument(
-        "--all", "-a",
+        "--all",
+        "-a",
         action="store_true",
         help="Check all use cases",
     )
     parser.add_argument(
-        "--ready", "-r",
+        "--ready",
+        "-r",
         action="store_true",
         help="Show only use cases ready to work on (deps satisfied, not closed)",
     )
     parser.add_argument(
-        "--blocked", "-b",
+        "--blocked",
+        "-b",
         action="store_true",
         help="Show only blocked use cases",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Show detailed dependency info",
     )
@@ -253,7 +274,8 @@ def main() -> int:
         help="Output as JSON",
     )
     parser.add_argument(
-        "--category", "-c",
+        "--category",
+        "-c",
         help="Filter by category (e.g., data-layer, play)",
     )
 
@@ -272,8 +294,7 @@ def main() -> int:
     # Filter by category if specified
     if args.category:
         use_cases = {
-            k: v for k, v in use_cases.items()
-            if v.get("category") == args.category
+            k: v for k, v in use_cases.items() if v.get("category") == args.category
         }
 
     # Determine which use cases to check
@@ -315,8 +336,16 @@ def main() -> int:
         print()
 
         # Summary
-        ready = sum(1 for r in results if r.get("can_start") and r.get("issue_state") != "CLOSED")
-        blocked = sum(1 for r in results if not r.get("can_start") and r.get("issue_state") != "CLOSED")
+        ready = sum(
+            1
+            for r in results
+            if r.get("can_start") and r.get("issue_state") != "CLOSED"
+        )
+        blocked = sum(
+            1
+            for r in results
+            if not r.get("can_start") and r.get("issue_state") != "CLOSED"
+        )
         closed = sum(1 for r in results if r.get("issue_state") == "CLOSED")
 
         print(f"Summary: {ready} ready, {blocked} blocked, {closed} completed")

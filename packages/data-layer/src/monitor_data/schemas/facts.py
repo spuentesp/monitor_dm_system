@@ -42,38 +42,40 @@ class FactCreate(BaseModel):
     """Request to create a Fact."""
 
     universe_id: UUID
-    statement: str = Field(min_length=1, max_length=2000, description="The fact statement")
+    statement: str = Field(
+        min_length=1, max_length=2000, description="The fact statement"
+    )
     fact_type: FactType = Field(default=FactType.STATE)
-    
+
     # Optional temporal properties
     time_ref: Optional[datetime] = Field(None, description="When it became true")
     duration: Optional[int] = Field(None, description="How long it was true (seconds)")
-    
+
     # Entity references
     entity_ids: Optional[List[UUID]] = Field(
         default=None, description="Entity IDs this fact involves"
     )
-    
+
     # Provenance references
     source_ids: Optional[List[UUID]] = Field(
         default=None, description="Source IDs supporting this fact"
     )
     snippet_ids: Optional[List[str]] = Field(
-        default=None, 
-        description="Snippet IDs supporting this fact (stored for reference, not as Neo4j edges)"
+        default=None,
+        description="Snippet IDs supporting this fact (stored for reference, not as Neo4j edges)",
     )
     scene_ids: Optional[List[UUID]] = Field(
         default=None, description="Scene IDs supporting this fact"
     )
-    
+
     # Canonization metadata
     canon_level: CanonLevel = Field(default=CanonLevel.PROPOSED)
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
     authority: Authority = Field(default=Authority.SYSTEM)
-    
+
     # Optional retcon tracking
     replaces: Optional[UUID] = Field(None, description="Fact ID this retcons")
-    
+
     # Custom properties
     properties: Optional[dict] = Field(
         default=None, description="Additional custom properties"
@@ -108,7 +110,7 @@ class FactResponse(BaseModel):
     created_at: datetime
     replaces: Optional[UUID]
     properties: Optional[dict]
-    
+
     # Relationship data (populated by get operations)
     entity_ids: List[UUID] = Field(default_factory=list)
     source_ids: List[UUID] = Field(default_factory=list)
@@ -140,27 +142,27 @@ class EventCreate(BaseModel):
     universe_id: UUID
     title: str = Field(min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=2000)
-    
+
     # Temporal properties (required for events)
     start_time: datetime = Field(description="When the event started")
     end_time: Optional[datetime] = Field(None, description="When the event ended")
-    
+
     # Optional scene reference
     scene_id: Optional[UUID] = None
-    
+
     # Severity/importance
     severity: int = Field(default=5, ge=0, le=10, description="Event severity 0-10")
-    
+
     # Entity references
     entity_ids: Optional[List[UUID]] = Field(
         default=None, description="Entity IDs involved in this event"
     )
-    
+
     # Provenance references
     source_ids: Optional[List[UUID]] = Field(
         default=None, description="Source IDs supporting this event"
     )
-    
+
     # Timeline ordering (for establishing BEFORE and AFTER edges)
     timeline_after: Optional[List[UUID]] = Field(
         default=None, description="Event IDs this event comes after"
@@ -168,17 +170,17 @@ class EventCreate(BaseModel):
     timeline_before: Optional[List[UUID]] = Field(
         default=None, description="Event IDs this event comes before"
     )
-    
+
     # Causal relationships
     causes: Optional[List[UUID]] = Field(
         default=None, description="Event IDs this event causes"
     )
-    
+
     # Canonization metadata
     canon_level: CanonLevel = Field(default=CanonLevel.PROPOSED)
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
     authority: Authority = Field(default=Authority.SYSTEM)
-    
+
     # Custom properties
     properties: Optional[dict] = Field(
         default=None, description="Additional custom properties"
@@ -201,7 +203,7 @@ class EventResponse(BaseModel):
     authority: Authority
     created_at: datetime
     properties: Optional[dict]
-    
+
     # Relationship data (populated by get operations)
     entity_ids: List[UUID] = Field(default_factory=list)
     source_ids: List[UUID] = Field(default_factory=list)
@@ -219,7 +221,11 @@ class EventFilter(BaseModel):
     scene_id: Optional[UUID] = None
     entity_id: Optional[UUID] = Field(None, description="Events involving this entity")
     canon_level: Optional[CanonLevel] = None
-    start_after: Optional[datetime] = Field(None, description="Events starting after this time")
-    start_before: Optional[datetime] = Field(None, description="Events starting before this time")
+    start_after: Optional[datetime] = Field(
+        None, description="Events starting after this time"
+    )
+    start_before: Optional[datetime] = Field(
+        None, description="Events starting before this time"
+    )
     limit: int = Field(default=30, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
