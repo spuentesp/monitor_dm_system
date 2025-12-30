@@ -111,6 +111,16 @@ def universe_node(universe_data: Dict[str, Any]) -> Dict[str, Any]:
     return {"u": universe_data}
 
 
+@pytest.fixture
+def story_data(universe_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Provide sample story data."""
+    return {
+        "id": str(uuid4()),
+        "universe_id": universe_data["id"],
+        "title": "Test Story",
+    }
+
+
 # =============================================================================
 # UTILITY FIXTURES
 # =============================================================================
