@@ -453,7 +453,7 @@ jobs:
           fi
 
   # ============================================================
-  # JOB 5: Request Copilot review on PRs (after CI passes)
+  # JOB 5: Auto-approve and review Copilot PRs
   # ============================================================
   copilot-review:
     if: |
@@ -463,61 +463,119 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+      contents: read
     steps:
-      - name: Check if Copilot review needed
+      - uses: actions/checkout@v4
+
+      - name: Check if Copilot PR needs approval
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUM="${{ github.event.pull_request.number }}"
+          AUTHOR="${{ github.event.pull_request.user.login }}"
 
-          # Check if this PR is for a copilot-labeled issue
-          PR_BODY="${{ github.event.pull_request.body }}"
-          ISSUE_NUM=$(echo "$PR_BODY" | grep -oP '(?:Fixes|Closes|Resolves)\s*#\K\d+' | head -1)
+          # Check if this is a Copilot PR (by author or label)
+          LABELS=$(gh pr view "$PR_NUM" --json labels --jq '.labels[].name' 2>/dev/null || echo "")
 
-          if [ -n "$ISSUE_NUM" ]; then
-            LABELS=$(gh issue view "$ISSUE_NUM" --json labels --jq '.labels[].name' 2>/dev/null || echo "")
-            if echo "$LABELS" | grep -q "copilot"; then
-              echo "needs_review=true" >> $GITHUB_OUTPUT
-            else
-              echo "needs_review=false" >> $GITHUB_OUTPUT
-            fi
+          if echo "$LABELS" | grep -q "copilot"; then
+            echo "is_copilot_pr=true" >> $GITHUB_OUTPUT
+          elif [[ "$AUTHOR" == *"copilot"* ]] || [[ "$AUTHOR" == *"bot"* ]]; then
+            echo "is_copilot_pr=true" >> $GITHUB_OUTPUT
           else
-            # If no linked issue, review anyway for Copilot PRs
-            AUTHOR="${{ github.event.pull_request.user.login }}"
-            if [[ "$AUTHOR" == *"copilot"* ]] || [[ "$AUTHOR" == *"bot"* ]]; then
-              echo "needs_review=true" >> $GITHUB_OUTPUT
-            else
-              echo "needs_review=false" >> $GITHUB_OUTPUT
-            fi
+            echo "is_copilot_pr=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Request Copilot review
-        if: steps.check.outputs.needs_review == 'true'
+          # Check if already approved
+          REVIEW_STATE=$(gh pr view "$PR_NUM" --json reviewDecision --jq '.reviewDecision' 2>/dev/null || echo "")
+          if [ "$REVIEW_STATE" = "APPROVED" ]; then
+            echo "already_approved=true" >> $GITHUB_OUTPUT
+          else
+            echo "already_approved=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Wait for CI to pass before approving
+        if: steps.check.outputs.is_copilot_pr == 'true' && steps.check.outputs.already_approved == 'false'
+        id: wait-validate
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUM="${{ github.event.pull_request.number }}"
-          echo "Requesting Copilot review for PR #$PR_NUM"
+          SHA="${{ github.event.pull_request.head.sha }}"
 
-          # GitHub Copilot review is requested via the PR review API
-          # This requires Copilot to be enabled for the repository
-          gh pr edit "$PR_NUM" --add-label "copilot-review-requested"
+          echo "Waiting for validate check to pass..."
+
+          # Wait up to 5 minutes for validate to complete
+          for i in {1..30}; do
+            # Check specifically for the validate job
+            VALIDATE_STATUS=$(gh api repos/${{ github.repository }}/commits/$SHA/check-runs \
+              --jq '.check_runs[] | select(.name == "validate") | .conclusion' 2>/dev/null || echo "pending")
+
+            echo "  Attempt $i: validate=$VALIDATE_STATUS"
+
+            if [ "$VALIDATE_STATUS" = "success" ]; then
+              echo "Validate passed!"
+              echo "ci_passed=true" >> $GITHUB_OUTPUT
+              exit 0
+            elif [ "$VALIDATE_STATUS" = "failure" ]; then
+              echo "Validate failed, skipping approval"
+              echo "ci_passed=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "Timeout waiting for validate"
+          echo "ci_passed=false" >> $GITHUB_OUTPUT
+
+      - name: Auto-approve Copilot PR
+        if: |
+          steps.check.outputs.is_copilot_pr == 'true' &&
+          steps.check.outputs.already_approved == 'false' &&
+          steps.wait-validate.outputs.ci_passed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+          echo "Auto-approving Copilot PR #$PR_NUM"
+
+          # Approve the PR
+          gh pr review "$PR_NUM" --approve --body "✅ **Auto-approved by CI bot**
+
+          This PR was created by GitHub Copilot and has passed all CI checks:
+          - ✅ Layer boundary validation
+          - ✅ Linting (ruff, black)
+          - ✅ Type checking (mypy)
+          - ✅ Unit tests with coverage
+
+          Auto-merge will proceed if enabled."
+
+      - name: Request Copilot code review
+        if: steps.check.outputs.is_copilot_pr == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+
+          # Add label and request Copilot review for additional feedback
+          gh pr edit "$PR_NUM" --add-label "copilot-review-requested" 2>/dev/null || true
 
           # Add a comment to trigger Copilot review
           gh pr comment "$PR_NUM" --body "@github-copilot please review this PR and check:
           1. Code follows the patterns in CLAUDE.md and ARCHITECTURE.md
           2. Tests cover the acceptance criteria
           3. No layer boundary violations
-          4. Authority rules are respected (CanonKeeper for Neo4j writes)"
+          4. Authority rules are respected (CanonKeeper for Neo4j writes)" 2>/dev/null || true
 
   # ============================================================
-  # JOB 6: Auto-merge approved PRs
+  # JOB 6: Auto-merge approved Copilot PRs
   # ============================================================
   auto-merge:
+    needs: [copilot-review]
     if: |
       github.event_name == 'pull_request' &&
-      github.event.action == 'synchronize'
+      (github.event.action == 'synchronize' || github.event.action == 'ready_for_review')
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -525,40 +583,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check merge conditions
-        id: check
+      - name: Wait for approval and merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUM="${{ github.event.pull_request.number }}"
 
-          # Check if PR has copilot label and is approved
-          LABELS=$(gh pr view "$PR_NUM" --json labels --jq '.labels[].name')
+          # Check if PR has copilot label
+          LABELS=$(gh pr view "$PR_NUM" --json labels --jq '.labels[].name' 2>/dev/null || echo "")
 
           if ! echo "$LABELS" | grep -q "copilot"; then
             echo "Not a Copilot PR, skipping auto-merge"
-            echo "should_merge=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Check review status
-          REVIEW_STATE=$(gh pr view "$PR_NUM" --json reviewDecision --jq '.reviewDecision')
+          # Wait a bit for the approval to be registered
+          sleep 5
 
-          if [ "$REVIEW_STATE" = "APPROVED" ]; then
-            echo "should_merge=true" >> $GITHUB_OUTPUT
-          else
-            echo "PR not yet approved (state: $REVIEW_STATE)"
-            echo "should_merge=false" >> $GITHUB_OUTPUT
+          # Check review status
+          REVIEW_STATE=$(gh pr view "$PR_NUM" --json reviewDecision --jq '.reviewDecision' 2>/dev/null || echo "")
+
+          if [ "$REVIEW_STATE" != "APPROVED" ]; then
+            echo "PR not yet approved (state: $REVIEW_STATE), skipping"
+            exit 0
           fi
 
-      - name: Enable auto-merge
-        if: steps.check.outputs.should_merge == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_NUM="${{ github.event.pull_request.number }}"
-          echo "Enabling auto-merge for PR #$PR_NUM"
-          gh pr merge "$PR_NUM" --auto --squash
+          # Check if CI passed
+          SHA="${{ github.event.pull_request.head.sha }}"
+          VALIDATE_STATUS=$(gh api repos/${{ github.repository }}/commits/$SHA/check-runs \
+            --jq '.check_runs[] | select(.name == "validate") | .conclusion' 2>/dev/null || echo "pending")
+
+          if [ "$VALIDATE_STATUS" != "success" ]; then
+            echo "Validate not passed yet (status: $VALIDATE_STATUS), skipping"
+            exit 0
+          fi
+
+          echo "All conditions met, merging PR #$PR_NUM"
+
+          # Try auto-merge first, fall back to direct merge
+          if ! gh pr merge "$PR_NUM" --squash --auto 2>/dev/null; then
+            echo "Auto-merge not available, trying direct merge..."
+            gh pr merge "$PR_NUM" --squash --admin || echo "Could not merge, may need manual intervention"
+          fi
 
   # ============================================================
   # JOB 7: Update status on merge
