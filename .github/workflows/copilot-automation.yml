@@ -46,11 +46,12 @@ name: Copilot Automation
 #   1. queue-issues      - Find ready issues (dependencies met), label for Copilot
 #   2. pause-copilot     - Budget protection: remove labels to pause queue
 #   3. show-status       - Display current queue and budget status
-#   4. handle-ci-failure - Extract CI logs, comment for Copilot to fix
-#   5. copilot-review    - Request Copilot review on PRs
-#   6. auto-merge        - Enable auto-merge when approved
-#   7. update-on-merge   - Update YAML status, queue next issue
-#   8. scheduled-queue   - Daily check to keep queue populated
+#   4. copilot-review    - Request Copilot review on PRs
+#   5. auto-merge        - Enable auto-merge when approved
+#   6. update-on-merge   - Update YAML status, queue next issue
+#   7. scheduled-queue   - Daily check to keep queue populated
+#
+# NOTE: CI failure handling moved to ci-failure-handler.yml (separate workflow)
 #
 # BUDGET PROTECTION:
 #   - Tracks Copilot PRs per month
@@ -322,147 +323,7 @@ jobs:
           echo "Copilot PRs this month: $COUNT / $MAX_COPILOT_PRS_PER_MONTH"
 
   # ============================================================
-  # JOB 4: Handle CI failures - feed logs to Copilot
-  # ============================================================
-  handle-ci-failure:
-    if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      actions: read
-      checks: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Wait for CI to complete
-        id: wait-ci
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_NUM="${{ github.event.pull_request.number }}"
-          SHA="${{ github.event.pull_request.head.sha }}"
-
-          echo "Waiting for CI checks on $SHA..."
-
-          # Wait up to 10 minutes for checks to complete
-          for i in {1..60}; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$SHA/status --jq '.state' 2>/dev/null || echo "pending")
-            CHECKS=$(gh api repos/${{ github.repository }}/commits/$SHA/check-runs --jq '.check_runs | map(select(.status == "completed")) | length' 2>/dev/null || echo "0")
-            TOTAL=$(gh api repos/${{ github.repository }}/commits/$SHA/check-runs --jq '.total_count' 2>/dev/null || echo "0")
-
-            echo "  Attempt $i: status=$STATUS, completed=$CHECKS/$TOTAL"
-
-            if [ "$STATUS" = "success" ]; then
-              echo "CI passed!"
-              echo "ci_failed=false" >> $GITHUB_OUTPUT
-              exit 0
-            elif [ "$STATUS" = "failure" ] || [ "$STATUS" = "error" ]; then
-              echo "CI failed!"
-              echo "ci_failed=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-
-            sleep 10
-          done
-
-          echo "Timeout waiting for CI"
-          echo "ci_failed=false" >> $GITHUB_OUTPUT
-
-      - name: Extract failure logs
-        if: steps.wait-ci.outputs.ci_failed == 'true'
-        id: failures
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHA="${{ github.event.pull_request.head.sha }}"
-
-          echo "Extracting failed check logs..."
-
-          # Get failed check runs
-          FAILED_CHECKS=$(gh api repos/${{ github.repository }}/commits/$SHA/check-runs \
-            --jq '.check_runs[] | select(.conclusion == "failure") | {name: .name, id: .id}')
-
-          # Create failure report
-          REPORT=""
-
-          while IFS= read -r check; do
-            NAME=$(echo "$check" | jq -r '.name')
-            ID=$(echo "$check" | jq -r '.id')
-
-            echo "Fetching logs for: $NAME (ID: $ID)"
-
-            # Get the job logs
-            LOGS=$(gh api repos/${{ github.repository }}/actions/jobs/$ID/logs 2>/dev/null | tail -100 || echo "Could not fetch logs")
-
-            REPORT="${REPORT}
-          ## Failed: ${NAME}
-
-          \`\`\`
-          ${LOGS}
-          \`\`\`
-          "
-          done <<< "$FAILED_CHECKS"
-
-          # Also check for failed status contexts
-          FAILED_STATUSES=$(gh api repos/${{ github.repository }}/commits/$SHA/status \
-            --jq '.statuses[] | select(.state == "failure" or .state == "error") | .context + ": " + .description')
-
-          if [ -n "$FAILED_STATUSES" ]; then
-            REPORT="${REPORT}
-          ## Failed Status Checks
-
-          ${FAILED_STATUSES}
-          "
-          fi
-
-          # Save to file for the next step
-          echo "$REPORT" > /tmp/failure_report.md
-          echo "report_ready=true" >> $GITHUB_OUTPUT
-
-      - name: Comment with failures for Copilot to fix
-        if: steps.failures.outputs.report_ready == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_NUM="${{ github.event.pull_request.number }}"
-
-          # Check if this is a Copilot PR
-          LABELS=$(gh pr view "$PR_NUM" --json labels --jq '.labels[].name')
-
-          if ! echo "$LABELS" | grep -q "copilot"; then
-            echo "Not a Copilot PR, skipping auto-fix request"
-            exit 0
-          fi
-
-          REPORT=$(cat /tmp/failure_report.md)
-
-          # Post comment requesting fix
-          gh pr comment "$PR_NUM" --body "@github-copilot CI tests have failed. Please fix the following issues:
-
-          ${REPORT}
-
-          **Instructions:**
-          1. Read the error messages carefully
-          2. Fix the failing tests or code issues
-          3. Ensure all changes follow the patterns in \`CLAUDE.md\` and \`ARCHITECTURE.md\`
-          4. Make sure layer boundaries are respected (data-layer -> agents -> cli)
-          5. Run \`pytest\` locally if needed to verify fixes
-
-          Please push the fixes to this branch."
-
-          # Add label to track fix attempts
-          ATTEMPTS=$(gh pr view "$PR_NUM" --json labels --jq '[.labels[].name | select(startswith("fix-attempt-"))] | length')
-          NEW_ATTEMPT=$((ATTEMPTS + 1))
-
-          if [ "$NEW_ATTEMPT" -gt 3 ]; then
-            gh pr comment "$PR_NUM" --body "**Warning:** This PR has failed CI $NEW_ATTEMPT times. Manual intervention may be required."
-            gh pr edit "$PR_NUM" --add-label "needs-human-review"
-          else
-            gh pr edit "$PR_NUM" --add-label "fix-attempt-${NEW_ATTEMPT}"
-          fi
-
-  # ============================================================
-  # JOB 5: Auto-approve and review Copilot PRs
+  # JOB 4: Auto-approve and review Copilot PRs
   # ============================================================
   copilot-review:
     if: |
@@ -578,7 +439,7 @@ jobs:
           4. Authority rules are respected (CanonKeeper for Neo4j writes)" 2>/dev/null || true
 
   # ============================================================
-  # JOB 6: Auto-merge approved Copilot PRs
+  # JOB 5: Auto-merge approved Copilot PRs
   # ============================================================
   auto-merge:
     needs: [copilot-review]
@@ -636,7 +497,7 @@ jobs:
           fi
 
   # ============================================================
-  # JOB 7: Update status on merge
+  # JOB 6: Update status on merge
   # ============================================================
   update-on-merge:
     if: |
@@ -717,7 +578,7 @@ jobs:
           gh workflow run copilot-automation.yml -f action=queue -f max_issues=1 || echo "Could not trigger next queue"
 
   # ============================================================
-  # JOB 8: Scheduled queue check
+  # JOB 7: Scheduled queue check
   # ============================================================
   scheduled-queue:
     if: github.event_name == 'schedule'

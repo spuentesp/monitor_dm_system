@@ -1,0 +1,122 @@
+name: CI Failure Handler
+
+# This workflow ONLY runs when the validate check fails
+# It extracts error logs and comments on the PR for Copilot to fix
+# This keeps it OUT of the PR check list when CI passes
+
+on:
+  workflow_run:
+    workflows: ["PR Gate"]
+    types: [completed]
+
+jobs:
+  handle-failure:
+    # Only run if the validate workflow failed AND it's a Copilot PR
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      actions: read
+      checks: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get PR number
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get PR associated with this workflow run
+          PR_NUM=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/pull_requests \
+            --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [ -z "$PR_NUM" ]; then
+            echo "No PR found for this workflow run"
+            exit 0
+          fi
+
+          echo "pr_number=$PR_NUM" >> $GITHUB_OUTPUT
+
+          # Check if it's a Copilot PR
+          LABELS=$(gh pr view "$PR_NUM" --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+
+          if echo "$LABELS" | grep -q "copilot"; then
+            echo "is_copilot_pr=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_copilot_pr=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract failure logs
+        if: steps.pr.outputs.is_copilot_pr == 'true' && steps.pr.outputs.pr_number != ''
+        id: failures
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_ID="${{ github.event.workflow_run.id }}"
+
+          echo "Extracting failed job logs from run $RUN_ID..."
+
+          # Get failed jobs
+          FAILED_JOBS=$(gh api repos/${{ github.repository }}/actions/runs/$RUN_ID/jobs \
+            --jq '.jobs[] | select(.conclusion == "failure") | {name: .name, id: .id}')
+
+          # Create failure report
+          REPORT=""
+
+          while IFS= read -r job; do
+            NAME=$(echo "$job" | jq -r '.name')
+            ID=$(echo "$job" | jq -r '.id')
+
+            echo "Fetching logs for: $NAME (ID: $ID)"
+
+            # Get the job logs (last 100 lines of errors)
+            LOGS=$(gh run view "$RUN_ID" --log --job="$ID" 2>/dev/null | grep -i "error\|fail\|exception" | tail -100 || echo "Could not fetch specific logs")
+
+            REPORT="${REPORT}
+## Failed: ${NAME}
+
+\`\`\`
+${LOGS}
+\`\`\`
+"
+          done <<< "$FAILED_JOBS"
+
+          # Save to temp file
+          echo "$REPORT" > /tmp/failure_report.md
+          echo "has_failures=true" >> $GITHUB_OUTPUT
+
+      - name: Comment with failures for Copilot to fix
+        if: steps.failures.outputs.has_failures == 'true' && steps.pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ steps.pr.outputs.pr_number }}"
+          REPORT=$(cat /tmp/failure_report.md)
+
+          # Post comment requesting fix
+          gh pr comment "$PR_NUM" --body "## ❌ CI Failed
+
+@github-copilot The validate check failed. Please fix the following issues:
+
+${REPORT}
+
+**Instructions:**
+1. Read the error messages carefully
+2. Fix the failing tests or code issues
+3. Ensure all changes follow the patterns in \`CLAUDE.md\` and \`ARCHITECTURE.md\`
+4. Make sure layer boundaries are respected (data-layer -> agents -> cli)
+5. Run \`pytest\` locally if needed to verify fixes
+
+Please push the fixes to this branch."
+
+          # Track fix attempts
+          ATTEMPTS=$(gh pr view "$PR_NUM" --json labels --jq '[.labels[].name | select(startswith("fix-attempt-"))] | length')
+          NEW_ATTEMPT=$((ATTEMPTS + 1))
+
+          if [ "$NEW_ATTEMPT" -gt 3 ]; then
+            gh pr comment "$PR_NUM" --body "⚠️ **Warning:** This PR has failed CI $NEW_ATTEMPT times. Manual intervention may be required."
+            gh pr edit "$PR_NUM" --add-label "needs-human-review"
+          else
+            gh pr edit "$PR_NUM" --add-label "fix-attempt-${NEW_ATTEMPT}"
+          fi
