@@ -71,14 +71,8 @@ def test_create_combat_success(
 
     # Mock Neo4j
     mock_neo4j = MagicMock()
-    mock_session = MagicMock()
-    mock_result = MagicMock()
-    mock_single = MagicMock()
-
     mock_get_neo4j.return_value = mock_neo4j
-    mock_neo4j.session.return_value.__enter__.return_value = mock_session
-    mock_session.run.return_value = mock_result
-    mock_result.single.return_value = mock_single
+    mock_neo4j.execute_read.return_value = [{"story_id": str(story_id)}]
 
     # Test data
     participants = [
