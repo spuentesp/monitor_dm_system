@@ -201,9 +201,9 @@ class ThreadUrgency(str, Enum):
 class ClueVisibility(str, Enum):
     """Visibility status for mystery clues."""
 
-    REVEALED = "revealed"
     HIDDEN = "hidden"
     DISCOVERED = "discovered"
+    REVEALED = "revealed"
 
 
 class PayoffStatus(str, Enum):
