@@ -6,7 +6,8 @@ title: "Manage Parties"
 category: "data-layer"
 epic: 0
 priority: "high"
-status: "todo"
+status: "done"
+pr: "https://github.com/spuentesp/monitor_dm_system/pull/98"
 
 summary: |
   Implement CRUD operations for Party nodes in Neo4j and party membership tracking.
