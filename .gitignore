@@ -14,3 +14,9 @@ venv/
 htmlcov/
 .coverage
 .pytest_cache/
+
+# MCP plugin workspace
+.serena/
+
+# Package lock files
+uv.lock

@@ -593,3 +593,74 @@ def test_update_story_outline_mark_clue_discovered(
     assert (
         result.mystery_structure.core_clues[0].visibility == ClueVisibility.DISCOVERED
     )
+
+
+@patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
+def test_update_story_outline_mark_clue_discovered_no_mystery_structure(
+    mock_get_mongo: Mock,
+    story_data: Dict[str, Any],
+    story_outline_data: Dict[str, Any],
+):
+    """Test marking a clue as discovered fails when no mystery structure exists."""
+    mock_mongo_client = MagicMock()
+    mock_collection = MagicMock()
+    mock_get_mongo.return_value = mock_mongo_client
+    mock_mongo_client.get_collection.return_value = mock_collection
+
+    # Outline without mystery structure
+    outline_no_mystery = story_outline_data.copy()
+    outline_no_mystery["mystery_structure"] = None
+
+    mock_collection.find_one.return_value = outline_no_mystery
+
+    clue_id = uuid4()
+    params = StoryOutlineUpdate(
+        mark_clue_discovered=clue_id,
+    )
+
+    # Should raise ValueError because mystery_structure is None
+    with pytest.raises(ValueError, match="no mystery structure"):
+        mongodb_update_story_outline(UUID(story_data["id"]), params)
+
+
+@patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
+def test_update_story_outline_reorder_beats_incomplete(
+    mock_get_mongo: Mock,
+    story_data: Dict[str, Any],
+    story_outline_data: Dict[str, Any],
+    story_beat_data: Dict[str, Any],
+):
+    """Test reorder_beats validation requires all beat IDs."""
+    mock_mongo_client = MagicMock()
+    mock_collection = MagicMock()
+    mock_get_mongo.return_value = mock_mongo_client
+    mock_mongo_client.get_collection.return_value = mock_collection
+
+    # Create outline with 3 beats
+    beat1 = story_beat_data.copy()
+    beat1["beat_id"] = str(uuid4())
+    beat1["order"] = 0
+
+    beat2 = story_beat_data.copy()
+    beat2["beat_id"] = str(uuid4())
+    beat2["order"] = 1
+    beat2["title"] = "Middle Scene"
+
+    beat3 = story_beat_data.copy()
+    beat3["beat_id"] = str(uuid4())
+    beat3["order"] = 2
+    beat3["title"] = "Finale"
+
+    outline_with_beats = story_outline_data.copy()
+    outline_with_beats["beats"] = [beat1, beat2, beat3]
+
+    mock_collection.find_one.return_value = outline_with_beats
+
+    # Try to reorder with only 2 beat IDs (missing one)
+    params = StoryOutlineUpdate(
+        reorder_beats=[UUID(beat1["beat_id"]), UUID(beat2["beat_id"])]  # Missing beat3!
+    )
+
+    # Should raise ValueError because not all beat IDs are included
+    with pytest.raises(ValueError, match="must include all.*beat IDs"):
+        mongodb_update_story_outline(UUID(story_data["id"]), params)
