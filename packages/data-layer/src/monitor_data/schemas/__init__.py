@@ -34,6 +34,7 @@ from monitor_data.schemas.base import (
     ProposalStatus,
     ProposalType,
     Speaker,
+    PartyStatus,
     CanonicalMetadata,
     BaseResponse,
 )
@@ -69,6 +70,7 @@ __all__ = [
     "ProposalStatus",
     "ProposalType",
     "Speaker",
+    "PartyStatus",
     "CanonicalMetadata",
     "BaseResponse",
     # Universe schemas
