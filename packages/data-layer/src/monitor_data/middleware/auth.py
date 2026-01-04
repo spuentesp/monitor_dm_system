@@ -172,6 +172,19 @@ AUTHORITY_MATRIX = {
     "neo4j_update_party_formation": ["Orchestrator"],
     "neo4j_delete_party": ["CanonKeeper"],
     # =========================================================================
+    # MONGODB OPERATIONS - Combat (DL-25)
+    # =========================================================================
+    "mongodb_create_combat": ["Orchestrator", "CanonKeeper"],
+    "mongodb_get_combat": ["*"],
+    "mongodb_list_combats": ["*"],
+    "mongodb_update_combat": ["Orchestrator", "CanonKeeper"],
+    "mongodb_delete_combat": ["CanonKeeper"],
+    "mongodb_add_combat_participant": ["Orchestrator", "CanonKeeper"],
+    "mongodb_update_combat_participant": ["Orchestrator", "CanonKeeper"],
+    "mongodb_remove_combat_participant": ["Orchestrator", "CanonKeeper"],
+    "mongodb_add_combat_log_entry": ["Orchestrator", "CanonKeeper"],
+    "mongodb_set_combat_outcome": ["Orchestrator", "CanonKeeper"],
+    # =========================================================================
     # COMPOSITE OPERATIONS
     # =========================================================================
     "composite_get_entity_full": ["*"],
