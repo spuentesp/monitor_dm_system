@@ -1001,6 +1001,17 @@ def mongodb_update_story_outline(
     - Updating mystery structure
     - Marking clues as discovered
 
+    Beat operations are applied in this order:
+    1. update_beats: Modify existing beats (preserves order)
+    2. remove_beat_ids: Remove beats by ID
+    3. add_beats: Append new beats to the end
+    4. reorder_beats: Reorder all beats (must include ALL beat IDs)
+
+    Note: reorder_beats requires all beat IDs to be included. Mixing
+    reorder_beats with other beat operations in the same update may lead
+    to unexpected results. It's recommended to either use reorder_beats
+    alone or use other beat operations separately.
+
     Args:
         story_id: Story UUID
         params: Update parameters
@@ -1039,12 +1050,11 @@ def mongodb_update_story_outline(
 
     # Update existing beats
     if params.update_beats:
-        beats_by_id = {str(b.beat_id): b for b in current_beats}
-        for updated_beat in params.update_beats:
-            beat_id_str = str(updated_beat.beat_id)
-            if beat_id_str in beats_by_id:
-                beats_by_id[beat_id_str] = updated_beat
-        current_beats = list(beats_by_id.values())
+        update_map = {str(b.beat_id): b for b in params.update_beats}
+        for i, beat in enumerate(current_beats):
+            beat_id_str = str(beat.beat_id)
+            if beat_id_str in update_map:
+                current_beats[i] = update_map[beat_id_str]
 
     # Remove beats
     if params.remove_beat_ids:
@@ -1058,13 +1068,19 @@ def mongodb_update_story_outline(
     # Reorder beats
     if params.reorder_beats:
         beats_by_id = {str(b.beat_id): b for b in current_beats}
+        if len(params.reorder_beats) != len(beats_by_id):
+            raise ValueError(
+                f"reorder_beats must include all {len(beats_by_id)} beat IDs. "
+                f"Got {len(params.reorder_beats)} IDs instead."
+            )
         reordered: list[StoryBeat] = []
         for beat_id in params.reorder_beats:
             beat_id_str = str(beat_id)
-            if beat_id_str in beats_by_id:
-                beat = beats_by_id[beat_id_str]
-                beat.order = len(reordered)
-                reordered.append(beat)
+            if beat_id_str not in beats_by_id:
+                raise ValueError(f"Beat ID {beat_id} not found in current beats")
+            beat = beats_by_id[beat_id_str]
+            beat.order = len(reordered)
+            reordered.append(beat)
         current_beats = reordered
 
     update_doc["beats"] = [beat.model_dump(mode="json") for beat in current_beats]
@@ -1084,6 +1100,10 @@ def mongodb_update_story_outline(
     # Mark clue as discovered
     if params.mark_clue_discovered and "mystery_structure" in doc:
         mystery = doc["mystery_structure"]
+        if mystery is None:
+            raise ValueError(
+                "Cannot mark clue as discovered: story outline has no mystery structure"
+            )
         clue_id_str = str(params.mark_clue_discovered)
         now = datetime.now(timezone.utc)
 

@@ -12,7 +12,7 @@ These schemas define the data contracts for narrative structure tracking:
 DL-6: Comprehensive implementation with narrative engine support
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from uuid import UUID, uuid4
 
@@ -41,7 +41,7 @@ class StoryBeat(BaseModel):
 
     beat_id: UUID = Field(default_factory=uuid4)
     title: str = Field(min_length=1, max_length=200)
-    description: str = Field(max_length=2000)
+    description: str = Field(default="", max_length=2000)
     order: int = Field(ge=0, description="Display order in story")
     status: BeatStatus = Field(default=BeatStatus.PENDING)
     optional: bool = Field(
@@ -55,7 +55,7 @@ class StoryBeat(BaseModel):
         default_factory=list,
         description="PlotThreads that must be active for this beat to trigger",
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: Optional[datetime] = Field(
         None, description="When status changed to in_progress"
     )
@@ -161,7 +161,7 @@ class PacingMetrics(BaseModel):
         le=1.0,
         description="Story completion percentage (completed_beats / total_beats)",
     )
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # =============================================================================

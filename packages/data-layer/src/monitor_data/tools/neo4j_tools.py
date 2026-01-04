@@ -2517,7 +2517,7 @@ def neo4j_get_plot_thread(id: UUID) -> Optional[PlotThreadResponse]:
     MATCH (t:PlotThread {id: $id})
     OPTIONAL MATCH (t)-[:ADVANCED_BY]->(sc:Scene)
     OPTIONAL MATCH (t)-[:INVOLVES]->(e)
-    WHERE e:EntityArchetype OR e:EntityInstance
+    WHERE (e:EntityArchetype OR e:EntityInstance)
     OPTIONAL MATCH (fe:Event)-[:FORESHADOWS]->(t)
     OPTIONAL MATCH (re:Event)-[:REVEALS]->(t)
     RETURN t,
