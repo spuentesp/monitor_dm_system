@@ -1,0 +1,5 @@
+# Local user-specific settings (don't commit)
+settings.local.json
+
+# Session state
+*.session
