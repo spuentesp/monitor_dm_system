@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Any
 from uuid import UUID, uuid4
 
 from monitor_data.db.neo4j import get_neo4j_client
-from monitor_data.schemas.base import CanonLevel
+from monitor_data.schemas.base import CanonLevel, PartyStatus
 from monitor_data.schemas.universe import (
     UniverseCreate,
     UniverseUpdate,
@@ -2933,8 +2933,12 @@ def neo4j_create_party(params: PartyCreate) -> PartyResponse:
                 "All initial_member_ids must be EntityInstance nodes of type CHARACTER"
             )
 
-    # Verify active_pc_id is in initial_member_ids if provided
-    if params.active_pc_id and params.active_pc_id not in params.initial_member_ids:
+    # Verify active_pc_id is in initial_member_ids if both are provided
+    if (
+        params.active_pc_id
+        and params.initial_member_ids
+        and params.active_pc_id not in params.initial_member_ids
+    ):
         raise ValueError("active_pc_id must be one of the initial_member_ids")
 
     # Create party
@@ -2995,16 +2999,19 @@ def neo4j_create_party(params: PartyCreate) -> PartyResponse:
                 "joined_at": now,
             }
             member_result = client.execute_write(member_query, member_params)
-            if member_result:
-                r = member_result[0]["r"]
-                members.append(
-                    PartyMemberInfo(
-                        entity_id=entity_id,
-                        role=r.get("role"),
-                        position=r.get("position"),
-                        joined_at=r["joined_at"],
-                    )
+            if not member_result:
+                raise ValueError(
+                    f"Failed to add initial member {entity_id} to party - entity may not exist"
                 )
+            r = member_result[0]["r"]
+            members.append(
+                PartyMemberInfo(
+                    entity_id=entity_id,
+                    role=r.get("role"),
+                    position=r.get("position"),
+                    joined_at=r["joined_at"],
+                )
+            )
 
     return PartyResponse(
         id=party_id,
@@ -3260,13 +3267,18 @@ def neo4j_remove_party_member(params: RemovePartyMember) -> PartyResponse:
     if not party:
         raise ValueError(f"Party {params.party_id} not found")
 
-    # Remove member
+    # Remove member and clean up active_pc_id and formation
     now = datetime.now(timezone.utc)
     remove_query = """
     MATCH (e:EntityInstance {id: $entity_id})-[r:MEMBER_OF]->(p:Party {id: $party_id})
     DELETE r
-    WITH p
-    SET p.updated_at = $updated_at
+    WITH p, $entity_id as removed_id
+    SET p.updated_at = $updated_at,
+        p.active_pc_id = CASE
+            WHEN p.active_pc_id = removed_id THEN null
+            ELSE p.active_pc_id
+        END,
+        p.formation = [id IN p.formation WHERE id <> removed_id]
     RETURN p
     """
 
@@ -3338,7 +3350,7 @@ def neo4j_set_active_pc(params: SetActivePC) -> PartyResponse:
     return updated_party
 
 
-def neo4j_update_party_status(party_id: UUID, status: str) -> PartyResponse:
+def neo4j_update_party_status(party_id: UUID, status: PartyStatus) -> PartyResponse:
     """
     Update party status.
 
@@ -3347,7 +3359,7 @@ def neo4j_update_party_status(party_id: UUID, status: str) -> PartyResponse:
 
     Args:
         party_id: Party UUID
-        status: New status (traveling, camping, in_scene, combat, split, resting)
+        status: New PartyStatus enum value
 
     Returns:
         Updated PartyResponse
@@ -3373,7 +3385,7 @@ def neo4j_update_party_status(party_id: UUID, status: str) -> PartyResponse:
 
     update_params = {
         "party_id": str(party_id),
-        "status": status,
+        "status": status.value,  # Convert enum to string
         "updated_at": now,
     }
 
@@ -3461,6 +3473,13 @@ def neo4j_update_party_formation(
     party = neo4j_get_party(party_id)
     if not party:
         raise ValueError(f"Party {party_id} not found")
+
+    # Verify all formation IDs are party members
+    if formation:
+        member_ids = {m.entity_id for m in party.members}
+        invalid_ids = [eid for eid in formation if eid not in member_ids]
+        if invalid_ids:
+            raise ValueError(f"Formation contains non-member entity IDs: {invalid_ids}")
 
     # Update formation
     now = datetime.now(timezone.utc)

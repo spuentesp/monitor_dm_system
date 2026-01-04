@@ -17,7 +17,7 @@ Tests cover:
 from typing import Dict, Any
 from unittest.mock import Mock, patch
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -37,6 +37,8 @@ from monitor_data.tools.neo4j_tools import (
     neo4j_remove_party_member,
     neo4j_set_active_pc,
     neo4j_update_party_status,
+    neo4j_update_party_location,
+    neo4j_update_party_formation,
     neo4j_delete_party,
 )
 
@@ -70,8 +72,8 @@ def test_create_party_success(
         "active_pc_id": None,
         "location_id": None,
         "formation": [],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
     }
     mock_neo4j_client.execute_write.return_value = [{"p": party_data}]
 
@@ -117,21 +119,29 @@ def test_create_party_with_initial_members(
         "active_pc_id": str(member1_id),
         "location_id": None,
         "formation": [str(member1_id), str(member2_id)],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
     }
     mock_neo4j_client.execute_write.side_effect = [
         [{"p": party_data}],  # party creation
         [
             {
                 "entity_id": str(member1_id),
-                "r": {"role": None, "position": 0, "joined_at": datetime.utcnow()},
+                "r": {
+                    "role": None,
+                    "position": 0,
+                    "joined_at": datetime.now(timezone.utc),
+                },
             }
         ],  # member 1
         [
             {
                 "entity_id": str(member2_id),
-                "r": {"role": None, "position": 1, "joined_at": datetime.utcnow()},
+                "r": {
+                    "role": None,
+                    "position": 1,
+                    "joined_at": datetime.now(timezone.utc),
+                },
             }
         ],  # member 2
     ]
@@ -218,8 +228,8 @@ def test_get_party_exists(
         "active_pc_id": str(member_id),
         "location_id": None,
         "formation": [str(member_id)],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
     }
 
     mock_neo4j_client.execute_read.return_value = [
@@ -230,7 +240,7 @@ def test_get_party_exists(
                     "entity_id": str(member_id),
                     "role": "leader",
                     "position": 0,
-                    "joined_at": datetime.utcnow(),
+                    "joined_at": datetime.now(timezone.utc),
                 }
             ],
         }
@@ -283,8 +293,8 @@ def test_list_parties_no_filter(
                 "active_pc_id": None,
                 "location_id": None,
                 "formation": [],
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
             },
             "members": [],
         },
@@ -297,8 +307,8 @@ def test_list_parties_no_filter(
                 "active_pc_id": None,
                 "location_id": None,
                 "formation": [],
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
             },
             "members": [],
         },
@@ -332,8 +342,8 @@ def test_list_parties_by_story(
                 "active_pc_id": None,
                 "location_id": None,
                 "formation": [],
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
             },
             "members": [],
         }
@@ -374,7 +384,7 @@ def test_add_party_member_success(
         status=PartyStatus.TRAVELING,
         formation=[],
         members=[],
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     mock_get_party.return_value = mock_party
 
@@ -395,8 +405,9 @@ def test_add_party_member_success(
     assert mock_neo4j_client.execute_write.called
 
 
+@patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
 @patch("monitor_data.tools.neo4j_tools.neo4j_get_party")
-def test_add_party_member_party_not_found(mock_get_party: Mock):
+def test_add_party_member_party_not_found(mock_get_party: Mock, mock_get_client: Mock):
     """Test adding member to non-existent party."""
     mock_get_party.return_value = None
 
@@ -437,7 +448,7 @@ def test_remove_party_member_success(
         status=PartyStatus.TRAVELING,
         formation=[],
         members=[],
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     mock_get_party.return_value = mock_party
 
@@ -486,10 +497,10 @@ def test_set_active_pc_success(
                 entity_id=entity_id,
                 role="leader",
                 position=0,
-                joined_at=datetime.utcnow(),
+                joined_at=datetime.now(timezone.utc),
             )
         ],
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     mock_get_party.return_value = mock_party
 
@@ -522,7 +533,7 @@ def test_set_active_pc_not_a_member(mock_get_party: Mock):
         status=PartyStatus.TRAVELING,
         formation=[],
         members=[],  # Empty members
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     mock_get_party.return_value = mock_party
 
@@ -561,13 +572,13 @@ def test_update_party_status_success(
         status=PartyStatus.TRAVELING,
         formation=[],
         members=[],
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     mock_get_party.return_value = mock_party
 
     mock_neo4j_client.execute_write.return_value = [{"p": {}}]
 
-    result = neo4j_update_party_status(party_id, "combat")
+    result = neo4j_update_party_status(party_id, PartyStatus.COMBAT)
 
     assert result.id == party_id
     assert mock_neo4j_client.execute_write.called
@@ -599,7 +610,7 @@ def test_delete_party_success(
         status=PartyStatus.TRAVELING,
         formation=[],
         members=[],
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     mock_get_party.return_value = mock_party
 
@@ -611,10 +622,136 @@ def test_delete_party_success(
     assert result["party_id"] == str(party_id)
 
 
+@patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
 @patch("monitor_data.tools.neo4j_tools.neo4j_get_party")
-def test_delete_party_not_found(mock_get_party: Mock):
+def test_delete_party_not_found(mock_get_party: Mock, mock_get_client: Mock):
     """Test deleting a non-existent party."""
     mock_get_party.return_value = None
 
     with pytest.raises(ValueError, match="Party .* not found"):
         neo4j_delete_party(uuid4())
+
+
+# =============================================================================
+# TESTS: neo4j_update_party_location
+# =============================================================================
+
+
+@patch("monitor_data.tools.neo4j_tools.neo4j_get_party")
+@patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
+def test_update_party_location_success(
+    mock_get_client: Mock,
+    mock_get_party: Mock,
+    mock_neo4j_client: Mock,
+):
+    """Test successfully updating party location."""
+    mock_get_client.return_value = mock_neo4j_client
+
+    party_id = uuid4()
+    location_id = uuid4()
+
+    from monitor_data.schemas.parties import PartyResponse
+
+    mock_party = PartyResponse(
+        id=party_id,
+        story_id=uuid4(),
+        name="Test Party",
+        status=PartyStatus.TRAVELING,
+        formation=[],
+        members=[],
+        created_at=datetime.now(timezone.utc),
+    )
+    mock_get_party.return_value = mock_party
+
+    mock_neo4j_client.execute_write.return_value = [{"p": {}}]
+
+    result = neo4j_update_party_location(party_id, location_id)
+
+    assert result.id == party_id
+    assert mock_neo4j_client.execute_write.called
+
+
+# =============================================================================
+# TESTS: neo4j_update_party_formation
+# =============================================================================
+
+
+@patch("monitor_data.tools.neo4j_tools.neo4j_get_party")
+@patch("monitor_data.tools.neo4j_tools.get_neo4j_client")
+def test_update_party_formation_success(
+    mock_get_client: Mock,
+    mock_get_party: Mock,
+    mock_neo4j_client: Mock,
+):
+    """Test successfully updating party formation."""
+    mock_get_client.return_value = mock_neo4j_client
+
+    party_id = uuid4()
+    member1_id = uuid4()
+    member2_id = uuid4()
+
+    from monitor_data.schemas.parties import PartyResponse, PartyMemberInfo
+
+    mock_party = PartyResponse(
+        id=party_id,
+        story_id=uuid4(),
+        name="Test Party",
+        status=PartyStatus.TRAVELING,
+        formation=[],
+        members=[
+            PartyMemberInfo(
+                entity_id=member1_id,
+                role="leader",
+                position=0,
+                joined_at=datetime.now(timezone.utc),
+            ),
+            PartyMemberInfo(
+                entity_id=member2_id,
+                role="scout",
+                position=1,
+                joined_at=datetime.now(timezone.utc),
+            ),
+        ],
+        created_at=datetime.now(timezone.utc),
+    )
+    mock_get_party.return_value = mock_party
+
+    mock_neo4j_client.execute_write.return_value = [{"p": {}}]
+
+    result = neo4j_update_party_formation(party_id, [member1_id, member2_id])
+
+    assert result.id == party_id
+    assert mock_neo4j_client.execute_write.called
+
+
+@patch("monitor_data.tools.neo4j_tools.neo4j_get_party")
+def test_update_party_formation_invalid_member(
+    mock_get_party: Mock,
+):
+    """Test formation update with non-member entity."""
+    party_id = uuid4()
+    member1_id = uuid4()
+    invalid_id = uuid4()
+
+    from monitor_data.schemas.parties import PartyResponse, PartyMemberInfo
+
+    mock_party = PartyResponse(
+        id=party_id,
+        story_id=uuid4(),
+        name="Test Party",
+        status=PartyStatus.TRAVELING,
+        formation=[],
+        members=[
+            PartyMemberInfo(
+                entity_id=member1_id,
+                role="leader",
+                position=0,
+                joined_at=datetime.now(timezone.utc),
+            ),
+        ],
+        created_at=datetime.now(timezone.utc),
+    )
+    mock_get_party.return_value = mock_party
+
+    with pytest.raises(ValueError, match="Formation contains non-member entity IDs"):
+        neo4j_update_party_formation(party_id, [member1_id, invalid_id])
