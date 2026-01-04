@@ -6,7 +6,8 @@ title: "Manage Combat State"
 category: "data-layer"
 epic: 0
 priority: "critical"
-status: "todo"
+status: "in_progress"
+pr: "https://github.com/spuentesp/monitor_dm_system/pull/99"
 
 summary: |
   Implement MongoDB collection for storing combat encounter state. Pure data
