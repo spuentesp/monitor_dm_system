@@ -6,7 +6,7 @@ title: "Manage Archetypes & Instances"
 category: "data-layer"
 epic: 0
 priority: "high"
-status: "todo"
+status: "done"
 
 summary: |
   Implement CRUD operations for EntityArchetype and EntityInstance nodes in Neo4j.

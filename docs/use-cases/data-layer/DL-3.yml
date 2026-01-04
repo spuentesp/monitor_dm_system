@@ -6,7 +6,7 @@ title: "Manage Facts & Events"
 category: "data-layer"
 epic: 0
 priority: "high"
-status: "todo"
+status: "done"
 
 summary: |
   Implement CRUD operations for Fact and Event nodes in Neo4j with full provenance
