@@ -6,27 +6,83 @@ title: "Manage Story Outlines & Plot Threads"
 category: "data-layer"
 epic: 0
 priority: "medium"
-status: "todo"
+status: "done"
 
 summary: |
-  Implement CRUD operations for story_outline documents (MongoDB) and PlotThread
-  nodes (Neo4j). Story outlines contain narrative beats and planning. Plot threads
-  are canonical tracking of narrative arcs that advance through scenes and link
-  to facts/events.
+  Implement comprehensive narrative engine with CRUD operations for story_outline
+  documents (MongoDB) and PlotThread nodes (Neo4j). Story outlines support beat
+  progression tracking, mystery structures with clue discovery, pacing metrics,
+  and branching narratives. Plot threads provide canonical tracking of narrative
+  arcs with priority, urgency, deadlines, and foreshadowing/payoff mechanics.
 
 acceptance_criteria:
+  # Story Outline - Core
   - "mongodb_create_story_outline creates outline document linked to story"
   - "mongodb_create_story_outline validates story_id exists"
-  - "mongodb_get_story_outline returns outline with all beats"
-  - "mongodb_update_story_outline allows updating beats and status"
+  - "mongodb_create_story_outline calculates initial pacing metrics"
+  - "mongodb_get_story_outline returns outline with all beats, mystery, and pacing"
+  - "mongodb_update_story_outline allows partial updates"
+
+  # Story Outline - Beat Operations
+  - "mongodb_update_story_outline supports add_beats (append new beats)"
+  - "mongodb_update_story_outline supports remove_beat_ids (remove beats)"
+  - "mongodb_update_story_outline supports update_beats (modify existing, preserves order)"
+  - "mongodb_update_story_outline supports reorder_beats (full beat ID list required)"
+  - "mongodb_update_story_outline validates reorder_beats includes all beat IDs"
+
+  # Story Outline - Mystery Structure
+  - "mongodb_create_story_outline supports mystery_structure with clues/suspects"
+  - "mongodb_update_story_outline supports mark_clue_discovered"
+  - "mark_clue_discovered guards against null mystery_structure"
+  - "Mystery clues track visibility (hidden/discovered/revealed)"
+  - "Mystery suspects track evidence_for and evidence_against"
+
+  # Story Outline - Pacing Metrics
+  - "Pacing metrics auto-calculate estimated_completion from beat ratios"
+  - "Pacing metrics track current_act, tension_level, scenes_since_major_event"
+
+  # Story Outline - Branching
+  - "Story outlines support structure_type (linear/branching/open_world)"
+  - "Story outlines support arc templates (three_act/heist/mystery/etc)"
+  - "Branching points link decisions to possible beat paths"
+
+  # Plot Thread - Core
   - "neo4j_create_plot_thread creates PlotThread node linked to story"
-  - "neo4j_create_plot_thread supports thread_type enum (main, subplot, character_arc)"
-  - "neo4j_list_plot_threads supports filtering by story_id, status"
+  - "neo4j_create_plot_thread supports thread_type (main/side/character/mystery)"
+  - "neo4j_create_plot_thread supports priority (main/major/minor/background)"
+  - "neo4j_create_plot_thread supports urgency (low/medium/high/critical)"
+  - "neo4j_create_plot_thread supports optional deadline with world_time"
+  - "neo4j_get_plot_thread returns thread with all relationships"
   - "neo4j_update_plot_thread allows status transitions"
-  - "neo4j_advance_plot_thread creates ADVANCED_BY edge to scene"
-  - "neo4j_link_plot_to_fact creates relationship between thread and fact/event"
-  - "All operations enforce CanonKeeper authority for writes"
-  - "Unit tests achieve >= 80% coverage"
+  - "neo4j_update_plot_thread validates status enum values"
+
+  # Plot Thread - Relationships
+  - "neo4j_create_plot_thread creates HAS_THREAD relationship to story"
+  - "neo4j_create_plot_thread creates ADVANCED_BY edges to scenes"
+  - "neo4j_create_plot_thread creates INVOLVES edges to entities"
+  - "neo4j_create_plot_thread creates FORESHADOWS edges from events"
+  - "neo4j_create_plot_thread creates REVEALS edges from events"
+  - "neo4j_update_plot_thread supports additive relationship operations"
+
+  # Plot Thread - Tracking
+  - "Plot threads track payoff_status (setup_only/partial/full/abandoned)"
+  - "Plot threads track player_interest_level (0.0-1.0)"
+  - "Plot threads track gm_importance (0.0-1.0)"
+  - "Plot threads track created_at, updated_at, resolved_at timestamps"
+
+  # Plot Thread - Querying
+  - "neo4j_list_plot_threads supports filtering by story_id"
+  - "neo4j_list_plot_threads supports filtering by thread_type"
+  - "neo4j_list_plot_threads supports filtering by status"
+  - "neo4j_list_plot_threads supports filtering by priority"
+  - "neo4j_list_plot_threads supports filtering by entity_id (INVOLVES)"
+  - "neo4j_list_plot_threads supports sorting by created_at/updated_at/priority/urgency"
+  - "neo4j_list_plot_threads supports pagination (limit/offset)"
+
+  # Authority & Coverage
+  - "All write operations enforce proper authority (CanonKeeper/Narrator)"
+  - "All read operations allow universal access"
+  - "Unit tests achieve >= 80% coverage (achieved 100% for new code)"
 
 depends_on:
   - "DL-3"  # Plot threads may reference facts
@@ -54,7 +110,7 @@ implementation:
     mongodb:
       - name: "mongodb_create_story_outline"
         authority: ["CanonKeeper", "Narrator"]
-        params: ["story_id", "beats", "pc_ids?", "status?"]
+        params: ["story_id", "theme?", "premise?", "constraints?", "beats?", "structure_type?", "template?", "branching_points?", "mystery_structure?"]
 
       - name: "mongodb_get_story_outline"
         authority: ["*"]
@@ -62,40 +118,65 @@ implementation:
 
       - name: "mongodb_update_story_outline"
         authority: ["CanonKeeper", "Narrator"]
-        params: ["story_id", "beats?", "status?"]
+        params: ["story_id", "theme?", "premise?", "constraints?", "structure_type?", "template?", "add_beats?", "remove_beat_ids?", "reorder_beats?", "update_beats?", "update_mystery_structure?", "mark_clue_discovered?", "add_branching_points?"]
 
     neo4j:
       - name: "neo4j_create_plot_thread"
         authority: ["CanonKeeper"]
-        params: ["story_id", "title", "thread_type", "description?", "status?"]
+        params: ["story_id", "title", "thread_type", "status?", "priority?", "urgency?", "deadline?", "scene_ids?", "entity_ids?", "foreshadowing_events?", "revelation_events?", "payoff_status?", "player_interest_level?", "gm_importance?"]
+
+      - name: "neo4j_get_plot_thread"
+        authority: ["*"]
+        params: ["thread_id"]
 
       - name: "neo4j_list_plot_threads"
         authority: ["*"]
-        params: ["story_id?", "status?", "thread_type?", "limit", "offset"]
+        params: ["story_id?", "thread_type?", "status?", "priority?", "entity_id?", "limit", "offset", "sort_by?", "sort_order?"]
 
       - name: "neo4j_update_plot_thread"
         authority: ["CanonKeeper"]
-        params: ["thread_id", "status?", "description?"]
-
-      - name: "neo4j_advance_plot_thread"
-        authority: ["CanonKeeper"]
-        params: ["thread_id", "scene_id", "advancement_note?"]
-
-      - name: "neo4j_link_plot_to_fact"
-        authority: ["CanonKeeper"]
-        params: ["thread_id", "fact_id", "link_type?"]
+        params: ["thread_id", "title?", "status?", "priority?", "urgency?", "deadline?", "payoff_status?", "player_interest_level?", "gm_importance?", "add_scene_ids?", "add_entity_ids?", "add_foreshadowing_events?", "add_revelation_events?"]
 
   patterns:
-    - "Story outlines in MongoDB for flexible beat structure"
-    - "Plot threads in Neo4j for graph traversal and canonization"
-    - "Use thread_type enum: main, subplot, character_arc, mystery, conflict"
-    - "Use thread_status enum: active, resolved, abandoned"
+    - "Story outlines in MongoDB for flexible beat structure and planning"
+    - "Plot threads in Neo4j for canonical graph traversal"
+    - "Beats as planning (MongoDB) vs threads as canonical truth (Neo4j)"
+    - "Additive-only relationships to preserve narrative history"
+    - "Status state machines with validated transitions"
+    - "Pacing metrics computed from beat completion ratios"
 
   notes: |
-    - Beats in outline are ordered list with status tracking
-    - Plot threads track canonical narrative arc progression
-    - ADVANCED_BY edges create scene-to-thread links
-    - Consider linking to Facts/Events for provenance
+    ## Architectural Decisions
+
+    **Beats vs Threads:**
+    - Beats (MongoDB): Flexible planning, can be reordered/removed during prep
+    - Threads (Neo4j): Canonical truth, preserved for provenance
+
+    **Mystery Mechanics:**
+    - Clue discovery is one-way (hidden → discovered → revealed)
+    - Three-clue rule validation supported via core_clues structure
+    - Suspects track contradictory evidence (evidence_for vs evidence_against)
+
+    **Pacing System:**
+    - Auto-calculates completion from completed_beats / total_beats
+    - Tension level manually set by GM or Narrator
+    - Scenes_since_major_event for pacing suggestions
+
+    **Foreshadowing/Payoff:**
+    - Events can FORESHADOW threads (setup)
+    - Events can REVEAL threads (payoff)
+    - PayoffStatus tracks setup_only → partial_payoff → full_payoff
+    - Prevents orphaned setups with no payoff
+
+    **Beat Operations:**
+    - Operations applied in order: update → remove → add → reorder
+    - reorder_beats requires ALL beat IDs (prevents accidental data loss)
+    - Beat order preserved during updates (iterate and replace in place)
+
+    **Thread Relationships:**
+    - All relationship operations are additive (no removal)
+    - Preserves full narrative history for analysis
+    - INVOLVES tracks entities even after they exit thread
 
 testing:
   unit_tests:

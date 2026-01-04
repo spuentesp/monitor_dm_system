@@ -35,10 +35,21 @@ Data-layer viewpoints for each DL use case: inputs, behavior, cross-references, 
 - Outputs: ProposedChange documents with IDs and status.
 
 ## DL-6: Manage Story Outlines & Plot Threads (MongoDB + Neo4j)
-- Inputs: story_id, beats, pc_ids, status (outline); title/thread_type/status/description (plot thread).
-- Behavior: CRUD story_outline docs (MongoDB); CRUD PlotThread nodes (Neo4j); link PlotThreads to Story and Scenes (ADVANCED_BY); optional linkage to Facts/Events.
-- Cross-refs: Story, Scenes, Entities, Facts/Events.
-- Outputs: Outline docs; PlotThread nodes/edges.
+- Inputs:
+  - Story Outline: story_id, theme, premise, constraints, beats[], structure_type, template, branching_points[], mystery_structure
+  - Story Beat: beat_id, title, description, order, status, optional, related_threads[], required_for_threads[]
+  - Mystery Structure: truth, question, core_clues[], bonus_clues[], red_herrings[], suspects[], current_player_theories[]
+  - Plot Thread: story_id, title, thread_type, status, priority, urgency, deadline, scene_ids[], entity_ids[], foreshadowing_events[], revelation_events[], payoff_status, player_interest_level, gm_importance
+- Behavior:
+  - MongoDB: CRUD story_outline docs with beat manipulation (add, remove, update, reorder); track mystery clue discovery; auto-calculate pacing metrics (tension, completion, act progression); support branching narratives
+  - Neo4j: CRUD PlotThread nodes with 5 relationship types (HAS_THREAD to Story, ADVANCED_BY to Scenes, INVOLVES to Entities, FORESHADOWS from Events, REVEALS from Events); track priority, urgency, deadlines; monitor foreshadowing/payoff status; filter by story/type/status/priority/entity
+- Cross-refs: Story, Scenes, Entities, Facts/Events, Turns (beat completion tracking).
+- Outputs:
+  - Story outline docs with beats, mystery structure, pacing metrics, branching points
+  - PlotThread nodes with all relationships and tracking metadata
+  - Beat progression status (pending/in_progress/completed/skipped)
+  - Clue discovery tracking (hidden/discovered/revealed)
+  - Pacing analysis (estimated_completion, tension_level, scenes_since_major_event)
 
 ## DL-7: Manage Memories (MongoDB + Qdrant)
 - Inputs: entity_id, text, scene_id/fact_id (optional), importance, metadata.

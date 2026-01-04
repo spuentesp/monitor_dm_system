@@ -342,15 +342,28 @@ The `properties` map contains type-specific fields defined in ENTITY_TAXONOMY.md
   title: string,
   thread_type: enum["main", "side", "character", "mystery"],
   status: enum["open", "advanced", "resolved", "abandoned"],
-  created_at: timestamp
+  priority: enum["main", "major", "minor", "background"],
+  urgency: enum["low", "medium", "high", "critical"],
+  deadline: {
+    world_time: timestamp,
+    description: string
+  },
+  payoff_status: enum["setup_only", "partial_payoff", "full_payoff", "abandoned"],
+  player_interest_level: float,  // 0.0-1.0, tracked from engagement
+  gm_importance: float,           // 0.0-1.0, set by GM
+  created_at: timestamp,
+  updated_at: timestamp,
+  resolved_at: timestamp          // when status changed to resolved
 })
 ```
 
-**Purpose:** Cross-scene narrative threads.
+**Purpose:** Cross-scene narrative threads with priority, urgency, and foreshadowing/payoff tracking.
 **Relations:**
 - `(:Story)-[:HAS_THREAD]->(:PlotThread)`
-- `(:PlotThread)-[:ADVANCED_BY]->(:Scene)`
-- `(:PlotThread)-[:INVOLVES]->(:EntityInstance)`
+- `(:PlotThread)-[:ADVANCED_BY]->(:Scene)` // scenes that progressed this thread
+- `(:PlotThread)-[:INVOLVES]->(:EntityInstance)` // entities involved in thread
+- `(:Event)-[:FORESHADOWS]->(:PlotThread)` // events that set up this thread
+- `(:Event)-[:REVEALS]->(:PlotThread)` // events that pay off this thread
 
 ---
 
@@ -695,15 +708,78 @@ Collection: story_outlines
   premise: string,
   constraints: [string],
 
+  structure_type: enum["linear", "branching", "open_world"],
+  template: enum["three_act", "heist", "mystery", "journey", "siege", "political", "dungeon", "custom"],
+
   beats: [
     {
+      beat_id: UUID,
       title: string,
       description: string,
-      order: int
+      order: int,
+      status: enum["pending", "in_progress", "completed", "skipped"],
+      optional: bool,  // can be skipped without story incompleteness
+      related_threads: [UUID],  // PlotThread IDs that advance during this beat
+      required_for_threads: [UUID],  // PlotThreads that must be active for beat to trigger
+      created_at: ISODate,
+      started_at: ISODate,  // when status changed to in_progress
+      completed_at: ISODate,  // when status changed to completed
+      completed_in_scene_id: UUID  // scene that completed this beat
     }
   ],
 
-  open_threads: [string],
+  branching_points: [  // for branching narratives
+    {
+      beat_id: UUID,  // beat where branching occurs
+      decision: string,  // what choice is made
+      branches: [  // possible outcomes
+        {
+          condition: string,
+          next_beats: [UUID],
+          description: string
+        }
+      ]
+    }
+  ],
+
+  mystery_structure: {  // for mystery stories
+    truth: string,  // GM secret - actual solution
+    question: string,  // what players are solving
+    core_clues: [
+      {
+        clue_id: UUID,  // references Neo4j Fact node
+        content: string,
+        discovery_methods: [string],  // how players can discover
+        is_discovered: bool,
+        discovered_in_scene_id: UUID,
+        discovered_at: ISODate,
+        points_to: string,  // which theory/suspect it supports
+        visibility: enum["hidden", "discovered", "revealed"]
+      }
+    ],
+    bonus_clues: [...],  // same structure as core_clues
+    red_herrings: [...],  // same structure as core_clues
+    suspects: [
+      {
+        entity_id: UUID,  // entity being suspected
+        theory: string,
+        evidence_for: [UUID],  // clue IDs supporting
+        evidence_against: [UUID]  // clue IDs contradicting
+      }
+    ],
+    current_player_theories: [string]  // what players currently think
+  },
+
+  pacing_metrics: {
+    current_act: int,  // 1-5
+    tension_level: float,  // 0.0-1.0 (0=calm, 1=climax)
+    scenes_since_major_event: int,
+    scenes_in_current_act: int,
+    estimated_completion: float,  // 0.0-1.0 (completed_beats / total_beats)
+    last_updated: ISODate
+  },
+
+  open_threads: [string],  // deprecated, use PlotThread nodes instead
 
   created_at: ISODate,
   updated_at: ISODate
