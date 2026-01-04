@@ -132,6 +132,89 @@ class Speaker(str, Enum):
     ENTITY = "entity"
 
 
+class PlotThreadType(str, Enum):
+    """Type of plot thread."""
+
+    MAIN = "main"
+    SIDE = "side"
+    CHARACTER = "character"
+    MYSTERY = "mystery"
+
+
+class PlotThreadStatus(str, Enum):
+    """Status of plot thread progression."""
+
+    OPEN = "open"
+    ADVANCED = "advanced"
+    RESOLVED = "resolved"
+    ABANDONED = "abandoned"
+
+
+class BeatStatus(str, Enum):
+    """Status of story beat."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    SKIPPED = "skipped"
+
+
+class StoryStructureType(str, Enum):
+    """Narrative structure type."""
+
+    LINEAR = "linear"
+    BRANCHING = "branching"
+    OPEN_WORLD = "open_world"
+
+
+class ArcTemplate(str, Enum):
+    """Story arc template."""
+
+    THREE_ACT = "three_act"
+    HEIST = "heist"
+    MYSTERY = "mystery"
+    JOURNEY = "journey"
+    SIEGE = "siege"
+    POLITICAL = "political"
+    DUNGEON = "dungeon"
+    CUSTOM = "custom"
+
+
+class ThreadPriority(str, Enum):
+    """Plot thread priority level."""
+
+    MAIN = "main"
+    MAJOR = "major"
+    MINOR = "minor"
+    BACKGROUND = "background"
+
+
+class ThreadUrgency(str, Enum):
+    """Plot thread urgency level."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class ClueVisibility(str, Enum):
+    """Visibility status for mystery clues."""
+
+    REVEALED = "revealed"
+    HIDDEN = "hidden"
+    DISCOVERED = "discovered"
+
+
+class PayoffStatus(str, Enum):
+    """Foreshadowing payoff status."""
+
+    SETUP_ONLY = "setup_only"
+    PARTIAL_PAYOFF = "partial_payoff"
+    FULL_PAYOFF = "full_payoff"
+    ABANDONED = "abandoned"
+
+
 # =============================================================================
 # BASE MODELS
 # =============================================================================
