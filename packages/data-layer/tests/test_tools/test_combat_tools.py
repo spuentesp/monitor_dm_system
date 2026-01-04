@@ -140,6 +140,38 @@ def test_create_combat_scene_not_found(
         mongodb_create_combat(params)
 
 
+@patch("monitor_data.tools.mongodb_tools.get_neo4j_client")
+@patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
+def test_create_combat_story_not_found(
+    mock_get_mongodb: Mock,
+    mock_get_neo4j: Mock,
+):
+    """Test creating combat with invalid story_id."""
+    scene_id = uuid4()
+    story_id = uuid4()
+
+    mock_mongodb = MagicMock()
+    mock_combats = MagicMock()
+    mock_scenes = MagicMock()
+
+    mock_get_mongodb.return_value = mock_mongodb
+    mock_mongodb.get_collection.side_effect = lambda name: (
+        mock_combats if name == "combat_encounters" else mock_scenes
+    )
+
+    # Scene exists but story does not
+    mock_scenes.find_one.return_value = {"scene_id": str(scene_id)}
+    mock_get_neo4j.return_value = MagicMock(execute_read=MagicMock(return_value=[]))
+
+    params = CombatCreate(
+        scene_id=scene_id,
+        story_id=story_id,
+    )
+
+    with pytest.raises(ValueError, match=f"Story {story_id} not found"):
+        mongodb_create_combat(params)
+
+
 # =============================================================================
 # TEST: mongodb_get_combat
 # =============================================================================
