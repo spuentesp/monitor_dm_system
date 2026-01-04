@@ -226,6 +226,25 @@ class PartyStatus(str, Enum):
     RESTING = "resting"
 
 
+class CombatStatus(str, Enum):
+    """Combat encounter status."""
+
+    INITIALIZING = "initializing"
+    INITIATIVE = "initiative"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    RESOLVED = "resolved"
+
+
+class CombatSide(str, Enum):
+    """Participant side in combat."""
+
+    PC = "pc"
+    ALLY = "ally"
+    ENEMY = "enemy"
+    NEUTRAL = "neutral"
+
+
 # =============================================================================
 # BASE MODELS
 # =============================================================================

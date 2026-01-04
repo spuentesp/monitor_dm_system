@@ -35,6 +35,8 @@ from monitor_data.schemas.base import (
     ProposalType,
     Speaker,
     PartyStatus,
+    CombatStatus,
+    CombatSide,
     CanonicalMetadata,
     BaseResponse,
 )
@@ -71,6 +73,8 @@ __all__ = [
     "ProposalType",
     "Speaker",
     "PartyStatus",
+    "CombatStatus",
+    "CombatSide",
     "CanonicalMetadata",
     "BaseResponse",
     # Universe schemas
