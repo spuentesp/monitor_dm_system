@@ -159,6 +159,19 @@ AUTHORITY_MATRIX = {
     "qdrant_search_memories": ["*"],
     "qdrant_delete_vectors": ["Indexer"],
     # =========================================================================
+    # NEO4J OPERATIONS - Parties (DL-15)
+    # =========================================================================
+    "neo4j_create_party": ["Orchestrator", "CanonKeeper"],
+    "neo4j_get_party": ["*"],
+    "neo4j_list_parties": ["*"],
+    "neo4j_add_party_member": ["Orchestrator", "CanonKeeper"],
+    "neo4j_remove_party_member": ["Orchestrator", "CanonKeeper"],
+    "neo4j_set_active_pc": ["Orchestrator"],
+    "neo4j_update_party_status": ["Orchestrator", "CanonKeeper"],
+    "neo4j_update_party_location": ["Orchestrator", "CanonKeeper"],
+    "neo4j_update_party_formation": ["Orchestrator"],
+    "neo4j_delete_party": ["CanonKeeper"],
+    # =========================================================================
     # COMPOSITE OPERATIONS
     # =========================================================================
     "composite_get_entity_full": ["*"],

@@ -215,6 +215,17 @@ class PayoffStatus(str, Enum):
     ABANDONED = "abandoned"
 
 
+class PartyStatus(str, Enum):
+    """Party activity status."""
+
+    TRAVELING = "traveling"
+    CAMPING = "camping"
+    IN_SCENE = "in_scene"
+    COMBAT = "combat"
+    SPLIT = "split"
+    RESTING = "resting"
+
+
 # =============================================================================
 # BASE MODELS
 # =============================================================================
