@@ -93,7 +93,8 @@ class RollResult(BaseModel):
     )
     total: int = Field(description="Final total after modifiers")
     natural: int = Field(
-        description="Total of dice only, before modifiers (for critical detection)"
+        default=0,
+        description="Total of dice only, before modifiers (for critical detection)",
     )
     critical: bool = Field(default=False, description="Whether this was a critical")
     fumble: bool = Field(default=False, description="Whether this was a fumble/botch")
@@ -156,7 +157,9 @@ class Effect(BaseModel):
 
     effect_type: EffectType
     target_id: UUID = Field(description="Entity affected by this effect")
-    magnitude: int = Field(description="Numeric magnitude (damage, healing, etc.)")
+    magnitude: int = Field(
+        default=0, description="Numeric magnitude (damage, healing, etc.)"
+    )
     damage_type: Optional[str] = Field(
         None, max_length=100, description="Type of damage (fire, cold, etc.)"
     )
