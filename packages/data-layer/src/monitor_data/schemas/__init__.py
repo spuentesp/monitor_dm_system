@@ -78,6 +78,22 @@ from monitor_data.schemas.relationships import (
     StateTagUpdate,
     StateTagResponse,
 )
+from monitor_data.schemas.vectors import (
+    VectorPoint,
+    VectorUpsertRequest,
+    VectorBatchUpsertRequest,
+    VectorUpsertResponse,
+    VectorFilter,
+    VectorSearchRequest,
+    ScoredVector,
+    VectorSearchResponse,
+    VectorDeleteRequest,
+    VectorDeleteByFilterRequest,
+    VectorDeleteResponse,
+    CollectionInfo,
+    CollectionInfoRequest,
+    CollectionInfoResponse,
+)
 
 # from monitor_data.schemas.entities import *
 # from monitor_data.schemas.facts import *
@@ -141,4 +157,19 @@ __all__ = [
     "RelationshipListResponse",
     "StateTagUpdate",
     "StateTagResponse",
+    # Vector schemas
+    "VectorPoint",
+    "VectorUpsertRequest",
+    "VectorBatchUpsertRequest",
+    "VectorUpsertResponse",
+    "VectorFilter",
+    "VectorSearchRequest",
+    "ScoredVector",
+    "VectorSearchResponse",
+    "VectorDeleteRequest",
+    "VectorDeleteByFilterRequest",
+    "VectorDeleteResponse",
+    "CollectionInfo",
+    "CollectionInfoRequest",
+    "CollectionInfoResponse",
 ]

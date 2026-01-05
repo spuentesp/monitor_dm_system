@@ -149,14 +149,14 @@ AUTHORITY_MATRIX = {
     "mongodb_get_story_outline": ["*"],
     "mongodb_update_story_outline": ["Orchestrator"],
     # =========================================================================
-    # QDRANT OPERATIONS - Vectors
+    # QDRANT OPERATIONS - Vectors (DL-10)
     # =========================================================================
-    "qdrant_embed_scene": ["Indexer"],
-    "qdrant_embed_memory": ["Indexer"],
-    "qdrant_embed_snippet": ["Indexer"],
+    "qdrant_upsert": ["Indexer"],
+    "qdrant_upsert_batch": ["Indexer"],
     "qdrant_search": ["*"],
-    "qdrant_search_memories": ["*"],
-    "qdrant_delete_vectors": ["Indexer"],
+    "qdrant_delete": ["Indexer"],
+    "qdrant_delete_by_filter": ["Indexer"],
+    "qdrant_get_collection_info": ["*"],
     # =========================================================================
     # NEO4J OPERATIONS - Parties (DL-15)
     # =========================================================================

@@ -28,9 +28,16 @@ from monitor_data.tools.neo4j_tools import (
     neo4j_delete_universe,
     neo4j_ensure_omniverse,
 )
+from monitor_data.tools.qdrant_tools import (
+    qdrant_upsert,
+    qdrant_upsert_batch,
+    qdrant_search,
+    qdrant_delete,
+    qdrant_delete_by_filter,
+    qdrant_get_collection_info,
+)
 
 # from monitor_data.tools.mongodb_tools import *
-# from monitor_data.tools.qdrant_tools import *
 # from monitor_data.tools.composite_tools import *
 
 __all__ = [
@@ -43,4 +50,11 @@ __all__ = [
     "neo4j_update_universe",
     "neo4j_delete_universe",
     "neo4j_ensure_omniverse",
+    # Qdrant Vector tools
+    "qdrant_upsert",
+    "qdrant_upsert_batch",
+    "qdrant_search",
+    "qdrant_delete",
+    "qdrant_delete_by_filter",
+    "qdrant_get_collection_info",
 ]
