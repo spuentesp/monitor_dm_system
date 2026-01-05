@@ -17,6 +17,7 @@ Collections:
 """
 
 import os
+import threading
 from typing import Any, Dict, Optional
 from qdrant_client import QdrantClient as QdrantClientLib
 from qdrant_client.models import (
@@ -40,7 +41,7 @@ class QdrantClient:
     """
     Qdrant client for MONITOR vector storage and semantic search.
 
-    Thread-safe singleton client for Qdrant operations.
+    Client for Qdrant operations.
     Manages connection lifecycle and collection auto-creation.
     """
 
@@ -71,6 +72,7 @@ class QdrantClient:
 
         self._client: Optional[QdrantClientLib] = None
         self._collections_initialized: set = set()
+        self._collection_lock = threading.Lock()
 
     def connect(self) -> None:
         """
@@ -133,6 +135,7 @@ class QdrantClient:
         Ensure collection exists with correct configuration.
 
         Creates collection if it doesn't exist, using predefined configs.
+        Thread-safe using lock to prevent race conditions.
 
         Args:
             collection_name: Name of the collection (scenes, memories, snippets)
@@ -140,39 +143,46 @@ class QdrantClient:
         Raises:
             ValueError: If collection name is not in COLLECTION_CONFIGS
         """
+        # Fast path: check without lock
         if collection_name in self._collections_initialized:
             return
 
-        client = self.get_client()
+        # Slow path: acquire lock for initialization
+        with self._collection_lock:
+            # Double-check after acquiring lock
+            if collection_name in self._collections_initialized:
+                return
 
-        # Check if collection exists
-        try:
-            client.get_collection(collection_name)
-            self._collections_initialized.add(collection_name)
-            return
-        except Exception:
-            # Collection doesn't exist, create it
-            pass
+            client = self.get_client()
 
-        # Get configuration
-        if collection_name not in COLLECTION_CONFIGS:
-            raise ValueError(
-                f"Unknown collection '{collection_name}'. "
-                f"Valid collections: {', '.join(COLLECTION_CONFIGS.keys())}"
+            # Check if collection exists
+            try:
+                client.get_collection(collection_name)
+                self._collections_initialized.add(collection_name)
+                return
+            except Exception:
+                # Collection doesn't exist, create it
+                pass
+
+            # Get configuration
+            if collection_name not in COLLECTION_CONFIGS:
+                raise ValueError(
+                    f"Unknown collection '{collection_name}'. "
+                    f"Valid collections: {', '.join(COLLECTION_CONFIGS.keys())}"
+                )
+
+            config = COLLECTION_CONFIGS[collection_name]
+
+            # Create collection
+            client.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(
+                    size=int(config["vector_size"]),
+                    distance=config["distance"],  # Already Distance enum
+                ),
             )
 
-        config = COLLECTION_CONFIGS[collection_name]
-
-        # Create collection
-        client.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(
-                size=int(config["vector_size"]),
-                distance=Distance(config["distance"]),
-            ),
-        )
-
-        self._collections_initialized.add(collection_name)
+            self._collections_initialized.add(collection_name)
 
 
 # =============================================================================
@@ -180,6 +190,7 @@ class QdrantClient:
 # =============================================================================
 
 _qdrant_client_instance: Optional[QdrantClient] = None
+_client_lock = threading.Lock()
 
 
 def get_qdrant_client() -> QdrantClient:
@@ -189,13 +200,18 @@ def get_qdrant_client() -> QdrantClient:
     Returns:
         QdrantClient instance
 
-    Thread-safe singleton pattern for database connections.
+    Thread-safe singleton pattern using double-checked locking.
     """
     global _qdrant_client_instance
 
+    # Fast path: check without lock
     if _qdrant_client_instance is None:
-        _qdrant_client_instance = QdrantClient()
-        _qdrant_client_instance.connect()
+        # Slow path: acquire lock for initialization
+        with _client_lock:
+            # Double-check after acquiring lock
+            if _qdrant_client_instance is None:
+                _qdrant_client_instance = QdrantClient()
+                _qdrant_client_instance.connect()
 
     return _qdrant_client_instance
 

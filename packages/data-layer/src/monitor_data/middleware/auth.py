@@ -151,11 +151,11 @@ AUTHORITY_MATRIX = {
     # =========================================================================
     # QDRANT OPERATIONS - Vectors (DL-10)
     # =========================================================================
-    "qdrant_upsert": ["*"],
-    "qdrant_upsert_batch": ["*"],
+    "qdrant_upsert": ["Indexer"],
+    "qdrant_upsert_batch": ["Indexer"],
     "qdrant_search": ["*"],
-    "qdrant_delete": ["*"],
-    "qdrant_delete_by_filter": ["*"],
+    "qdrant_delete": ["Indexer"],
+    "qdrant_delete_by_filter": ["Indexer"],
     "qdrant_get_collection_info": ["*"],
     # =========================================================================
     # NEO4J OPERATIONS - Parties (DL-15)

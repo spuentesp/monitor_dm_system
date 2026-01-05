@@ -346,10 +346,12 @@ def test_delete_by_filter_success(mock_get_client: Mock):
     mock_get_client.return_value = mock_client
     mock_client.get_client.return_value = mock_qdrant
 
-    # Mock count result
-    mock_count_result = Mock()
-    mock_count_result.count = 5
-    mock_qdrant.count.return_value = mock_count_result
+    # Mock count results - before: 5, after: 0 (all deleted)
+    mock_count_before = Mock()
+    mock_count_before.count = 5
+    mock_count_after = Mock()
+    mock_count_after.count = 0
+    mock_qdrant.count.side_effect = [mock_count_before, mock_count_after]
 
     params = VectorDeleteByFilterRequest(
         collection="scenes",
@@ -362,9 +364,9 @@ def test_delete_by_filter_success(mock_get_client: Mock):
     # Verify
     assert result.success is True
     assert result.collection == "scenes"
-    assert result.deleted_count == 5
+    assert result.deleted_count == 5  # 5 - 0 = 5 deleted
     mock_client.ensure_collection.assert_called_once_with("scenes")
-    mock_qdrant.count.assert_called_once()
+    assert mock_qdrant.count.call_count == 2  # Called before and after
     mock_qdrant.delete.assert_called_once()
 
 
@@ -378,7 +380,7 @@ def test_delete_by_filter_no_matches(mock_get_client: Mock):
     mock_get_client.return_value = mock_client
     mock_client.get_client.return_value = mock_qdrant
 
-    # Mock count result - no matches
+    # Mock count results - before: 0, after: 0 (nothing to delete)
     mock_count_result = Mock()
     mock_count_result.count = 0
     mock_qdrant.count.return_value = mock_count_result
@@ -393,10 +395,10 @@ def test_delete_by_filter_no_matches(mock_get_client: Mock):
 
     # Verify
     assert result.success is True
-    assert result.deleted_count == 0
-    mock_qdrant.count.assert_called_once()
-    # Delete should not be called when count is 0
-    mock_qdrant.delete.assert_not_called()
+    assert result.deleted_count == 0  # 0 - 0 = 0 deleted
+    assert mock_qdrant.count.call_count == 2  # Called before and after
+    # Delete is always called regardless of count
+    mock_qdrant.delete.assert_called_once()
 
 
 @patch("monitor_data.tools.qdrant_tools.get_qdrant_client")

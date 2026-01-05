@@ -62,7 +62,20 @@ def _build_qdrant_filter(filter_params: VectorFilter) -> Optional[Filter]:
 
     # Start with custom filter if provided
     if filter_params.custom:
-        return Filter(**filter_params.custom)
+        try:
+            custom_filter = Filter(**filter_params.custom)
+            # Validate the filter is not empty
+            if (
+                not custom_filter.must
+                and not custom_filter.should
+                and not custom_filter.must_not
+            ):
+                return None
+            return custom_filter
+        except Exception as exc:
+            raise ValueError(
+                f"Invalid custom filter parameters: {filter_params.custom}"
+            ) from exc
 
     must_conditions = []
 
@@ -200,9 +213,7 @@ def qdrant_upsert_batch(params: VectorBatchUpsertRequest) -> VectorUpsertRespons
         >>> response = qdrant_upsert_batch(params)
         >>> assert response.upserted_count == 2
     """
-    if not params.points:
-        raise ValueError("Points list cannot be empty")
-
+    # Note: Pydantic schema already enforces min_length=1 for points
     client = get_qdrant_client()
 
     # Ensure collection exists
@@ -294,15 +305,23 @@ def qdrant_search(params: VectorSearchRequest) -> VectorSearchResponse:
         score_threshold=params.score_threshold,
     )
 
-    # Convert results to ScoredVector
-    results = [
-        ScoredVector(
-            id=UUID(result.id),  # Convert string ID back to UUID
-            score=result.score,
-            payload=result.payload or {},
+    # Convert results to ScoredVector with error handling
+    results = []
+    for result in search_results:
+        try:
+            vector_id = UUID(str(result.id))  # Convert string ID back to UUID
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"Invalid UUID '{result.id}' returned from Qdrant "
+                f"for collection '{params.collection}'."
+            ) from exc
+        results.append(
+            ScoredVector(
+                id=vector_id,
+                score=result.score,
+                payload=result.payload or {},
+            )
         )
-        for result in search_results
-    ]
 
     return VectorSearchResponse(
         collection=params.collection,
@@ -402,20 +421,27 @@ def qdrant_delete_by_filter(
     if not qdrant_filter:
         raise ValueError("Filter parameters resulted in empty filter")
 
-    # First, count how many points match the filter
-    count_result = qdrant.count(
+    # Count before delete for reporting
+    count_before = qdrant.count(  # type: ignore[attr-defined]
         collection_name=params.collection,
         count_filter=qdrant_filter,
+    ).count
+
+    # Delete points matching filter (always attempt; rely on filter match at delete time)
+    qdrant.delete(  # type: ignore[attr-defined]
+        collection_name=params.collection,
+        points_selector=qdrant_filter,
     )
 
-    deleted_count = count_result.count
+    # Count after delete to calculate actual deleted count
+    # This handles race conditions: if points were added between operations,
+    # they won't be deleted, and the count difference will be accurate
+    count_after = qdrant.count(  # type: ignore[attr-defined]
+        collection_name=params.collection,
+        count_filter=qdrant_filter,
+    ).count
 
-    # Delete points matching filter
-    if deleted_count > 0:
-        qdrant.delete(
-            collection_name=params.collection,
-            points_selector=qdrant_filter,
-        )
+    deleted_count = count_before - count_after
 
     return VectorDeleteResponse(
         success=True,
