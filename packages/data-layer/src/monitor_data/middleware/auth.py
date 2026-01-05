@@ -44,11 +44,15 @@ AUTHORITY_MATRIX = {
     "neo4j_delete_entity": ["CanonKeeper"],
     "neo4j_set_state_tags": ["CanonKeeper"],
     # =========================================================================
-    # NEO4J OPERATIONS - Relationships
+    # NEO4J OPERATIONS - Relationships (DL-14)
     # =========================================================================
     "neo4j_create_relationship": ["CanonKeeper"],
-    "neo4j_get_relationships": ["*"],
+    "neo4j_get_relationship": ["*"],
+    "neo4j_list_relationships": ["*"],
+    "neo4j_update_relationship": ["CanonKeeper"],
     "neo4j_delete_relationship": ["CanonKeeper"],
+    "neo4j_update_state_tags": ["CanonKeeper"],
+    "neo4j_get_state_tags": ["*"],
     # =========================================================================
     # NEO4J OPERATIONS - Facts & Events
     # =========================================================================
