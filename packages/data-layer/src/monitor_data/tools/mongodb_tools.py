@@ -1266,13 +1266,13 @@ def mongodb_create_combat(params: CombatCreate) -> CombatResponse:
         raise ValueError(f"Scene {params.scene_id} not found")
 
     # Validate story exists (via Neo4j)
-    neo4j = get_neo4j_client()
-    with neo4j.session() as session:  # type: ignore[attr-defined]
-        result = session.run(
-            "MATCH (s:Story {id: $story_id}) RETURN s", story_id=str(params.story_id)
-        )
-        if not result.single():
-            raise ValueError(f"Story {params.story_id} not found")
+    neo4j_client = get_neo4j_client()
+    story_exists = neo4j_client.execute_read(
+        "MATCH (s:Story {id: $story_id}) RETURN s.id AS story_id",
+        {"story_id": str(params.story_id)},
+    )
+    if not story_exists:
+        raise ValueError(f"Story {params.story_id} not found")
 
     now = datetime.now(timezone.utc)
     encounter_id = uuid4()
