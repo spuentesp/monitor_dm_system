@@ -1715,7 +1715,7 @@ def mongodb_set_combat_outcome(params: SetCombatOutcome) -> CombatResponse:
 
 
 def _convert_resolution_doc_to_response(
-    resolution_doc: Dict[str, Any]
+    resolution_doc: Dict[str, Any],
 ) -> ResolutionResponse:
     """
     Convert a resolution document from MongoDB to a ResolutionResponse object.
