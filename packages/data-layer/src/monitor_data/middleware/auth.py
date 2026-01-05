@@ -114,11 +114,6 @@ AUTHORITY_MATRIX = {
     "mongodb_list_proposed_changes": ["*"],
     "mongodb_update_proposed_change": ["CanonKeeper"],
     # =========================================================================
-    # MONGODB OPERATIONS - Resolutions
-    # =========================================================================
-    "mongodb_create_resolution": ["Resolver"],
-    "mongodb_get_resolution": ["*"],
-    # =========================================================================
     # MONGODB OPERATIONS - Memories
     # =========================================================================
     "mongodb_create_memory": ["MemoryManager"],
@@ -184,6 +179,14 @@ AUTHORITY_MATRIX = {
     "mongodb_remove_combat_participant": ["Orchestrator", "CanonKeeper"],
     "mongodb_add_combat_log_entry": ["Orchestrator", "CanonKeeper"],
     "mongodb_set_combat_outcome": ["Orchestrator", "CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Resolutions (DL-24)
+    # =========================================================================
+    "mongodb_create_resolution": ["Orchestrator", "CanonKeeper"],
+    "mongodb_get_resolution": ["*"],
+    "mongodb_list_resolutions": ["*"],
+    "mongodb_update_resolution": ["Orchestrator", "CanonKeeper"],
+    "mongodb_delete_resolution": ["CanonKeeper"],
     # =========================================================================
     # COMPOSITE OPERATIONS
     # =========================================================================
