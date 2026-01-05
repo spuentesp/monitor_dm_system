@@ -66,6 +66,7 @@ from monitor_data.schemas.parties import (
     SetActivePC,
 )
 from monitor_data.schemas.relationships import (
+    RelationshipType,
     RelationshipCreate,
     RelationshipUpdate,
     RelationshipResponse,
@@ -3592,6 +3593,18 @@ def neo4j_create_relationship(params: RelationshipCreate) -> RelationshipRespons
     if not to_exists:
         raise ValueError(f"To entity {params.to_entity_id} not found")
 
+    # Validate no self-reference for relationship types where it doesn't make sense
+    if params.from_entity_id == params.to_entity_id:
+        # OWNS might be valid (e.g., recursive ownership), but most types are not
+        if params.rel_type in (
+            RelationshipType.KNOWS,
+            RelationshipType.ALLIED_WITH,
+            RelationshipType.HOSTILE_TO,
+        ):
+            raise ValueError(
+                f"Self-referencing relationships are not allowed for {params.rel_type.value}"
+            )
+
     # Create relationship with properties
     now = datetime.now(timezone.utc)
     props = {**params.properties, "created_at": now.isoformat()}
@@ -3648,7 +3661,14 @@ def neo4j_get_relationship(relationship_id: str) -> Optional[RelationshipRespons
            type(r) as rel_type, properties(r) as props
     """
 
-    result = client.execute_read(query, {"rel_id": int(relationship_id)})
+    try:
+        rel_id_int = int(relationship_id)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "Invalid relationship ID format: must be a numeric string"
+        ) from None
+
+    result = client.execute_read(query, {"rel_id": rel_id_int})
 
     if not result:
         return None
@@ -3703,7 +3723,8 @@ def neo4j_list_relationships(
         query_params["entity_id"] = str(params.entity_id)
 
     if params.rel_type:
-        where_clauses.append(f"type(r) = '{params.rel_type.value}'")
+        where_clauses.append("type(r) = $rel_type")
+        query_params["rel_type"] = params.rel_type.value
 
     where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
@@ -3794,8 +3815,15 @@ def neo4j_update_relationship(
     RETURN id(r) as rel_id
     """
 
+    try:
+        rel_id_int = int(relationship_id)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "Invalid relationship ID format: must be a numeric string"
+        ) from None
+
     result = client.execute_write(
-        update_query, {"rel_id": int(relationship_id), "props": updated_props}
+        update_query, {"rel_id": rel_id_int, "props": updated_props}
     )
 
     if not result:
@@ -3834,11 +3862,19 @@ def neo4j_delete_relationship(relationship_id: str) -> Dict[str, Any]:
     delete_query = """
     MATCH ()-[r]->()
     WHERE id(r) = $rel_id
+    WITH r
     DELETE r
-    RETURN count(r) as deleted_count
+    RETURN count(*) as deleted_count
     """
 
-    result = client.execute_write(delete_query, {"rel_id": int(relationship_id)})
+    try:
+        rel_id_int = int(relationship_id)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "Invalid relationship ID format: must be a numeric string"
+        ) from None
+
+    result = client.execute_write(delete_query, {"rel_id": rel_id_int})
 
     return {
         "deleted": True,
@@ -3874,7 +3910,7 @@ def neo4j_update_state_tags(params: StateTagUpdate) -> StateTagResponse:
     entity_check = client.execute_read(
         """
         MATCH (e:Entity {id: $entity_id})
-        RETURN e.id as id, e.entity_type as type
+        RETURN e.id as id, e.is_archetype as is_archetype
         """,
         {"entity_id": str(params.entity_id)},
     )
@@ -3882,24 +3918,35 @@ def neo4j_update_state_tags(params: StateTagUpdate) -> StateTagResponse:
     if not entity_check:
         raise ValueError(f"Entity {params.entity_id} not found")
 
-    if entity_check[0]["type"] == "archetype":
+    if entity_check[0]["is_archetype"]:
         raise ValueError(
             f"Cannot set state tags on archetype {params.entity_id}. "
             "State tags are only valid on entity instances."
         )
 
+    # Validate at least one operation
+    if not params.add_tags and not params.remove_tags:
+        raise ValueError("At least one of add_tags or remove_tags must be non-empty")
+
     # Convert tags to strings
     add_tag_strs = [tag.value for tag in params.add_tags]
     remove_tag_strs = [tag.value for tag in params.remove_tags]
 
-    # Update tags atomically
+    # Update tags atomically (remove first, then add, then deduplicate)
+    # If same tag in both add and remove, addition takes precedence
     update_query = """
     MATCH (e:Entity {id: $entity_id})
-    SET e.state_tags = 
-        CASE 
-            WHEN e.state_tags IS NULL THEN $add_tags
-            ELSE [tag IN coalesce(e.state_tags, []) + $add_tags WHERE NOT tag IN $remove_tags] 
-        END
+    WITH e,
+         [tag IN coalesce(e.state_tags, []) WHERE NOT tag IN $remove_tags] as after_remove
+    SET e.state_tags =
+        REDUCE(
+            s = [],
+            t IN (after_remove + $add_tags) |
+            CASE
+                WHEN t IN s THEN s
+                ELSE s + t
+            END
+        )
     RETURN e.state_tags as tags
     """
 

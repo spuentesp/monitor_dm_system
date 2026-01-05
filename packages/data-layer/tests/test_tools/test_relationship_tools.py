@@ -525,7 +525,9 @@ def test_update_state_tags_add(mock_get_client: Mock):
     entity_id = uuid4()
 
     # Mock entity validation (is instance)
-    mock_client.execute_read.return_value = [{"id": str(entity_id), "type": "instance"}]
+    mock_client.execute_read.return_value = [
+        {"id": str(entity_id), "is_archetype": False}
+    ]
 
     # Mock tag update
     mock_client.execute_write.return_value = [{"tags": ["alive", "wounded"]}]
@@ -551,7 +553,9 @@ def test_update_state_tags_remove(mock_get_client: Mock):
     entity_id = uuid4()
 
     # Mock entity validation (is instance with existing tags)
-    mock_client.execute_read.return_value = [{"id": str(entity_id), "type": "instance"}]
+    mock_client.execute_read.return_value = [
+        {"id": str(entity_id), "is_archetype": False}
+    ]
 
     # Mock tag update
     mock_client.execute_write.return_value = [{"tags": ["alive"]}]
@@ -577,7 +581,9 @@ def test_update_state_tags_add_and_remove(mock_get_client: Mock):
     entity_id = uuid4()
 
     # Mock entity validation
-    mock_client.execute_read.return_value = [{"id": str(entity_id), "type": "instance"}]
+    mock_client.execute_read.return_value = [
+        {"id": str(entity_id), "is_archetype": False}
+    ]
 
     # Mock tag update
     mock_client.execute_write.return_value = [
@@ -607,7 +613,7 @@ def test_update_state_tags_archetype_fails(mock_get_client: Mock):
 
     # Mock entity validation (is archetype)
     mock_client.execute_read.return_value = [
-        {"id": str(entity_id), "type": "archetype"}
+        {"id": str(entity_id), "is_archetype": True}
     ]
 
     params = StateTagUpdate(
