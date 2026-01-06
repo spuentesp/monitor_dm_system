@@ -117,13 +117,7 @@ AUTHORITY_MATRIX = {
     "mongodb_get_proposed_change": ["*"],
     "mongodb_list_proposed_changes": ["*"],
     "mongodb_update_proposed_change": ["CanonKeeper"],
-    # =========================================================================
-    # MONGODB OPERATIONS - Memories
-    # =========================================================================
-    "mongodb_create_memory": ["MemoryManager"],
-    "mongodb_get_memories": ["*"],
-    "mongodb_update_memory": ["MemoryManager"],
-    "mongodb_search_memories": ["*"],
+    # (Memory operations moved to DL-7 section below)
     # =========================================================================
     # MONGODB OPERATIONS - Character Sheets
     # =========================================================================
@@ -191,6 +185,19 @@ AUTHORITY_MATRIX = {
     "mongodb_list_resolutions": ["*"],
     "mongodb_update_resolution": ["Orchestrator", "CanonKeeper"],
     "mongodb_delete_resolution": ["CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Character Memories (DL-7)
+    # =========================================================================
+    "mongodb_create_memory": ["*"],
+    "mongodb_get_memory": ["*"],
+    "mongodb_list_memories": ["*"],
+    "mongodb_update_memory": ["*"],
+    "mongodb_delete_memory": ["*"],
+    # =========================================================================
+    # QDRANT OPERATIONS - Memory Embeddings (DL-7)
+    # =========================================================================
+    "qdrant_embed_memory": ["*"],
+    "qdrant_search_memories": ["*"],
     # =========================================================================
     # COMPOSITE OPERATIONS
     # =========================================================================

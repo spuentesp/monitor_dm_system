@@ -130,6 +130,27 @@ class QdrantClient:
             raise RuntimeError("Qdrant client not connected. Call connect() first.")
         return self._client
 
+    def embed_text(self, text: str) -> list[float]:
+        """
+        Generate vector embedding for text.
+
+        TODO: This is a placeholder implementation. In production, this should
+        use a real embedding model (OpenAI, Anthropic, or local model).
+
+        Args:
+            text: Text to embed
+
+        Returns:
+            Vector embedding (list of floats)
+
+        Note:
+            Currently returns a zero vector of DEFAULT_VECTOR_SIZE.
+            This should be replaced with actual embedding generation.
+        """
+        # Placeholder: return zero vector
+        # In production, call embedding API (OpenAI, Anthropic, etc.)
+        return [0.0] * DEFAULT_VECTOR_SIZE
+
     def ensure_collection(self, collection_name: str) -> None:
         """
         Ensure collection exists with correct configuration.

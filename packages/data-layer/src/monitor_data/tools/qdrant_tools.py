@@ -35,6 +35,13 @@ from monitor_data.schemas.vectors import (
     CollectionInfo,
     VectorFilter,
 )
+from monitor_data.schemas.memories import (
+    MemoryEmbedRequest,
+    MemoryEmbedResponse,
+    MemorySearchRequest,
+    MemorySearchResponse,
+    MemorySearchResult,
+)
 
 
 # =============================================================================
@@ -516,3 +523,197 @@ def qdrant_get_collection_info(
     )
 
     return CollectionInfoResponse(collection=info)
+
+
+# =============================================================================
+# MEMORY VECTOR OPERATIONS
+# =============================================================================
+
+
+def qdrant_embed_memory(params: MemoryEmbedRequest) -> MemoryEmbedResponse:
+    """
+    Generate and store vector embedding for a character memory.
+
+    Uses the Qdrant client's embedding model to vectorize memory text,
+    then stores the vector with memory metadata in the 'memories' collection.
+
+    Authority: All agents
+    Use Case: DL-7
+
+    Args:
+        params: MemoryEmbedRequest with memory data
+
+    Returns:
+        MemoryEmbedResponse with embedding status
+
+    Raises:
+        ValueError: If memory text is empty or entity_id is invalid
+        Exception: If embedding generation or Qdrant operation fails
+
+    Examples:
+        >>> params = MemoryEmbedRequest(
+        ...     memory_id=memory_id,
+        ...     text="I remember you saved my life in the dragon's lair",
+        ...     entity_id=entity_id,
+        ...     scene_id=scene_id,
+        ...     importance=0.9,
+        ...     metadata={}
+        ... )
+        >>> response = qdrant_embed_memory(params)
+        >>> print(f"Memory {response.memory_id} embedded")
+    """
+    client = get_qdrant_client()
+
+    # Ensure memories collection exists
+    client.ensure_collection("memories")
+
+    # Generate embedding vector
+    embedding = client.embed_text(params.text)
+
+    # Build payload with memory metadata
+    payload = {
+        "memory_id": str(params.memory_id),
+        "entity_id": str(params.entity_id),
+        "scene_id": str(params.scene_id) if params.scene_id else None,
+        "importance": params.importance,
+        "type": "memory",  # For filtering
+        **params.metadata,
+    }
+
+    # Create point with memory_id as ID (ensures idempotent upserts)
+    point = PointStruct(
+        id=str(params.memory_id),
+        vector=embedding,
+        payload=payload,
+    )
+
+    # Get underlying Qdrant client
+    qdrant = client.get_client()
+
+    # Upsert point
+    qdrant.upsert(  # type: ignore[attr-defined]
+        collection_name="memories",
+        points=[point],
+    )
+
+    return MemoryEmbedResponse(
+        memory_id=params.memory_id,
+        point_id=str(params.memory_id),
+        collection="memories",
+        success=True,
+    )
+
+
+def qdrant_search_memories(params: MemorySearchRequest) -> MemorySearchResponse:
+    """
+    Search character memories using semantic similarity.
+
+    Generates embedding for query text and searches the 'memories' collection
+    for similar vectors. Supports filtering by entity, scene, and importance.
+
+    Authority: All agents
+    Use Case: DL-7
+
+    Args:
+        params: MemorySearchRequest with query and optional filters
+
+    Returns:
+        MemorySearchResponse with ranked search results
+
+    Raises:
+        ValueError: If query text is empty or top_k is invalid
+        Exception: If embedding generation or search fails
+
+    Examples:
+        >>> params = MemorySearchRequest(
+        ...     query_text="dragon battle",
+        ...     entity_id=entity_id,
+        ...     min_importance=0.5,
+        ...     top_k=10
+        ... )
+        >>> response = qdrant_search_memories(params)
+        >>> for result in response.results:
+        ...     print(f"Memory: {result.text} (score: {result.score})")
+    """
+    client = get_qdrant_client()
+
+    # Ensure collection exists
+    client.ensure_collection("memories")
+
+    # Generate query embedding
+    query_vector = client.embed_text(params.query_text)
+
+    # Build filter conditions
+    must_conditions = []
+
+    # Filter by entity if specified
+    if params.entity_id:
+        must_conditions.append(
+            FieldCondition(
+                key="entity_id",
+                match=MatchValue(value=str(params.entity_id)),
+            )
+        )
+
+    # Filter by scene if specified
+    if params.scene_id:
+        must_conditions.append(
+            FieldCondition(
+                key="scene_id",
+                match=MatchValue(value=str(params.scene_id)),
+            )
+        )
+
+    # Build filter object
+    search_filter = None
+    if must_conditions:
+        search_filter = Filter(must=must_conditions)  # type: ignore[arg-type]
+
+    # Get underlying Qdrant client
+    qdrant = client.get_client()
+
+    # Search for similar memories
+    search_results = qdrant.search(  # type: ignore[attr-defined]
+        collection_name="memories",
+        query_vector=query_vector,
+        query_filter=search_filter,
+        limit=params.top_k,
+    )
+
+    # Convert results to MemorySearchResult objects
+    results = []
+    for scored_point in search_results:
+        payload = scored_point.payload
+
+        # Filter by importance if specified
+        importance = payload.get("importance", 0.0)
+        if params.min_importance is not None and importance < params.min_importance:
+            continue
+
+        # Extract text from payload (may not be stored, just metadata)
+        # Note: We don't store full text in Qdrant, just metadata
+        # Caller should use memory_id to fetch full text from MongoDB
+        results.append(
+            MemorySearchResult(
+                memory_id=UUID(payload["memory_id"]),
+                entity_id=UUID(payload["entity_id"]),
+                text="",  # Not stored in Qdrant, fetch from MongoDB
+                scene_id=(
+                    UUID(payload["scene_id"]) if payload.get("scene_id") else None
+                ),
+                importance=importance,
+                score=scored_point.score,
+                metadata={
+                    k: v
+                    for k, v in payload.items()
+                    if k
+                    not in ["memory_id", "entity_id", "scene_id", "importance", "type"]
+                },
+            )
+        )
+
+    return MemorySearchResponse(
+        results=results,
+        query=params.query_text,
+        top_k=params.top_k,
+    )
