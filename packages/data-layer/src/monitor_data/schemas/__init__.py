@@ -98,7 +98,19 @@ from monitor_data.schemas.vectors import (
 # from monitor_data.schemas.entities import *
 # from monitor_data.schemas.facts import *
 # from monitor_data.schemas.scenes import *
-# from monitor_data.schemas.memories import *
+from monitor_data.schemas.memories import (
+    MemoryCreate,
+    MemoryUpdate,
+    MemoryFilter,
+    MemoryResponse,
+    MemoryListResponse,
+    MemoryEmbedRequest,
+    MemoryEmbedResponse,
+    MemorySearchRequest,
+    MemorySearchResult,
+    MemorySearchResponse,
+)
+
 # from monitor_data.schemas.sources import *
 # from monitor_data.schemas.queries import *
 # from monitor_data.schemas.composite import *
@@ -172,4 +184,15 @@ __all__ = [
     "CollectionInfo",
     "CollectionInfoRequest",
     "CollectionInfoResponse",
+    # Memory schemas
+    "MemoryCreate",
+    "MemoryUpdate",
+    "MemoryFilter",
+    "MemoryResponse",
+    "MemoryListResponse",
+    "MemoryEmbedRequest",
+    "MemoryEmbedResponse",
+    "MemorySearchRequest",
+    "MemorySearchResult",
+    "MemorySearchResponse",
 ]

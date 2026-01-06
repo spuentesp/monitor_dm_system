@@ -130,6 +130,41 @@ class QdrantClient:
             raise RuntimeError("Qdrant client not connected. Call connect() first.")
         return self._client
 
+    def embed_text(self, text: str) -> list[float]:
+        """
+        Generate vector embedding for text.
+
+        WARNING: This is a PLACEHOLDER implementation that returns zero vectors!
+        In production, this MUST use a real embedding model (OpenAI, Anthropic, local).
+
+        Args:
+            text: Text to embed
+
+        Returns:
+            Vector embedding (list of floats)
+
+        Note:
+            Currently returns a zero vector of DEFAULT_VECTOR_SIZE.
+            This produces meaningless similarity scores and should NOT be deployed to production.
+            Set QDRANT_EMBEDDING_DISABLED=true in environment to suppress warning.
+        """
+        import os
+        import logging
+
+        # Production safety check: warn if embeddings are disabled without acknowledgment
+        if os.getenv("QDRANT_EMBEDDING_DISABLED", "").lower() != "true":
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "PLACEHOLDER EMBEDDING IN USE! "
+                "Set QDRANT_EMBEDDING_DISABLED=true to acknowledge zero-vector embeddings, "
+                "or implement real embedding generation. "
+                "This will produce meaningless similarity scores!"
+            )
+
+        # Placeholder: return zero vector
+        # In production, call embedding API (OpenAI, Anthropic, etc.)
+        return [0.0] * DEFAULT_VECTOR_SIZE
+
     def ensure_collection(self, collection_name: str) -> None:
         """
         Ensure collection exists with correct configuration.
