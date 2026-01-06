@@ -333,10 +333,11 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
             # Log unexpected errors
             logger.error(f"Tool execution error for '{name}': {e}", exc_info=True)
 
+            # Comment 1 fix: Use extracted agent variables, not arguments.get()
             log_tool_call(
                 name,
-                arguments.get("agent_type", "Unknown"),
-                arguments.get("agent_id"),
+                agent_type,
+                agent_id,
                 arguments,
                 success=False,
                 error_message=str(e),

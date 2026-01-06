@@ -52,8 +52,8 @@ def validate_tool_input(
     Examples:
         >>> def my_tool(params: MyRequest) -> MyResponse:
         ...     pass
-        >>> validate_tool_input("my_tool", my_tool, {"field": "value"})
-        {'field': 'value'}
+        >>> validate_tool_input("my_tool", my_tool, {"params": {"field": "value"}})
+        {'params': <MyRequest object>}
     """
     try:
         # Get type hints from the function
@@ -67,12 +67,15 @@ def validate_tool_input(
             return arguments
 
         # Find the first parameter that's a BaseModel (should be the request schema)
+        # IMPORTANT: Preserve the parameter name (e.g., "params") for correct function calls
+        param_name = None
         param_schema = None
         for name, hint in hints.items():
             if name == "return":
                 continue
             # Check if it's a BaseModel subclass
             if isinstance(hint, type) and issubclass(hint, BaseModel):
+                param_name = name
                 param_schema = hint
                 break
 
@@ -86,6 +89,7 @@ def validate_tool_input(
                     args = get_args(hint)
                     for arg in args:
                         if isinstance(arg, type) and issubclass(arg, BaseModel):
+                            param_name = name
                             param_schema = arg
                             break
                 if param_schema:
@@ -96,12 +100,29 @@ def validate_tool_input(
             return _validate_simple_types(tool_name, hints, arguments)
 
         # Validate using Pydantic schema
+        # Extract the parameter value from arguments using the parameter name
         try:
-            validated = param_schema(**arguments)
-            # Return as dict for MCP compatibility
-            return validated.model_dump()
+            if param_name not in arguments:
+                raise ValidationError(
+                    tool_name,
+                    [{"loc": (param_name,), "msg": "Required parameter missing"}],
+                )
+
+            param_value = arguments[param_name]
+
+            # Validate the parameter value against the schema
+            validated_obj = param_schema(**param_value)
+
+            # Return with parameter name preserved (critical for function calls!)
+            return {param_name: validated_obj}
+
         except PydanticValidationError as e:
-            raise ValidationError(tool_name, e.errors())
+            # Prefix error locations with parameter name
+            errors = [
+                {"loc": (param_name,) + tuple(err["loc"]), "msg": err["msg"]}
+                for err in e.errors()
+            ]
+            raise ValidationError(tool_name, errors)
 
     except ValidationError:
         raise
@@ -127,8 +148,27 @@ def _validate_simple_types(
     Raises:
         ValidationError: If type validation fails
     """
+
     errors = []
-    validated = {}
+    validated: Dict[str, Any] = {}
+
+    # Check for missing required parameters (Comment 5 fix)
+    for hint_key, hint_type in hints.items():
+        if hint_key == "return":
+            continue
+
+        # Check if parameter is required (no default value)
+        # Get function signature to check for defaults
+        # This requires the function object, which we don't have here
+        # For now, assume all parameters not provided are required
+        if hint_key not in arguments:
+            # Check if Optional type (means not required)
+            origin = get_origin(hint_type)
+            if origin is not None:
+                # Could be Optional - skip required check
+                continue
+
+            errors.append({"loc": (hint_key,), "msg": "Required parameter missing"})
 
     for key, value in arguments.items():
         if key not in hints:
@@ -141,7 +181,7 @@ def _validate_simple_types(
         expected_type = hints[key]
 
         # Handle UUID type specially
-        if expected_type == UUID or expected_type == "UUID":
+        if expected_type == UUID:  # Comment 6 fix: removed "UUID" string comparison
             if isinstance(value, str):
                 try:
                     validated[key] = UUID(value)
@@ -162,15 +202,20 @@ def _validate_simple_types(
         origin = get_origin(expected_type)
         if origin is None:
             # Simple type like str, int, bool
-            if not isinstance(value, expected_type):
-                errors.append(
-                    {
-                        "loc": (key,),
-                        "msg": f"Expected {expected_type.__name__}, got {type(value).__name__}",
-                    }
-                )
-                continue
-            validated[key] = value
+            # Comment 7 suggestion: check if expected_type is a valid type
+            if isinstance(expected_type, type):
+                if not isinstance(value, expected_type):
+                    errors.append(
+                        {
+                            "loc": (key,),
+                            "msg": f"Expected {expected_type.__name__}, got {type(value).__name__}",
+                        }
+                    )
+                    continue
+                validated[key] = value
+            else:
+                # Annotation is not a concrete type; pass through
+                validated[key] = value
         else:
             # Complex type like Optional, List, etc. - just pass through
             validated[key] = value

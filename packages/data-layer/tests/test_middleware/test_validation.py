@@ -53,13 +53,16 @@ def test_validate_simple_types_valid():
     def test_tool(params: SimpleRequest) -> str:
         return "success"
 
-    arguments = {"name": "test", "count": 5, "enabled": True}
+    # MCP format: arguments wrapped in parameter name
+    arguments = {"params": {"name": "test", "count": 5, "enabled": True}}
 
     result = validate_tool_input("test_tool", test_tool, arguments)
 
-    assert result["name"] == "test"
-    assert result["count"] == 5
-    assert result["enabled"] is True
+    # Validation preserves parameter name
+    assert "params" in result
+    assert result["params"].name == "test"
+    assert result["params"].count == 5
+    assert result["params"].enabled is True
 
 
 def test_validate_simple_types_missing_required():
@@ -68,7 +71,8 @@ def test_validate_simple_types_missing_required():
     def test_tool(params: SimpleRequest) -> str:
         return "success"
 
-    arguments = {"count": 5}  # Missing 'name'
+    # MCP format: arguments wrapped in parameter name, but missing required field
+    arguments = {"params": {"count": 5}}  # Missing 'name'
 
     with pytest.raises(ValidationError) as exc_info:
         validate_tool_input("test_tool", test_tool, arguments)
@@ -84,7 +88,8 @@ def test_validate_simple_types_wrong_type():
     def test_tool(params: SimpleRequest) -> str:
         return "success"
 
-    arguments = {"name": "test", "count": "not_a_number"}  # Wrong type
+    # MCP format: arguments wrapped in parameter name, but with wrong type
+    arguments = {"params": {"name": "test", "count": "not_a_number"}}  # Wrong type
 
     with pytest.raises(ValidationError) as exc_info:
         validate_tool_input("test_tool", test_tool, arguments)
@@ -99,11 +104,13 @@ def test_validate_with_defaults():
     def test_tool(params: SimpleRequest) -> str:
         return "success"
 
-    arguments = {"name": "test", "count": 5}  # No 'enabled'
+    # MCP format: arguments wrapped in parameter name
+    arguments = {"params": {"name": "test", "count": 5}}  # No 'enabled'
 
     result = validate_tool_input("test_tool", test_tool, arguments)
 
-    assert result["enabled"] is False  # Default value
+    # Check default value in validated object
+    assert result["params"].enabled is False  # Default value
 
 
 # =============================================================================
@@ -120,13 +127,19 @@ def test_validate_uuid_valid():
     entity_id = uuid4()
     universe_id = uuid4()
 
-    arguments = {"entity_id": str(entity_id), "universe_id": str(universe_id)}
+    # MCP format: arguments wrapped in parameter name
+    arguments = {
+        "params": {"entity_id": str(entity_id), "universe_id": str(universe_id)}
+    }
 
     result = validate_tool_input("test_tool", test_tool, arguments)
 
-    # Result should contain UUID objects
-    assert isinstance(result["entity_id"], (UUID, str))
-    assert isinstance(result["universe_id"], (UUID, str))
+    # Result should contain validated object with UUID fields
+    assert "params" in result
+    assert isinstance(result["params"].entity_id, UUID)
+    assert isinstance(result["params"].universe_id, UUID)
+    assert result["params"].entity_id == entity_id
+    assert result["params"].universe_id == universe_id
 
 
 def test_validate_uuid_invalid():
@@ -135,7 +148,8 @@ def test_validate_uuid_invalid():
     def test_tool(params: UUIDRequest) -> str:
         return "success"
 
-    arguments = {"entity_id": "not-a-uuid", "universe_id": str(uuid4())}
+    # MCP format: arguments wrapped in parameter name
+    arguments = {"params": {"entity_id": "not-a-uuid", "universe_id": str(uuid4())}}
 
     with pytest.raises(ValidationError) as exc_info:
         validate_tool_input("test_tool", test_tool, arguments)
@@ -155,17 +169,22 @@ def test_validate_nested_structure():
     def test_tool(params: NestedRequest) -> str:
         return "success"
 
+    # MCP format: arguments wrapped in parameter name
     arguments = {
-        "title": "Test",
-        "metadata": {"key": "value"},
-        "tags": ["tag1", "tag2"],
+        "params": {
+            "title": "Test",
+            "metadata": {"key": "value"},
+            "tags": ["tag1", "tag2"],
+        }
     }
 
     result = validate_tool_input("test_tool", test_tool, arguments)
 
-    assert result["title"] == "Test"
-    assert result["metadata"] == {"key": "value"}
-    assert result["tags"] == ["tag1", "tag2"]
+    # Result should contain validated object
+    assert "params" in result
+    assert result["params"].title == "Test"
+    assert result["params"].metadata == {"key": "value"}
+    assert result["params"].tags == ["tag1", "tag2"]
 
 
 # =============================================================================

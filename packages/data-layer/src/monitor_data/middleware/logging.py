@@ -68,9 +68,7 @@ class ToolCallLogger:
             ...     execution_time_ms=45.2
             ... )
         """
-        # Parameters are sanitized internally, we just log metadata
-
-        log_data = {
+        log_data: Dict[str, Any] = {
             "tool": tool_name,
             "agent_type": agent_type,
             "agent_id": agent_id,
@@ -81,9 +79,9 @@ class ToolCallLogger:
         if not success and error_message:
             log_data["error"] = error_message
 
-        # Add parameter count but not full parameters for brevity
+        # Comment 2 fix: Use _sanitize_parameters for better debugging
         if parameters:
-            log_data["param_count"] = len(parameters)
+            log_data["params"] = self._sanitize_parameters(parameters)
 
         # Format as single-line JSON for structured logging
         log_message = json.dumps(log_data)
@@ -184,7 +182,14 @@ class ToolCallTimer:
 
     @property
     def elapsed_ms(self) -> float:
-        """Get elapsed time in milliseconds."""
-        if self.start_time is None or self.end_time is None:
+        """
+        Get elapsed time in milliseconds.
+
+        Returns current elapsed time even if context manager hasn't exited yet.
+        """
+        if self.start_time is None:
             return 0.0
-        return (self.end_time - self.start_time) * 1000.0
+
+        # If end_time is None, calculate based on current time (Comment 4 fix)
+        end = self.end_time if self.end_time is not None else time.time()
+        return (end - self.start_time) * 1000.0
