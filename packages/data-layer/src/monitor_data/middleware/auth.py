@@ -199,6 +199,19 @@ AUTHORITY_MATRIX = {
     "qdrant_embed_memory": ["*"],
     "qdrant_search_memories": ["*"],
     # =========================================================================
+    # MONGODB OPERATIONS - Party Inventory & Splits (DL-16)
+    # =========================================================================
+    "mongodb_create_party_inventory": ["Orchestrator", "CanonKeeper"],
+    "mongodb_get_party_inventory": ["*"],
+    "mongodb_add_inventory_item": ["Orchestrator", "CanonKeeper"],
+    "mongodb_remove_inventory_item": ["Orchestrator", "CanonKeeper"],
+    "mongodb_update_party_gold": ["Orchestrator", "CanonKeeper"],
+    "mongodb_transfer_item": ["Orchestrator"],
+    "mongodb_create_party_split": ["Orchestrator", "CanonKeeper"],
+    "mongodb_get_active_splits": ["*"],
+    "mongodb_resolve_party_split": ["Orchestrator", "CanonKeeper"],
+    "mongodb_get_split_history": ["*"],
+    # =========================================================================
     # COMPOSITE OPERATIONS
     # =========================================================================
     "composite_get_entity_full": ["*"],
