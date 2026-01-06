@@ -31,14 +31,28 @@ from monitor_data.middleware.auth import (
     AuthorizationError,
     AUTHORITY_MATRIX,
 )
-
-# from monitor_data.middleware.validation import validate_request
+from monitor_data.middleware.validation import (
+    validate_tool_input,
+    ValidationError,
+    get_validation_error_response,
+)
+from monitor_data.middleware.logging import (
+    log_tool_call,
+    ToolCallTimer,
+)
 
 __all__ = [
+    # Auth
     "require_authority",
     "check_authority",
     "get_allowed_agents",
     "AuthorizationError",
     "AUTHORITY_MATRIX",
-    # "validate_request",
+    # Validation
+    "validate_tool_input",
+    "ValidationError",
+    "get_validation_error_response",
+    # Logging
+    "log_tool_call",
+    "ToolCallTimer",
 ]
