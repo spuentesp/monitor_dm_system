@@ -158,7 +158,10 @@ class MemorySearchResult(BaseModel):
 
     memory_id: UUID
     entity_id: UUID
-    text: str
+    text: Optional[str] = Field(
+        None,
+        description="Memory text (not stored in Qdrant, requires MongoDB fetch)",
+    )
     scene_id: Optional[UUID]
     importance: float
     score: float = Field(description="Similarity score (higher = more relevant)")

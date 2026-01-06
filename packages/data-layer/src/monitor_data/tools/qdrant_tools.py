@@ -620,6 +620,11 @@ def qdrant_search_memories(params: MemorySearchRequest) -> MemorySearchResponse:
     Returns:
         MemorySearchResponse with ranked search results
 
+    Note:
+        The `text` field in search results is None because full memory text
+        is not stored in Qdrant (storage optimization). Use the `memory_id`
+        from search results to fetch full memory text from MongoDB if needed.
+
     Raises:
         ValueError: If query text is empty or top_k is invalid
         Exception: If embedding generation or search fails
@@ -633,7 +638,8 @@ def qdrant_search_memories(params: MemorySearchRequest) -> MemorySearchResponse:
         ... )
         >>> response = qdrant_search_memories(params)
         >>> for result in response.results:
-        ...     print(f"Memory: {result.text} (score: {result.score})")
+        ...     # result.text is None, use memory_id to fetch from MongoDB
+        ...     print(f"Memory ID: {result.memory_id} (score: {result.score})")
     """
     client = get_qdrant_client()
 
@@ -690,14 +696,14 @@ def qdrant_search_memories(params: MemorySearchRequest) -> MemorySearchResponse:
         if params.min_importance is not None and importance < params.min_importance:
             continue
 
-        # Extract text from payload (may not be stored, just metadata)
-        # Note: We don't store full text in Qdrant, just metadata
-        # Caller should use memory_id to fetch full text from MongoDB
+        # Extract metadata from payload
+        # Note: Full memory text is NOT stored in Qdrant (storage optimization)
+        # Caller must use memory_id to fetch full memory from MongoDB if needed
         results.append(
             MemorySearchResult(
                 memory_id=UUID(payload["memory_id"]),
                 entity_id=UUID(payload["entity_id"]),
-                text="",  # Not stored in Qdrant, fetch from MongoDB
+                text=None,  # Not stored in Qdrant, fetch from MongoDB using memory_id
                 scene_id=(
                     UUID(payload["scene_id"]) if payload.get("scene_id") else None
                 ),
