@@ -2330,7 +2330,7 @@ def mongodb_create_party_inventory(
                 notes=item_data.get("notes"),
                 added_at=now,
             )
-            items.append(item.model_dump())
+            items.append(item.model_dump(mode="json"))
 
     inventory_doc = {
         "inventory_id": str(inventory_id),
@@ -2415,10 +2415,14 @@ def mongodb_add_inventory_item(
     now = datetime.now(timezone.utc)
     items = inventory_doc.get("items", [])
 
-    # Check if item already exists
+    # Normalize item name for case-insensitive comparison
+    normalized_name = params.item_name.strip().casefold()
+
+    # Check if item already exists (case-insensitive)
     existing_item = None
     for item in items:
-        if item["name"] == params.item_name:
+        item_name = item.get("name", "")
+        if item_name.strip().casefold() == normalized_name:
             existing_item = item
             break
 
@@ -2426,16 +2430,16 @@ def mongodb_add_inventory_item(
         # Increment quantity
         existing_item["quantity"] += params.quantity
     else:
-        # Add new item
+        # Add new item (store with stripped whitespace but preserve case)
         new_item = InventoryItem(
-            name=params.item_name,
+            name=params.item_name.strip(),
             quantity=params.quantity,
             category=params.category or ItemCategory.MISC,
             value=params.value,
             notes=params.notes,
             added_at=now,
         )
-        items.append(new_item.model_dump())
+        items.append(new_item.model_dump(mode="json"))
 
     # Update inventory
     inventories_collection.update_one(
@@ -2538,7 +2542,7 @@ def mongodb_update_party_gold(params: UpdateGoldRequest) -> PartyInventoryRespon
 
     if new_gold < 0:
         raise ValueError(
-            f"Insufficient gold: have {current_gold}, trying to subtract {abs(params.amount)}"
+            f"Insufficient gold: have {current_gold}, trying to subtract {-params.amount}"
         )
 
     now = datetime.now(timezone.utc)
@@ -2649,6 +2653,15 @@ def mongodb_create_party_split(params: PartySplitCreate) -> PartySplitResponse:
     for sub_party in params.sub_parties:
         all_member_ids.extend(sub_party.member_ids)
 
+    # Check for duplicate member IDs across sub-parties
+    if len(all_member_ids) != len(set(all_member_ids)):
+        raise ValueError(
+            "Duplicate member IDs found across sub-parties. "
+            "Each character can only be assigned to one sub-party."
+        )
+
+    # Verify locations if provided
+    for sub_party in params.sub_parties:
         # Verify location if provided
         if sub_party.location_id:
             location_check_query = """
@@ -2678,7 +2691,9 @@ def mongodb_create_party_split(params: PartySplitCreate) -> PartySplitResponse:
     now = datetime.now(timezone.utc)
     split_id = uuid4()
 
-    sub_parties_list = [sub_party.model_dump() for sub_party in params.sub_parties]
+    sub_parties_list = [
+        sub_party.model_dump(mode="json") for sub_party in params.sub_parties
+    ]
 
     split_doc = {
         "split_id": str(split_id),
