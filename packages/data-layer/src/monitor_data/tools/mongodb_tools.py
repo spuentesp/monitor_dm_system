@@ -100,6 +100,11 @@ from monitor_data.schemas.party_inventory import (
     SplitHistoryResponse,
 )
 from monitor_data.schemas.game_systems import (
+    CoreMechanic,
+    AttributeDefinition,
+    SkillDefinition,
+    ResourceDefinition,
+    RuleOverrideScope,
     GameSystemCreate,
     GameSystemUpdate,
     GameSystemResponse,
@@ -2894,33 +2899,56 @@ def _load_builtin_game_systems():
     seed_file = os.path.join(
         os.path.dirname(__file__), "..", "data", "builtin_systems.json"
     )
-    with open(seed_file, "r") as f:
-        return json.load(f)
+    try:
+        with open(seed_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"Builtin game systems seed file not found: {seed_file}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Builtin game systems seed file contains invalid JSON: {seed_file}"
+        ) from exc
+    except OSError as exc:
+        raise RuntimeError(
+            f"Error reading builtin game systems seed file: {seed_file}"
+        ) from exc
 
 
 def _ensure_builtin_systems_seeded():
-    """Ensure built-in game systems are seeded in the database."""
+    """Ensure built-in game systems are seeded in the database.
+
+    Uses atomic upsert to prevent race conditions when multiple processes
+    attempt to seed simultaneously.
+    """
     mongodb = get_mongodb_client()
     systems_collection = mongodb.get_collection("game_systems")
 
-    # Check if any builtin systems exist
-    existing_count = systems_collection.count_documents({"is_builtin": True})
-    if existing_count > 0:
-        return  # Already seeded
-
-    # Load and insert builtin systems
+    # Load and upsert builtin systems atomically to avoid race conditions
     builtin_systems = _load_builtin_game_systems()
     now = datetime.now(timezone.utc)
 
     for system_data in builtin_systems:
-        system_id = uuid4()
+        # Use name (and is_builtin) to uniquely identify each builtin system.
+        # The upsert ensures only one document is inserted per system, even if
+        # multiple processes run this seeding code concurrently.
+        filter_doc = {
+            "is_builtin": True,
+            "name": system_data.get("name"),
+        }
         doc = {
-            "system_id": str(system_id),
+            "system_id": str(uuid4()),
+            "is_builtin": True,
             **system_data,
             "created_at": now,
             "updated_at": None,
         }
-        systems_collection.insert_one(doc)
+        systems_collection.update_one(
+            filter_doc,
+            {"$setOnInsert": doc},
+            upsert=True,
+        )
 
 
 def mongodb_create_game_system(params: GameSystemCreate) -> GameSystemResponse:
@@ -2998,13 +3026,6 @@ def mongodb_get_game_system(system_id: UUID) -> Optional[GameSystemResponse]:
     if not system_doc:
         return None
 
-    from monitor_data.schemas.game_systems import (
-        CoreMechanic,
-        AttributeDefinition,
-        SkillDefinition,
-        ResourceDefinition,
-    )
-
     return GameSystemResponse(
         id=UUID(system_doc["system_id"]),
         name=system_doc["name"],
@@ -3055,13 +3076,6 @@ def mongodb_list_game_systems(
         .sort("name", 1)
         .skip(offset)
         .limit(limit)  # Alphabetical
-    )
-
-    from monitor_data.schemas.game_systems import (
-        CoreMechanic,
-        AttributeDefinition,
-        SkillDefinition,
-        ResourceDefinition,
     )
 
     systems = []
@@ -3244,8 +3258,6 @@ def mongodb_get_rule_override(override_id: UUID) -> Optional[RuleOverrideRespons
     if not override_doc:
         return None
 
-    from monitor_data.schemas.game_systems import RuleOverrideScope
-
     return RuleOverrideResponse(
         id=UUID(override_doc["override_id"]),
         scope=RuleOverrideScope(override_doc["scope"]),
@@ -3293,8 +3305,6 @@ def mongodb_list_rule_overrides(
 
     # Get all matching overrides (no pagination for now)
     overrides_docs = overrides_collection.find(query).sort("created_at", -1)
-
-    from monitor_data.schemas.game_systems import RuleOverrideScope
 
     overrides = []
     for doc in overrides_docs:
