@@ -1,0 +1,265 @@
+[
+  {
+    "name": "D&D 5e",
+    "description": "Fifth Edition Dungeons & Dragons - d20 System with ability scores, skills, and class-based progression",
+    "version": "5th Edition",
+    "core_mechanic": {
+      "type": "d20",
+      "formula": "1d20 + modifiers vs DC",
+      "success_type": "meet_or_beat",
+      "success_threshold": "Roll meets or beats target DC",
+      "critical_success": "Natural 20 on attack rolls",
+      "critical_failure": "Natural 1 on attack rolls"
+    },
+    "attributes": [
+      {
+        "name": "Strength",
+        "abbreviation": "STR",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Dexterity",
+        "abbreviation": "DEX",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Constitution",
+        "abbreviation": "CON",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Intelligence",
+        "abbreviation": "INT",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Wisdom",
+        "abbreviation": "WIS",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Charisma",
+        "abbreviation": "CHA",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      }
+    ],
+    "skills": [
+      {"name": "Acrobatics", "abbreviation": "Acr", "linked_attribute": "Dexterity", "description": "Balance, tumbling, aerial maneuvers"},
+      {"name": "Animal Handling", "abbreviation": "AnH", "linked_attribute": "Wisdom", "description": "Calm or train animals"},
+      {"name": "Arcana", "abbreviation": "Arc", "linked_attribute": "Intelligence", "description": "Recall lore about spells, magic items, symbols"},
+      {"name": "Athletics", "abbreviation": "Ath", "linked_attribute": "Strength", "description": "Climbing, jumping, swimming"},
+      {"name": "Deception", "abbreviation": "Dec", "linked_attribute": "Charisma", "description": "Hide the truth verbally or through actions"},
+      {"name": "History", "abbreviation": "His", "linked_attribute": "Intelligence", "description": "Recall lore about historical events"},
+      {"name": "Insight", "abbreviation": "Ins", "linked_attribute": "Wisdom", "description": "Determine true intentions of a creature"},
+      {"name": "Intimidation", "abbreviation": "Itm", "linked_attribute": "Charisma", "description": "Influence through threats or hostile actions"},
+      {"name": "Investigation", "abbreviation": "Inv", "linked_attribute": "Intelligence", "description": "Find clues and make deductions"},
+      {"name": "Medicine", "abbreviation": "Med", "linked_attribute": "Wisdom", "description": "Stabilize or diagnose ailments"},
+      {"name": "Nature", "abbreviation": "Nat", "linked_attribute": "Intelligence", "description": "Recall lore about terrain, plants, animals, weather"},
+      {"name": "Perception", "abbreviation": "Per", "linked_attribute": "Wisdom", "description": "Spot, hear, or detect something"},
+      {"name": "Performance", "abbreviation": "Prf", "linked_attribute": "Charisma", "description": "Delight an audience with music, dance, or acting"},
+      {"name": "Persuasion", "abbreviation": "Prs", "linked_attribute": "Charisma", "description": "Influence with tact, grace, or good nature"},
+      {"name": "Religion", "abbreviation": "Rel", "linked_attribute": "Intelligence", "description": "Recall lore about deities, rites, prayers"},
+      {"name": "Sleight of Hand", "abbreviation": "SoH", "linked_attribute": "Dexterity", "description": "Pickpocketing, concealing objects"},
+      {"name": "Stealth", "abbreviation": "Ste", "linked_attribute": "Dexterity", "description": "Conceal yourself from enemies"},
+      {"name": "Survival", "abbreviation": "Sur", "linked_attribute": "Wisdom", "description": "Track, hunt, navigate wilderness"}
+    ],
+    "resources": [
+      {
+        "name": "Hit Points",
+        "abbreviation": "HP",
+        "calculation": "class_hit_die + CON_modifier",
+        "min_value": 0,
+        "recovers_on": "long rest"
+      },
+      {
+        "name": "Armor Class",
+        "abbreviation": "AC",
+        "calculation": "10 + DEX_modifier + armor_bonus",
+        "min_value": 1,
+        "recovers_on": null
+      }
+    ],
+    "custom_dice": {},
+    "is_builtin": true
+  },
+  {
+    "name": "Fate Core",
+    "description": "Fate Core System - narrative-focused with aspects, fate points, and Fudge dice",
+    "version": "Core",
+    "core_mechanic": {
+      "type": "dice_pool",
+      "formula": "4dF + skill vs difficulty",
+      "success_type": "meet_or_beat",
+      "success_threshold": "Roll meets or beats difficulty (0-8 ladder)",
+      "critical_success": "Succeed with style (3+ shifts)",
+      "critical_failure": null
+    },
+    "attributes": [
+      {
+        "name": "Careful",
+        "abbreviation": "CAR",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Clever",
+        "abbreviation": "CLV",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Flashy",
+        "abbreviation": "FLS",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Forceful",
+        "abbreviation": "FOR",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Quick",
+        "abbreviation": "QCK",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Sneaky",
+        "abbreviation": "SNK",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      }
+    ],
+    "skills": [],
+    "resources": [
+      {
+        "name": "Fate Points",
+        "abbreviation": "FP",
+        "calculation": "refresh_rate",
+        "min_value": 0,
+        "recovers_on": "session start"
+      },
+      {
+        "name": "Stress",
+        "abbreviation": "STR",
+        "calculation": "varies by approach",
+        "min_value": 0,
+        "recovers_on": "scene end"
+      }
+    ],
+    "custom_dice": {
+      "fudge_die": {
+        "sides": 3,
+        "values": [-1, 0, 1],
+        "notation": "dF"
+      }
+    },
+    "is_builtin": true
+  },
+  {
+    "name": "Powered by the Apocalypse",
+    "description": "PbtA framework - 2d6+stat with partial success mechanics and fictional positioning",
+    "version": "Generic",
+    "core_mechanic": {
+      "type": "dice_pool",
+      "formula": "2d6 + stat",
+      "success_type": "meet_or_beat",
+      "success_threshold": "10+ full success, 7-9 partial success, 6- failure",
+      "critical_success": "12+ is often a critical/special success",
+      "critical_failure": null
+    },
+    "attributes": [
+      {
+        "name": "Cool",
+        "abbreviation": "CL",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Hard",
+        "abbreviation": "HD",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Hot",
+        "abbreviation": "HT",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Sharp",
+        "abbreviation": "SH",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Weird",
+        "abbreviation": "WD",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      }
+    ],
+    "skills": [],
+    "resources": [
+      {
+        "name": "Harm",
+        "abbreviation": "HRM",
+        "calculation": "static",
+        "min_value": 0,
+        "recovers_on": "downtime/medical attention"
+      },
+      {
+        "name": "Experience",
+        "abbreviation": "XP",
+        "calculation": "static",
+        "min_value": 0,
+        "recovers_on": null
+      }
+    ],
+    "custom_dice": {},
+    "is_builtin": true
+  }
+]
