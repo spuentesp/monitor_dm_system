@@ -881,26 +881,33 @@ def test_builtin_systems_seeded(mock_get_mongodb: Mock, mock_file: Mock):
 
     _ensure_builtin_systems_seeded()
 
-    # Verify seed file was loaded and systems inserted
-    assert mock_systems.insert_one.called
+    # Verify seed file was loaded and systems upserted (to avoid race conditions)
+    assert mock_systems.update_one.called
 
 
+@patch(
+    "builtins.open",
+    new_callable=mock_open,
+    read_data='[{"name": "Test System", "is_builtin": true}]',
+)
 @patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
-def test_builtin_systems_not_reseeded(mock_get_mongodb: Mock):
-    """Test that built-in systems are not re-seeded if they exist."""
+def test_builtin_systems_use_atomic_upsert(mock_get_mongodb: Mock, mock_file: Mock):
+    """Test that built-in systems use atomic upsert to prevent duplicates."""
     # Mock MongoDB
     mock_mongodb = MagicMock()
     mock_systems = MagicMock()
     mock_get_mongodb.return_value = mock_mongodb
     mock_mongodb.get_collection.return_value = mock_systems
 
-    # Builtin systems already exist
-    mock_systems.count_documents.return_value = 3
-
     # Import and call the seeding function
     from monitor_data.tools.mongodb_tools import _ensure_builtin_systems_seeded
 
     _ensure_builtin_systems_seeded()
 
-    # Verify no insert was called
-    assert not mock_systems.insert_one.called
+    # Verify upsert was called with correct parameters
+    assert mock_systems.update_one.called
+    call_args = mock_systems.update_one.call_args
+    # Check that upsert=True was passed
+    assert call_args[1]["upsert"] is True
+    # Check that $setOnInsert was used (prevents overwriting existing data)
+    assert "$setOnInsert" in call_args[0][1]
