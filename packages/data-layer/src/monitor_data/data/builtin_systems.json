@@ -261,5 +261,121 @@
     ],
     "custom_dice": {},
     "is_builtin": true
+  },
+  {
+    "name": "Narrative Tags",
+    "description": "Fiction-first system using character tags and narrative positioning. Zero stats, pure story-driven resolution.",
+    "version": "1.0",
+    "core_mechanic": {
+      "type": "narrative",
+      "formula": "GM adjudication based on tags + fiction",
+      "success_type": "highest_wins",
+      "success_threshold": "Player with most relevant tags + best fiction wins",
+      "critical_success": "Perfect narrative fit with bonus consequence",
+      "critical_failure": null
+    },
+    "attributes": [],
+    "skills": [
+      {
+        "name": "Brave",
+        "abbreviation": null,
+        "linked_attribute": null,
+        "description": "Courage in the face of danger, standing firm when others flee"
+      },
+      {
+        "name": "Cunning",
+        "abbreviation": null,
+        "linked_attribute": null,
+        "description": "Quick-thinking and clever, finding creative solutions"
+      },
+      {
+        "name": "Strong-willed",
+        "abbreviation": null,
+        "linked_attribute": null,
+        "description": "Mental fortitude, resisting influence and temptation"
+      },
+      {
+        "name": "Charming",
+        "abbreviation": null,
+        "linked_attribute": null,
+        "description": "Social grace and charisma, winning people over"
+      },
+      {
+        "name": "Observant",
+        "abbreviation": null,
+        "linked_attribute": null,
+        "description": "Notices details others miss, reads situations well"
+      },
+      {
+        "name": "Athletic",
+        "abbreviation": null,
+        "linked_attribute": null,
+        "description": "Physical prowess, coordination, and endurance"
+      },
+      {
+        "name": "Scholarly",
+        "abbreviation": null,
+        "linked_attribute": null,
+        "description": "Well-read and knowledgeable across many subjects"
+      },
+      {
+        "name": "Connected",
+        "abbreviation": null,
+        "linked_attribute": null,
+        "description": "Has friends and contacts in useful places"
+      },
+      {
+        "name": "Stealthy",
+        "abbreviation": null,
+        "linked_attribute": null,
+        "description": "Moves unseen and unheard, blends into shadows"
+      },
+      {
+        "name": "Empathetic",
+        "abbreviation": null,
+        "linked_attribute": null,
+        "description": "Understands and shares the feelings of others"
+      }
+    ],
+    "resources": [
+      {
+        "name": "Resolve",
+        "abbreviation": "RES",
+        "calculation": "5",
+        "min_value": 0,
+        "recovers_on": "scene end or short rest"
+      },
+      {
+        "name": "Momentum",
+        "abbreviation": "MOM",
+        "calculation": "3",
+        "min_value": 0,
+        "recovers_on": "session start"
+      }
+    ],
+    "custom_dice": {
+      "oracle": {
+        "description": "Narrative oracle for yes/no questions",
+        "outcomes": {
+          "yes_and": "Overwhelming success, additional benefit",
+          "yes": "Success as intended",
+          "yes_but": "Success with complication",
+          "no_but": "Failure with silver lining",
+          "no": "Failure as feared",
+          "no_and": "Failure with additional consequence"
+        }
+      },
+      "tag_invocation": {
+        "description": "Spend Resolve to invoke a tag for advantage",
+        "cost_resolve": 1,
+        "benefit": "Advantage in resolution when tag applies to fiction"
+      },
+      "momentum_rules": {
+        "description": "Momentum represents narrative flow",
+        "gain": "Earn when embodying character concept or taking risks",
+        "spend": "Spend to declare minor narrative facts or push for success"
+      }
+    },
+    "is_builtin": true
   }
 ]
