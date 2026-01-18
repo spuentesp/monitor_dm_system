@@ -19,6 +19,10 @@ Commands (7 groups):
 
 import typer
 from rich.console import Console
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Import commands
 # from monitor_cli.commands import play, manage, query, ingest, copilot, story, rules
@@ -33,6 +37,7 @@ console = Console()
 
 
 # Register command groups (7 total)
+# Register command groups (7 total)
 # app.add_typer(play.app, name="play", help="Start or continue a story (Solo Play)")
 # app.add_typer(manage.app, name="manage", help="Manage universes, entities, facts (World Design)")
 # app.add_typer(query.app, name="query", help="Search and explore canon")
@@ -40,6 +45,9 @@ console = Console()
 # app.add_typer(copilot.app, name="copilot", help="GM assistant features (Assisted GM)")
 # app.add_typer(story.app, name="story", help="Arc planning, factions, what-if scenarios")
 # app.add_typer(rules.app, name="rules", help="Game system definition and management")
+
+from monitor_cli.commands import state
+app.add_typer(state.app, name="state", help="Manage character working state (HP, resources)")
 
 
 @app.command()
