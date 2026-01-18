@@ -2887,6 +2887,7 @@ def mongodb_get_split_history(params: SplitHistoryFilter) -> SplitHistoryRespons
         offset=params.offset,
     )
 
+
 # GAME SYSTEMS & RULES (DL-20)
 # =============================================================================
 
@@ -3393,4 +3394,3 @@ def mongodb_delete_rule_override(override_id: UUID) -> None:
         raise ValueError(f"Rule override {override_id} not found")
 
     overrides_collection.delete_one({"override_id": str(override_id)})
-
