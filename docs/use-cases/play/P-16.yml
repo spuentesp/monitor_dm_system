@@ -1,0 +1,231 @@
+# P-16: Combat Encounter Management
+# ==================================
+
+id: "P-16"
+title: "Combat Encounter Management"
+category: "play"
+epic: 1
+priority: "critical"
+status: "todo"
+
+summary: |
+  Implement full combat encounter flow from initiative through resolution.
+  Handles turn-based tactical combat with initiative order, participant actions,
+  damage application, condition tracking, and victory/defeat determination.
+  Integrates PC-Agent for autonomous PC decisions and NPC AI for enemy tactics.
+
+acceptance_criteria:
+  - "Combat initializes with all participants"
+  - "Initiative is rolled/drawn based on game system"
+  - "Turn order is established and maintained"
+  - "Each combatant acts in initiative order (PC or NPC)"
+  - "Actions are resolved through DL-24 (Turn Resolutions)"
+  - "Damage/healing updates working state (DL-26)"
+  - "Conditions are applied and tracked"
+  - "Defeat is detected (HP <= 0 or other conditions)"
+  - "Victory/defeat/flee outcomes are determined"
+  - "Combat results are canonized at end"
+  - "Combat integrates with Scene Loop (P-3)"
+  - "Supports both user-controlled and autonomous PC actions"
+  - "Unit tests achieve >= 80% coverage"
+  - "Integration test runs full combat encounter"
+
+depends_on:
+  - "P-3"    # Scene/Turn loop
+  - "P-4"    # Action resolution
+  - "P-15"   # PC-Agent for autonomous PC
+  - "DL-24"  # Turn resolutions
+  - "DL-25"  # Combat state
+  - "DL-26"  # Character working state
+  - "DL-20"  # Game systems
+
+blocks:
+  - "Tactical gameplay"
+  - "Autonomous GM mode"
+
+implementation:
+  layer: 2
+
+  files:
+    create:
+      - "packages/agents/src/monitor_agents/combat_manager.py"
+      - "packages/agents/src/monitor_agents/npc_tactics.py"
+      - "packages/agents/src/monitor_agents/prompts/combat.py"
+      - "packages/agents/tests/test_combat_manager.py"
+    modify:
+      - "packages/agents/src/monitor_agents/orchestrator.py"
+      - "packages/agents/src/monitor_agents/resolver.py"
+      - "packages/agents/src/monitor_agents/narrator.py"
+
+  combat_flow:
+    initialization:
+      - "Detect combat trigger (hostile action, ambush, etc.)"
+      - "Create combat encounter (DL-25: mongodb_create_combat)"
+      - "Identify all participants (PCs, NPCs, allies, enemies)"
+      - "Initialize working states for all (DL-26)"
+      - "Determine surprise (if ambush)"
+    
+    initiative:
+      - "Roll/draw initiative for all participants (based on game system)"
+      - "Add participants to combat (DL-25)"
+      - "Establish turn order (sorted by initiative)"
+      - "Set combat status = 'active'"
+    
+    round_loop:
+      while: "combat.status == 'active'"
+      steps:
+        - "Increment round number"
+        - "Start turn 0 (first in initiative order)"
+        - turn_loop:
+            - "Get current combatant"
+            - "Check if combatant is defeated/incapacitated"
+            - "If PC: generate action (user input or PC-Agent)"
+            - "If NPC: generate action (NPC tactics AI)"
+            - "Resolve action (Resolver + DL-24)"
+            - "Apply effects (damage, conditions, etc.)"
+            - "Update working state (DL-26)"
+            - "Narrator describes result"
+            - "Add to combat log (DL-25)"
+            - "Check for defeat/victory"
+            - "If combat not over: advance to next turn"
+        - "End of round effects (conditions, environment)"
+        - "Check for combat end"
+    
+    resolution:
+      - "Determine outcome (victory, defeat, flee, stalemate)"
+      - "Set combat outcome (DL-25)"
+      - "Update scene narrative"
+      - "Canonize results (CanonKeeper)"
+      - "Award XP, loot (if victory)"
+      - "Handle deaths, injuries"
+      - "Return to Scene Loop"
+
+  npc_tactics:
+    simple:
+      - "Attack nearest/weakest enemy"
+      - "Use strongest available ability"
+    
+    moderate:
+      - "Target selection: lowest HP, highest threat, support caster"
+      - "Ability selection: match range, exploit weakness"
+      - "Movement: maintain optimal range, use cover"
+    
+    advanced:
+      - "Team coordination: focus fire, protect VIPs"
+      - "Resource management: save powerful abilities"
+      - "Morale: flee if outmatched, surrender if defeated"
+      - "Tactical positioning: flanking, high ground, chokepoints"
+    
+    factors:
+      - "NPC personality (aggressive, defensive, cunning)"
+      - "Current HP percentage"
+      - "Ally status"
+      - "Enemy threat assessment"
+      - "Tactical situation (surrounded, outnumbered)"
+
+  authority:
+    reads:
+      - "neo4j_get_entity (combatant data)"
+      - "mongodb_get_scene (scene context)"
+      - "mongodb_get_combat (combat state)"
+      - "mongodb_get_working_state (participant stats)"
+      - "mongodb_list_resolutions (action history)"
+    
+    writes:
+      - "mongodb_create_combat (init)"
+      - "mongodb_update_combat (round, turn progression)"
+      - "mongodb_add_combat_participant"
+      - "mongodb_update_combat_participant (conditions, HP)"
+      - "mongodb_add_combat_log_entry"
+      - "mongodb_set_combat_outcome"
+      - "mongodb_create_resolution (each action)"
+      - "mongodb_update_working_state (damage, healing)"
+      - "mongodb_create_proposed_change (for canonization)"
+
+  combat_end_conditions:
+    victory:
+      - "All enemies defeated/fled"
+      - "Objective achieved (protect, capture)"
+    
+    defeat:
+      - "All PCs defeated/fled"
+      - "Objective failed (VIP killed)"
+    
+    flee:
+      - "PCs successfully disengage"
+      - "NPCs retreat"
+    
+    stalemate:
+      - "Both sides withdraw"
+      - "Time limit reached (chase, escape)"
+
+  patterns:
+    - "Combat is a specialized Scene Loop mode"
+    - "Each round = multiple turns (one per combatant)"
+    - "Turn = standard Turn Loop but in initiative order"
+    - "Use Resolver for all action resolution"
+    - "Use Narrator for describing combat actions/results"
+    - "Use PC-Agent for autonomous PC combat decisions"
+    - "Create NPC tactical AI (simple decision tree or LLM-based)"
+
+  notes: |
+    - Combat Manager orchestrates but doesn't resolve actions (Resolver does)
+    - Narrator generates combat descriptions (attacks, hits, misses, kills)
+    - PC-Agent handles PC decisions in autonomous mode
+    - NPC tactics can be simple (melee attack strongest) or complex (LLM-based tactical AI)
+    - Working states (DL-26) are snapshots - canonization happens at scene end
+    - Defeat detection: HP <= 0, or custom per game system
+    - Support flee mechanics: contested checks, movement, disengagement
+    - Environmental hazards: track separately, apply each round
+    - Optional: grid/zone-based positioning (store in participant position field)
+
+testing:
+  unit_tests:
+    - "test_init_combat: combat created with participants"
+    - "test_roll_initiative: initiative rolled for all"
+    - "test_establish_turn_order: participants sorted by initiative"
+    - "test_advance_turn: turn_index increments correctly"
+    - "test_advance_round: round increments, turn resets"
+    - "test_pc_action_autonomous: PC-Agent generates combat action"
+    - "test_npc_action_simple: NPC attacks nearest enemy"
+    - "test_npc_action_moderate: NPC selects target strategically"
+    - "test_apply_damage: HP reduced correctly"
+    - "test_apply_condition: condition added to participant"
+    - "test_defeat_detection: HP <= 0 marked defeated"
+    - "test_victory_condition: all enemies defeated → victory"
+    - "test_defeat_condition: all PCs defeated → defeat"
+    - "test_flee_success: PCs disengage → combat ends"
+    - "test_combat_log: actions logged correctly"
+    - "test_canonize_combat: results written to Neo4j"
+
+  integration_tests:
+    - "test_full_combat_encounter: PC vs 3 goblins, victory"
+    - "test_combat_with_party: 3 PCs vs 2 orcs"
+    - "test_combat_defeat: PCs lose, TPK handling"
+    - "test_combat_flee: PCs escape from overwhelming foes"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "agents"
+    - "combat"
+    - "priority-critical"
+
+  milestone: "EPIC 1: Play"
+
+references:
+  docs:
+    - "docs/architecture/CONVERSATIONAL_LOOPS.md#scene-loop"
+    - "docs/GAP_ANALYSIS.md#p-16-combat-encounter-management"
+    - "docs/DATA_LAYER_USE_CASES.md#dl-24-turn-resolutions"
+    - "docs/DATA_LAYER_USE_CASES.md#dl-25-combat-state"
+
+  code:
+    - "packages/agents/src/monitor_agents/orchestrator.py"
+    - "packages/agents/src/monitor_agents/resolver.py"
+    - "packages/agents/src/monitor_agents/narrator.py"
+
+  external:
+    - "https://www.dndbeyond.com/sources/basic-rules/combat"
