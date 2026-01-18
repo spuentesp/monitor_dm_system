@@ -46,8 +46,10 @@ console = Console()
 # app.add_typer(story.app, name="story", help="Arc planning, factions, what-if scenarios")
 # app.add_typer(rules.app, name="rules", help="Game system definition and management")
 
-from monitor_cli.commands import state
+from monitor_cli.commands import state, rules, mechanics
 app.add_typer(state.app, name="state", help="Manage character working state (HP, resources)")
+app.add_typer(rules.app, name="rules", help="Manage game systems (D&D, Vampire, etc.)")
+app.add_typer(mechanics.app, name="mechanics", help="Resolve game mechanics (checks, rolls)")
 
 
 @app.command()
