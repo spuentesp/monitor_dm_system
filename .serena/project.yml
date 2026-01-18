@@ -15,9 +15,6 @@
 # Note that when using the JetBrains backend, language servers are not used and this list is correspondingly ignored.
 languages:
 - python
-
-# the encoding used by text files in the project
-# For a list of possible encodings, see https://docs.python.org/3.11/library/codecs.html#standard-encodings
 encoding: "utf-8"
 
 # whether to use the project's gitignore file to ignore files
@@ -78,7 +75,133 @@ excluded_tools: []
 
 # initial prompt for the project. It will always be given to the LLM upon activating the project
 # (contrary to the memories, which are loaded on demand).
-initial_prompt: ""
+initial_prompt: |
+  # MONITOR D&D Management System
+  
+  ## 🎯 Project Overview
+  MONITOR is an AI-powered Dungeon Master system for tabletop RPGs with a **data-first, canonization-driven architecture**.
+  
+  ## 🏗️ Architecture (3 Layers - STRICT BOUNDARIES)
+  
+  **Layer 1 (data-layer)**: `packages/data-layer/`
+  - MCP server exposing 64+ tools for data operations
+  - Database clients: Neo4j (canonical graph), MongoDB (narrative docs), Qdrant (semantic search)
+  - Authority enforcement middleware (controls who can write what)
+  - Schema validation with Pydantic
+  - **DEPENDS ON**: External libraries only
+  - **CALLED BY**: Layer 2 (agents)
+  
+  **Layer 2 (agents)**: `packages/agents/`
+  - 7 specialized AI agents:
+    * **Orchestrator**: Loop management, coordinates agents
+    * **CanonKeeper**: ONLY agent that writes to Neo4j (canonization)
+    * **Narrator**: Generates narrative descriptions
+    * **Resolver**: Dice rolls, rule resolution
+    * **ContextAssembly**: Retrieves context from all databases
+    * **MemoryManager**: Character memories
+    * **Indexer**: Background indexing, semantic embeddings
+  - 4 conversational loops: Main → Story → Scene → Turn
+  - **DEPENDS ON**: Layer 1 (data-layer)
+  - **CALLED BY**: Layer 3 (cli)
+  
+  **Layer 3 (cli)**: `packages/cli/`
+  - Command-line interface for users
+  - Commands: play, manage, query, ingest, etc.
+  - **DEPENDS ON**: Layer 2 (agents)
+  - **CALLED BY**: End users
+  
+  ## ⚠️ CRITICAL RULES
+  
+  ### 1. Layer Dependency Enforcement
+  ```
+  L3 (cli) → L2 (agents) → L1 (data-layer) → External libraries
+  
+  ❌ NEVER: L1 importing from L2 or L3
+  ❌ NEVER: L2 importing from L3
+  ✅ ALWAYS: Check imports follow the layer hierarchy
+  ```
+  
+  ### 2. CanonKeeper Exclusivity
+  **ONLY CanonKeeper can write to Neo4j**
+  - All other agents create `ProposedChange` documents in MongoDB
+  - CanonKeeper evaluates proposals at scene end
+  - Accepted proposals → committed to Neo4j
+  - This ensures canonical consistency
+  
+  ### 3. Proposal → Canonization Workflow
+  ```
+  Player Action → Resolver creates ProposedChange (MongoDB)
+                → Scene continues
+                → Scene ends
+                → CanonKeeper evaluates proposals
+                → Accepted → Neo4j (canonical)
+                → Rejected → Stays in MongoDB (non-canon)
+  ```
+  
+  ### 4. Authority Matrix
+  Each MCP tool has specific agent permissions defined in:
+  - `packages/data-layer/src/monitor_data/middleware/auth.py`
+  - Check before modifying permissions
+  
+  ## 📁 Key Directories
+  
+  - `packages/data-layer/` - Layer 1 (MCP server, DB clients, schemas)
+  - `packages/agents/` - Layer 2 (7 agents, loops, prompts)
+  - `packages/cli/` - Layer 3 (CLI commands)
+  - `docs/` - Architecture, ontology, implementation guides
+  - `tests/` - Test suites (organized by layer)
+  - `infra/` - Docker infrastructure
+  - `.agent/` - Agent workflows and MCP server configs
+  
+  ## 📚 Important Docs
+  
+  - `ARCHITECTURE.md` - Overall system architecture
+  - `docs/architecture/DATABASE_INTEGRATION.md` - 5-database memory system
+  - `docs/architecture/CONVERSATIONAL_LOOPS.md` - 4 nested loops
+  - `docs/architecture/AGENT_ORCHESTRATION.md` - 7 agents coordination
+  - `docs/architecture/DATA_LAYER_API.md` - Complete API spec (64+ tools)
+  - `docs/architecture/MCP_TRANSPORT.md` - MCP tool definitions
+  
+  ## 🔧 When Editing Code
+  
+  1. **Check layer boundaries** - Never violate the L3→L2→L1 dependency rule
+  2. **Authority matrix** - Verify agent permissions before modifying tool access
+  3. **Add tests** - Every new feature needs tests in `tests/`
+  4. **Evidence pattern** - All canonical data needs `evidence_refs`
+  5. **Use cases** - Reference relevant use case (DL-*, P-*, M-*, Q-*, etc.)
+  6. **Type hints** - Use Pydantic models for validation
+  7. **CanonKeeper** - Only this agent writes to Neo4j
+  
+  ## 🗄️ Database Responsibilities
+  
+  - **Neo4j**: Canonical truth (universes, entities, facts, events) - CanonKeeper writes only
+  - **MongoDB**: Narrative layer (scenes, turns, proposals, memories) - Any agent can write
+  - **Qdrant**: Vector embeddings for semantic search - Indexer writes only
+  - **MinIO**: Binary storage (PDFs, images) - Ingest pipeline
+  - **OpenSearch**: Full-text search - Indexer writes only
+  
+  ## 🎮 Common Tasks
+  
+  **Adding a new data layer tool**:
+  1. Define in `packages/data-layer/src/monitor_data/tools/[neo4j|mongodb|qdrant]_tools.py`
+  2. Add Pydantic schema in `packages/data-layer/src/monitor_data/schemas/`
+  3. Add authority rule in `packages/data-layer/src/monitor_data/middleware/auth.py`
+  4. Add tests in `tests/data-layer/`
+  5. Document in `docs/architecture/DATA_LAYER_API.md`
+  
+  **Adding a new agent**:
+  1. Create in `packages/agents/src/monitor_agents/[agent_name].py`
+  2. Inherit from `BaseAgent`
+  3. Define which tools the agent can call
+  4. Add prompts in `packages/agents/src/monitor_agents/prompts/`
+  5. Add tests in `tests/agents/`
+  
+  **Adding a CLI command**:
+  1. Create in `packages/cli/src/monitor_cli/commands/[command].py`
+  2. Use Typer for CLI
+  3. Import from agents layer (L2) only, never from data-layer (L1)
+  4. Add tests in `tests/cli/`
 
 project_name: "monitor2"
 included_optional_tools: []
+fixed_tools: []
