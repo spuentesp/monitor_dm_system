@@ -68,10 +68,35 @@ class BaseAgent(ABC):
         Raises:
             PermissionError: If agent lacks authority for this tool
         """
-        # TODO: Implement MCP tool calling
-        # context = {"agent_id": self.agent_id, "agent_type": self.agent_type}
-        # return await mcp_client.call(tool_name, arguments, context=context)
-        raise NotImplementedError("Tool calling not yet implemented")
+        # Import here to avoid circular dependencies if any
+        # Layer 2 imports Layer 1
+        from monitor_data.server import call_tool as server_call_tool, discover_tools
+
+        # Ensure tools are discovered
+        if not hasattr(server_call_tool, "_discovered"):
+             discover_tools()
+             server_call_tool._discovered = True
+
+        # Inject agent context for Auth middleware
+        full_args = arguments.copy()
+        full_args["agent_type"] = self.agent_type
+        full_args["agent_id"] = self.agent_id
+
+        # Call the tool via the server's decorated function
+        # Note: server.call_tool returns [TextContent], we need to parse it back if possible
+        # or return the raw result. For internal use, we might want the direct result.
+        # However, the server.call_tool serializes to JSON/TextContent.
+        #
+        # For efficiency and type safety in internal calls, we should ideally use the 
+        # registry directly, but we want the Middleware (Auth/Validation).
+        # The server.call_tool provides that.
+        
+        result_contents = await server_call_tool(tool_name, full_args)
+        
+        # Parse result - usually it's a single TextContent with JSON
+        if result_contents and len(result_contents) > 0:
+            return result_contents[0].text
+        return None
 
     @abstractmethod
     async def run(self) -> None:

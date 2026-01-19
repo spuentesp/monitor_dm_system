@@ -212,6 +212,14 @@ AUTHORITY_MATRIX = {
     "mongodb_resolve_party_split": ["Orchestrator", "CanonKeeper"],
     "mongodb_get_split_history": ["*"],
     # =========================================================================
+    # MONGODB OPERATIONS - Character Working State (DL-26)
+    # =========================================================================
+    "mongodb_create_working_state": ["CanonKeeper", "Orchestrator", "Resolver"],
+    "mongodb_get_working_state": ["*"],
+    "mongodb_list_working_states": ["*"],
+    "mongodb_update_working_state": ["CanonKeeper", "Resolver"],
+    "mongodb_add_modification": ["CanonKeeper", "Resolver"],
+    # =========================================================================
     # COMPOSITE OPERATIONS
     # =========================================================================
     "composite_get_entity_full": ["*"],
