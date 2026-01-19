@@ -2775,3 +2775,1305 @@ def mongodb_delete_rule_override(override_id: UUID) -> None:
         raise ValueError(f"Rule override {override_id} not found")
 
     overrides_collection.delete_one({"override_id": str(override_id)})
+# PARTY INVENTORY OPERATIONS (DL-16)
+# =============================================================================
+
+
+def mongodb_create_party_inventory(
+    params: PartyInventoryCreate,
+) -> PartyInventoryResponse:
+    """
+    Create a new party inventory document in MongoDB.
+
+    Authority: Orchestrator, CanonKeeper
+    Use Case: DL-16
+
+    Args:
+        params: Party inventory creation parameters
+
+    Returns:
+        PartyInventoryResponse with created inventory data
+
+    Raises:
+        ValueError: If party_id doesn't exist in Neo4j or inventory already exists
+    """
+    mongo_client = get_mongodb_client()
+    neo4j_client = get_neo4j_client()
+
+    # Verify party exists in Neo4j
+    party_check_query = """
+    MATCH (p:Party {id: $party_id})
+    RETURN p.id as id
+    """
+    result = neo4j_client.execute_read(
+        party_check_query, {"party_id": str(params.party_id)}
+    )
+    if not result:
+        raise ValueError(f"Party {params.party_id} not found")
+
+    # Check if inventory already exists
+    inventories_collection = mongo_client.get_collection("party_inventories")
+    existing = inventories_collection.find_one({"party_id": str(params.party_id)})
+    if existing:
+        raise ValueError(f"Inventory for party {params.party_id} already exists")
+
+    # Create inventory document
+    now = datetime.now(timezone.utc)
+    inventory_id = uuid4()
+
+    # Process initial items
+    items = []
+    if params.initial_items:
+        for item_data in params.initial_items:
+            item = InventoryItem(
+                name=item_data["name"],
+                quantity=item_data.get("quantity", 1),
+                category=ItemCategory(item_data.get("category", ItemCategory.MISC)),
+                value=item_data.get("value"),
+                notes=item_data.get("notes"),
+                added_at=now,
+            )
+            items.append(item.model_dump(mode="json"))
+
+    inventory_doc = {
+        "inventory_id": str(inventory_id),
+        "party_id": str(params.party_id),
+        "gold": params.initial_gold,
+        "items": items,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    inventories_collection.insert_one(inventory_doc)
+
+    return PartyInventoryResponse(
+        inventory_id=inventory_id,
+        party_id=params.party_id,
+        gold=params.initial_gold,
+        items=[InventoryItem(**item) for item in items],
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def mongodb_get_party_inventory(party_id: UUID) -> PartyInventoryResponse:
+    """
+    Get party inventory by party_id.
+
+    Authority: All agents
+    Use Case: DL-16
+
+    Args:
+        party_id: Party UUID
+
+    Returns:
+        PartyInventoryResponse with inventory data
+
+    Raises:
+        ValueError: If inventory not found
+    """
+    mongo_client = get_mongodb_client()
+    inventories_collection = mongo_client.get_collection("party_inventories")
+
+    inventory_doc = inventories_collection.find_one({"party_id": str(party_id)})
+    if not inventory_doc:
+        raise ValueError(f"Inventory for party {party_id} not found")
+
+    return PartyInventoryResponse(
+        inventory_id=UUID(inventory_doc["inventory_id"]),
+        party_id=UUID(inventory_doc["party_id"]),
+        gold=inventory_doc["gold"],
+        items=[InventoryItem(**item) for item in inventory_doc.get("items", [])],
+        created_at=inventory_doc["created_at"],
+        updated_at=inventory_doc.get("updated_at"),
+    )
+
+
+def mongodb_add_inventory_item(
+    params: AddInventoryItemRequest,
+) -> PartyInventoryResponse:
+    """
+    Add an item to party inventory or increment quantity if it exists.
+
+    Authority: Orchestrator, CanonKeeper
+    Use Case: DL-16
+
+    Args:
+        params: Add item parameters
+
+    Returns:
+        PartyInventoryResponse with updated inventory
+
+    Raises:
+        ValueError: If inventory not found
+    """
+    mongo_client = get_mongodb_client()
+    inventories_collection = mongo_client.get_collection("party_inventories")
+
+    # Get current inventory
+    inventory_doc = inventories_collection.find_one({"party_id": str(params.party_id)})
+    if not inventory_doc:
+        raise ValueError(f"Inventory for party {params.party_id} not found")
+
+    now = datetime.now(timezone.utc)
+    items = inventory_doc.get("items", [])
+
+    # Normalize item name for case-insensitive comparison
+    normalized_name = params.item_name.strip().casefold()
+
+    # Check if item already exists (case-insensitive)
+    existing_item = None
+    for item in items:
+        item_name = item.get("name", "")
+        if item_name.strip().casefold() == normalized_name:
+            existing_item = item
+            break
+
+    if existing_item:
+        # Increment quantity
+        existing_item["quantity"] += params.quantity
+    else:
+        # Add new item (store with stripped whitespace but preserve case)
+        new_item = InventoryItem(
+            name=params.item_name.strip(),
+            quantity=params.quantity,
+            category=params.category or ItemCategory.MISC,
+            value=params.value,
+            notes=params.notes,
+            added_at=now,
+        )
+        items.append(new_item.model_dump(mode="json"))
+
+    # Update inventory
+    inventories_collection.update_one(
+        {"party_id": str(params.party_id)},
+        {"$set": {"items": items, "updated_at": now}},
+    )
+
+    return mongodb_get_party_inventory(params.party_id)
+
+
+def mongodb_remove_inventory_item(
+    params: RemoveInventoryItemRequest,
+) -> PartyInventoryResponse:
+    """
+    Remove an item from party inventory or decrement quantity.
+
+    Authority: Orchestrator, CanonKeeper
+    Use Case: DL-16
+
+    Args:
+        params: Remove item parameters
+
+    Returns:
+        PartyInventoryResponse with updated inventory
+
+    Raises:
+        ValueError: If inventory or item not found, or insufficient quantity
+    """
+    mongo_client = get_mongodb_client()
+    inventories_collection = mongo_client.get_collection("party_inventories")
+
+    # Get current inventory
+    inventory_doc = inventories_collection.find_one({"party_id": str(params.party_id)})
+    if not inventory_doc:
+        raise ValueError(f"Inventory for party {params.party_id} not found")
+
+    now = datetime.now(timezone.utc)
+    items = inventory_doc.get("items", [])
+
+    # Find the item
+    item_index = None
+    for i, item in enumerate(items):
+        if item["name"] == params.item_name:
+            item_index = i
+            break
+
+    if item_index is None:
+        raise ValueError(f"Item '{params.item_name}' not found in inventory")
+
+    item = items[item_index]
+
+    # Check for insufficient quantity
+    if params.quantity is not None and params.quantity > item["quantity"]:
+        raise ValueError(
+            f"Insufficient quantity: have {item['quantity']}, trying to remove {params.quantity}"
+        )
+
+    if params.quantity is None or params.quantity >= item["quantity"]:
+        # Remove item completely
+        items.pop(item_index)
+    else:
+        # Decrement quantity
+        item["quantity"] -= params.quantity
+
+    # Update inventory
+    inventories_collection.update_one(
+        {"party_id": str(params.party_id)},
+        {"$set": {"items": items, "updated_at": now}},
+    )
+
+    return mongodb_get_party_inventory(params.party_id)
+
+
+def mongodb_update_party_gold(params: UpdateGoldRequest) -> PartyInventoryResponse:
+    """
+    Update party gold (add or subtract).
+
+    Authority: Orchestrator, CanonKeeper
+    Use Case: DL-16
+
+    Args:
+        params: Update gold parameters
+
+    Returns:
+        PartyInventoryResponse with updated inventory
+
+    Raises:
+        ValueError: If inventory not found or gold would become negative
+    """
+    mongo_client = get_mongodb_client()
+    inventories_collection = mongo_client.get_collection("party_inventories")
+
+    # Get current inventory
+    inventory_doc = inventories_collection.find_one({"party_id": str(params.party_id)})
+    if not inventory_doc:
+        raise ValueError(f"Inventory for party {params.party_id} not found")
+
+    current_gold = inventory_doc.get("gold", 0)
+    new_gold = current_gold + params.amount
+
+    if new_gold < 0:
+        raise ValueError(
+            f"Insufficient gold: have {current_gold}, trying to subtract {-params.amount}"
+        )
+
+    now = datetime.now(timezone.utc)
+
+    # Update inventory
+    inventories_collection.update_one(
+        {"party_id": str(params.party_id)},
+        {"$set": {"gold": new_gold, "updated_at": now}},
+    )
+
+    return mongodb_get_party_inventory(params.party_id)
+
+
+def mongodb_transfer_item(params: TransferItemRequest) -> Dict[str, str]:
+    """
+    Transfer an item between party and character inventory.
+
+    Note: This is a placeholder that validates the transfer but doesn't
+    implement character inventory (not in scope for DL-16).
+
+    Authority: Orchestrator
+    Use Case: DL-16
+
+    Args:
+        params: Transfer item parameters
+
+    Returns:
+        Dict with transfer confirmation
+
+    Raises:
+        ValueError: If source inventory not found or insufficient quantity
+        NotImplementedError: If character inventory is involved (not yet implemented)
+    """
+    mongo_client = get_mongodb_client()
+
+    # Validate transfer type
+    if params.from_type.value == "character" or params.to_type.value == "character":
+        raise NotImplementedError(
+            "Character inventory not yet implemented. "
+            "This tool currently only supports party inventory operations."
+        )
+
+    # For party-to-party transfers, this would be for moving items between
+    # different parties (e.g., splitting loot)
+    # For now, just validate that the source party has the item
+
+    inventories_collection = mongo_client.get_collection("party_inventories")
+    source_inventory = inventories_collection.find_one(
+        {"party_id": str(params.from_id)}
+    )
+    if not source_inventory:
+        raise ValueError(f"Source inventory for party {params.from_id} not found")
+
+    # Find the item
+    items = source_inventory.get("items", [])
+    item_found = False
+    for item in items:
+        if item["name"] == params.item_name:
+            item_found = True
+            if item["quantity"] < params.quantity:
+                raise ValueError(
+                    f"Insufficient quantity: have {item['quantity']}, trying to transfer {params.quantity}"
+                )
+            break
+
+    if not item_found:
+        raise ValueError(f"Item '{params.item_name}' not found in source inventory")
+
+    # TODO: Implement actual transfer when character inventory is added
+    return {
+        "status": "validated",
+        "message": f"Transfer of {params.quantity}x {params.item_name} validated but not executed (character inventory not implemented)",
+    }
+
+
+def mongodb_create_party_split(params: PartySplitCreate) -> PartySplitResponse:
+    """
+    Create a party split record.
+
+    Authority: Orchestrator, CanonKeeper
+    Use Case: DL-16
+
+    Args:
+        params: Party split creation parameters
+
+    Returns:
+        PartySplitResponse with created split data
+
+    Raises:
+        ValueError: If party doesn't exist or validation fails
+    """
+    mongo_client = get_mongodb_client()
+    neo4j_client = get_neo4j_client()
+
+    # Verify party exists
+    party_check_query = """
+    MATCH (p:Party {id: $party_id})
+    RETURN p.id as id
+    """
+    result = neo4j_client.execute_read(
+        party_check_query, {"party_id": str(params.party_id)}
+    )
+    if not result:
+        raise ValueError(f"Party {params.party_id} not found")
+
+    # Validate sub-parties (check that all members exist)
+    all_member_ids = []
+    for sub_party in params.sub_parties:
+        all_member_ids.extend(sub_party.member_ids)
+
+    # Check for duplicate member IDs across sub-parties
+    if len(all_member_ids) != len(set(all_member_ids)):
+        raise ValueError(
+            "Duplicate member IDs found across sub-parties. "
+            "Each character can only be assigned to one sub-party."
+        )
+
+    # Verify locations if provided
+    for sub_party in params.sub_parties:
+        # Verify location if provided
+        if sub_party.location_id:
+            location_check_query = """
+            MATCH (l:EntityInstance {id: $location_id})
+            WHERE l.entity_type = 'location'
+            RETURN l.id as id
+            """
+            result = neo4j_client.execute_read(
+                location_check_query, {"location_id": str(sub_party.location_id)}
+            )
+            if not result:
+                raise ValueError(f"Location {sub_party.location_id} not found")
+
+    # Verify all members exist
+    for member_id in all_member_ids:
+        member_check_query = """
+        MATCH (e:EntityInstance {id: $entity_id})
+        RETURN e.id as id
+        """
+        result = neo4j_client.execute_read(
+            member_check_query, {"entity_id": str(member_id)}
+        )
+        if not result:
+            raise ValueError(f"Entity {member_id} not found")
+
+    # Create split document
+    now = datetime.now(timezone.utc)
+    split_id = uuid4()
+
+    sub_parties_list = [
+        sub_party.model_dump(mode="json") for sub_party in params.sub_parties
+    ]
+
+    split_doc = {
+        "split_id": str(split_id),
+        "party_id": str(params.party_id),
+        "sub_parties": sub_parties_list,
+        "status": SplitStatus.ACTIVE.value,
+        "created_at": now,
+        "resolved_at": None,
+        "resolution_notes": None,
+    }
+
+    splits_collection = mongo_client.get_collection("party_splits")
+    splits_collection.insert_one(split_doc)
+
+    return PartySplitResponse(
+        split_id=split_id,
+        party_id=params.party_id,
+        sub_parties=params.sub_parties,
+        status=SplitStatus.ACTIVE,
+        created_at=now,
+        resolved_at=None,
+        resolution_notes=None,
+    )
+
+
+def mongodb_get_active_splits(party_id: UUID) -> ActiveSplitsResponse:
+    """
+    Get all active splits for a party.
+
+    Authority: All agents
+    Use Case: DL-16
+
+    Args:
+        party_id: Party UUID
+
+    Returns:
+        ActiveSplitsResponse with active splits
+    """
+    mongo_client = get_mongodb_client()
+    splits_collection = mongo_client.get_collection("party_splits")
+
+    # Find all active splits for party
+    splits_docs = splits_collection.find(
+        {"party_id": str(party_id), "status": SplitStatus.ACTIVE.value}
+    )
+
+    splits = []
+    for split_doc in splits_docs:
+        splits.append(
+            PartySplitResponse(
+                split_id=UUID(split_doc["split_id"]),
+                party_id=UUID(split_doc["party_id"]),
+                sub_parties=[
+                    SubParty(**sub_party) for sub_party in split_doc["sub_parties"]
+                ],
+                status=SplitStatus(split_doc["status"]),
+                created_at=split_doc["created_at"],
+                resolved_at=split_doc.get("resolved_at"),
+                resolution_notes=split_doc.get("resolution_notes"),
+            )
+        )
+
+    return ActiveSplitsResponse(party_id=party_id, splits=splits)
+
+
+def mongodb_resolve_party_split(
+    params: ResolvePartySplitRequest,
+) -> PartySplitResponse:
+    """
+    Resolve a party split (mark as rejoined).
+
+    Authority: Orchestrator, CanonKeeper
+    Use Case: DL-16
+
+    Args:
+        params: Resolve split parameters
+
+    Returns:
+        PartySplitResponse with resolved split data
+
+    Raises:
+        ValueError: If split not found or already resolved
+    """
+    mongo_client = get_mongodb_client()
+    splits_collection = mongo_client.get_collection("party_splits")
+
+    # Get current split
+    split_doc = splits_collection.find_one({"split_id": str(params.split_id)})
+    if not split_doc:
+        raise ValueError(f"Split {params.split_id} not found")
+
+    if split_doc["status"] == SplitStatus.RESOLVED.value:
+        raise ValueError(f"Split {params.split_id} is already resolved")
+
+    now = datetime.now(timezone.utc)
+
+    # Update split
+    splits_collection.update_one(
+        {"split_id": str(params.split_id)},
+        {
+            "$set": {
+                "status": SplitStatus.RESOLVED.value,
+                "resolved_at": now,
+                "resolution_notes": params.resolution_notes,
+            }
+        },
+    )
+
+    # Return updated split
+    updated_split_doc = splits_collection.find_one({"split_id": str(params.split_id)})
+    if not updated_split_doc:
+        raise ValueError(f"Split {params.split_id} not found after update")
+
+    return PartySplitResponse(
+        split_id=UUID(updated_split_doc["split_id"]),
+        party_id=UUID(updated_split_doc["party_id"]),
+        sub_parties=[
+            SubParty(**sub_party) for sub_party in updated_split_doc["sub_parties"]
+        ],
+        status=SplitStatus(updated_split_doc["status"]),
+        created_at=updated_split_doc["created_at"],
+        resolved_at=updated_split_doc.get("resolved_at"),
+        resolution_notes=updated_split_doc.get("resolution_notes"),
+    )
+
+
+def mongodb_get_split_history(params: SplitHistoryFilter) -> SplitHistoryResponse:
+    """
+    Get split history for a party (all splits, including resolved).
+
+    Authority: All agents
+    Use Case: DL-16
+
+    Args:
+        params: Split history filter parameters
+
+    Returns:
+        SplitHistoryResponse with split history
+    """
+    mongo_client = get_mongodb_client()
+    splits_collection = mongo_client.get_collection("party_splits")
+
+    # Count total splits
+    total = splits_collection.count_documents({"party_id": str(params.party_id)})
+
+    # Find splits with pagination
+    splits_docs = (
+        splits_collection.find({"party_id": str(params.party_id)})
+        .sort("created_at", -1)  # Most recent first
+        .skip(params.offset)
+        .limit(params.limit)
+    )
+
+    splits = []
+    for split_doc in splits_docs:
+        splits.append(
+            PartySplitResponse(
+                split_id=UUID(split_doc["split_id"]),
+                party_id=UUID(split_doc["party_id"]),
+                sub_parties=[
+                    SubParty(**sub_party) for sub_party in split_doc["sub_parties"]
+                ],
+                status=SplitStatus(split_doc["status"]),
+                created_at=split_doc["created_at"],
+                resolved_at=split_doc.get("resolved_at"),
+                resolution_notes=split_doc.get("resolution_notes"),
+            )
+        )
+
+    return SplitHistoryResponse(
+        party_id=params.party_id,
+        splits=splits,
+        total=total,
+        limit=params.limit,
+        offset=params.offset,
+    )
+
+
+# GAME SYSTEMS & RULES (DL-20)
+# =============================================================================
+
+
+def _load_builtin_game_systems():
+    """Load built-in game systems from seed data."""
+    import json
+    import os
+
+    seed_file = os.path.join(
+        os.path.dirname(__file__), "..", "data", "builtin_systems.json"
+    )
+    try:
+        with open(seed_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"Builtin game systems seed file not found: {seed_file}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Builtin game systems seed file contains invalid JSON: {seed_file}"
+        ) from exc
+    except OSError as exc:
+        raise RuntimeError(
+            f"Error reading builtin game systems seed file: {seed_file}"
+        ) from exc
+
+
+def _ensure_builtin_systems_seeded():
+    """Ensure built-in game systems are seeded in the database.
+
+    Uses atomic upsert to prevent race conditions when multiple processes
+    attempt to seed simultaneously.
+    """
+    mongodb = get_mongodb_client()
+    systems_collection = mongodb.get_collection("game_systems")
+
+    # Load and upsert builtin systems atomically to avoid race conditions
+    builtin_systems = _load_builtin_game_systems()
+    now = datetime.now(timezone.utc)
+
+    for system_data in builtin_systems:
+        # Use name (and is_builtin) to uniquely identify each builtin system.
+        # The upsert ensures only one document is inserted per system, even if
+        # multiple processes run this seeding code concurrently.
+        filter_doc = {
+            "is_builtin": True,
+            "name": system_data.get("name"),
+        }
+        doc = {
+            "system_id": str(uuid4()),
+            "is_builtin": True,
+            **system_data,
+            "created_at": now,
+            "updated_at": None,
+        }
+        systems_collection.update_one(
+            filter_doc,
+            {"$setOnInsert": doc},
+            upsert=True,
+        )
+
+
+def mongodb_create_game_system(params: GameSystemCreate) -> GameSystemResponse:
+    """
+    Create a new game system.
+
+    Args:
+        params: Game system creation parameters
+
+    Returns:
+        GameSystemResponse with created system data
+
+    Raises:
+        ValueError: If is_builtin is True (only allowed for seed data)
+    """
+    if params.is_builtin:
+        raise ValueError("Cannot manually create builtin systems")
+
+    mongodb = get_mongodb_client()
+    systems_collection = mongodb.get_collection("game_systems")
+
+    now = datetime.now(timezone.utc)
+    system_id = uuid4()
+
+    system_doc = {
+        "system_id": str(system_id),
+        "name": params.name,
+        "description": params.description,
+        "version": params.version,
+        "core_mechanic": params.core_mechanic.model_dump(mode="json"),
+        "attributes": [attr.model_dump(mode="json") for attr in params.attributes],
+        "skills": [skill.model_dump(mode="json") for skill in params.skills],
+        "resources": [res.model_dump(mode="json") for res in params.resources],
+        "custom_dice": params.custom_dice,
+        "is_builtin": False,
+        "created_at": now,
+        "updated_at": None,
+    }
+
+    systems_collection.insert_one(system_doc)
+
+    return GameSystemResponse(
+        id=system_id,
+        name=params.name,
+        description=params.description,
+        version=params.version,
+        core_mechanic=params.core_mechanic,
+        attributes=params.attributes,
+        skills=params.skills,
+        resources=params.resources,
+        custom_dice=params.custom_dice,
+        is_builtin=False,
+        created_at=now,
+        updated_at=None,
+    )
+
+
+def mongodb_get_game_system(system_id: UUID) -> Optional[GameSystemResponse]:
+    """
+    Get a game system by ID.
+
+    Args:
+        system_id: Game system UUID
+
+    Returns:
+        GameSystemResponse or None if not found
+    """
+    # Ensure builtin systems are seeded
+    _ensure_builtin_systems_seeded()
+
+    mongodb = get_mongodb_client()
+    systems_collection = mongodb.get_collection("game_systems")
+
+    system_doc = systems_collection.find_one({"system_id": str(system_id)})
+    if not system_doc:
+        return None
+
+    return GameSystemResponse(
+        id=UUID(system_doc["system_id"]),
+        name=system_doc["name"],
+        description=system_doc["description"],
+        version=system_doc.get("version"),
+        core_mechanic=CoreMechanic(**system_doc["core_mechanic"]),
+        attributes=[AttributeDefinition(**attr) for attr in system_doc["attributes"]],
+        skills=[SkillDefinition(**skill) for skill in system_doc["skills"]],
+        resources=[ResourceDefinition(**res) for res in system_doc["resources"]],
+        custom_dice=system_doc.get("custom_dice", {}),
+        is_builtin=system_doc["is_builtin"],
+        created_at=system_doc["created_at"],
+        updated_at=system_doc.get("updated_at"),
+    )
+
+
+def mongodb_list_game_systems(
+    include_builtin: bool = True, limit: int = 50, offset: int = 0
+) -> GameSystemListResponse:
+    """
+    List game systems with optional filtering.
+
+    Args:
+        include_builtin: Whether to include built-in systems
+        limit: Maximum number of systems to return
+        offset: Number of systems to skip
+
+    Returns:
+        GameSystemListResponse with matching systems
+    """
+    # Ensure builtin systems are seeded
+    _ensure_builtin_systems_seeded()
+
+    mongodb = get_mongodb_client()
+    systems_collection = mongodb.get_collection("game_systems")
+
+    # Build query
+    query = {}
+    if not include_builtin:
+        query["is_builtin"] = False
+
+    # Get total count
+    total = systems_collection.count_documents(query)
+
+    # Get paginated results
+    systems_docs = (
+        systems_collection.find(query)
+        .sort("name", 1)
+        .skip(offset)
+        .limit(limit)  # Alphabetical
+    )
+
+    systems = []
+    for doc in systems_docs:
+        systems.append(
+            GameSystemResponse(
+                id=UUID(doc["system_id"]),
+                name=doc["name"],
+                description=doc["description"],
+                version=doc.get("version"),
+                core_mechanic=CoreMechanic(**doc["core_mechanic"]),
+                attributes=[AttributeDefinition(**attr) for attr in doc["attributes"]],
+                skills=[SkillDefinition(**skill) for skill in doc["skills"]],
+                resources=[ResourceDefinition(**res) for res in doc["resources"]],
+                custom_dice=doc.get("custom_dice", {}),
+                is_builtin=doc["is_builtin"],
+                created_at=doc["created_at"],
+                updated_at=doc.get("updated_at"),
+            )
+        )
+
+    return GameSystemListResponse(
+        systems=systems,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def mongodb_update_game_system(
+    system_id: UUID, params: GameSystemUpdate
+) -> GameSystemResponse:
+    """
+    Update a game system.
+
+    Args:
+        system_id: Game system UUID
+        params: Update parameters
+
+    Returns:
+        GameSystemResponse with updated system data
+
+    Raises:
+        ValueError: If system not found or is a builtin system
+    """
+    mongodb = get_mongodb_client()
+    systems_collection = mongodb.get_collection("game_systems")
+
+    # Check if system exists
+    system_doc = systems_collection.find_one({"system_id": str(system_id)})
+    if not system_doc:
+        raise ValueError(f"Game system {system_id} not found")
+
+    # Prevent modification of builtin systems
+    if system_doc["is_builtin"]:
+        raise ValueError("Cannot modify builtin game systems")
+
+    # Build update document
+    update_doc: Dict[str, Any] = {}
+    if params.name is not None:
+        update_doc["name"] = params.name
+    if params.description is not None:
+        update_doc["description"] = params.description
+    if params.version is not None:
+        update_doc["version"] = params.version
+    if params.core_mechanic is not None:
+        update_doc["core_mechanic"] = params.core_mechanic.model_dump(mode="json")
+    if params.attributes is not None:
+        update_doc["attributes"] = [
+            attr.model_dump(mode="json") for attr in params.attributes
+        ]
+    if params.skills is not None:
+        update_doc["skills"] = [
+            skill.model_dump(mode="json") for skill in params.skills
+        ]
+    if params.resources is not None:
+        update_doc["resources"] = [
+            res.model_dump(mode="json") for res in params.resources
+        ]
+    if params.custom_dice is not None:
+        update_doc["custom_dice"] = params.custom_dice
+
+    if update_doc:
+        update_doc["updated_at"] = datetime.now(timezone.utc)
+        systems_collection.update_one(
+            {"system_id": str(system_id)}, {"$set": update_doc}
+        )
+
+    # Return updated system
+    updated_system = mongodb_get_game_system(system_id)
+    if not updated_system:
+        raise ValueError(f"Failed to retrieve updated system {system_id}")
+    return updated_system
+
+
+def mongodb_delete_game_system(system_id: UUID) -> None:
+    """
+    Delete a game system.
+
+    Args:
+        system_id: Game system UUID
+
+    Raises:
+        ValueError: If system not found or is a builtin system
+    """
+    mongodb = get_mongodb_client()
+    systems_collection = mongodb.get_collection("game_systems")
+
+    # Check if system exists
+    system_doc = systems_collection.find_one({"system_id": str(system_id)})
+    if not system_doc:
+        raise ValueError(f"Game system {system_id} not found")
+
+    # Prevent deletion of builtin systems
+    if system_doc["is_builtin"]:
+        raise ValueError("Cannot delete builtin game systems")
+
+    systems_collection.delete_one({"system_id": str(system_id)})
+
+
+def mongodb_create_rule_override(params: RuleOverrideCreate) -> RuleOverrideResponse:
+    """
+    Create a new rule override.
+
+    Args:
+        params: Rule override creation parameters
+
+    Returns:
+        RuleOverrideResponse with created override data
+    """
+    mongodb = get_mongodb_client()
+    overrides_collection = mongodb.get_collection("rule_overrides")
+
+    now = datetime.now(timezone.utc)
+    override_id = uuid4()
+
+    override_doc = {
+        "override_id": str(override_id),
+        "scope": params.scope.value,
+        "scope_id": str(params.scope_id),
+        "target": params.target,
+        "original": params.original,
+        "override": params.override,
+        "reason": params.reason,
+        "times_used": 0,
+        "active": True,
+        "created_at": now,
+    }
+
+    overrides_collection.insert_one(override_doc)
+
+    return RuleOverrideResponse(
+        id=override_id,
+        scope=params.scope,
+        scope_id=params.scope_id,
+        target=params.target,
+        original=params.original,
+        override=params.override,
+        reason=params.reason,
+        times_used=0,
+        active=True,
+        created_at=now,
+    )
+
+
+def mongodb_get_rule_override(override_id: UUID) -> Optional[RuleOverrideResponse]:
+    """
+    Get a rule override by ID.
+
+    Args:
+        override_id: Rule override UUID
+
+    Returns:
+        RuleOverrideResponse or None if not found
+    """
+    mongodb = get_mongodb_client()
+    overrides_collection = mongodb.get_collection("rule_overrides")
+
+    override_doc = overrides_collection.find_one({"override_id": str(override_id)})
+    if not override_doc:
+        return None
+
+    return RuleOverrideResponse(
+        id=UUID(override_doc["override_id"]),
+        scope=RuleOverrideScope(override_doc["scope"]),
+        scope_id=UUID(override_doc["scope_id"]),
+        target=override_doc["target"],
+        original=override_doc["original"],
+        override=override_doc["override"],
+        reason=override_doc.get("reason"),
+        times_used=override_doc["times_used"],
+        active=override_doc["active"],
+        created_at=override_doc["created_at"],
+    )
+
+
+def mongodb_list_rule_overrides(
+    scope: Optional[str] = None,
+    scope_id: Optional[UUID] = None,
+    active_only: bool = True,
+) -> RuleOverrideListResponse:
+    """
+    List rule overrides with filtering.
+
+    Args:
+        scope: Filter by scope type
+        scope_id: Filter by scope ID
+        active_only: Only return active overrides
+
+    Returns:
+        RuleOverrideListResponse with matching overrides
+    """
+    mongodb = get_mongodb_client()
+    overrides_collection = mongodb.get_collection("rule_overrides")
+
+    # Build query
+    query: Dict[str, Any] = {}
+    if scope is not None:
+        query["scope"] = scope
+    if scope_id is not None:
+        query["scope_id"] = str(scope_id)
+    if active_only:
+        query["active"] = True
+
+    # Get total count
+    total = overrides_collection.count_documents(query)
+
+    # Get all matching overrides (no pagination for now)
+    overrides_docs = overrides_collection.find(query).sort("created_at", -1)
+
+    overrides = []
+    for doc in overrides_docs:
+        overrides.append(
+            RuleOverrideResponse(
+                id=UUID(doc["override_id"]),
+                scope=RuleOverrideScope(doc["scope"]),
+                scope_id=UUID(doc["scope_id"]),
+                target=doc["target"],
+                original=doc["original"],
+                override=doc["override"],
+                reason=doc.get("reason"),
+                times_used=doc["times_used"],
+                active=doc["active"],
+                created_at=doc["created_at"],
+            )
+        )
+
+    return RuleOverrideListResponse(
+        overrides=overrides,
+        total=total,
+    )
+
+
+def mongodb_update_rule_override(
+    override_id: UUID, params: RuleOverrideUpdate
+) -> RuleOverrideResponse:
+    """
+    Update a rule override.
+
+    Args:
+        override_id: Rule override UUID
+        params: Update parameters
+
+    Returns:
+        RuleOverrideResponse with updated override data
+
+    Raises:
+        ValueError: If override not found
+    """
+    mongodb = get_mongodb_client()
+    overrides_collection = mongodb.get_collection("rule_overrides")
+
+    # Check if override exists
+    override_doc = overrides_collection.find_one({"override_id": str(override_id)})
+    if not override_doc:
+        raise ValueError(f"Rule override {override_id} not found")
+
+    # Build update document
+    update_doc: Dict[str, Any] = {}
+    if params.active is not None:
+        update_doc["active"] = params.active
+    if params.times_used is not None:
+        update_doc["times_used"] = params.times_used
+    if params.reason is not None:
+        update_doc["reason"] = params.reason
+
+    if update_doc:
+        overrides_collection.update_one(
+            {"override_id": str(override_id)}, {"$set": update_doc}
+        )
+
+    # Return updated override
+    updated_override = mongodb_get_rule_override(override_id)
+    if not updated_override:
+        raise ValueError(f"Failed to retrieve updated override {override_id}")
+    return updated_override
+
+
+def mongodb_delete_rule_override(override_id: UUID) -> None:
+    """
+    Delete a rule override.
+
+    Args:
+        override_id: Rule override UUID
+
+    Raises:
+        ValueError: If override not found
+    """
+    mongodb = get_mongodb_client()
+    overrides_collection = mongodb.get_collection("rule_overrides")
+
+    # Check if override exists
+    override_doc = overrides_collection.find_one({"override_id": str(override_id)})
+    if not override_doc:
+        raise ValueError(f"Rule override {override_id} not found")
+
+    overrides_collection.delete_one({"override_id": str(override_id)})
+
+
+# =============================================================================
+# CHARACTER WORKING STATE (DL-26)
+# =============================================================================
+
+
+def _convert_working_state_doc_to_response(
+    state_doc: Dict[str, Any]
+) -> WorkingStateResponse:
+    """
+    Convert a working state document from MongoDB to a WorkingStateResponse object.
+
+    Args:
+        state_doc: Working state data from MongoDB
+
+    Returns:
+        WorkingStateResponse object
+    """
+    # Use "state_id" if creating the object requires an "id" field alias
+    # But schema defines "id" and "state_id".
+
+    return WorkingStateResponse(
+        state=CharacterWorkingState(
+            id=UUID(state_doc["state_id"]),
+            state_id=UUID(state_doc["state_id"]),
+            entity_id=UUID(state_doc["entity_id"]),
+            scene_id=UUID(state_doc["scene_id"]),
+            story_id=UUID(state_doc["story_id"]),
+            base_stats=state_doc["base_stats"],
+            current_stats=state_doc["current_stats"],
+            resources=state_doc["resources"],
+            modifications=[
+                StatModification(**m) for m in state_doc.get("modifications", [])
+            ],
+            temporary_effects=[
+                TemporaryEffect(**e) for e in state_doc.get("temporary_effects", [])
+            ],
+            inventory_changes=[
+                InventoryChange(**i) for i in state_doc.get("inventory_changes", [])
+            ],
+            created_at=state_doc.get("created_at", datetime.now(timezone.utc)),
+            updated_at=state_doc.get("updated_at", datetime.now(timezone.utc)),
+            canonized=state_doc.get("canonized", False),
+            canonized_at=state_doc.get("canonized_at"),
+        )
+    )
+
+
+def mongodb_create_working_state(
+    params: WorkingStateCreate,
+) -> WorkingStateResponse:
+    """
+    Create a new character working state record.
+
+    Args:
+        params: Creation parameters
+
+    Returns:
+        WorkingStateResponse
+    """
+    mongodb = get_mongodb_client()
+    state_collection = mongodb.get_collection("character_working_state")
+
+    # Check existence
+    existing = state_collection.find_one(
+        {
+            "entity_id": str(params.entity_id),
+            "scene_id": str(params.scene_id),
+        }
+    )
+    if existing:
+        return _convert_working_state_doc_to_response(existing)
+
+    state_id = uuid4()
+    now = datetime.now(timezone.utc)
+
+    # Initialize current stats as base if not provided
+    current_stats = params.current_stats or params.base_stats.copy()
+
+    state_doc = {
+        "state_id": str(state_id),
+        "entity_id": str(params.entity_id),
+        "scene_id": str(params.scene_id),
+        "story_id": str(params.story_id),
+        "base_stats": params.base_stats,
+        "current_stats": current_stats,
+        "resources": params.resources,
+        "modifications": [],
+        "temporary_effects": [],
+        "inventory_changes": [],
+        "created_at": now,
+        "updated_at": now,
+        "canonized": False,
+        "canonized_at": None,
+    }
+
+    state_collection.insert_one(state_doc)
+    return _convert_working_state_doc_to_response(state_doc)
+
+
+def mongodb_get_working_state(
+    entity_id: UUID, scene_id: UUID
+) -> Optional[WorkingStateResponse]:
+    """Get working state by entity and scene."""
+    mongodb = get_mongodb_client()
+    state_collection = mongodb.get_collection("character_working_state")
+
+    doc = state_collection.find_one(
+        {"entity_id": str(entity_id), "scene_id": str(scene_id)}
+    )
+    if not doc:
+        return None
+    return _convert_working_state_doc_to_response(doc)
+
+
+def mongodb_update_working_state(
+    state_id: UUID, params: WorkingStateUpdate
+) -> WorkingStateResponse:
+    """Update working state stats or resources."""
+    mongodb = get_mongodb_client()
+    state_collection = mongodb.get_collection("character_working_state")
+
+    update_dict: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
+    if params.current_stats is not None:
+        update_dict["current_stats"] = params.current_stats
+    if params.resources is not None:
+        update_dict["resources"] = params.resources
+
+    result = state_collection.find_one_and_update(
+        {"state_id": str(state_id)},
+        {"$set": update_dict},
+        return_document=True,
+    )
+
+    if not result:
+        raise ValueError(f"Working state {state_id} not found")
+
+    return _convert_working_state_doc_to_response(result)
+
+
+def mongodb_add_modification(params: AddStatModification) -> WorkingStateResponse:
+    """Log a stat modification."""
+    mongodb = get_mongodb_client()
+    state_collection = mongodb.get_collection("character_working_state")
+
+    mod = StatModification(
+        mod_id=uuid4(),
+        stat_or_resource=params.stat_or_resource,
+        change=params.change,
+        source=params.source,
+        source_id=params.source_id,
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    result = state_collection.find_one_and_update(
+        {"state_id": str(params.state_id)},
+        {
+            "$push": {"modifications": mod.model_dump(mode="json")},
+            "$set": {"updated_at": datetime.now(timezone.utc)},
+        },
+        return_document=True,
+    )
+
+    if not result:
+        raise ValueError(f"Working state {params.state_id} not found")
+
+    return _convert_working_state_doc_to_response(result)
+
+
+def mongodb_list_working_states(params: WorkingStateFilter) -> WorkingStateListResponse:
+    """List working states with filtering."""
+    mongodb = get_mongodb_client()
+    state_collection = mongodb.get_collection("character_working_state")
+
+    query: Dict[str, Any] = {}
+    if params.scene_id:
+        query["scene_id"] = str(params.scene_id)
+    if params.story_id:
+        query["story_id"] = str(params.story_id)
+    if params.entity_id:
+        query["entity_id"] = str(params.entity_id)
+    if params.canonized is not None:
+        query["canonized"] = params.canonized
+
+    total = state_collection.count_documents(query)
+    cursor = state_collection.find(query).skip(params.offset).limit(params.limit)
+
+    states = [_convert_working_state_doc_to_response(doc).state for doc in cursor]
+
+    return WorkingStateListResponse(
+        states=states,
+        total=total,
+        limit=params.limit,
+        offset=params.offset,
+    )

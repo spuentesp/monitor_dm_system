@@ -20,3 +20,18 @@ htmlcov/
 
 # Package lock files
 uv.lock
+
+# Infrastructure data
+infra/mongodb/data
+infra/mongodb/configdb
+infra/mongodb/init
+infra/neo4j/data
+infra/neo4j/logs
+infra/neo4j/import
+infra/neo4j/plugins
+infra/qdrant/storage
+infra/minio/data
+infra/opensearch/data
+
+# IDE
+.vscode/

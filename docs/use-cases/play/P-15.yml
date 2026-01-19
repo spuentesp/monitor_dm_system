@@ -1,0 +1,213 @@
+# P-15: Autonomous PC Actions
+# ============================
+
+id: "P-15"
+title: "Autonomous PC Actions"
+category: "play"
+epic: 1
+priority: "critical"
+status: "todo"
+
+summary: |
+  Enable AI-driven player character decision-making for autonomous gameplay mode.
+  The PC-Agent analyzes scene context, character personality, goals, and knowledge
+  to generate plausible character actions each turn, enabling fully automated
+  solo RPG experiences.
+
+acceptance_criteria:
+  - "PC-Agent generates contextually appropriate actions based on personality"
+  - "PC-Agent respects character knowledge boundaries (no metagaming)"
+  - "PC-Agent considers character goals and motivations"
+  - "PC-Agent handles multiple party members with different personalities"
+  - "PC-Agent action selection can be overridden by user"
+  - "Actions integrate with existing Turn Loop (P-3)"
+  - "Actions are passed to Resolver for mechanical resolution"
+  - "PC-Agent avoids obviously suicidal or out-of-character actions"
+  - "Personality traits influence action probability distribution"
+  - "Tactical awareness influences combat decisions"
+  - "Social disposition influences dialogue choices"
+  - "Unit tests achieve >= 80% coverage"
+  - "Integration test runs full autonomous scene"
+
+depends_on:
+  - "P-3"   # Turn loop infrastructure
+  - "P-4"   # Action resolution mechanics
+  - "DL-2"  # Entity data (PC personality, stats)
+  - "DL-7"  # Character memories
+
+blocks:
+  - "Autonomous GM mode"
+
+implementation:
+  layer: 2
+
+  files:
+    create:
+      - "packages/agents/src/monitor_agents/pc_agent.py"
+      - "packages/agents/src/monitor_agents/prompts/pc_agent.py"
+      - "packages/agents/tests/test_pc_agent.py"
+    modify:
+      - "packages/agents/src/monitor_agents/orchestrator.py"
+      - "packages/agents/src/monitor_agents/base.py"
+
+  agent_specification:
+    name: "PC-Agent"
+    type: "Decision-Making Agent"
+    
+    responsibilities:
+      - "Analyze current scene state and context"
+      - "Evaluate PC personality, goals, knowledge, emotional state"
+      - "Generate candidate actions appropriate to situation"
+      - "Select action aligned with character personality and goals"
+      - "Avoid metagaming (only use character's knowledge)"
+      - "Handle party coordination (which PC acts when)"
+      - "Provide user override mechanism"
+
+    authority:
+      reads:
+        - "neo4j_get_entity (PC data)"
+        - "neo4j_list_facts (PC knowledge)"
+        - "mongodb_get_scene (current scene)"
+        - "mongodb_get_memories (PC memories)"
+        - "qdrant_search_memories (context recall)"
+      writes:
+        - "None (PC-Agent generates actions, does not execute them)"
+    
+    inputs:
+      - scene_id: "Current scene UUID"
+      - pc_id: "Player character entity UUID"
+      - recent_turns: "Last 5-10 turns for context"
+      - party_state: "Other party members' status"
+    
+    outputs:
+      - action: "String description of PC action"
+      - action_type: "combat|social|exploration|magic|skill"
+      - rationale: "Why this action makes sense for this character"
+      - confidence: "0.0-1.0 how certain the agent is"
+    
+    decision_factors:
+      - "Character personality traits (bold, cautious, curious, etc.)"
+      - "Current goals (short-term and long-term)"
+      - "Emotional state (calm, angry, frightened, etc.)"
+      - "Relationship to entities in scene"
+      - "Past experiences (memories)"
+      - "Tactical situation (combat) or social dynamics (dialogue)"
+      - "Resource state (HP, spell slots, items)"
+      - "Party composition and coordination"
+    
+    personality_matrix:
+      bold:
+        - "Aggressive combat actions"
+        - "Direct confrontation in social"
+        - "Risky exploration choices"
+      cautious:
+        - "Defensive combat tactics"
+        - "Careful questioning in social"
+        - "Methodical exploration"
+      curious:
+        - "Investigative actions"
+        - "Ask questions"
+        - "Examine unusual things"
+      loyal:
+        - "Protect allies"
+        - "Honor commitments"
+        - "Trust companions"
+      pragmatic:
+        - "Cost-benefit analysis"
+        - "Focus on objectives"
+        - "Avoid unnecessary risk"
+    
+    action_selection_algorithm: |
+      1. Load PC context (personality, goals, memories, state)
+      2. Analyze scene (threats, opportunities, NPCs, environment)
+      3. Generate candidate actions (5-10 options)
+      4. Score each candidate:
+         - Alignment with personality (0-10)
+         - Progress toward goals (0-10)
+         - Tactical soundness (0-10)
+         - Character knowledge validity (0-10)
+      5. Apply randomness (weighted by confidence)
+      6. Select top action
+      7. Verify action is executable (PC has required resources/abilities)
+      8. Return action to Orchestrator
+    
+    example_prompt_template: |
+      You are {character_name}, a {character_class} with the following personality:
+      - Traits: {personality_traits}
+      - Goals: {current_goals}
+      - Emotional state: {emotional_state}
+      
+      Current situation:
+      {scene_description}
+      
+      Present entities:
+      {entities_list}
+      
+      Recent events:
+      {last_turns_summary}
+      
+      Your resources:
+      {hp_mp_items}
+      
+      What do you do next? Consider:
+      1. Your personality would make you...
+      2. Your goals are to...
+      3. Tactically, the best move is...
+      4. Given your knowledge, you know...
+      
+      Generate a plausible action for this character.
+
+  patterns:
+    - "Extend BaseAgent from packages/agents/src/monitor_agents/base.py"
+    - "Use LLM (Claude) for action generation with structured prompts"
+    - "Store PC personality in Neo4j EntityInstance properties"
+    - "Query memories via Qdrant for context-aware decisions"
+    - "Return structured action object to Orchestrator"
+
+  notes: |
+    - PC-Agent does NOT execute actions, only generates them
+    - Orchestrator passes generated action to Resolver (P-4)
+    - User can override with "/force {action}" meta-command
+    - For parties, generate actions for each PC sequentially or in initiative order
+    - Combat: PC-Agent uses tactical reasoning (target selection, positioning)
+    - Social: PC-Agent uses personality/relationship for dialogue choices
+    - Exploration: PC-Agent uses curiosity/caution balance
+
+testing:
+  unit_tests:
+    - "test_generate_action_bold_personality: bold trait → aggressive action"
+    - "test_generate_action_cautious_personality: cautious trait → defensive action"
+    - "test_generate_action_respects_knowledge: only uses facts PC knows"
+    - "test_generate_action_aligns_with_goals: action advances stated goals"
+    - "test_generate_action_combat_tactics: sensible target selection"
+    - "test_generate_action_social_personality: dialogue matches personality"
+    - "test_generate_action_low_hp: cautious when wounded"
+    - "test_generate_action_party_support: helps allies when appropriate"
+    - "test_generate_action_no_metagaming: doesn't use hidden info"
+    - "test_generate_action_no_suicidal: avoids obviously fatal actions"
+
+  integration_tests:
+    - "test_autonomous_combat_scene: PC-Agent drives full combat scene"
+    - "test_autonomous_social_scene: PC-Agent drives full dialogue scene"
+    - "test_autonomous_party_coordination: multiple PCs coordinate"
+
+  coverage_minimum: 80
+
+github:
+  labels:
+    - "epic-1"
+    - "agents"
+    - "ai"
+    - "priority-critical"
+
+  milestone: "EPIC 1: Play"
+
+references:
+  docs:
+    - "docs/architecture/AGENT_ORCHESTRATION.md"
+    - "docs/architecture/CONVERSATIONAL_LOOPS.md#turn-loop"
+    - "docs/GAP_ANALYSIS.md#required-player-character-agent"
+
+  code:
+    - "packages/agents/src/monitor_agents/base.py"
+    - "packages/agents/src/monitor_agents/orchestrator.py"
