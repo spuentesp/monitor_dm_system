@@ -2,7 +2,6 @@
 Auto-extracted module.
 """
 
-import json
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from uuid import UUID, uuid4

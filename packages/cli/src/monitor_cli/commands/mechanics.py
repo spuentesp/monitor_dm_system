@@ -3,7 +3,6 @@ CLI commands for resolving mechanics (DL-24).
 """
 
 import asyncio
-import json
 import typer
 from rich.console import Console
 from rich.panel import Panel

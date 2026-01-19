@@ -4,6 +4,7 @@ Dice rolling utility for MONITOR.
 LAYER: 1 (data-layer)
 """
 
+import math
 import re
 import random
 from typing import Dict, Any, List
@@ -45,7 +46,7 @@ def roll_dice(expression: str) -> DiceResult:
         try:
             mod = int(expression.split('+')[1])
             total += mod
-        except:
+        except (ValueError, IndexError):
             pass
     
     return DiceResult(total, rolls, expression)
@@ -55,20 +56,24 @@ def calculate_modifier(value: int, formula: str) -> int:
     Calculate a modifier based on a value and a formula string.
     Supported placeholders: VALUE
     Example: "(VALUE - 10) // 2"
+
+    Note: Uses eval() with restricted environment for formula evaluation.
+    Formulas are expected to come from trusted admin-defined game systems.
     """
     # Safety: Only allow basic math operations
     safe_env = {
-        "VALUE": value, 
-        "__builtins__": None
+        "VALUE": value,
+        "__builtins__": None,
+        "__name__": None,
+        "__file__": None,
+        "__loader__": None,
     }
-    
+
     try:
-        # Replace common operators if needed, but python 'eval' 
-        # with restricted globals is mostly okay for simple math if we trust the source (admin defined rules).
-        # We replace // with / for float division if needed, or keep it integer.
-        # Python's eval supports //
-        
-        result = eval(formula, safe_env)
-        return int(result)
-    except Exception:
+        # Evaluate the formula (expected from trusted game system JSON)
+        result = eval(formula, {"__builtins__": {}}, safe_env)
+        # Use floor to correctly handle negative modifiers (e.g., -0.5 → -1, not 0)
+        return math.floor(result) if isinstance(result, float) else int(result)
+    except (ValueError, TypeError, SyntaxError, NameError) as e:
+        # Log the error in production, return safe default
         return 0

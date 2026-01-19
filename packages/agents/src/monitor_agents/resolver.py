@@ -5,19 +5,9 @@ LAYER: 2 (agents)
 Authority: MongoDB (resolutions, proposals), Character State
 """
 
-from monitor_agents.base import BaseAgent
-
-
-"""
-Resolver Agent implementation.
-
-LAYER: 2 (agents)
-Authority: MongoDB (resolutions, proposals), Character State
-"""
-
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from monitor_agents.base import BaseAgent
 from monitor_data.utils.dice import roll_dice, calculate_modifier
@@ -105,28 +95,39 @@ class Resolver(BaseAgent):
 
             # Find attribute definition in system
             target_attr_def = next((a for a in system["attributes"] if a["name"].lower() == stat_name.lower()), None)
-            
+
             if not target_attr_def:
                 # Is it a skill?
                 target_skill_def = next((s for s in system["skills"] if s["name"].lower() == stat_name.lower()), None)
                 if target_skill_def:
-                    # It's a skill check
+                    # It's a skill check - use linked attribute for modifier
                     linked_attr = target_skill_def["linked_attribute"]
-                    stat_value = attributes.get(linked_attr, 10) # Default 10 if missing
-                    # We might add a proficiency bonus here if we knew user's level/proficiency
-                    # For MVP, we treat it as Attribute Check using linked attribute
+                    # Find the linked attribute definition
+                    linked_attr_def = next((a for a in system["attributes"] if a["name"] == linked_attr), None)
+                    if not linked_attr_def:
+                        return {"error": f"Linked attribute '{linked_attr}' not found for skill '{stat_name}'"}
+
+                    stat_value = attributes.get(linked_attr, linked_attr_def.get("default_value", 10))
+
+                    # Calculate modifier using linked attribute's formula
+                    mod_formula = linked_attr_def.get("modifier_formula")
+                    if mod_formula:
+                        modifier = calculate_modifier(stat_value, mod_formula)
+                    else:
+                        modifier = 0
+                    # Could add proficiency bonus here in future
                 else:
                     return {"error": f"Stat '{stat_name}' not found in system '{system_name}'"}
             else:
                 # It's an attribute
                 stat_value = attributes.get(target_attr_def["name"], target_attr_def.get("default_value", 10))
 
-            # 6. Calculate Modifier
-            mod_formula = target_attr_def.get("modifier_formula")
-            if mod_formula:
-                modifier = calculate_modifier(stat_value, mod_formula)
-            else:
-                modifier = 0
+                # 6. Calculate Modifier
+                mod_formula = target_attr_def.get("modifier_formula")
+                if mod_formula:
+                    modifier = calculate_modifier(stat_value, mod_formula)
+                else:
+                    modifier = 0
 
             # 7. Roll Dice
             core_mechanic = system["core_mechanic"]
@@ -145,7 +146,16 @@ class Resolver(BaseAgent):
                 pool_size = stat_value # + skill if applicable
                 dice_res = roll_dice(f"{pool_size}d10") # Vampire uses d10s
                 # Count successes >= threshold
-                threshold = int(core_mechanic.get("success_threshold", 6))
+                threshold_val = core_mechanic.get("success_threshold", 6)
+                # Handle string thresholds like "7+" or descriptive strings
+                try:
+                    if isinstance(threshold_val, str):
+                        # Extract numeric value from strings like "7+"
+                        threshold = int(''.join(filter(str.isdigit, threshold_val)) or 6)
+                    else:
+                        threshold = int(threshold_val)
+                except (ValueError, TypeError):
+                    threshold = 6  # Safe default
                 successes = sum(1 for d in dice_res.rolls if d >= threshold)
                 total = successes
                 success = successes > 0 # Simple success

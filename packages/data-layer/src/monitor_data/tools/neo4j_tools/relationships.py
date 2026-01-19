@@ -2,12 +2,10 @@
 Auto-extracted module.
 """
 
-import json
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
-from uuid import UUID, uuid4
+from typing import Dict, Optional, Any
+from uuid import UUID
 from monitor_data.db.neo4j import get_neo4j_client
-from monitor_data.schemas.base import CanonLevel
 from monitor_data.schemas.relationships import (
     RelationshipCreate,
     RelationshipResponse,

@@ -2,17 +2,15 @@
 Auto-extracted module.
 """
 
-import json
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from uuid import UUID, uuid4
 from monitor_data.db.neo4j import get_neo4j_client
-from monitor_data.schemas.base import CanonLevel, PartyStatus
+from monitor_data.schemas.base import PartyStatus
 from monitor_data.schemas.parties import (
     PartyCreate,
     PartyResponse,
     PartyFilter,
-    PartyUpdate,
     AddPartyMember,
     RemovePartyMember,
     SetActivePC,
