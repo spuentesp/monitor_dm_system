@@ -1,0 +1,113 @@
+{
+    "name": "Standard Fantasy v5",
+    "description": "A d20-based high fantasy system focusing on combat and exploration.",
+    "version": "5.1",
+    "core_mechanic": {
+        "type": "d20",
+        "formula": "1d20 + ATTRIBUTE_MOD + SKILL_PROFICIENCY",
+        "success_type": "meet_or_beat",
+        "success_threshold": "DC",
+        "critical_success": "natural 20",
+        "critical_failure": "natural 1"
+    },
+    "attributes": [
+        {
+            "name": "Strength",
+            "abbreviation": "STR",
+            "min_value": 1,
+            "max_value": 30,
+            "default_value": 10,
+            "modifier_formula": "(VALUE - 10) // 2"
+        },
+        {
+            "name": "Dexterity",
+            "abbreviation": "DEX",
+            "min_value": 1,
+            "max_value": 30,
+            "default_value": 10,
+            "modifier_formula": "(VALUE - 10) // 2"
+        },
+        {
+            "name": "Constitution",
+            "abbreviation": "CON",
+            "min_value": 1,
+            "max_value": 30,
+            "default_value": 10,
+            "modifier_formula": "(VALUE - 10) // 2"
+        },
+        {
+            "name": "Intelligence",
+            "abbreviation": "INT",
+            "min_value": 1,
+            "max_value": 30,
+            "default_value": 10,
+            "modifier_formula": "(VALUE - 10) // 2"
+        },
+        {
+            "name": "Wisdom",
+            "abbreviation": "WIS",
+            "min_value": 1,
+            "max_value": 30,
+            "default_value": 10,
+            "modifier_formula": "(VALUE - 10) // 2"
+        },
+        {
+            "name": "Charisma",
+            "abbreviation": "CHA",
+            "min_value": 1,
+            "max_value": 30,
+            "default_value": 10,
+            "modifier_formula": "(VALUE - 10) // 2"
+        }
+    ],
+    "skills": [
+        {
+            "name": "Athletics",
+            "linked_attribute": "Strength"
+        },
+        {
+            "name": "Acrobatics",
+            "linked_attribute": "Dexterity"
+        },
+        {
+            "name": "Stealth",
+            "linked_attribute": "Dexterity"
+        },
+        {
+            "name": "Arcana",
+            "linked_attribute": "Intelligence"
+        },
+        {
+            "name": "Investigation",
+            "linked_attribute": "Intelligence"
+        },
+        {
+            "name": "Insight",
+            "linked_attribute": "Wisdom"
+        },
+        {
+            "name": "Perception",
+            "linked_attribute": "Wisdom"
+        },
+        {
+            "name": "Persuasion",
+            "linked_attribute": "Charisma"
+        }
+    ],
+    "resources": [
+        {
+            "name": "Hit Points",
+            "abbreviation": "HP",
+            "min_value": 0,
+            "calculation": "matches_class_hit_die + CON_MOD",
+            "recovers_on": "long_rest"
+        },
+        {
+            "name": "Inspiration",
+            "abbreviation": "INSP",
+            "min_value": 0,
+            "max_value": 1,
+            "recovers_on": "dm_award"
+        }
+    ]
+}

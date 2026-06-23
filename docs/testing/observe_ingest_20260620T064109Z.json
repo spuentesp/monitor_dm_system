@@ -1,0 +1,31 @@
+{
+  "generated_at": "2026-06-20T06:41:09.279884+00:00",
+  "title": "observe-ingest Harrowfen 1781937368",
+  "job_status": "running",
+  "job_errors": null,
+  "wall_s": 300.9,
+  "pack_id": null,
+  "pack_status": null,
+  "scores": {
+    "planted_entities": 7,
+    "entities_extracted": 0,
+    "recall_hits": 0,
+    "recall_pct": 0.0,
+    "found_map": {
+      "Harrowfen": null,
+      "Mournmere": null,
+      "The Pale Lantern": null,
+      "Elder Wreave": null,
+      "The Bog Witch": null,
+      "Captain Holloway": null,
+      "The Lantern Wardens": null
+    },
+    "type_accuracy": "n/a",
+    "precision_noise_count": 0,
+    "precision_noise_names": [],
+    "lore_facts": 0,
+    "axiom_count": 0,
+    "planted_axiom_found": false
+  },
+  "judge": {}
+}

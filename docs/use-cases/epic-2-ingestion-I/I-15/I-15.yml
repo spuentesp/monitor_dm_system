@@ -1,0 +1,25 @@
+# I-15: Real-Time Session-to-Canon (Live Extraction)
+# ==================================================
+
+id: "I-15"
+title: "Real-Time Session-to-Canon (Live Extraction)"
+category: "i"
+epic: 2
+priority: "medium"
+status: "in-progress"
+
+summary: |
+  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+
+acceptance_criteria:
+  - "TBD"
+
+depends_on: []
+blocks: []
+
+implementation:
+  layer: 2
+  files:
+    create: []
+    modify: []
+  patterns: []

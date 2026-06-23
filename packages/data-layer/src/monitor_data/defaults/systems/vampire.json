@@ -1,0 +1,132 @@
+{
+    "name": "Night Clans v5",
+    "description": "A game of personal horror and political intrigue.",
+    "version": "5.0",
+    "core_mechanic": {
+        "type": "dice_pool",
+        "formula": "ATTRIBUTE + SKILL (d10 count)",
+        "success_type": "count_successes",
+        "success_threshold": "6",
+        "critical_success": "Pair of 10s",
+        "critical_failure": "No successes and 1s present"
+    },
+    "attributes": [
+        {
+            "name": "Strength",
+            "abbreviation": "STR",
+            "min_value": 1,
+            "max_value": 5,
+            "default_value": 1,
+            "modifier_formula": "VALUE"
+        },
+        {
+            "name": "Dexterity",
+            "abbreviation": "DEX",
+            "min_value": 1,
+            "max_value": 5,
+            "default_value": 1,
+            "modifier_formula": "VALUE"
+        },
+        {
+            "name": "Stamina",
+            "abbreviation": "STA",
+            "min_value": 1,
+            "max_value": 5,
+            "default_value": 1,
+            "modifier_formula": "VALUE"
+        },
+        {
+            "name": "Charisma",
+            "abbreviation": "CHA",
+            "min_value": 1,
+            "max_value": 5,
+            "default_value": 1,
+            "modifier_formula": "VALUE"
+        },
+        {
+            "name": "Manipulation",
+            "abbreviation": "MAN",
+            "min_value": 1,
+            "max_value": 5,
+            "default_value": 1,
+            "modifier_formula": "VALUE"
+        },
+        {
+            "name": "Composure",
+            "abbreviation": "COM",
+            "min_value": 1,
+            "max_value": 5,
+            "default_value": 1,
+            "modifier_formula": "VALUE"
+        },
+        {
+            "name": "Intelligence",
+            "abbreviation": "INT",
+            "min_value": 1,
+            "max_value": 5,
+            "default_value": 1,
+            "modifier_formula": "VALUE"
+        },
+        {
+            "name": "Wits",
+            "abbreviation": "WIT",
+            "min_value": 1,
+            "max_value": 5,
+            "default_value": 1,
+            "modifier_formula": "VALUE"
+        },
+        {
+            "name": "Resolve",
+            "abbreviation": "RES",
+            "min_value": 1,
+            "max_value": 5,
+            "default_value": 1,
+            "modifier_formula": "VALUE"
+        }
+    ],
+    "skills": [
+        {
+            "name": "Brawl",
+            "linked_attribute": "Strength"
+        },
+        {
+            "name": "Athletics",
+            "linked_attribute": "Strength"
+        },
+        {
+            "name": "Stealth",
+            "linked_attribute": "Dexterity"
+        },
+        {
+            "name": "Persuasion",
+            "linked_attribute": "Charisma"
+        },
+        {
+            "name": "Subterfuge",
+            "linked_attribute": "Manipulation"
+        }
+    ],
+    "resources": [
+        {
+            "name": "Willpower",
+            "abbreviation": "WP",
+            "min_value": 0,
+            "calculation": "Composure + Resolve",
+            "recovers_on": "fulfillment"
+        },
+        {
+            "name": "Health",
+            "abbreviation": "HLT",
+            "min_value": 0,
+            "calculation": "Stamina + 3",
+            "recovers_on": "time"
+        },
+        {
+            "name": "Hunger",
+            "abbreviation": "HNG",
+            "min_value": 0,
+            "max_value": 5,
+            "recovers_on": "feeding"
+        }
+    ]
+}

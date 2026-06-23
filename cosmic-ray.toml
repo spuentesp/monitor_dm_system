@@ -1,0 +1,9 @@
+[cosmic-ray]
+module-path = "packages/agents/src/monitor_agents/canonkeeper.py"
+python-version = ""
+timeout = 20
+excluded-modules = []
+test-command = "uv run pytest tests/behavior/test_canonkeeper_choreography_behavior.py"
+
+[cosmic-ray.distributor]
+name = "local"

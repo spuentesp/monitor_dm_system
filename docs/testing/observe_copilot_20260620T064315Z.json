@@ -1,0 +1,81 @@
+{
+  "generated_at": "2026-06-20T06:41:15.175955+00:00",
+  "universe_id": "9d3973c6-f290-4bd1-9e69-90cb5680fbe0",
+  "session_id": "13810d2c-de73-4e69-88cb-f94f5bd93117",
+  "story_id": "5029a50e-af88-4213-ad42-8c351823c5e1",
+  "canon_entity_count": 0,
+  "surfaces": {
+    "recap": {
+      "latency_s": 14.7,
+      "error": null,
+      "chars": 644,
+      "canon_refs": 0
+    },
+    "hooks": {
+      "latency_s": 20.8,
+      "error": null,
+      "count": 5,
+      "grounded": 0,
+      "grounded_pct": 0.0,
+      "titles": [
+        "The Chitinous Passenger",
+        "Captain Vex5's Purpose",
+        "Survivors in the Gloom",
+        "The Millhaven Connection",
+        "Where the Disappeared Went"
+      ],
+      "urgencies": [
+        "high",
+        "medium",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "contradictions": {
+      "latency_s": 39.3,
+      "error": null,
+      "count": 1,
+      "severities": [
+        "low"
+      ]
+    },
+    "session_prep": {
+      "latency_s": 17.5,
+      "error": null,
+      "has_recap": true,
+      "open_threads": 0,
+      "hooks": 3,
+      "npc_reminders": 0
+    },
+    "handout": {
+      "latency_s": 17.5,
+      "error": null,
+      "chars": 1314,
+      "has_title": true,
+      "in_character": true,
+      "canon_refs": 0
+    },
+    "threads": {
+      "latency_s": 0.1,
+      "error": null,
+      "count": 1,
+      "statuses": [
+        "open"
+      ]
+    }
+  },
+  "judge": {
+    "scores": {
+      "usefulness": 4,
+      "grounding": 3,
+      "specificity": 3
+    },
+    "justification": "The handout is exceptionally strong, providing immediate, actionable hooks with excellent grounding and specificity. However, the plot hooks are significantly weaker; they frequently use generic terms like 'creature' and 'others,' and several are incomplete sentences, severely impacting their specificity and immediate usability. The overall score is pulled down by the inconsistent quality of the plot hooks compared to the stellar handout.",
+    "rubric": {
+      "usefulness": "Would these outputs actually help a GM run the next session?",
+      "grounding": "Do hooks/handout reference the world's real named entities, not generic filler?",
+      "specificity": "Are they concrete and distinctive rather than vague boilerplate?"
+    }
+  }
+}

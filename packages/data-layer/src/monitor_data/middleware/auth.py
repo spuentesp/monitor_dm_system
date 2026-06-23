@@ -1,0 +1,447 @@
+"""
+Authority enforcement middleware for MONITOR Data Layer.
+
+LAYER: 1 (data-layer)
+IMPORTS FROM: External libraries only
+CALLED BY: MCP server (server.py)
+
+This is the ENFORCEMENT POINT for the authority matrix.
+Only authorized agents can call certain tools (primarily write operations).
+"""
+
+from typing import List
+
+
+# =============================================================================
+# AUTHORITY MATRIX
+# =============================================================================
+
+# Maps tool names to list of allowed agent types
+# If a tool is not in this dict, it's accessible by all agents (default open)
+# Empty list [] means no agent can call it (reserved/internal)
+# ["*"] means all agents can call it (explicit open)
+# Specific agent names restrict access to those agents only
+
+AUTHORITY_MATRIX = {
+    # =========================================================================
+    # NEO4J OPERATIONS - Universe & Multiverse
+    # =========================================================================
+    "neo4j_create_multiverse": ["CanonKeeper"],
+    "neo4j_get_multiverse": ["*"],
+    "neo4j_list_multiverses": ["*"],
+    "neo4j_create_universe": ["CanonKeeper"],
+    "neo4j_get_universe": ["*"],
+    "neo4j_list_universes": ["*"],
+    "neo4j_update_universe": ["CanonKeeper"],
+    "neo4j_delete_universe": ["CanonKeeper"],
+    "neo4j_ensure_omniverse": ["CanonKeeper"],
+    "neo4j_fork_universe": ["CanonKeeper", "WorldArchitect"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Entities (DL-2)
+    # =========================================================================
+    "neo4j_create_entity": ["CanonKeeper"],
+    "neo4j_get_entity": ["*"],
+    "neo4j_list_entities": ["*"],
+    "neo4j_update_entity": ["CanonKeeper"],
+    "neo4j_delete_entity": ["CanonKeeper"],
+    "neo4j_tick_agendas": ["CanonKeeper", "StoryLoop"],
+    "neo4j_save_entity_as_template": ["CanonKeeper"],
+    "neo4j_link_to_archetype": ["CanonKeeper", "Narrator"],
+    "neo4j_create_character_relationship": ["CanonKeeper", "Narrator"],
+    "neo4j_set_state_tags": ["CanonKeeper"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Relationships (DL-14)
+    # =========================================================================
+    "neo4j_create_relationship": ["CanonKeeper"],
+    "neo4j_get_relationship": ["*"],
+    "neo4j_list_relationships": ["*"],
+    "neo4j_update_relationship": ["CanonKeeper"],
+    "neo4j_delete_relationship": ["CanonKeeper"],
+    "neo4j_update_state_tags": ["CanonKeeper"],
+    "neo4j_get_state_tags": ["*"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Facts & Events
+    # =========================================================================
+    "neo4j_create_fact": ["CanonKeeper"],
+    "neo4j_get_fact": ["*"],
+    "neo4j_list_facts": ["*"],
+    "neo4j_update_fact": ["CanonKeeper"],
+    "neo4j_delete_fact": ["CanonKeeper"],
+    "neo4j_create_event": ["CanonKeeper"],
+    "neo4j_get_event": ["*"],
+    "neo4j_list_events": ["*"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Stories
+    # =========================================================================
+    "neo4j_create_story": ["CanonKeeper"],
+    "neo4j_get_story": ["*"],
+    "neo4j_list_stories": ["*"],
+    "neo4j_update_story": ["CanonKeeper"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Sources
+    # =========================================================================
+    "neo4j_create_source": ["CanonKeeper", "IngestionPipeline"],
+    "neo4j_delete_source": ["CanonKeeper", "IngestionPipeline"],
+    "neo4j_get_source": ["*"],
+    "neo4j_list_sources": ["*"],
+    "neo4j_link_evidence": ["CanonKeeper"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Mechanics (AbilitySystem, Track, Condition)
+    # =========================================================================
+    "neo4j_create_ability_system": ["CanonKeeper"],
+    "neo4j_create_track": ["CanonKeeper"],
+    "neo4j_create_condition": ["CanonKeeper"],
+    "neo4j_link_entity_to_ability": ["CanonKeeper"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Plot Threads
+    # =========================================================================
+    "neo4j_create_plot_thread": ["CanonKeeper"],
+    "neo4j_update_plot_thread": ["CanonKeeper"],
+    "neo4j_list_plot_threads": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Scenes
+    # =========================================================================
+    "mongodb_create_scene": ["CanonKeeper", "Narrator"],
+    "mongodb_get_scene": ["*"],
+    "mongodb_get_scene_summary": ["*"],
+    "mongodb_update_scene": ["CanonKeeper", "Narrator"],
+    "mongodb_list_scenes": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Turns
+    # =========================================================================
+    "mongodb_append_turn": ["*"],
+    "mongodb_get_recent_turns": ["*"],
+    "mongodb_get_turns": ["*"],
+    "mongodb_undo_turn": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Proposals (Legacy - kept for backward compatibility)
+    # =========================================================================
+    "mongodb_create_proposal": ["Narrator", "Resolver", "CanonKeeper"],
+    "mongodb_get_proposals": ["*"],
+    "mongodb_update_proposal": ["CanonKeeper"],
+    "mongodb_list_pending_proposals": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Proposed Changes (DL-5)
+    # =========================================================================
+    "mongodb_create_proposed_change": ["*"],
+    "mongodb_get_proposed_change": ["*"],
+    "mongodb_list_proposed_changes": ["*"],
+    "mongodb_update_proposed_change": ["CanonKeeper"],
+    # (Memory operations moved to DL-7 section below)
+    # =========================================================================
+    # MONGODB OPERATIONS - Character Sheets
+    # =========================================================================
+    "mongodb_create_character_sheet": ["CanonKeeper"],
+    "mongodb_get_character_sheet": ["*"],
+    "mongodb_update_character_sheet": ["CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Documents
+    # =========================================================================
+    "mongodb_create_document": ["Indexer", "IngestionPipeline"],
+    "mongodb_get_document": ["*"],
+    "mongodb_list_documents": ["*"],
+    "mongodb_update_document": ["Indexer", "IngestionPipeline"],
+    "mongodb_update_document_status": ["Indexer", "IngestionPipeline"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Ingestion Jobs
+    # =========================================================================
+    "mongodb_create_ingestion_job": ["IngestionPipeline"],
+    "mongodb_get_ingestion_job": ["*"],
+    "mongodb_list_ingestion_jobs": ["*"],
+    "mongodb_update_ingestion_job": ["IngestionPipeline"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Knowledge Packs
+    # =========================================================================
+    "mongodb_create_knowledge_pack": ["IngestionPipeline", "Analyzer"],
+    "mongodb_get_knowledge_pack": ["*"],
+    "mongodb_list_knowledge_packs": ["*"],
+    "mongodb_update_knowledge_pack": ["IngestionPipeline", "Analyzer", "CanonKeeper"],
+    "mongodb_delete_knowledge_pack": ["CanonKeeper"],
+    "mongodb_apply_knowledge_pack": ["CanonKeeper", "IngestionPipeline"],
+    # Runtime artifacts activated from accepted KnowledgePack proposals.
+    "mongodb_create_random_table": ["CanonKeeper"],
+    "mongodb_get_random_table": ["*"],
+    "mongodb_list_random_tables": ["*"],
+    "mongodb_update_random_table": ["CanonKeeper"],
+    "mongodb_delete_random_table": ["CanonKeeper"],
+    "mongodb_roll_on_table": ["*"],
+    "mongodb_create_entity_template": ["CanonKeeper"],
+    "mongodb_get_entity_template": ["*"],
+    "mongodb_list_entity_templates": ["*"],
+    "mongodb_update_entity_template": ["CanonKeeper"],
+    "mongodb_delete_entity_template": ["CanonKeeper"],
+    "mongodb_increment_template_usage": ["CanonKeeper", "Narrator"],
+    "mongodb_create_tone_profile": ["CanonKeeper"],
+    "mongodb_get_tone_profile": ["*"],
+    "mongodb_get_tone_profiles_batch": ["*"],
+    "mongodb_list_tone_profiles": ["*"],
+    "mongodb_update_tone_profile": ["CanonKeeper"],
+    "mongodb_delete_tone_profile": ["CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Tone Libraries
+    # =========================================================================
+    "mongodb_create_tone_library": ["CanonKeeper"],
+    "mongodb_get_tone_library": ["*"],
+    "mongodb_get_default_tone_library": ["*"],
+    "mongodb_list_tone_libraries": ["*"],
+    "mongodb_update_tone_library": ["CanonKeeper"],
+    "mongodb_delete_tone_library": ["CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Tag Definitions
+    # =========================================================================
+    "mongodb_create_tag_definition": ["CanonKeeper"],
+    "mongodb_get_tag_definition": ["*"],
+    "mongodb_list_tag_definitions": ["*"],
+    "mongodb_update_tag_definition": ["CanonKeeper"],
+    "mongodb_delete_tag_definition": ["CanonKeeper"],
+    "mongodb_normalize_tag": ["*"],
+    "mongodb_normalize_tags": ["*"],
+    "mongodb_suggest_tags": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Canon Verdicts (audit trail)
+    # =========================================================================
+    "mongodb_record_verdict": ["CanonKeeper"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Axioms
+    # =========================================================================
+    "neo4j_create_axiom": ["CanonKeeper"],
+    "neo4j_get_axiom": ["*"],
+    "neo4j_list_axioms": ["*"],
+    "neo4j_update_axiom": ["CanonKeeper"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Entity lookup helpers
+    # =========================================================================
+    "neo4j_get_entities_by_names": ["*"],
+    "neo4j_get_entities_by_scene": ["*"],
+    "neo4j_get_scene_relevant_entities": ["*"],
+    "neo4j_get_entity_neighborhood": ["*"],
+    "neo4j_find_ranked_paths": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Snippets
+    # =========================================================================
+    "mongodb_create_snippets": ["Indexer"],
+    "mongodb_get_snippets": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Story Outlines
+    # =========================================================================
+    "mongodb_create_story_outline": ["WorldArchitect", "Narrator"],
+    "mongodb_get_story_outline": ["*"],
+    "mongodb_update_story_outline": ["WorldArchitect", "Narrator"],
+    # =========================================================================
+    # QDRANT OPERATIONS - Vectors (DL-10)
+    # =========================================================================
+    "qdrant_upsert": ["Indexer"],
+    "qdrant_upsert_batch": ["Indexer"],
+    "qdrant_search": ["*"],
+    "qdrant_delete": ["Indexer"],
+    "qdrant_delete_by_filter": ["Indexer"],
+    "qdrant_get_collection_info": ["*"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Parties (DL-15)
+    # =========================================================================
+    "neo4j_create_party": ["CanonKeeper"],
+    "neo4j_get_party": ["*"],
+    "neo4j_list_parties": ["*"],
+    "neo4j_add_party_member": ["CanonKeeper"],
+    "neo4j_remove_party_member": ["CanonKeeper"],
+    "neo4j_set_active_pc": ["CanonKeeper"],
+    "neo4j_update_party_status": ["CanonKeeper"],
+    "neo4j_update_party_location": ["CanonKeeper"],
+    "neo4j_update_party_formation": ["CanonKeeper"],
+    "neo4j_delete_party": ["CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Combat (DL-25)
+    # =========================================================================
+    "mongodb_create_combat": ["Resolver", "CanonKeeper"],
+    "mongodb_get_combat": ["*"],
+    "mongodb_list_combats": ["*"],
+    "mongodb_update_combat": ["Resolver", "CanonKeeper"],
+    "mongodb_delete_combat": ["CanonKeeper"],
+    "mongodb_add_combat_participant": ["Resolver", "CanonKeeper"],
+    "mongodb_update_combat_participant": ["Resolver", "CanonKeeper"],
+    "mongodb_remove_combat_participant": ["Resolver", "CanonKeeper"],
+    "mongodb_add_combat_log_entry": ["Resolver", "CanonKeeper"],
+    "mongodb_set_combat_outcome": ["Resolver", "CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Resolutions (DL-24)
+    # =========================================================================
+    "mongodb_create_resolution": ["Resolver", "CanonKeeper"],
+    "mongodb_get_resolution": ["*"],
+    "mongodb_list_resolutions": ["*"],
+    "mongodb_update_resolution": ["Resolver", "CanonKeeper"],
+    "mongodb_delete_resolution": ["CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Character Memories (DL-7)
+    # =========================================================================
+    "mongodb_create_memory": ["*"],
+    "mongodb_get_memory": ["*"],
+    "mongodb_list_memories": ["*"],
+    "mongodb_update_memory": ["*"],
+    "mongodb_delete_memory": ["*"],
+    # =========================================================================
+    # QDRANT OPERATIONS - Memory Embeddings (DL-7)
+    # =========================================================================
+    "qdrant_embed_memory": ["*"],
+    "qdrant_search_memories": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Party Inventory & Splits (DL-16)
+    # =========================================================================
+    "mongodb_create_party_inventory": ["CanonKeeper"],
+    "mongodb_get_party_inventory": ["*"],
+    "mongodb_add_inventory_item": ["CanonKeeper"],
+    "mongodb_remove_inventory_item": ["CanonKeeper"],
+    "mongodb_update_party_gold": ["CanonKeeper"],
+    "mongodb_transfer_item": ["CanonKeeper"],
+    "mongodb_create_party_split": ["CanonKeeper"],
+    "mongodb_get_active_splits": ["*"],
+    "mongodb_resolve_party_split": ["CanonKeeper"],
+    "mongodb_get_split_history": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Character Inventory (DL-16 completion)
+    # =========================================================================
+    "mongodb_create_character_inventory": ["CanonKeeper"],
+    "mongodb_get_character_inventory": ["*"],
+    "mongodb_resolve_character": ["*"],
+    "mongodb_verify_memory": ["*"],
+    "mongodb_add_character_item": ["CanonKeeper"],
+    "mongodb_remove_character_item": ["CanonKeeper"],
+    "mongodb_update_character_gold": ["CanonKeeper"],
+    "mongodb_equip_item": ["CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Lorebook (DL-28)
+    # =========================================================================
+    "mongodb_create_lorebook_entry": ["CanonKeeper", "Narrator", "IngestionPipeline"],
+    "mongodb_get_lorebook_entry": ["*"],
+    "mongodb_get_lorebook_entries": ["*"],
+    "mongodb_get_lorebook_entries_by_tags": ["*"],
+    "mongodb_list_lorebook_entries_by_ids": ["*"],
+    "mongodb_update_lorebook_entry": ["CanonKeeper", "Narrator"],
+    "mongodb_delete_lorebook_entry": ["CanonKeeper"],
+    "mongodb_inject_lorebook_entries": ["*"],
+    "mongodb_bulk_create_lorebook_entries": ["CanonKeeper", "IngestionPipeline"],
+    "mongodb_get_lorebook_stats": ["*"],
+    "mongodb_get_top_lorebook_entries": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Character Working State (DL-26)
+    # =========================================================================
+    "mongodb_create_working_state": ["CanonKeeper", "Resolver"],
+    "mongodb_get_working_state": ["*"],
+    "mongodb_list_working_states": ["*"],
+    "mongodb_update_working_state": ["CanonKeeper", "Resolver"],
+    "mongodb_add_modification": ["CanonKeeper", "Resolver"],
+    # =========================================================================
+    # COMPOSITE OPERATIONS
+    # =========================================================================
+    "composite_get_entity_full": ["*"],
+    "composite_get_scene_context": ["*"],
+    # =========================================================================
+    # UTILITY OPERATIONS
+    # =========================================================================
+    "dice_roll": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - NPC Profiles
+    # =========================================================================
+    "mongodb_create_npc_profile": ["NPCVoice", "Narrator", "CanonKeeper"],
+    "mongodb_get_npc_profile": ["*"],
+    "mongodb_update_npc_profile": ["NPCVoice", "Narrator", "CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Conversation Sessions (DL-20)
+    # =========================================================================
+    "mongodb_create_conversation": ["NPCVoice", "Narrator"],
+    "mongodb_get_conversation": ["*"],
+    "mongodb_append_conversation_turn": ["NPCVoice", "Narrator"],
+    "mongodb_update_conversation": ["NPCVoice"],
+    "mongodb_list_conversations": ["*"],
+}
+
+
+def check_authority(tool_name: str, agent_type: str) -> bool:
+    """
+    Check if an agent has authority to call a tool.
+
+    Args:
+        tool_name: Name of the tool being called
+        agent_type: Type of the calling agent (e.g., "CanonKeeper", "Narrator")
+
+    Returns:
+        True if agent has authority, False otherwise
+
+    Examples:
+        >>> check_authority("neo4j_create_universe", "CanonKeeper")
+        True
+        >>> check_authority("neo4j_create_universe", "Narrator")
+        False
+        >>> check_authority("neo4j_get_universe", "Narrator")
+        True
+    """
+    # If tool not in matrix, default to open access
+    if tool_name not in AUTHORITY_MATRIX:
+        return True
+
+    allowed_agents = AUTHORITY_MATRIX[tool_name]
+
+    # Empty list means no access (reserved/internal)
+    if not allowed_agents:
+        return False
+
+    # ["*"] means all agents allowed
+    if "*" in allowed_agents:
+        return True
+
+    # Check if agent_type is in the allowed list
+    return agent_type in allowed_agents
+
+
+def get_allowed_agents(tool_name: str) -> List[str]:
+    """
+    Get list of agents allowed to call a tool.
+
+    Args:
+        tool_name: Name of the tool
+
+    Returns:
+        List of allowed agent types, or ["*"] if open to all
+
+    Examples:
+        >>> get_allowed_agents("neo4j_create_universe")
+        ['CanonKeeper']
+        >>> get_allowed_agents("neo4j_get_universe")
+        ['*']
+    """
+    return AUTHORITY_MATRIX.get(tool_name, ["*"])
+
+
+class AuthorizationError(Exception):
+    """Raised when an agent attempts an unauthorized operation."""
+
+    def __init__(self, tool_name: str, agent_type: str, allowed_agents: List[str]):
+        self.tool_name = tool_name
+        self.agent_type = agent_type
+        self.allowed_agents = allowed_agents
+        super().__init__(
+            f"Agent '{agent_type}' is not authorized to call '{tool_name}'. "
+            f"Allowed agents: {', '.join(allowed_agents)}"
+        )
+
+
+def require_authority(tool_name: str, agent_type: str) -> None:
+    """
+    Enforce authority check, raising an exception if unauthorized.
+
+    Args:
+        tool_name: Name of the tool being called
+        agent_type: Type of the calling agent
+
+    Raises:
+        AuthorizationError: If agent lacks authority
+
+    Examples:
+        >>> require_authority("neo4j_create_universe", "CanonKeeper")  # OK
+        >>> require_authority("neo4j_create_universe", "Narrator")  # Raises
+        Traceback (most recent call last):
+            ...
+        AuthorizationError: Agent 'Narrator' is not authorized...
+    """
+    if not check_authority(tool_name, agent_type):
+        allowed = get_allowed_agents(tool_name)
+        raise AuthorizationError(tool_name, agent_type, allowed)

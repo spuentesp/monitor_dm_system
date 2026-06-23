@@ -1,0 +1,131 @@
+# =============================================================================
+# MONITOR Workspace Root
+# =============================================================================
+# uv workspace configuration for monorepo with 4 packages.
+# This file tells uv how to resolve local package dependencies.
+#
+# Usage:
+#   uv sync          — install all packages in workspace
+#   uv sync --package monitor-data-layer  — install specific package
+#
+# =============================================================================
+
+[project]
+name = "monitor-workspace"
+version = "0.1.0"
+description = "MONITOR — AI-powered TTRPG Game Master System"
+requires-python = ">=3.11"
+dependencies = [
+    "monitor-data-layer",
+    "monitor-agents",
+    "monitor-cli",
+    "monitor-ui-backend",
+    "testcontainers>=4.0",
+    "nest-asyncio>=1.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.21",
+    "pytest-mock>=3.12",
+    "mypy>=1.7",
+    "ruff>=0.1",
+    # Contract testing & property-based testing
+    "deal>=4.0.0,<4.25.0",
+    "hypothesis>=6.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.21",
+    "pytest-mock>=3.12",
+    "mypy>=1.7",
+    "ruff>=0.1",
+    # Contract testing & property-based testing
+    "deal>=4.0.0,<4.25.0",
+    "hypothesis>=6.0.0",
+    "pytest-cov>=7.1.0",
+    "pytest-timeout>=2.3",
+    "pytest-socket>=0.7",
+]
+
+[tool.uv.sources]
+monitor-data-layer = { workspace = true }
+monitor-agents = { workspace = true }
+monitor-cli = { workspace = true }
+monitor-ui-backend = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "packages/data-layer",
+    "packages/agents",
+    "packages/cli",
+    "packages/ui/backend",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+    "aiobotocore.*",
+    "asyncpg.*",
+    "bs4.*",
+    "docx.*",
+    "dspy.*",
+    "ebooklib.*",
+    "fitz.*",
+    "gliner.*",
+    "spacy.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "monitor_agents.base",
+    "monitor_data.db.embeddings",
+    "monitor_data.db.minio",
+    "monitor_data.db.neo4j",
+    "monitor_data.db.postgres",
+    "monitor_data.db.qdrant",
+    "monitor_data.server",
+]
+disable_error_code = ["no-untyped-call", "untyped-decorator"]
+
+[[tool.mypy.overrides]]
+module = [
+    "monitor_data.db.mongodb",
+]
+disable_error_code = ["type-arg", "untyped-decorator"]
+
+[[tool.mypy.overrides]]
+module = [
+    "monitor_data.tools.ingest_tools._chunking",
+    "monitor_data.tools.ingest_tools.multi_format",
+    "monitor_data.tools.ingest_tools.pdf_processing",
+]
+disable_error_code = ["type-arg"]
+
+[[tool.mypy.overrides]]
+module = [
+    "monitor_agents.dspy_runtime",
+    "monitor_agents.loops.character_creation_loop",
+    "monitor_agents.loops.conversation_loop",
+    "monitor_agents.loops.scene_loop",
+    "monitor_agents.loops.story_loop",
+    "monitor_agents.loops.world_building_loop",
+    "monitor_agents.prompts.*",
+]
+disable_error_code = [
+    "attr-defined",
+    "call-overload",
+    "misc",
+    "no-any-return",
+    "no-untyped-call",
+    "no-untyped-def",
+    "type-arg",
+]

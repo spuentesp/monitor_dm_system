@@ -1,0 +1,60 @@
+name: Nightly Integration
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen || uv sync
+
+      - name: Prepare environment file
+        run: |
+          cp env.example .env
+          cp env.example infra/.env || true
+
+      - name: Start data services
+        run: |
+          docker compose --env-file .env -f infra/docker-compose.yml up -d \
+            neo4j mongodb qdrant minio redis postgres
+          # Wait for health
+          for i in $(seq 1 30); do
+            unhealthy=$(docker ps --format '{{.Names}} {{.Status}}' | grep -cE 'starting|unhealthy' || true)
+            [ "$unhealthy" = "0" ] && break
+            sleep 10
+          done
+          docker ps --format '{{.Names}}: {{.Status}}'
+
+      - name: Integration tests
+        env:
+          RUN_INTEGRATION: "1"
+        run: uv run pytest packages tests -q -m integration --tb=short
+
+      - name: E2E smoke
+        env:
+          RUN_E2E: "1"
+        # The honest smoke (FINAL_FABLE T-027); tolerate absence until it lands
+        run: |
+          if [ -f scripts/live_gameplay_smoke.py ]; then
+            uv run python scripts/live_gameplay_smoke.py || exit 1
+          fi
+
+      - name: Frontend page smokes (Playwright)
+        working-directory: packages/ui/frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          NEXT_PUBLIC_API_URL=http://localhost:8001 npm run build
+          npx playwright test
+
+      - name: Teardown
+        if: always()
+        run: docker compose --env-file .env -f infra/docker-compose.yml down -v

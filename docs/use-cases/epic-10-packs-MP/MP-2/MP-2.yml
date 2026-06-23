@@ -1,0 +1,42 @@
+id: "MP-2"
+title: "Import Pack from File"
+category: "packs"
+epic: 10
+priority: "medium"
+status: "in-progress"
+
+summary: |
+  Load a .monitorpack file (JSON) from disk into the local pack library. The
+  system validates the schema version, reads all embedded content, and creates
+  a KnowledgePack document. PDFs and binary sources are NOT bundled in the
+  file; only structured content and source_ids references are imported.
+
+acceptance_criteria:
+  - ".monitorpack is a JSON envelope: {schema_version, exported_at, pack}"
+  - "Pack contents are fully validated against KnowledgePack schema before import"
+  - "Invalid schema_version shows a clear user-facing error"
+  - "Pack appears in the library with a new UUID (original IDs are preserved in parent_pack_ids if set)"
+  - "Unit tests: valid import, version mismatch, malformed JSON"
+
+depends_on:
+  - "MP-3"  # Defines the .monitorpack file format
+
+blocks:
+  - "MP-4"
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/tools/pack_tools.py"
+    modify:
+      - "packages/ui/backend/src/"
+      - "packages/ui/frontend/src/app/forge/page.tsx"
+
+  notes: |
+    File format (.monitorpack):
+      schema_version: "1.0"
+      exported_at: ISO-8601 timestamp
+      pack: full KnowledgePack dict (minus binary blobs)
+    Validation should reject future schema_version values gracefully.

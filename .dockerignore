@@ -1,0 +1,49 @@
+# Exclude heavy/irrelevant directories from Docker build context
+# (build context is repo root due to multi-package Dockerfiles)
+
+# Python artifacts
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.venv/
+**/.venv/
+**/*.egg-info/
+**/dist/
+**/build/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# Node artifacts
+**/node_modules/
+**/.next/
+**/out/
+**/.turbo/
+
+# Infra data (DB volumes — socket files cause stat errors)
+infra/mongodb/data/
+infra/neo4j/data/
+infra/neo4j/logs/
+infra/neo4j/import/
+infra/neo4j/plugins/
+infra/qdrant/storage/
+infra/minio/data/
+infra/opensearch/data/
+infra/postgres/data/
+
+# Test artefacts & logs
+**/*.log
+**/logs/
+llm_calls.log
+
+# Version control
+.git/
+.github/
+
+# IDE
+.vscode/
+.idea/
+
+# Secrets
+.env
+**/.env.local

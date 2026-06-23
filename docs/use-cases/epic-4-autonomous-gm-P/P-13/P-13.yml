@@ -1,0 +1,25 @@
+# P-13: Party Management
+# ======================
+
+id: "P-13"
+title: "Party Management"
+category: "play"
+epic: 1
+priority: "medium"
+status: "done"
+
+summary: |
+  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+
+acceptance_criteria:
+  - "TBD"
+
+depends_on: []
+blocks: []
+
+implementation:
+  layer: 2
+  files:
+    create: []
+    modify: []
+  patterns: []

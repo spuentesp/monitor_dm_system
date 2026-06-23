@@ -1,0 +1,41 @@
+# P-21: Downtime & Character Progression
+# ======================================
+
+id: "P-21"
+title: "Downtime & Character Progression"
+category: "play"
+epic: 1
+priority: "high"
+status: "in-progress"
+
+summary: |
+  Introduces a macro-loop phase for downtime activities and character progression.
+  When a story arc reaches 'resolution' or a scene is designated as 'rest/downtime',
+  the system offers progression options (spending XP, leveling up, training skills)
+  based on the active GameSystemRuntime. It applies persistent changes to the
+  character's base stats in Neo4j (via CanonKeeper).
+
+acceptance_criteria:
+  - "System detects completion of milestones or dedicated downtime scenes."
+  - "Presents a progression UI or narrative prompt (e.g., 'You have 3 XP. Spend them?')."
+  - "Validates progression choices against Game System rules (DL-20)."
+  - "Commits changes to canonical entity properties in Neo4j."
+
+depends_on:
+  - "DL-20"  # Game Systems
+  - "DL-2"   # Entity schemas
+
+blocks:
+  - "Long-term campaign viability"
+
+implementation:
+  layer: 2
+  files:
+    create:
+      - "packages/agents/src/monitor_agents/loops/progression_loop.py"
+    modify:
+      - "packages/agents/src/monitor_agents/loops/story_loop.py"
+
+  patterns:
+    - "Trigger progression loop when StoryLoop arc_label is 'resolution' or explicit downtime."
+    - "Use GameSystemRuntime to map available upgrades and costs."

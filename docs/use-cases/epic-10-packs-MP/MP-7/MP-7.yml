@@ -1,0 +1,45 @@
+id: "MP-7"
+title: "Apply Pack → New World"
+category: "packs"
+epic: 10
+priority: "high"
+status: "in-progress"
+
+summary: |
+  Instantiate a pack into a brand-new world. Creates a Multiverse and Universe
+  record in Neo4j, then commits all pack items directly to canon with no
+  conflict detection (the world is empty). An apply record is appended to
+  pack.apply_history.
+
+acceptance_criteria:
+  - "User selects a pack and chooses 'Apply → New World'"
+  - "User provides a world name; Multiverse + Universe created in Neo4j"
+  - "All entities, lore, axioms committed to the new universe via CanonKeeper"
+  - "apply_history entry appended: {pack_id, universe_id, mode:'new_world', applied_at, items_written}"
+  - "User is redirected to the new universe detail page on success"
+  - "Unit tests cover apply with entity-only pack and full mixed pack"
+
+depends_on:
+  - "MP-5"  # or MP-6 — pack must be saved first
+
+blocks:
+  - "MP-8"  # Existing-world apply builds on the same infrastructure
+
+implementation:
+  layer: 2
+
+  files:
+    create:
+      - "packages/agents/src/monitor_agents/pack_apply.py"
+    modify:
+      - "packages/agents/src/monitor_agents/canonkeeper.py"
+      - "packages/data-layer/src/monitor_data/tools/pack_tools.py"
+      - "packages/ui/backend/src/"
+
+  notes: |
+    CanonKeeper authority:
+      apply_pack_to_new_world is gated to CanonKeeper only.
+    PackApplySession dataclass:
+      id, pack_id, target_universe_id, mode, auto_commit_llm,
+      conflicts, status, applied_at, items_written
+    mode = "new_world" for this use case.

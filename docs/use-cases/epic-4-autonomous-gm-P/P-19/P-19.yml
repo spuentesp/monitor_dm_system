@@ -1,0 +1,40 @@
+# P-19: Procedural Scene Population
+# =================================
+
+id: "P-19"
+title: "Procedural Scene Population"
+category: "play"
+epic: 1
+priority: "high"
+status: "in-progress"
+
+summary: |
+  Automates the generation of scene contents when transitioning to a new or unexplored
+  location during solo play. Instead of the Narrator improvising empty spaces,
+  the system invokes a WorldArchitect step during scene initialization (transition_scene)
+  that rolls on Random Tables (DL-21) to seed NPCs, loot, hazards, and features
+  into the new scene context before the player's first turn.
+
+acceptance_criteria:
+  - "Scene initialization triggers a procedural generation step if location is new/unpopulated."
+  - "System pulls appropriate DL-21 Random Tables (encounters, features, loot) based on location type."
+  - "Procedurally generated entities are staged as temporary or canonized immediately."
+  - "Narrator describes the procedurally generated elements in the opening prompt."
+
+depends_on:
+  - "DL-21"  # Manage Random Tables
+  - "P-2"    # Start Scene
+
+blocks:
+  - "True solo discovery"
+
+implementation:
+  layer: 2
+  files:
+    modify:
+      - "packages/agents/src/monitor_agents/loops/story_loop.py"
+      - "packages/agents/src/monitor_agents/world_architect.py"
+
+  patterns:
+    - "Inject WorldArchitect step into StoryLoop.transition_scene."
+    - "Convert table rolls into Entity creation proposals."

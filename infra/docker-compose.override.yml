@@ -1,0 +1,65 @@
+# =============================================================================
+# MONITOR — Docker Compose Override for DEVELOPMENT
+# =============================================================================
+# This file is auto-merged with docker-compose.yml by Docker Compose.
+# It optimizes containers for local dev: lighter memory, faster starts,
+# and exposed debug ports.
+#
+# Usage:
+#   docker compose --env-file .env -f infra/docker-compose.yml up -d
+#   (override is auto-merged when placed in the same directory)
+# =============================================================================
+
+services:
+  neo4j:
+    environment:
+      # Lower memory for dev laptops (4-8GB RAM); Neo4j 5.x setting names
+      # (dbms.memory.* is deprecated). Healthcheck inherited from base compose.
+      - NEO4J_server_memory_heap_initial__size=256m
+      - NEO4J_server_memory_heap_max__size=512m
+      - NEO4J_server_memory_pagecache_size=256m
+
+  opensearch:
+    environment:
+      # Lower memory for dev
+      - OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx256m
+
+  # ── DEV-ONLY: Admin tools ────────────────────────────────────────────────
+
+  # Mongo Express — quick MongoDB browser UI
+  mongo-express:
+    image: mongo-express:latest
+    container_name: monitor-mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=mongodb
+      - ME_CONFIG_MONGODB_PORT=27017
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=monitor
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGODB_PASSWORD}
+      - ME_CONFIG_BASICAUTH=false
+    depends_on:
+      - mongodb
+    networks:
+      - monitor-network
+    profiles:
+      - admin
+
+  # pgAdmin — PostgreSQL browser UI
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: monitor-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@monitor.dev
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    depends_on:
+      - postgres
+    networks:
+      - monitor-network
+    profiles:
+      - admin
+
+  # gliner is opt-in via `--profile gliner` (defined in base compose); spaCy is
+  # the default NLP backend, so no stub service is needed here.

@@ -1,0 +1,22 @@
+{
+  "generated_at": "2026-06-14T07:37:14.002480+00:00",
+  "session_id": "3bb805d2-caa2-48fd-9d9a-373dbc3f4a76",
+  "judge_model": "gemini/gemini-2.5-flash",
+  "gm_turns": 6,
+  "scores": {
+    "canon_consistency": 5,
+    "continuity": 5,
+    "contradiction_freeness": 5,
+    "pacing": 5,
+    "player_agency": 5
+  },
+  "average": 5.0,
+  "justification": "The GM demonstrates exceptional skill, building a rich, consistent canon on the fly while maintaining perfect continuity and internal consistency. Pacing is masterfully handled, escalating tension from atmospheric dread to direct confrontation. Crucially, every player action is honored and directly shapes the unfolding narrative, showcasing excellent player agency.",
+  "rubric": {
+    "canon_consistency": "Does the GM respect established canon (named NPCs, places, axioms) without inventing contradictions?",
+    "continuity": "Does each turn build on prior turns rather than resetting or forgetting?",
+    "contradiction_freeness": "Is the narrative internally consistent (no self-contradiction across turns)?",
+    "pacing": "Does tension build sensibly \u2014 neither stalling nor rushing to resolution?",
+    "player_agency": "Does the GM honor the player's stated actions instead of railroading or ignoring them?"
+  }
+}

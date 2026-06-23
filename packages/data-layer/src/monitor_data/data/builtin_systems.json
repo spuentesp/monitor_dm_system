@@ -1,0 +1,3566 @@
+[
+  {
+    "name": "D&D 5e",
+    "description": "Fifth Edition Dungeons & Dragons - d20 System with ability scores, skills, and class-based progression",
+    "version": "5th Edition",
+    "core_mechanic": {
+      "type": "d20",
+      "formula": "1d20 + modifiers vs DC",
+      "success_type": "meet_or_beat",
+      "success_threshold": "Roll meets or beats target DC",
+      "critical_success": "Natural 20 on attack rolls",
+      "critical_failure": "Natural 1 on attack rolls"
+    },
+    "attributes": [
+      {
+        "name": "Strength",
+        "abbreviation": "STR",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Dexterity",
+        "abbreviation": "DEX",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Constitution",
+        "abbreviation": "CON",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Intelligence",
+        "abbreviation": "INT",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Wisdom",
+        "abbreviation": "WIS",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Charisma",
+        "abbreviation": "CHA",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      }
+    ],
+    "skills": [
+      {
+        "name": "Acrobatics",
+        "abbreviation": "Acr",
+        "linked_attribute": "Dexterity",
+        "description": "Balance, tumbling, aerial maneuvers"
+      },
+      {
+        "name": "Animal Handling",
+        "abbreviation": "AnH",
+        "linked_attribute": "Wisdom",
+        "description": "Calm or train animals"
+      },
+      {
+        "name": "Arcana",
+        "abbreviation": "Arc",
+        "linked_attribute": "Intelligence",
+        "description": "Recall lore about spells, magic items, symbols"
+      },
+      {
+        "name": "Athletics",
+        "abbreviation": "Ath",
+        "linked_attribute": "Strength",
+        "description": "Climbing, jumping, swimming"
+      },
+      {
+        "name": "Deception",
+        "abbreviation": "Dec",
+        "linked_attribute": "Charisma",
+        "description": "Hide the truth verbally or through actions"
+      },
+      {
+        "name": "History",
+        "abbreviation": "His",
+        "linked_attribute": "Intelligence",
+        "description": "Recall lore about historical events"
+      },
+      {
+        "name": "Insight",
+        "abbreviation": "Ins",
+        "linked_attribute": "Wisdom",
+        "description": "Determine true intentions of a creature"
+      },
+      {
+        "name": "Intimidation",
+        "abbreviation": "Itm",
+        "linked_attribute": "Charisma",
+        "description": "Influence through threats or hostile actions"
+      },
+      {
+        "name": "Investigation",
+        "abbreviation": "Inv",
+        "linked_attribute": "Intelligence",
+        "description": "Find clues and make deductions"
+      },
+      {
+        "name": "Medicine",
+        "abbreviation": "Med",
+        "linked_attribute": "Wisdom",
+        "description": "Stabilize or diagnose ailments"
+      },
+      {
+        "name": "Nature",
+        "abbreviation": "Nat",
+        "linked_attribute": "Intelligence",
+        "description": "Recall lore about terrain, plants, animals, weather"
+      },
+      {
+        "name": "Perception",
+        "abbreviation": "Per",
+        "linked_attribute": "Wisdom",
+        "description": "Spot, hear, or detect something"
+      },
+      {
+        "name": "Performance",
+        "abbreviation": "Prf",
+        "linked_attribute": "Charisma",
+        "description": "Delight an audience with music, dance, or acting"
+      },
+      {
+        "name": "Persuasion",
+        "abbreviation": "Prs",
+        "linked_attribute": "Charisma",
+        "description": "Influence with tact, grace, or good nature"
+      },
+      {
+        "name": "Religion",
+        "abbreviation": "Rel",
+        "linked_attribute": "Intelligence",
+        "description": "Recall lore about deities, rites, prayers"
+      },
+      {
+        "name": "Sleight of Hand",
+        "abbreviation": "SoH",
+        "linked_attribute": "Dexterity",
+        "description": "Pickpocketing, concealing objects"
+      },
+      {
+        "name": "Stealth",
+        "abbreviation": "Ste",
+        "linked_attribute": "Dexterity",
+        "description": "Conceal yourself from enemies"
+      },
+      {
+        "name": "Survival",
+        "abbreviation": "Sur",
+        "linked_attribute": "Wisdom",
+        "description": "Track, hunt, navigate wilderness"
+      }
+    ],
+    "resources": [
+      {
+        "name": "Hit Points",
+        "abbreviation": "HP",
+        "calculation": "class_hit_die + CON_modifier",
+        "min_value": 0,
+        "recovers_on": "long rest"
+      },
+      {
+        "name": "Armor Class",
+        "abbreviation": "AC",
+        "calculation": "10 + DEX_modifier + armor_bonus",
+        "min_value": 1,
+        "recovers_on": null
+      }
+    ],
+    "custom_dice": {},
+    "tracks": [],
+    "tiered_ability_systems": [],
+    "advantages": [
+      {
+        "name": "Alert",
+        "cost": 0,
+        "category": "feat",
+        "effect": "You gain a +5 bonus to initiative. You can't be surprised while conscious.",
+        "prerequisites": [],
+        "tags": [
+          "feat",
+          "general"
+        ]
+      },
+      {
+        "name": "Great Weapon Master",
+        "cost": 0,
+        "category": "feat",
+        "effect": "On crit or reducing a creature to 0 HP with a melee weapon, make one extra melee attack as a bonus action. You can choose to take a -5 penalty to attack roll to add +10 to damage.",
+        "prerequisites": [],
+        "tags": [
+          "feat",
+          "combat"
+        ]
+      }
+    ],
+    "damage_model": {
+      "damage_types": [
+        {
+          "name": "Hit Point Damage",
+          "healing_rate": "varies",
+          "healing_requires": "magic or rest",
+          "resisted_by": null,
+          "lethality": "normal",
+          "bypasses": []
+        }
+      ],
+      "damage_track": "HP",
+      "incapacitated_at": "0",
+      "death_condition": "fails 3 death saves"
+    },
+    "conditions": [
+      {
+        "name": "Blinded",
+        "trigger": "affected by blinding effect",
+        "mechanical_effects": [
+          "Auto-fail sight checks.",
+          "Attacks have disadvantage; attacks against you have advantage."
+        ],
+        "ends_when": "effect expires or is removed",
+        "stackable": false
+      },
+      {
+        "name": "Charmed",
+        "trigger": "affected by charm effect",
+        "mechanical_effects": [
+          "Can't attack the charmer.",
+          "Charmer has advantage on social checks against you."
+        ],
+        "ends_when": "effect expires or charmer harms you",
+        "stackable": false
+      },
+      {
+        "name": "Frightened",
+        "trigger": "affected by fear effect",
+        "mechanical_effects": [
+          "Disadvantage on checks and attacks while you can see the source of fear.",
+          "Can't willingly move closer."
+        ],
+        "ends_when": "effect expires or you can't see the source",
+        "stackable": false
+      },
+      {
+        "name": "Grappled",
+        "trigger": "grappled by a creature",
+        "mechanical_effects": [
+          "Speed becomes 0.",
+          "Ends if grappler is incapacitated or effect removes you."
+        ],
+        "ends_when": "grappler releases or is incapacitated",
+        "stackable": false
+      },
+      {
+        "name": "Incapacitated",
+        "trigger": "HP drops to 0 or specific effect",
+        "mechanical_effects": [
+          "Can't take actions or reactions."
+        ],
+        "ends_when": "HP restored above 0 or effect ends",
+        "stackable": false
+      },
+      {
+        "name": "Poisoned",
+        "trigger": "affected by poison",
+        "mechanical_effects": [
+          "Disadvantage on attack rolls and ability checks."
+        ],
+        "ends_when": "poison duration expires or is cured",
+        "stackable": false
+      },
+      {
+        "name": "Prone",
+        "trigger": "knocked down or drop to 0 HP",
+        "mechanical_effects": [
+          "Disadvantage on attacks.",
+          "Melee attacks against you have advantage; ranged attacks have disadvantage."
+        ],
+        "ends_when": "spend half movement to stand up",
+        "stackable": false
+      },
+      {
+        "name": "Stunned",
+        "trigger": "affected by stun effect",
+        "mechanical_effects": [
+          "Incapacitated, can't move, speak falteringly.",
+          "Auto-fail STR and DEX saves.",
+          "Attacks against you have advantage."
+        ],
+        "ends_when": "effect expires",
+        "stackable": false
+      },
+      {
+        "name": "Unconscious",
+        "trigger": "HP drops to 0",
+        "mechanical_effects": [
+          "Incapacitated, can't move or speak.",
+          "Auto-fail STR and DEX saves.",
+          "Attacks within 5ft are auto-crit.",
+          "Drop prone."
+        ],
+        "ends_when": "HP restored or stabilized",
+        "stackable": false
+      }
+    ],
+    "action_economy": {
+      "action_types": [
+        {
+          "name": "Action",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "attack",
+            "cast spell",
+            "dash",
+            "disengage",
+            "dodge",
+            "help",
+            "hide",
+            "ready",
+            "search",
+            "use object"
+          ],
+          "triggers_on": "your turn"
+        },
+        {
+          "name": "Bonus Action",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "class feature",
+            "spell (bonus action casting time)",
+            "two-weapon fighting"
+          ],
+          "triggers_on": "your turn"
+        },
+        {
+          "name": "Reaction",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "attack of opportunity",
+            "spell (reaction casting time)",
+            "class feature"
+          ],
+          "triggers_on": "trigger condition met"
+        },
+        {
+          "name": "Movement",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "walk",
+            "climb",
+            "swim",
+            "fly"
+          ],
+          "triggers_on": "your turn"
+        }
+      ],
+      "turn_structure": "Each creature takes one turn per round in initiative order.",
+      "initiative_model": "1d20 + DEX modifier, highest goes first",
+      "surprise_rules": "Creatures that fail to notice enemies are surprised and can't act or react on first turn."
+    },
+    "resolution_mechanics": [
+      {
+        "dice_formula": "1d20 + proficiency + ability modifier",
+        "mechanic_type": "d20",
+        "difficulty_model": "DC set by GM or table",
+        "difficulty_range": "trivial: 5, easy: 10, medium: 15, hard: 20, very_hard: 25, nearly_impossible: 30",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "failure",
+            "effect": "Action fails"
+          },
+          {
+            "threshold": "1",
+            "label": "success",
+            "effect": "Action succeeds"
+          }
+        ],
+        "success_type": "meet_or_beat",
+        "critical_success": "Natural 20 is not an automatic success on ability checks (only on attacks), but many tables play it that way.",
+        "critical_failure": "Natural 1 is not an automatic failure on ability checks, but many tables play it that way."
+      },
+      {
+        "dice_formula": "1d20 + proficiency + ability modifier vs AC",
+        "mechanic_type": "d20",
+        "difficulty_model": "target Armor Class",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "miss",
+            "effect": "No damage"
+          },
+          {
+            "threshold": "1",
+            "label": "hit",
+            "effect": "Roll damage"
+          },
+          {
+            "threshold": "20",
+            "label": "critical",
+            "effect": "Double damage dice"
+          }
+        ],
+        "success_type": "meet_or_beat",
+        "critical_success": "Natural 20 always hits and doubles damage dice.",
+        "critical_failure": "Natural 1 always misses."
+      },
+      {
+        "dice_formula": "1d20 + proficiency + ability modifier vs DC",
+        "mechanic_type": "d20",
+        "difficulty_model": "DC set by effect",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "fail",
+            "effect": "Full effect"
+          },
+          {
+            "threshold": "1",
+            "label": "success",
+            "effect": "Reduced or no effect"
+          }
+        ],
+        "success_type": "meet_or_beat"
+      }
+    ],
+    "advancement_model": {
+      "currencies": [
+        {
+          "name": "Experience Points",
+          "earn_conditions": [
+            "defeating monsters",
+            "completing objectives",
+            "GM award"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "target_type": "level",
+          "target_name": "Character Level",
+          "cost_formula": "XP threshold per level",
+          "prerequisites": [],
+          "max_purchases": 20
+        }
+      ],
+      "uses_levels": true,
+      "max_level": 20,
+      "progression_table": [
+        {
+          "level": 1,
+          "xp_required": 0,
+          "proficiency_bonus": 2
+        },
+        {
+          "level": 2,
+          "xp_required": 300,
+          "proficiency_bonus": 2
+        },
+        {
+          "level": 3,
+          "xp_required": 900,
+          "proficiency_bonus": 2
+        },
+        {
+          "level": 4,
+          "xp_required": 2700,
+          "proficiency_bonus": 2
+        },
+        {
+          "level": 5,
+          "xp_required": 6500,
+          "proficiency_bonus": 3
+        },
+        {
+          "level": 6,
+          "xp_required": 14000,
+          "proficiency_bonus": 3
+        },
+        {
+          "level": 7,
+          "xp_required": 23000,
+          "proficiency_bonus": 3
+        },
+        {
+          "level": 8,
+          "xp_required": 34000,
+          "proficiency_bonus": 3
+        },
+        {
+          "level": 9,
+          "xp_required": 48000,
+          "proficiency_bonus": 4
+        },
+        {
+          "level": 10,
+          "xp_required": 64000,
+          "proficiency_bonus": 4
+        },
+        {
+          "level": 11,
+          "xp_required": 85000,
+          "proficiency_bonus": 4
+        },
+        {
+          "level": 12,
+          "xp_required": 100000,
+          "proficiency_bonus": 4
+        },
+        {
+          "level": 13,
+          "xp_required": 120000,
+          "proficiency_bonus": 5
+        },
+        {
+          "level": 14,
+          "xp_required": 140000,
+          "proficiency_bonus": 5
+        },
+        {
+          "level": 15,
+          "xp_required": 165000,
+          "proficiency_bonus": 5
+        },
+        {
+          "level": 16,
+          "xp_required": 195000,
+          "proficiency_bonus": 5
+        },
+        {
+          "level": 17,
+          "xp_required": 225000,
+          "proficiency_bonus": 6
+        },
+        {
+          "level": 18,
+          "xp_required": 265000,
+          "proficiency_bonus": 6
+        },
+        {
+          "level": 19,
+          "xp_required": 305000,
+          "proficiency_bonus": 6
+        },
+        {
+          "level": 20,
+          "xp_required": 355000,
+          "proficiency_bonus": 6
+        }
+      ]
+    },
+    "recovery_model": {
+      "events": [
+        {
+          "name": "Long Rest",
+          "duration": "8 hours",
+          "restores": [
+            "Hit Points: full",
+            "Hit Dice: half_max"
+          ],
+          "requires": "safe environment, no strenuous activity",
+          "available_when": "once per 24 hours"
+        },
+        {
+          "name": "Short Rest",
+          "duration": "1 hour",
+          "restores": [
+            "Hit Points: hit_dice_spent"
+          ],
+          "requires": "restful activity",
+          "available_when": "any time"
+        },
+        {
+          "name": "Hit Dice Recovery",
+          "duration": "long rest",
+          "restores": [
+            "Hit Dice: half_max"
+          ],
+          "requires": "long rest",
+          "available_when": "long rest"
+        }
+      ]
+    },
+    "character_creation": {
+      "steps": [
+        {
+          "step_number": 1,
+          "step_type": "choose_species",
+          "title": "Choose Race/Species",
+          "instructions": "Pick a race (Human, Elf, Dwarf, Halfling, etc.) which determines your base attributes, speed, and racial traits.",
+          "is_optional": false,
+          "options": [
+            "Human",
+            "Elf",
+            "Dwarf",
+            "Halfling",
+            "Gnome",
+            "Half-Orc",
+            "Half-Elf",
+            "Tiefling",
+            "Dragonborn"
+          ],
+          "derived_stats": [
+            "speed",
+            "racial_traits"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 2,
+          "step_type": "choose_class",
+          "title": "Choose Class",
+          "instructions": "Pick a class (Fighter, Wizard, Rogue, Cleric, etc.) which determines your hit die, proficiencies, and class features.",
+          "is_optional": false,
+          "options": [
+            "Barbarian",
+            "Bard",
+            "Cleric",
+            "Druid",
+            "Fighter",
+            "Monk",
+            "Paladin",
+            "Ranger",
+            "Rogue",
+            "Sorcerer",
+            "Warlock",
+            "Wizard"
+          ],
+          "derived_stats": [
+            "hit_die",
+            "saving_throws",
+            "proficiencies"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 3,
+          "step_type": "generate_attributes",
+          "title": "Generate Ability Scores",
+          "instructions": "Roll 4d6 and keep the highest 3 for each ability, then assign to STR, DEX, CON, INT, WIS, CHA.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {
+            "roll": "4d6kh3"
+          }
+        },
+        {
+          "step_number": 4,
+          "step_type": "choose_background",
+          "title": "Choose Background",
+          "instructions": "Pick a background (Soldier, Sage, Criminal, etc.) for additional skill proficiencies and a feature.",
+          "is_optional": false,
+          "options": [
+            "Acolyte",
+            "Charlatan",
+            "Criminal",
+            "Entertainer",
+            "Folk Hero",
+            "Guild Artisan",
+            "Hermit",
+            "Noble",
+            "Outlander",
+            "Sage",
+            "Sailor",
+            "Soldier",
+            "Urchin"
+          ],
+          "derived_stats": [
+            "skill_proficiencies",
+            "languages",
+            "equipment"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 5,
+          "step_type": "choose_skills",
+          "title": "Choose Skill Proficiencies",
+          "instructions": "Pick skills from your class and background lists. You gain proficiency in a number of skills determined by your class.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "skill_proficiencies"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 6,
+          "step_type": "choose_equipment",
+          "title": "Choose Equipment",
+          "instructions": "Select starting equipment from your class and background packages.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "equipment",
+            "gold"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 7,
+          "step_type": "calculate_derived",
+          "title": "Calculate Derived Stats",
+          "instructions": "Calculate HP = hit_die + CON modifier. AC = 10 + DEX modifier + armor. Initiative = DEX modifier.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "HP",
+            "AC",
+            "initiative",
+            "proficiency_bonus"
+          ],
+          "formula_hints": {
+            "HP": "hit_die + CON_mod",
+            "AC": "10 + DEX_mod + armor",
+            "proficiency_bonus": "2"
+          }
+        },
+        {
+          "step_number": 8,
+          "step_type": "write_backstory",
+          "title": "Write Backstory",
+          "instructions": "Describe your character's personality, ideals, bonds, and flaws.",
+          "is_optional": true,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        }
+      ],
+      "ability_score_generation": {
+        "method": "random_roll",
+        "roll_formula": "4d6kh3",
+        "roll_count": 6,
+        "reroll_ones": false,
+        "min_score": 3,
+        "max_score": 20
+      },
+      "starting_packages": [
+        {
+          "class_or_archetype": "Fighter",
+          "items": [
+            "Chain Mail",
+            "Shield",
+            "Longsword",
+            "Handaxe",
+            "Light Crossbow"
+          ],
+          "gold": 5,
+          "resources": {
+            "HP_die": 0
+          },
+          "name": "Fighter Starting Package"
+        },
+        {
+          "class_or_archetype": "Wizard",
+          "items": [
+            "Quarterstaff",
+            "Arcane Focus",
+            "Spellbook"
+          ],
+          "gold": 10,
+          "resources": {
+            "HP_die": 0
+          },
+          "name": "Wizard Starting Package"
+        },
+        {
+          "class_or_archetype": "Rogue",
+          "items": [
+            "Leather Armor",
+            "Shortsword",
+            "Shortbow",
+            "Thieves' Tools"
+          ],
+          "gold": 10,
+          "resources": {
+            "HP_die": 0
+          },
+          "name": "Rogue Starting Package"
+        },
+        {
+          "class_or_archetype": "Cleric",
+          "items": [
+            "Chain Mail",
+            "Shield",
+            "Mace",
+            "Holy Symbol"
+          ],
+          "gold": 5,
+          "resources": {
+            "HP_die": 0
+          },
+          "name": "Cleric Starting Package"
+        }
+      ],
+      "backgrounds": [
+        {
+          "name": "Soldier",
+          "description": "You served in an army.",
+          "skill_proficiencies": [
+            "Athletics",
+            "Intimidation"
+          ],
+          "tool_proficiencies": [
+            "Land Vehicles"
+          ],
+          "languages": 1,
+          "equipment": [
+            "Insignia",
+            "trophy",
+            "deck of cards",
+            "common clothes",
+            "pouch with 10gp"
+          ],
+          "feature_name": "Military Rank",
+          "feature_description": "You still have rank from your military service."
+        },
+        {
+          "name": "Sage",
+          "description": "You spent years learning from scholars.",
+          "skill_proficiencies": [
+            "Arcana",
+            "History"
+          ],
+          "tool_proficiencies": [],
+          "languages": 1,
+          "equipment": [
+            "Bottle of ink",
+            "quill",
+            "small knife",
+            "letter from dead colleague",
+            "common clothes",
+            "pouch with 10gp"
+          ],
+          "feature_name": "Researcher",
+          "feature_description": "You know where to find information."
+        },
+        {
+          "name": "Criminal",
+          "description": "You have a criminal past.",
+          "skill_proficiencies": [
+            "Deception",
+            "Stealth"
+          ],
+          "tool_proficiencies": [
+            "Thieves' Tools",
+            "one gaming set"
+          ],
+          "languages": 1,
+          "equipment": [
+            "Crowbar",
+            "dark common clothes with hood",
+            "pouch with 15gp"
+          ],
+          "feature_name": "Criminal Contact",
+          "feature_description": "You have a contact who can smuggle items or information."
+        }
+      ],
+      "advancement": {
+        "method": "xp",
+        "max_level": 20,
+        "xp_per_session": 0,
+        "milestone_description": "GM may award level ups at story milestones"
+      }
+    },
+    "is_builtin": true
+  },
+  {
+    "name": "Fate Core",
+    "description": "Fate Core System - narrative-focused with aspects, fate points, and Fudge dice",
+    "version": "Core",
+    "core_mechanic": {
+      "type": "dice_pool",
+      "formula": "4dF + skill vs difficulty",
+      "success_type": "meet_or_beat",
+      "success_threshold": "Roll meets or beats difficulty (0-8 ladder)",
+      "critical_success": "Succeed with style (3+ shifts)",
+      "critical_failure": null
+    },
+    "attributes": [
+      {
+        "name": "Careful",
+        "abbreviation": "CAR",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Clever",
+        "abbreviation": "CLV",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Flashy",
+        "abbreviation": "FLS",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Forceful",
+        "abbreviation": "FOR",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Quick",
+        "abbreviation": "QCK",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Sneaky",
+        "abbreviation": "SNK",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      }
+    ],
+    "skills": [],
+    "resources": [
+      {
+        "name": "Fate Points",
+        "abbreviation": "FP",
+        "calculation": "refresh_rate",
+        "min_value": 0,
+        "recovers_on": "session start"
+      },
+      {
+        "name": "Stress",
+        "abbreviation": "STR",
+        "calculation": "varies by approach",
+        "min_value": 0,
+        "recovers_on": "scene end"
+      }
+    ],
+    "custom_dice": {
+      "fudge_die": {
+        "sides": 3,
+        "values": [
+          -1,
+          0,
+          1
+        ],
+        "notation": "dF"
+      }
+    },
+    "is_builtin": true
+  },
+  {
+    "name": "Powered by the Apocalypse",
+    "description": "PbtA framework - 2d6+stat with partial success mechanics and fictional positioning",
+    "version": "Generic",
+    "core_mechanic": {
+      "type": "dice_pool",
+      "formula": "2d6 + stat",
+      "success_type": "meet_or_beat",
+      "success_threshold": "10+ full success, 7-9 partial success, 6- failure",
+      "critical_success": "12+ is often a critical/special success",
+      "critical_failure": null
+    },
+    "attributes": [
+      {
+        "name": "Cool",
+        "abbreviation": "CL",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Hard",
+        "abbreviation": "HD",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Hot",
+        "abbreviation": "HT",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Sharp",
+        "abbreviation": "SH",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Weird",
+        "abbreviation": "WD",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      }
+    ],
+    "skills": [],
+    "resources": [
+      {
+        "name": "Harm",
+        "abbreviation": "HRM",
+        "calculation": "static",
+        "min_value": 0,
+        "recovers_on": "downtime/medical attention"
+      },
+      {
+        "name": "Experience",
+        "abbreviation": "XP",
+        "calculation": "static",
+        "min_value": 0,
+        "recovers_on": null
+      }
+    ],
+    "custom_dice": {},
+    "is_builtin": true
+  },
+  {
+    "name": "Narrative Pure",
+    "description": "Pure fiction-first play. Players describe intent, the GM answers with consequences, and the story moves without dice unless the table explicitly wants an oracle.",
+    "version": "1.0",
+    "core_mechanic": {
+      "type": "narrative",
+      "formula": "No roll \u2014 resolve by fiction, stakes, and consequences",
+      "success_type": "highest_wins",
+      "success_threshold": "If the action fits the fiction, it happens; if it is risky, the GM answers with a cost, complication, or hard choice",
+      "critical_success": "A particularly strong fictional setup earns extra momentum or a clean advantage",
+      "critical_failure": null
+    },
+    "attributes": [],
+    "skills": [],
+    "resources": [
+      {
+        "name": "Resolve",
+        "abbreviation": "RES",
+        "calculation": "3",
+        "min_value": 0,
+        "recovers_on": "scene end"
+      },
+      {
+        "name": "Momentum",
+        "abbreviation": "MOM",
+        "calculation": "2",
+        "min_value": 0,
+        "recovers_on": "session start"
+      }
+    ],
+    "custom_dice": {
+      "oracle": {
+        "description": "Optional yes/no oracle if the table wants outside pressure",
+        "outcomes": {
+          "yes_and": "Yes, and the fiction tilts strongly in the player's favor",
+          "yes": "Yes, as expected",
+          "yes_but": "Yes, but a cost or complication follows",
+          "no_but": "No, but there is an opening or consolation",
+          "no": "No, the obstacle stands",
+          "no_and": "No, and the situation worsens"
+        }
+      }
+    },
+    "rules": [
+      {
+        "name": "Fiction First",
+        "rule_type": "mechanic",
+        "description": "Players state what they do in the fiction. If nothing meaningfully opposes them, it simply happens. If there is danger, uncertainty, or cost, the GM responds with a consequence instead of asking for a roll.",
+        "formula": null,
+        "applies_to_subject": "character",
+        "tags": [
+          "narrative",
+          "fiction-first"
+        ]
+      },
+      {
+        "name": "Consequences Drive Play",
+        "rule_type": "mechanic",
+        "description": "Failure is not a dead stop. The GM advances the fiction with harm, exposure, delay, lost resources, or a worse bargain.",
+        "formula": null,
+        "applies_to_subject": "any",
+        "tags": [
+          "consequence",
+          "pacing"
+        ]
+      }
+    ],
+    "character_creation": {
+      "steps": [
+        {
+          "step_number": 1,
+          "step_type": "custom",
+          "title": "Name your concept",
+          "instructions": "Describe who you are, what you want, and what usually gets you into trouble.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 2,
+          "step_type": "write_backstory",
+          "title": "Anchor the character",
+          "instructions": "Choose one relationship, one burden, and one promise that the GM can bring into play.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        }
+      ],
+      "notes": "No stat rolling is required. Character identity comes from concept, relationships, and fictional positioning."
+    },
+    "is_builtin": true
+  },
+  {
+    "name": "Narrative Weighted",
+    "description": "Fiction-first play with a light d20-under check. Start from difficulty 10, then add or subtract narrative modifiers for preparation, pressure, positioning, help, and surprise.",
+    "version": "1.0",
+    "core_mechanic": {
+      "type": "d20",
+      "formula": "1d20 <= 10 + relevant approach + situational modifiers",
+      "success_type": "meet_or_beat",
+      "success_threshold": "Base target 10; roll under or equal to the final target after narrative modifiers are applied",
+      "critical_success": "1 is a strong success with extra momentum or control",
+      "critical_failure": "20 is a hard complication or reversal"
+    },
+    "attributes": [
+      {
+        "name": "Force",
+        "abbreviation": "FOR",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Finesse",
+        "abbreviation": "FIN",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Insight",
+        "abbreviation": "INS",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Presence",
+        "abbreviation": "PRE",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      }
+    ],
+    "skills": [
+      {
+        "name": "Skirmish",
+        "abbreviation": "SKM",
+        "linked_attribute": "Force",
+        "description": "Fight, shove through danger, rush someone, or shoot under pressure"
+      },
+      {
+        "name": "Finesse",
+        "abbreviation": "FSN",
+        "linked_attribute": "Finesse",
+        "description": "Aim carefully, sneak, pick locks, evade, or act with precision"
+      },
+      {
+        "name": "Read",
+        "abbreviation": "RED",
+        "linked_attribute": "Insight",
+        "description": "Notice details, investigate, assess risk, sense danger, or understand a person"
+      },
+      {
+        "name": "Sway",
+        "abbreviation": "SWY",
+        "linked_attribute": "Presence",
+        "description": "Convince, charm, threaten, negotiate, mislead, or command attention"
+      }
+    ],
+    "resources": [
+      {
+        "name": "Stress",
+        "abbreviation": "STR",
+        "calculation": "3",
+        "min_value": 0,
+        "recovers_on": "breather or scene end"
+      },
+      {
+        "name": "Momentum",
+        "abbreviation": "MOM",
+        "calculation": "1",
+        "min_value": 0,
+        "recovers_on": "session start"
+      }
+    ],
+    "custom_dice": {
+      "modifier_ladder": {
+        "minor_edge": 1,
+        "strong_edge": 2,
+        "overwhelming_edge": 3,
+        "minor_setback": -1,
+        "strong_setback": -2,
+        "overwhelming_setback": -3
+      }
+    },
+    "rules": [
+      {
+        "name": "Base Difficulty 10",
+        "rule_type": "mechanic",
+        "description": "Start every risky action at difficulty 10. Add the most relevant approach rating, then apply narrative modifiers for help, preparation, tools, leverage, surprise, exposure, harm, or bad footing.",
+        "formula": "target = 10 + approach + situational modifiers",
+        "applies_to_subject": "character",
+        "tags": [
+          "d20",
+          "roll-under",
+          "narrative"
+        ]
+      },
+      {
+        "name": "Narrative Modifiers",
+        "rule_type": "mechanic",
+        "description": "Use +1/-1 for a minor edge or setback, +2/-2 for a strong one, and +3/-3 for overwhelming fictional leverage. Stack only what the fiction clearly supports.",
+        "formula": null,
+        "applies_to_subject": "any",
+        "tags": [
+          "modifiers",
+          "fictional-positioning"
+        ]
+      }
+    ],
+    "character_creation": {
+      "steps": [
+        {
+          "step_number": 1,
+          "step_type": "generate_attributes",
+          "title": "Assign approaches",
+          "instructions": "Assign +2, +1, 0, and 0 across Force, Finesse, Insight, and Presence to reflect how your character tackles problems.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 2,
+          "step_type": "write_backstory",
+          "title": "Define leverage",
+          "instructions": "Write down one edge, one flaw, and one contact the GM can turn into narrative modifiers during play.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        }
+      ],
+      "ability_score_generation": {
+        "method": "free_assign",
+        "standard_array": [
+          2,
+          1,
+          0,
+          0
+        ],
+        "min_score": -3,
+        "max_score": 3
+      },
+      "notes": "Roll only when the outcome is uncertain and the fiction is under pressure. Otherwise, let the story move."
+    },
+    "is_builtin": true,
+    "conditions": [
+      {
+        "name": "wounded",
+        "trigger": "taking damage",
+        "mechanical_effects": [
+          "cond_modifier -= 1"
+        ],
+        "roll_modifier": -1
+      },
+      {
+        "name": "exhausted",
+        "trigger": "pushing too hard",
+        "mechanical_effects": [
+          "cond_modifier -= 1"
+        ],
+        "roll_modifier": -1
+      },
+      {
+        "name": "blinded",
+        "trigger": "losing sight",
+        "mechanical_effects": [
+          "disadvantage"
+        ],
+        "roll_mode_override": "disadvantage"
+      },
+      {
+        "name": "poisoned",
+        "trigger": "toxic exposure",
+        "mechanical_effects": [
+          "cond_modifier -= 2"
+        ],
+        "roll_modifier": -2
+      },
+      {
+        "name": "hasted",
+        "trigger": "magical speed",
+        "mechanical_effects": [
+          "advantage"
+        ],
+        "roll_mode_override": "advantage"
+      },
+      {
+        "name": "blessed",
+        "trigger": "divine favor",
+        "mechanical_effects": [
+          "cond_modifier += 1"
+        ],
+        "roll_modifier": 1
+      }
+    ],
+    "scenery_rules": [
+      {
+        "keyword": "dark",
+        "trigger_verbs": [
+          "look",
+          "search",
+          "see",
+          "spot",
+          "shoot",
+          "aim",
+          "read"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "darkness obscures vision"
+      },
+      {
+        "keyword": "pitch black",
+        "trigger_verbs": [
+          "look",
+          "search",
+          "see",
+          "spot",
+          "shoot",
+          "aim",
+          "read"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "darkness obscures vision"
+      },
+      {
+        "keyword": "dim",
+        "trigger_verbs": [
+          "look",
+          "search",
+          "see",
+          "spot",
+          "shoot",
+          "aim",
+          "read"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "darkness obscures vision"
+      },
+      {
+        "keyword": "unlit",
+        "trigger_verbs": [
+          "look",
+          "search",
+          "see",
+          "spot",
+          "shoot",
+          "aim",
+          "read"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "darkness obscures vision"
+      },
+      {
+        "keyword": "shadows",
+        "trigger_verbs": [
+          "look",
+          "search",
+          "see",
+          "spot",
+          "shoot",
+          "aim",
+          "read"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "darkness obscures vision"
+      },
+      {
+        "keyword": "slippery",
+        "trigger_verbs": [
+          "run",
+          "jump",
+          "climb",
+          "dodge",
+          "walk",
+          "flee"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "footing is treacherous"
+      },
+      {
+        "keyword": "wet",
+        "trigger_verbs": [
+          "run",
+          "jump",
+          "climb",
+          "dodge",
+          "walk",
+          "flee"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "footing is treacherous"
+      },
+      {
+        "keyword": "icy",
+        "trigger_verbs": [
+          "run",
+          "jump",
+          "climb",
+          "dodge",
+          "walk",
+          "flee"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "footing is treacherous"
+      },
+      {
+        "keyword": "muddy",
+        "trigger_verbs": [
+          "run",
+          "jump",
+          "climb",
+          "dodge",
+          "walk",
+          "flee"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "footing is treacherous"
+      },
+      {
+        "keyword": "high ground",
+        "trigger_verbs": [
+          "shoot",
+          "attack",
+          "aim",
+          "throw",
+          "fire"
+        ],
+        "roll_modifier": 2,
+        "reason_text": "superior elevation"
+      },
+      {
+        "keyword": "elevated",
+        "trigger_verbs": [
+          "shoot",
+          "attack",
+          "aim",
+          "throw",
+          "fire"
+        ],
+        "roll_modifier": 2,
+        "reason_text": "superior elevation"
+      },
+      {
+        "keyword": "cramped",
+        "trigger_verbs": [
+          "swing",
+          "attack",
+          "dodge",
+          "fight",
+          "slash"
+        ],
+        "roll_modifier": -2,
+        "reason_text": "tight space restricts movement"
+      },
+      {
+        "keyword": "narrow",
+        "trigger_verbs": [
+          "swing",
+          "attack",
+          "dodge",
+          "fight",
+          "slash"
+        ],
+        "roll_modifier": -2,
+        "reason_text": "tight space restricts movement"
+      }
+    ]
+  },
+  {
+    "name": "Death in Space",
+    "description": "Sci-fi RPG about desperate freelancers in the cold void of space. TTRPG system featuring d20 roll-under, Stress & Debt mechanics, ship-to-ship combat, and mortal danger around every airlock.",
+    "version": "Core Rules",
+    "edition": "1st",
+    "core_mechanic": {
+      "success_type": "meet_or_beat",
+      "formula": "1d20",
+      "type": "d20"
+    },
+    "attributes": [
+      {
+        "name": "Body",
+        "abbreviation": "BDY",
+        "description": "Physical strength, endurance, and resilience.",
+        "min_value": 3,
+        "max_value": 18,
+        "default_value": 10
+      },
+      {
+        "name": "Dexterity",
+        "abbreviation": "DEX",
+        "description": "Agility, reflexes, and precision.",
+        "min_value": 3,
+        "max_value": 18,
+        "default_value": 10
+      },
+      {
+        "name": "Insight",
+        "abbreviation": "INS",
+        "description": "Perception, reasoning, and technical know-how.",
+        "min_value": 3,
+        "max_value": 18,
+        "default_value": 10
+      },
+      {
+        "name": "Bravery",
+        "abbreviation": "BRV",
+        "description": "Willpower, courage, and staying calm under fire.",
+        "min_value": 3,
+        "max_value": 18,
+        "default_value": 10
+      },
+      {
+        "name": "Charisma",
+        "abbreviation": "CHA",
+        "description": "Social influence, leadership, and deception.",
+        "min_value": 3,
+        "max_value": 18,
+        "default_value": 10
+      }
+    ],
+    "skills": [
+      {
+        "name": "Athletics",
+        "attribute": "BDY",
+        "description": "Running, climbing, swimming, jumping in zero-G."
+      },
+      {
+        "name": "Melee",
+        "attribute": "BDY",
+        "description": "Fighting with blades, pipes, or fists."
+      },
+      {
+        "name": "Ranged",
+        "attribute": "DEX",
+        "description": "Shooting firearms and energy weapons."
+      },
+      {
+        "name": "Stealth",
+        "attribute": "DEX",
+        "description": "Moving silently, hiding, pickpocketing."
+      },
+      {
+        "name": "Engineering",
+        "attribute": "INS",
+        "description": "Fixing, building, and sabotaging technology."
+      },
+      {
+        "name": "Medicine",
+        "attribute": "INS",
+        "description": "First aid, surgery, and treating conditions."
+      },
+      {
+        "name": "Navigation",
+        "attribute": "INS",
+        "description": "Plotting courses, reading star charts, piloting."
+      },
+      {
+        "name": "Perception",
+        "attribute": "INS",
+        "description": "Noticing dangers, spotting lies, scanning."
+      },
+      {
+        "name": "Courage",
+        "attribute": "BRV",
+        "description": "Resisting fear, maintaining composure under fire."
+      },
+      {
+        "name": "Leadership",
+        "attribute": "CHA",
+        "description": "Commanding crew, inspiring allies, negotiation."
+      },
+      {
+        "name": "Deception",
+        "attribute": "CHA",
+        "description": "Lying, bluffing, disguises."
+      },
+      {
+        "name": "Streetwise",
+        "attribute": "CHA",
+        "description": "Black markets, criminal contacts, underworld knowledge."
+      }
+    ],
+    "resources": [
+      {
+        "name": "Stress",
+        "abbreviation": "STR",
+        "calculation": "3",
+        "min_value": 0,
+        "recovers_on": "breather"
+      },
+      {
+        "name": "Momentum",
+        "abbreviation": "MOM",
+        "calculation": "1",
+        "min_value": 0,
+        "recovers_on": "session start"
+      },
+      {
+        "name": "Oxygen",
+        "abbreviation": "O2",
+        "calculation": "varies by situation",
+        "min_value": 0,
+        "recovers_on": "return to ship or station"
+      }
+    ],
+    "tracks": [
+      {
+        "name": "HP",
+        "track_type": "resource",
+        "min_value": 0,
+        "max_formula": "BDY",
+        "default_value": 0,
+        "threshold_effects": [
+          {
+            "value": 1,
+            "direction": "at_or_below",
+            "effect": "Disadvantage on physical actions until healed."
+          },
+          {
+            "value": 0,
+            "direction": "at_or_below",
+            "effect": "You are incapacitated and will die in 3 rounds without stabilization."
+          }
+        ]
+      },
+      {
+        "name": "Stress",
+        "track_type": "stress",
+        "min_value": 0,
+        "max_value": 5,
+        "default_value": 0,
+        "threshold_effects": [
+          {
+            "value": 2,
+            "direction": "at_or_below",
+            "effect": "You are on edge. -1 to all checks."
+          },
+          {
+            "value": 4,
+            "direction": "at_or_below",
+            "effect": "You are barely holding it together. -2 to all checks."
+          },
+          {
+            "value": 5,
+            "direction": "at_or_below",
+            "effect": "You must flee, freeze, or act irrationally."
+          }
+        ]
+      },
+      {
+        "name": "Debt",
+        "track_type": "degradation",
+        "min_value": 0,
+        "max_value": 10,
+        "default_value": 0,
+        "threshold_effects": [
+          {
+            "value": 3,
+            "direction": "at_or_below",
+            "effect": "Creditors start sending collectors."
+          },
+          {
+            "value": 6,
+            "direction": "at_or_below",
+            "effect": "Your assets are frozen. No legitimate work available."
+          },
+          {
+            "value": 9,
+            "direction": "at_or_below",
+            "effect": "Bounty hunters are actively pursuing you."
+          }
+        ]
+      },
+      {
+        "name": "Ship Hull",
+        "track_type": "resource",
+        "min_value": 0,
+        "max_value": 10,
+        "default_value": 10,
+        "threshold_effects": [
+          {
+            "value": 3,
+            "direction": "at_or_below",
+            "effect": "Systems failing. Life support compromised."
+          },
+          {
+            "value": 5,
+            "direction": "at_or_below",
+            "effect": "Hull breaches. Some systems offline."
+          }
+        ]
+      }
+    ],
+    "damage_model": {
+      "damage_types": [
+        {
+          "name": "Physical",
+          "healing_rate": "slow",
+          "healing_requires": "medicine or rest",
+          "resisted_by": "armor",
+          "lethality": "normal",
+          "bypasses": []
+        },
+        {
+          "name": "Stress",
+          "healing_rate": "moderate",
+          "healing_requires": "breather",
+          "resisted_by": "Bravery",
+          "lethality": "non-lethal",
+          "bypasses": []
+        },
+        {
+          "name": "Environmental",
+          "healing_rate": "immediate on removal",
+          "healing_requires": "remove source",
+          "resisted_by": "BDY save",
+          "lethality": "normal",
+          "bypasses": [
+            "armor"
+          ]
+        }
+      ],
+      "damage_track": "HP",
+      "incapacitated_at": "0",
+      "death_condition": "3 rounds without stabilization"
+    },
+    "conditions": [
+      {
+        "name": "Wounded",
+        "trigger": "HP drops to 1 or below",
+        "mechanical_effects": [
+          "Disadvantage on physical actions until healed."
+        ],
+        "ends_when": "HP restored above 1",
+        "stackable": false
+      },
+      {
+        "name": "Dying",
+        "trigger": "HP drops to 0",
+        "mechanical_effects": [
+          "Incapacitated.",
+          "Die in 3 rounds without stabilization."
+        ],
+        "ends_when": "stabilized by another character",
+        "stackable": false
+      },
+      {
+        "name": "Stressed",
+        "trigger": "Stress reaches 2+",
+        "mechanical_effects": [
+          "Cumulative -1 to all checks per threshold reached."
+        ],
+        "ends_when": "Stress reduced below threshold",
+        "stackable": false
+      },
+      {
+        "name": "Breaking Down",
+        "trigger": "Stress reaches max",
+        "mechanical_effects": [
+          "Must flee, freeze, or act irrationally for the scene."
+        ],
+        "ends_when": "scene ends or Stress reduced",
+        "stackable": false
+      },
+      {
+        "name": "Low Oxygen",
+        "trigger": "Oxygen runs out or environment is vacuum",
+        "mechanical_effects": [
+          "Take 1 damage per round.",
+          "Can't hold breath more than BDY rounds."
+        ],
+        "ends_when": "oxygen restored",
+        "stackable": false
+      },
+      {
+        "name": "In Debt",
+        "trigger": "Debt reaches 3+",
+        "mechanical_effects": [
+          "Creditors send collectors.",
+          "Limited legitimate work."
+        ],
+        "ends_when": "Debt reduced below 3",
+        "stackable": false
+      }
+    ],
+    "action_economy": {
+      "action_types": [
+        {
+          "name": "Action",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "attack",
+            "skill check",
+            "use item",
+            "interact"
+          ],
+          "triggers_on": "your turn"
+        },
+        {
+          "name": "Move",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "move",
+            "take cover",
+            "enter/exit vehicle"
+          ],
+          "triggers_on": "your turn"
+        },
+        {
+          "name": "Free Action",
+          "count_per_turn": 99,
+          "can_be_used_for": [
+            "talk",
+            "drop item",
+            "look around"
+          ],
+          "triggers_on": "anytime"
+        }
+      ],
+      "turn_structure": "GM calls for actions when the fiction demands it. No strict initiative order \u2014 GM decides who acts based on narrative positioning.",
+      "initiative_model": "GM discretion based on fiction and positioning"
+    },
+    "resolution_mechanics": [
+      {
+        "dice_formula": "1d20 \u2264 attribute_score",
+        "mechanic_type": "d20",
+        "difficulty_model": "attribute score is the target",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "failure",
+            "effect": "Action fails, consequences occur"
+          },
+          {
+            "threshold": "1",
+            "label": "success",
+            "effect": "Action succeeds"
+          }
+        ],
+        "success_type": "meet_or_beat",
+        "critical_success": "Natural 1: exceptional success with bonus effect.",
+        "critical_failure": "Natural 20: fumble with extra consequence."
+      },
+      {
+        "dice_formula": "1d20 \u2264 attribute + modifiers",
+        "mechanic_type": "d20",
+        "difficulty_model": "target attribute or armor",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "miss",
+            "effect": "miss"
+          },
+          {
+            "threshold": "1",
+            "label": "hit",
+            "effect": "hit"
+          }
+        ],
+        "success_type": "meet_or_beat",
+        "critical_success": "Natural 1: critical hit \u2014 double damage or called shot.",
+        "critical_failure": "Natural 20: weapon jams, friendly fire, or worse."
+      }
+    ],
+    "tiered_ability_systems": [
+      {
+        "name": "Crew Roles",
+        "description": "Specialized training for shipboard operations.",
+        "parent_category": "profession",
+        "acquisition_rule": "Choose one primary role at creation.",
+        "max_tier": 3,
+        "access_restriction": "",
+        "tiers": [
+          {
+            "tier": 1,
+            "name": "Greenhorn",
+            "description": "Basic training in the role.",
+            "effect": "+1 to role-related checks",
+            "cost": "0",
+            "prerequisites": []
+          },
+          {
+            "tier": 2,
+            "name": "Veteran",
+            "description": "Seasoned experience.",
+            "effect": "+2 to role-related checks, unlock special maneuver",
+            "cost": "2",
+            "prerequisites": [
+              "Greenhorn"
+            ]
+          },
+          {
+            "tier": 3,
+            "name": "Ace",
+            "description": "Legendary skill.",
+            "effect": "+3 to role-related checks, signature move",
+            "cost": "4",
+            "prerequisites": [
+              "Veteran"
+            ]
+          }
+        ]
+      }
+    ],
+    "recovery_model": {
+      "events": [
+        {
+          "name": "Breather",
+          "duration": "a few minutes",
+          "restores": [
+            "HP: 1",
+            "Stress: 2"
+          ],
+          "requires": "safe moment in fiction",
+          "available_when": "when GM allows"
+        },
+        {
+          "name": "Full Rest",
+          "duration": "overnight",
+          "restores": [
+            "HP: full",
+            "Stress: 0"
+          ],
+          "requires": "safe shelter",
+          "available_when": "between jobs"
+        }
+      ]
+    },
+    "advancement_model": {
+      "currencies": [
+        {
+          "name": "XP",
+          "earn_conditions": [
+            "completing jobs",
+            "surviving missions",
+            "creative problem solving"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "target_type": "skill",
+          "target_name": "Skill Rank",
+          "cost_formula": "current_rank + 1",
+          "prerequisites": [],
+          "max_purchases": 3
+        }
+      ],
+      "uses_levels": false,
+      "max_level": null
+    },
+    "rules": [
+      {
+        "name": "Roll Under Attributes",
+        "rule_type": "mechanic",
+        "description": "To attempt something risky, roll 1d20 and try to get at or below the relevant attribute score. Lower is better.",
+        "formula": "1d20 \u2264 attribute",
+        "applies_to_subject": "character",
+        "tags": [
+          "core",
+          "roll-under",
+          "d20"
+        ]
+      },
+      {
+        "name": "Stress & Consequences",
+        "rule_type": "mechanic",
+        "description": "When you fail a check or face horrors, gain 1 Stress. At certain thresholds, penalties apply. At max Stress, you break down.",
+        "formula": null,
+        "applies_to_subject": "character",
+        "tags": [
+          "stress",
+          "mental",
+          "consequence"
+        ]
+      },
+      {
+        "name": "Debt Mechanic",
+        "rule_type": "mechanic",
+        "description": "Taking a loan or owing a favor increases Debt. Higher Debt means more dangerous creditors. Complete jobs to pay it off.",
+        "formula": null,
+        "applies_to_subject": "character",
+        "tags": [
+          "debt",
+          "economy",
+          "fiction"
+        ]
+      },
+      {
+        "name": "Ship Combat",
+        "rule_type": "mechanic",
+        "description": "Ship combat uses the same roll-under system but against the ship's stats. Hull damage reduces Ship Hull track. At 0, the ship is destroyed.",
+        "formula": "1d20 \u2264 crew_skill vs opposing ship",
+        "applies_to_subject": "ship",
+        "tags": [
+          "vehicle",
+          "combat",
+          "space"
+        ]
+      }
+    ],
+    "character_creation": {
+      "steps": [
+        {
+          "step_number": 1,
+          "step_type": "generate_attributes",
+          "title": "Roll Attributes",
+          "instructions": "Roll 3d6 in order for BDY, DEX, INS, BRV, CHA. These are your attribute scores AND your roll-under targets.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {
+            "roll": "3d6",
+            "count": "5"
+          }
+        },
+        {
+          "step_number": 2,
+          "step_type": "choose_class",
+          "title": "Choose Background",
+          "instructions": "Pick a background (Military, Corporate, Scavenger, Medical, Criminal, Academic) for skill bonuses.",
+          "is_optional": false,
+          "options": [
+            "Military",
+            "Corporate",
+            "Scavenger",
+            "Medical",
+            "Criminal",
+            "Academic"
+          ],
+          "derived_stats": [
+            "skill_bonus"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 3,
+          "step_type": "choose_skills",
+          "title": "Choose Skills",
+          "instructions": "Pick 3 skills from your background list and 2 from any list. Each trained skill adds +2 to the attribute for rolls.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 4,
+          "step_type": "calculate_derived",
+          "title": "Calculate Derived Stats",
+          "instructions": "HP = BDY score. Stress starts at 0 (max 5). Debt starts at 0 (or choose to start in debt for bonus skills).",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "HP",
+            "Stress",
+            "Debt"
+          ],
+          "formula_hints": {
+            "HP": "BDY"
+          }
+        },
+        {
+          "step_number": 5,
+          "step_type": "write_backstory",
+          "title": "Define Why You're Here",
+          "instructions": "Write a sentence about why you're in deep space and what you owe or need.",
+          "is_optional": true,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        }
+      ],
+      "ability_score_generation": {
+        "method": "random_roll",
+        "roll_formula": "3d6",
+        "roll_count": 5,
+        "reroll_ones": false,
+        "min_score": 3,
+        "max_score": 18
+      },
+      "starting_packages": [
+        {
+          "class_or_archetype": "Military",
+          "items": [
+            "Sidearm",
+            "Flak Vest",
+            "Comms Unit",
+            "Rations"
+          ],
+          "gold": 50,
+          "resources": {
+            "HP": 0
+          },
+          "name": "Military Starting Package"
+        },
+        {
+          "class_or_archetype": "Scavenger",
+          "items": [
+            "Multi-tool",
+            "Vacuum Suit",
+            "Cutting Torch",
+            "Rations"
+          ],
+          "gold": 20,
+          "resources": {
+            "HP": 0
+          },
+          "name": "Scavenger Starting Package"
+        },
+        {
+          "class_or_archetype": "Medical",
+          "items": [
+            "Med Kit",
+            "Diagnostic Scanner",
+            "Sidearm",
+            "Rations"
+          ],
+          "gold": 30,
+          "resources": {
+            "HP": 0
+          },
+          "name": "Medical Starting Package"
+        }
+      ]
+    },
+    "is_builtin": true
+  },
+  {
+    "name": "Vampire: The Masquerade 5th Edition",
+    "description": "Personal horror RPG where you play vampires navigating the Masquerade, Kindred politics, and the Beast within. Features dice pool mechanics, Hunger dice, Humanity degradation, and Clan-based Disciplines.",
+    "version": "5th Edition",
+    "edition": "V5",
+    "core_mechanic": {
+      "success_type": "count_successes",
+      "formula": "Xd10",
+      "type": "dice_pool"
+    },
+    "attributes": [
+      {
+        "name": "Strength",
+        "abbreviation": "STR",
+        "description": "Physical force and lifting capacity.",
+        "min_value": 1,
+        "max_value": 5,
+        "default_value": 1
+      },
+      {
+        "name": "Dexterity",
+        "abbreviation": "DEX",
+        "description": "Agility, grace, and reaction speed.",
+        "min_value": 1,
+        "max_value": 5,
+        "default_value": 1
+      },
+      {
+        "name": "Stamina",
+        "abbreviation": "STA",
+        "description": "Endurance and ability to resist damage.",
+        "min_value": 1,
+        "max_value": 5,
+        "default_value": 1
+      },
+      {
+        "name": "Charisma",
+        "abbreviation": "CHA",
+        "description": "Natural charm and magnetism.",
+        "min_value": 1,
+        "max_value": 5,
+        "default_value": 1
+      },
+      {
+        "name": "Manipulation",
+        "abbreviation": "MAN",
+        "description": "Deception, persuasion, and social engineering.",
+        "min_value": 1,
+        "max_value": 5,
+        "default_value": 1
+      },
+      {
+        "name": "Composure",
+        "abbreviation": "COM",
+        "description": "Cool under pressure and self-control.",
+        "min_value": 1,
+        "max_value": 5,
+        "default_value": 1
+      },
+      {
+        "name": "Intelligence",
+        "abbreviation": "INT",
+        "description": "Reasoning, memory, and knowledge.",
+        "min_value": 1,
+        "max_value": 5,
+        "default_value": 1
+      },
+      {
+        "name": "Wits",
+        "abbreviation": "WIT",
+        "description": "Quick thinking, perception, and street smarts.",
+        "min_value": 1,
+        "max_value": 5,
+        "default_value": 1
+      },
+      {
+        "name": "Resolve",
+        "abbreviation": "RES",
+        "description": "Determination, focus, and willpower.",
+        "min_value": 1,
+        "max_value": 5,
+        "default_value": 1
+      }
+    ],
+    "skills": [
+      {
+        "name": "Athletics",
+        "attribute": "STR",
+        "description": "Running, climbing, throwing."
+      },
+      {
+        "name": "Brawl",
+        "attribute": "STR",
+        "description": "Unarmed combat, grappling."
+      },
+      {
+        "name": "Craft",
+        "attribute": "DEX",
+        "description": "Creating, repairing, sculpting."
+      },
+      {
+        "name": "Drive",
+        "attribute": "DEX",
+        "description": "Operating vehicles."
+      },
+      {
+        "name": "Firearms",
+        "attribute": "DEX",
+        "description": "Guns, crossbows, ranged weapons."
+      },
+      {
+        "name": "Larceny",
+        "attribute": "DEX",
+        "description": "Lockpicking, pickpocketing, sleight of hand."
+      },
+      {
+        "name": "Melee",
+        "attribute": "STR",
+        "description": "Swords, clubs, knives."
+      },
+      {
+        "name": "Stealth",
+        "attribute": "DEX",
+        "description": "Sneaking, hiding, blending in."
+      },
+      {
+        "name": "Survival",
+        "attribute": "STA",
+        "description": "Tracking, foraging, enduring."
+      },
+      {
+        "name": "Animal Ken",
+        "attribute": "CHA",
+        "description": "Understanding and controlling animals."
+      },
+      {
+        "name": "Etiquette",
+        "attribute": "CHA",
+        "description": "Social grace, manners, fitting in."
+      },
+      {
+        "name": "Insight",
+        "attribute": "CHA",
+        "description": "Reading people, detecting lies."
+      },
+      {
+        "name": "Intimidation",
+        "attribute": "STR",
+        "description": "Threats, coercion, fear."
+      },
+      {
+        "name": "Leadership",
+        "attribute": "CHA",
+        "description": "Commanding, inspiring, organizing."
+      },
+      {
+        "name": "Performance",
+        "attribute": "CHA",
+        "description": "Music, acting, public speaking."
+      },
+      {
+        "name": "Persuasion",
+        "attribute": "CHA",
+        "description": "Convincing, arguing, haggling."
+      },
+      {
+        "name": "Streetwise",
+        "attribute": "CHA",
+        "description": "Underworld contacts, urban survival."
+      },
+      {
+        "name": "Subterfuge",
+        "attribute": "MAN",
+        "description": "Lying, misdirection, disguise."
+      },
+      {
+        "name": "Academics",
+        "attribute": "INT",
+        "description": "History, literature, science."
+      },
+      {
+        "name": "Awareness",
+        "attribute": "WIT",
+        "description": "Noticing details, supernatural senses."
+      },
+      {
+        "name": "Finance",
+        "attribute": "INT",
+        "description": "Money, investments, banking."
+      },
+      {
+        "name": "Investigation",
+        "attribute": "INT",
+        "description": "Research, forensics, clue gathering."
+      },
+      {
+        "name": "Medicine",
+        "attribute": "INT",
+        "description": "First aid, surgery, anatomy."
+      },
+      {
+        "name": "Occult",
+        "attribute": "INT",
+        "description": "Supernatural lore, rituals, magic."
+      },
+      {
+        "name": "Politics",
+        "attribute": "INT",
+        "description": "Kindred society, factions, power structures."
+      },
+      {
+        "name": "Science",
+        "attribute": "INT",
+        "description": "Physics, chemistry, biology."
+      },
+      {
+        "name": "Technology",
+        "attribute": "INT",
+        "description": "Computers, electronics, hacking."
+      }
+    ],
+    "resources": [
+      {
+        "name": "Willpower",
+        "abbreviation": "WP",
+        "calculation": "Resolve + Composure",
+        "min_value": 0,
+        "recovers_on": "fulfillting Desire or Ambition, or 1/night"
+      },
+      {
+        "name": "Blood Potency",
+        "abbreviation": "BP",
+        "calculation": "starts at 1",
+        "min_value": 0,
+        "recovers_on": "never decreases naturally"
+      },
+      {
+        "name": "Hunger",
+        "abbreviation": "HGR",
+        "calculation": "starts at 1",
+        "min_value": 0,
+        "recovers_on": "feeding reduces by amounts"
+      }
+    ],
+    "tracks": [
+      {
+        "name": "Health",
+        "track_type": "resource",
+        "min_value": 0,
+        "max_formula": "STA + 3",
+        "default_value": 0,
+        "threshold_effects": [
+          {
+            "value": -1,
+            "direction": "at_or_below",
+            "effect": "-2 penalty to all physical actions per level of impairment."
+          },
+          {
+            "value": 0,
+            "direction": "at_or_below",
+            "effect": "You enter torpor. Cannot act."
+          }
+        ]
+      },
+      {
+        "name": "Willpower",
+        "track_type": "resource",
+        "min_value": 0,
+        "max_formula": "RES + COM",
+        "default_value": 0,
+        "threshold_effects": [
+          {
+            "value": 1,
+            "direction": "at_or_below",
+            "effect": "Frenzy checks are harder (+1 difficulty)."
+          },
+          {
+            "value": 0,
+            "direction": "at_or_below",
+            "effect": "Cannot spend Willpower. Frenzy checks at +2 difficulty."
+          }
+        ]
+      },
+      {
+        "name": "Humanity",
+        "track_type": "degradation",
+        "min_value": 0,
+        "max_value": 10,
+        "default_value": 7,
+        "threshold_effects": [
+          {
+            "value": 7,
+            "direction": "at_or_below",
+            "effect": "Normal humanity. You can pass as human."
+          },
+          {
+            "value": 5,
+            "direction": "at_or_below",
+            "effect": "Social penalty with mortals. Touchstones start to crack."
+          },
+          {
+            "value": 3,
+            "direction": "at_or_below",
+            "effect": "The Beast is loud. You struggle to act human. Can't use certain social skills naturally."
+          },
+          {
+            "value": 1,
+            "direction": "at_or_below",
+            "effect": "One more degeneration and you're gone. The hunger is everything."
+          },
+          {
+            "value": 0,
+            "direction": "at_or_below",
+            "effect": "You are a wight. The character is now an NPC."
+          }
+        ]
+      },
+      {
+        "name": "Hunger",
+        "track_type": "stress",
+        "min_value": 1,
+        "max_value": 5,
+        "default_value": 1,
+        "threshold_effects": [
+          {
+            "value": 2,
+            "direction": "at_or_below",
+            "effect": "Minor compulsion. Difficulty resisting feeding opportunities."
+          },
+          {
+            "value": 3,
+            "direction": "at_or_below",
+            "effect": "One Hunger die added to non-roused checks. Compulsion risk."
+          },
+          {
+            "value": 4,
+            "direction": "at_or_below",
+            "effect": "Two Hunger dice added. Compulsions become severe. Hard to resist Frenzy."
+          },
+          {
+            "value": 5,
+            "direction": "at_or_below",
+            "effect": "Frenzy risk on any Hunger die. Must feed immediately."
+          }
+        ]
+      }
+    ],
+    "damage_model": {
+      "damage_types": [
+        {
+          "name": "Bashing",
+          "healing_rate": "2 turns (vampires heal fast)",
+          "healing_requires": "automatic for vampires",
+          "resisted_by": "Fortitude",
+          "lethality": "low",
+          "bypasses": [],
+          "superficial": true
+        },
+        {
+          "name": "Lethal",
+          "healing_rate": "1 night",
+          "healing_requires": "rest in daysleep + blood",
+          "resisted_by": "Fortitude",
+          "lethality": "normal",
+          "bypasses": []
+        },
+        {
+          "name": "Aggravated",
+          "healing_rate": "days",
+          "healing_requires": "days of rest + 5 blood per level",
+          "resisted_by": "Fortitude",
+          "lethality": "high",
+          "bypasses": [],
+          "sources": [
+            "fire",
+            "sunlight",
+            "fangs",
+            "True Faith",
+            "certain Disciplines"
+          ]
+        }
+      ],
+      "damage_track": "Health",
+      "incapacitated_at": "max",
+      "death_condition": "Aggravated damage exceeding Health track. Final Death.",
+      "soak_rules": "Bashing is halved for vampires (round down). Lethal and Aggravated are full.",
+      "halving_rule": "Superficial damage is marked with / and halved at end of scene."
+    },
+    "conditions": [
+      {
+        "name": "Mesmerized",
+        "trigger": "Dominate used on you",
+        "mechanical_effects": [
+          "Under a command.",
+          "Can't remember what happened.",
+          "May resist with Resolve + Wits."
+        ],
+        "ends_when": "command fulfilled, dismissed by Dominate user, or resisted",
+        "stackable": false
+      },
+      {
+        "name": "Frenzy",
+        "trigger": "Hunger 5, provoked, or Resonance exposure",
+        "mechanical_effects": [
+          "You attack the nearest blood source or flee the provocation.",
+          "+2 physical dice.",
+          "Cannot use mental skills."
+        ],
+        "ends_when": "fed, Willpower spent to resist, or scene ends",
+        "stackable": false
+      },
+      {
+        "name": "R\u00f6tschreck",
+        "trigger": "exposure to fire or sunlight",
+        "mechanical_effects": [
+          "Terror frenzy.",
+          "Must flee the source at all costs.",
+          "No rational thought possible."
+        ],
+        "ends_when": "source removed, cornered and feed, or Willpower spent",
+        "stackable": false
+      },
+      {
+        "name": "Staked",
+        "trigger": "wooden stake through heart while torpid",
+        "mechanical_effects": [
+          "Paralyzed.",
+          "Cannot act, move, or use Disciplines.",
+          "Fully aware."
+        ],
+        "ends_when": "stake removed",
+        "stackable": false
+      },
+      {
+        "name": "Torpor",
+        "trigger": "Health track filled with damage",
+        "mechanical_effects": [
+          "Unconscious and inactive.",
+          "May last centuries depending on Blood Potency."
+        ],
+        "ends_when": "fed blood from another vampire (or natural awakening after decades/centuries)",
+        "stackable": false
+      },
+      {
+        "name": "Stained",
+        "trigger": "committed a sin against Humanity",
+        "mechanical_effects": [
+          "Stains on Humanity track.",
+          "Roll Remorse at end of session \u2014 failure reduces Humanity."
+        ],
+        "ends_when": "Remorse roll at session end",
+        "stackable": true
+      },
+      {
+        "name": "Blood Bonded",
+        "trigger": "drank same vampire's blood 3 times",
+        "mechanical_effects": [
+          "Extremely loyal to the vampire (Regnant).",
+          "Can't harm them.",
+          "3-step bond (1 drink: sympathetic, 2: loyal, 3: bound)."
+        ],
+        "ends_when": "never naturally ends",
+        "stackable": false
+      },
+      {
+        "name": "Ghoul",
+        "trigger": "fed vampire blood as a mortal",
+        "mechanical_effects": [
+          "Gain 1 dot of a Discipline.",
+          "Ageless as long as you drink vampire blood monthly."
+        ],
+        "ends_when": "stop receiving blood",
+        "stackable": false
+      },
+      {
+        "name": "Compulsion",
+        "trigger": "Hunger die shows 10 on failure",
+        "mechanical_effects": [
+          "Clan-specific compulsive behavior.",
+          "Must act on it or spend Willpower to resist."
+        ],
+        "ends_when": "act on compulsion or spend Willpower",
+        "stackable": false
+      }
+    ],
+    "tiered_ability_systems": [
+      {
+        "name": "Animalism",
+        "description": "Communication with and control over beasts. Also allows sensing the Beast in others.",
+        "parent_category": "Discipline",
+        "acquisition_rule": "Clan discipline for Gangrel, Nosferatu, Ravnos. Others learn at out-of-clan cost.",
+        "max_tier": 5,
+        "access_restriction": "clan: Gangrel, Nosferatu, Ravnos",
+        "tiers": [
+          {
+            "tier": 1,
+            "name": "Feral Whispers",
+            "description": "Communicate with animals.",
+            "effect": "Can speak with a species of animal. Social checks with them at -2 difficulty.",
+            "cost": "1",
+            "prerequisites": []
+          },
+          {
+            "tier": 2,
+            "name": "Sense the Beast",
+            "description": "Feel the Beast in others.",
+            "effect": "Perceive if someone is vampire, ghoul, or mortal. Read emotional state.",
+            "cost": "2",
+            "prerequisites": [
+              "Feral Whispers"
+            ]
+          },
+          {
+            "tier": 3,
+            "name": "Animal Succulence",
+            "description": "Gain more from animal blood.",
+            "effect": "Animal blood satisfies as well as human blood.",
+            "cost": "3",
+            "prerequisites": [
+              "Sense the Beast"
+            ]
+          },
+          {
+            "tier": 4,
+            "name": "Subsume the Spirit",
+            "description": "Possess an animal.",
+            "effect": "Enter an animal's body, controlling it while your body lies dormant.",
+            "cost": "4",
+            "prerequisites": [
+              "Animal Succulence"
+            ]
+          },
+          {
+            "tier": 5,
+            "name": "Leashing the Beast",
+            "description": "Control the Beast in others.",
+            "effect": "Force frenzy or calm another vampire. Suppress the Beast.",
+            "cost": "5",
+            "prerequisites": [
+              "Subsume the Spirit"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Auspex",
+        "description": "Enhanced senses, psychic perception, and ability to read auras and thoughts.",
+        "parent_category": "Discipline",
+        "acquisition_rule": "Clan discipline for Malkavian, Toreador, Tremere. Others at out-of-clan cost.",
+        "max_tier": 5,
+        "access_restriction": "clan: Malkavian, Toreador, Tremere",
+        "tiers": [
+          {
+            "tier": 1,
+            "name": "Heightened Senses",
+            "description": "Sharpen one sense beyond human limits.",
+            "effect": "Choose one sense. Gain +2 dice on related checks. Can see in near-darkness.",
+            "cost": "1",
+            "prerequisites": []
+          },
+          {
+            "tier": 2,
+            "name": "Aura Perception",
+            "description": "See the emotional aura around living beings.",
+            "effect": "Read emotional state, supernatural nature. Perception + Empathy roll.",
+            "cost": "2",
+            "prerequisites": [
+              "Heightened Senses"
+            ]
+          },
+          {
+            "tier": 3,
+            "name": "The Spirit's Touch",
+            "description": "Read psychic impressions from objects.",
+            "effect": "Touch an object to see its recent history and last user's emotions.",
+            "cost": "3",
+            "prerequisites": [
+              "Aura Perception"
+            ]
+          },
+          {
+            "tier": 4,
+            "name": "Telepathy",
+            "description": "Read surface thoughts.",
+            "effect": "Project thoughts or read minds within line of sight. Intelligence + Subterfuge vs Resolve.",
+            "cost": "4",
+            "prerequisites": [
+              "The Spirit's Touch"
+            ]
+          },
+          {
+            "tier": 5,
+            "name": "Psychic Projection",
+            "description": "Astral travel.",
+            "effect": "Leave your body as an astral form. Invisible to mortals. Can travel anywhere.",
+            "cost": "5",
+            "prerequisites": [
+              "Telepathy"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Dominate",
+        "description": "Mind control through eye contact and commands. The iron fist of Kindred society.",
+        "parent_category": "Discipline",
+        "acquisition_rule": "Clan discipline for Lasombra, Tremere, Ventrue. Others at out-of-clan cost.",
+        "max_tier": 5,
+        "access_restriction": "clan: Lasombra, Tremere, Ventrue",
+        "tiers": [
+          {
+            "tier": 1,
+            "name": "Compel",
+            "description": "Issue a single-word command.",
+            "effect": "One-word command that must be followed. Must make eye contact.",
+            "cost": "1",
+            "prerequisites": []
+          },
+          {
+            "tier": 2,
+            "name": "Mesmerize",
+            "description": "Plant a complex command.",
+            "effect": "Issue a multi-step command activated by trigger condition.",
+            "cost": "2",
+            "prerequisites": [
+              "Compel"
+            ]
+          },
+          {
+            "tier": 3,
+            "name": "The Forgetful Mind",
+            "description": "Alter memories.",
+            "effect": "Rewrite memories of the target. Must hold conversation.",
+            "cost": "3",
+            "prerequisites": [
+              "Mesmerize"
+            ]
+          },
+          {
+            "tier": 4,
+            "name": "Rationalize",
+            "description": "Make actions seem reasonable.",
+            "effect": "Target rationalizes any Dominate effect placed on them. Impossible to detect.",
+            "cost": "4",
+            "prerequisites": [
+              "The Forgetful Mind"
+            ]
+          },
+          {
+            "tier": 5,
+            "name": "Mass Manipulation",
+            "description": "Dominate groups.",
+            "effect": "Issue commands to multiple targets simultaneously.",
+            "cost": "5",
+            "prerequisites": [
+              "Rationalize"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Protean",
+        "description": "Shapeshifting and earth melding. The classic vampire transformation discipline.",
+        "parent_category": "Discipline",
+        "acquisition_rule": "Clan discipline for Gangrel. Others at out-of-clan cost.",
+        "max_tier": 5,
+        "access_restriction": "clan: Gangrel",
+        "tiers": [
+          {
+            "tier": 1,
+            "name": "Eyes of the Beast",
+            "description": "See in total darkness.",
+            "effect": "Eyes glow red. Can see perfectly in any darkness.",
+            "cost": "1",
+            "prerequisites": []
+          },
+          {
+            "tier": 2,
+            "name": "Feral Weapons",
+            "description": "Grow claws and fangs.",
+            "effect": "Grow claws (+2 damage, lethal) and fangs. Free action to activate.",
+            "cost": "2",
+            "prerequisites": [
+              "Eyes of the Beast"
+            ]
+          },
+          {
+            "tier": 3,
+            "name": "Earth Meld",
+            "description": "Merge with the earth.",
+            "effect": "Sink into natural ground for protection. Virtually undetectable.",
+            "cost": "3",
+            "prerequisites": [
+              "Feral Weapons"
+            ]
+          },
+          {
+            "tier": 4,
+            "name": "Shapechange",
+            "description": "Transform into an animal.",
+            "effect": "Transform into a bat, wolf, or mist. Gain animal abilities.",
+            "cost": "4",
+            "prerequisites": [
+              "Earth Meld"
+            ]
+          },
+          {
+            "tier": 5,
+            "name": "Mist Form",
+            "description": "Become living mist.",
+            "effect": "Transform into mist. Immune to physical damage. Can seep through cracks.",
+            "cost": "5",
+            "prerequisites": [
+              "Shapechange"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Blood Sorcery",
+        "description": "Blood magic \u2014 manipulating the vitae to create effects. Tremere specialty.",
+        "parent_category": "Discipline",
+        "acquisition_rule": "Clan discipline for Tremere, Banu Haqim (Assamite), Hecata. Others require special teaching.",
+        "max_tier": 5,
+        "access_restriction": "clan: Tremere, Banu Haqim, Hecata",
+        "tiers": [
+          {
+            "tier": 1,
+            "name": "Corrosive Vitae",
+            "description": "Your blood becomes acidic.",
+            "effect": "Spend blood to make your blood burn. Damage on contact.",
+            "cost": "1",
+            "prerequisites": []
+          },
+          {
+            "tier": 2,
+            "name": "Blood of Potency",
+            "description": "Temporarily increase Blood Potency.",
+            "effect": "Boost Blood Potency for a scene. Can hold more blood and discipline bonuses.",
+            "cost": "2",
+            "prerequisites": [
+              "Corrosive Vitae"
+            ]
+          },
+          {
+            "tier": 3,
+            "name": "Scorpion's Touch",
+            "description": "Poison your blood.",
+            "effect": "Blood becomes venomous. Mortals are paralyzed. Vampires lose blood.",
+            "cost": "3",
+            "prerequisites": [
+              "Blood of Potency"
+            ]
+          },
+          {
+            "tier": 4,
+            "name": "Theft of Vitae",
+            "description": "Steal blood at range.",
+            "effect": "Drain blood from a target without touching them. Line of sight.",
+            "cost": "4",
+            "prerequisites": [
+              "Scorpion's Touch"
+            ]
+          },
+          {
+            "tier": 5,
+            "name": "Cauldron of Blood",
+            "description": "Boil the blood in a target's veins.",
+            "effect": "Cause Aggravated damage by boiling blood. Devastating attack.",
+            "cost": "5",
+            "prerequisites": [
+              "Theft of Vitae"
+            ]
+          }
+        ]
+      }
+    ],
+    "action_economy": {
+      "action_types": [
+        {
+          "name": "Standard Action",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "attack",
+            "use Discipline",
+            "skill check",
+            "move"
+          ],
+          "triggers_on": "your turn"
+        },
+        {
+          "name": "Movement",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "walk",
+            "dash",
+            "reposition"
+          ],
+          "triggers_on": "your turn"
+        },
+        {
+          "name": "Reflexive",
+          "count_per_turn": 99,
+          "can_be_used_for": [
+            "spend Willpower for +2 dice",
+            "Rouse Check",
+            "resist effect"
+          ],
+          "triggers_on": "anytime"
+        }
+      ],
+      "turn_structure": "Combat turns use initiative (Dexterity + Wits). Highest acts first.",
+      "initiative_model": "Dexterity + Wits (or Dexterity + Composure for some). Roll once at start, keep for scene."
+    },
+    "resolution_mechanics": [
+      {
+        "dice_formula": "Attribute + Skill + modifiers, count dice \u22656",
+        "mechanic_type": "d20",
+        "difficulty_model": "number of successes needed (usually 1-5)",
+        "difficulty_range": "trivial: 1, easy: 2, medium: 3, hard: 4, very_hard: 5",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "failure",
+            "effect": "Action fails with consequences"
+          },
+          {
+            "threshold": "1",
+            "label": "margin",
+            "effect": "More successes = better outcome"
+          }
+        ],
+        "success_type": "count_successes",
+        "critical_success": "10 counts as 2 successes.",
+        "critical_failure": "Bestial Failure: Hunger die showing 1 on a failure."
+      },
+      {
+        "dice_formula": "Attribute + Skill vs opponent's Attribute + Skill",
+        "mechanic_type": "dice_pool",
+        "difficulty_model": "opposing roll",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "loss",
+            "effect": "Opponent wins"
+          },
+          {
+            "threshold": "1",
+            "label": "win",
+            "effect": "You win"
+          }
+        ],
+        "success_type": "count_successes",
+        "critical_success": "Messy Critical: paired 10s with Hunger dice",
+        "critical_failure": "Bestial Failure: Hunger die 1 on failure"
+      },
+      {
+        "dice_formula": "Resolve + Composure vs Difficulty",
+        "mechanic_type": "dice_pool",
+        "difficulty_model": "provocation severity",
+        "difficulty_range": "minor: 2, moderate: 3, severe: 4, extreme: 5",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "frenzy",
+            "effect": "The Beast takes over"
+          },
+          {
+            "threshold": "1",
+            "label": "resist",
+            "effect": "You maintain control"
+          }
+        ],
+        "success_type": "count_successes"
+      }
+    ],
+    "advancement_model": {
+      "currencies": [
+        {
+          "name": "Experience Points",
+          "earn_conditions": [
+            "end of session",
+            "roleplaying",
+            "learning",
+            "survival"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "target_type": "skill",
+          "target_name": "Skill Dot",
+          "cost_formula": "current_rating \u00d7 1",
+          "prerequisites": [],
+          "max_purchases": 5
+        },
+        {
+          "target_type": "discipline",
+          "target_name": "Discipline Level",
+          "cost_formula": "current_rating \u00d7 5 (in-clan) or \u00d7 7 (out-of-clan)",
+          "prerequisites": [
+            "clan access or teacher"
+          ],
+          "max_purchases": 5
+        },
+        {
+          "target_type": "attribute",
+          "target_name": "Attribute Dot",
+          "cost_formula": "current_rating \u00d7 5",
+          "prerequisites": [],
+          "max_purchases": 5
+        },
+        {
+          "target_type": "background",
+          "target_name": "Background Dot",
+          "cost_formula": "current_rating \u00d7 3",
+          "prerequisites": [],
+          "max_purchases": 5
+        }
+      ],
+      "uses_levels": false,
+      "max_level": null
+    },
+    "recovery_model": {
+      "events": [
+        {
+          "name": "Feed",
+          "duration": "varies",
+          "restores": [
+            "Hunger: 1",
+            "Health: 1"
+          ],
+          "requires": "available vessel",
+          "available_when": "any time",
+          "notes": "Human blood reduces 1 Hunger. Draining completely reduces 2. Animal blood reduces 1 but may cause Compulsion."
+        },
+        {
+          "name": "Daysleep",
+          "duration": "daylight hours",
+          "restores": [
+            "Willpower: 1",
+            "Health: all superficial"
+          ],
+          "requires": "haven or safe place",
+          "available_when": "during day"
+        },
+        {
+          "name": "Rouse Check",
+          "duration": "instant",
+          "restores": [
+            "Hunger: 0"
+          ],
+          "requires": "use Discipline or heal",
+          "available_when": "when using powers",
+          "notes": "Risk: Rouse check may increase Hunger by 1 on failure."
+        },
+        {
+          "name": "Resonance Feed",
+          "duration": "special",
+          "restores": [
+            "Hunger: 2"
+          ],
+          "requires": "resonant vessel",
+          "available_when": "any time",
+          "notes": "Feeding on someone with strong emotions matching your Resonance restores extra."
+        }
+      ]
+    },
+    "rules": [
+      {
+        "name": "Hunger Dice",
+        "rule_type": "mechanic",
+        "description": "Replace regular dice with Hunger dice equal to your current Hunger. Hunger dice showing 1 on a failure cause Bestial Failure. Paired 10s including Hunger dice cause Messy Critical.",
+        "formula": "hunger_dice = current_hunger, replace that many regular dice",
+        "applies_to_subject": "character",
+        "tags": [
+          "hunger",
+          "dice pool",
+          "complication"
+        ]
+      },
+      {
+        "name": "The Masquerade",
+        "rule_type": "custom",
+        "description": "Vampires must hide their existence from mortals. Breaking the Masquerade is the ultimate crime in Kindred society, punished by the Blood Hunt.",
+        "formula": null,
+        "applies_to_subject": "character",
+        "tags": [
+          "masquerade",
+          "law",
+          "setting"
+        ]
+      },
+      {
+        "name": "Frenzy",
+        "rule_type": "mechanic",
+        "description": "When provoked by hunger, anger, or fear (fire/sunlight), roll Resolve + Composure vs difficulty. Failure = Frenzy. You lose control and the Beast acts.",
+        "formula": "Resolve + Composure vs difficulty (2-5)",
+        "applies_to_subject": "character",
+        "tags": [
+          "frenzy",
+          "beast",
+          "willpower"
+        ]
+      },
+      {
+        "name": "Humanity Degeneration",
+        "rule_type": "mechanic",
+        "description": "Committing sins against your Humanity adds Stains. At end of session, roll Remorse (current Humanity dice). Failure = lose Humanity. At 0 = wight.",
+        "formula": "Remorse: roll current Humanity in dice, need at least 1 success",
+        "applies_to_subject": "character",
+        "tags": [
+          "humanity",
+          "degeneration",
+          "stain"
+        ]
+      },
+      {
+        "name": "Clan Bane",
+        "rule_type": "mechanic",
+        "description": "Each clan has a specific weakness. Brujah frenzy easier, Malkavans have Oracle curses, Nosferatu are monstrous, Ventrue have specific feeding restrictions.",
+        "formula": null,
+        "applies_to_subject": "character",
+        "tags": [
+          "clan",
+          "bane",
+          "weakness"
+        ]
+      }
+    ],
+    "character_creation": {
+      "steps": [
+        {
+          "step_number": 1,
+          "step_type": "choose_class",
+          "title": "Choose Clan",
+          "instructions": "Select your vampire clan (Brujah, Gangrel, Malkavian, Nosferatu, Toreador, Tremere, Ventrue, Lasombra, Banu Haqim, Hecata, Ministry, Ravnos, Salubri, Tzimisce, Caitiff). Each has unique Disciplines, bane, and compulsion.",
+          "is_optional": false,
+          "options": [
+            "Brujah",
+            "Gangrel",
+            "Malkavian",
+            "Nosferatu",
+            "Toreador",
+            "Tremere",
+            "Ventrue",
+            "Lasombra",
+            "Banu Haqim",
+            "Hecata",
+            "Ministry",
+            "Ravnos",
+            "Salubri",
+            "Tzimisce",
+            "Caitiff"
+          ],
+          "derived_stats": [
+            "clan_disciplines",
+            "clan_bane",
+            "clan_compulsion"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 2,
+          "step_type": "generate_attributes",
+          "title": "Assign Attributes",
+          "instructions": "Distribute attribute points: 1 dot in each attribute, then assign 4/3/3 across Physical/Social/Mental categories, then 2/2/1 within the favored category.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {
+            "primary_category": "4 dots",
+            "secondary_category": "3 dots",
+            "tertiary_category": "3 dots"
+          }
+        },
+        {
+          "step_number": 3,
+          "step_type": "choose_skills",
+          "title": "Assign Skills",
+          "instructions": "Distribute 3/5/7 across three skill categories. Add 3 free specialty dots.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {
+            "distribution": "12/9/5 across three categories",
+            "specialties": "3"
+          }
+        },
+        {
+          "step_number": 4,
+          "step_type": "choose_class",
+          "title": "Select Disciplines",
+          "instructions": "Choose 2 clan Disciplines at level 1 and 1 at level 2 (or distribute as preferred). Non-clan Disciplines are possible but cost more XP.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "disciplines"
+          ],
+          "formula_hints": {
+            "clan_disciplines": "2 at level 1, 1 at level 2"
+          }
+        },
+        {
+          "step_number": 5,
+          "step_type": "choose_skills",
+          "title": "Choose Advantages",
+          "instructions": "Select Backgrounds and Merits. Allocate 7 dots across Backgrounds. Choose Flaws for bonus XP.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "backgrounds",
+            "merits",
+            "flaws"
+          ],
+          "formula_hints": {
+            "background_dots": "7",
+            "merit_dots": "varies",
+            "flaw_bonus": "XP bonus"
+          }
+        },
+        {
+          "step_number": 6,
+          "step_type": "calculate_derived",
+          "title": "Calculate Derived Stats",
+          "instructions": "Health = Stamina + 3. Willpower = Resolve + Composure. Blood Potency starts at 1. Humanity starts at 7. Hunger starts at 1.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "Health",
+            "Willpower",
+            "Blood Potency",
+            "Humanity",
+            "Hunger"
+          ],
+          "formula_hints": {
+            "Health": "STA + 3",
+            "Willpower": "RES + COM",
+            "Blood_Potency": "1",
+            "Humanity": "7",
+            "Hunger": "1"
+          }
+        },
+        {
+          "step_number": 7,
+          "step_type": "write_backstory",
+          "title": "Define Touchstones & Convictions",
+          "instructions": "Create 2-3 mortal Touchstones (people you care about) and Convictions (moral beliefs tied to them). These anchor your Humanity.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "touchstones",
+            "convictions"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 8,
+          "step_type": "write_backstory",
+          "title": "Write Sire & Embrace",
+          "instructions": "Describe who Embraced you, why, and what happened to your sire. Define your Predator type (how you feed).",
+          "is_optional": true,
+          "options": [
+            "Alleycat",
+            "Bagger",
+            "Consensualist",
+            "Farmer",
+            "Osiris",
+            "Sandman",
+            "Scene Queen",
+            "Siren"
+          ],
+          "derived_stats": [
+            "predator_type",
+            "sire"
+          ],
+          "formula_hints": {}
+        }
+      ],
+      "ability_score_generation": {
+        "method": "point_buy",
+        "standard_array": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "min_score": 1,
+        "max_score": 5,
+        "starting_dots": {
+          "all_attributes": 1,
+          "primary_category": "+4",
+          "secondary_category": "+3",
+          "tertiary_category": "+3"
+        }
+      },
+      "starting_packages": [
+        {
+          "class_or_archetype": "Brujah",
+          "items": [
+            "Leather Jacket",
+            "Baseball Bat",
+            "Motorcycle"
+          ],
+          "gold": 0,
+          "resources": {
+            "clan_bane": 0
+          },
+          "name": "Brujah Starting Package"
+        },
+        {
+          "class_or_archetype": "Tremere",
+          "items": [
+            "Occult Library",
+            "Ritual Components",
+            "Haven Key"
+          ],
+          "gold": 0,
+          "resources": {
+            "clan_bane": 0
+          },
+          "name": "Tremere Starting Package"
+        },
+        {
+          "class_or_archetype": "Gangrel",
+          "items": [
+            "Survival Gear",
+            "Animal Companion",
+            "Claws"
+          ],
+          "gold": 0,
+          "resources": {
+            "clan_bane": 0
+          },
+          "name": "Gangrel Starting Package"
+        },
+        {
+          "class_or_archetype": "Ventrue",
+          "items": [
+            "Tailored Suit",
+            "Corporate Access",
+            "Haven Security"
+          ],
+          "gold": 0,
+          "resources": {
+            "clan_bane": 0
+          },
+          "name": "Ventrue Starting Package"
+        }
+      ]
+    },
+    "custom_dice": {
+      "hunger_dice": {
+        "description": "Replace regular dice with Hunger dice equal to current Hunger track value.",
+        "complication_on_1": "Bestial Failure: The Beast interferes. Consequences occur.",
+        "crit_on_10": "Messy Critical when paired with another 10 (including Hunger dice): Success but at a cost."
+      }
+    },
+    "is_builtin": true
+  },
+  {
+    "name": "Mistlands Core",
+    "description": "Modular condition-weighted RPG system for the Mistlands setting.",
+    "version": "1.0.0",
+    "core_mechanic": {
+      "type": "d20",
+      "formula": "1d20 + modifiers vs DC",
+      "success_type": "meet_or_beat",
+      "success_threshold": "Roll meets or beats target DC"
+    },
+    "attributes": [
+      {
+        "name": "Grit",
+        "abbreviation": "GRIT",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Wits",
+        "abbreviation": "WITS",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Resolve",
+        "abbreviation": "RESOLVE",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      }
+    ],
+    "skills": [
+      {
+        "name": "Notice",
+        "abbreviation": "Not",
+        "linked_attribute": "Wits",
+        "description": "Sense or observe environmental clues."
+      },
+      {
+        "name": "Fight",
+        "abbreviation": "Fig",
+        "linked_attribute": "Grit",
+        "description": "Physical combat or resistance."
+      },
+      {
+        "name": "Stealth",
+        "abbreviation": "Ste",
+        "linked_attribute": "Wits",
+        "description": "Sneak or hide."
+      },
+      {
+        "name": "Focus",
+        "abbreviation": "Foc",
+        "linked_attribute": "Resolve",
+        "description": "Concentrate or resist psychological stress."
+      }
+    ],
+    "resources": [
+      {
+        "name": "Health",
+        "abbreviation": "HP",
+        "calculation": "10 + Grit_modifier",
+        "min_value": 0,
+        "recovers_on": "rest"
+      },
+      {
+        "name": "Nerve",
+        "abbreviation": "NV",
+        "calculation": "6 + Resolve_modifier",
+        "min_value": 0,
+        "recovers_on": "rest"
+      }
+    ],
+    "custom_dice": {},
+    "tracks": [
+      {
+        "name": "Health",
+        "abbreviation": "HP",
+        "min_value": 0,
+        "max_value": 10,
+        "default_value": 10,
+        "track_type": "hp",
+        "depleted_effect": "Unconscious",
+        "threshold_effects": [
+          {
+            "value": 5,
+            "direction": "at_or_below",
+            "effect": "Wounded"
+          }
+        ]
+      },
+      {
+        "name": "Nerve",
+        "abbreviation": "NV",
+        "min_value": 0,
+        "max_value": 6,
+        "default_value": 6,
+        "track_type": "stress"
+      }
+    ],
+    "tiered_ability_systems": [],
+    "advantages": [],
+    "conditions": [],
+    "rules": [],
+    "is_builtin": true
+  }
+]

@@ -1,0 +1,197 @@
+[
+  {
+    "mode": "scripted",
+    "session_id": "1f018320-e604-43c0-9e4c-6c8dc0ac4443",
+    "universe_id": "9d3973c6-f290-4bd1-9e69-90cb5680fbe0",
+    "character_id": "a3bad946-0614-4681-9694-be0e8c3ae0cd",
+    "seed": "A lonely frontier outpost on the edge of the ash wastes, besieged after dark by raiders and worse. The player is the last defender still standing.",
+    "turn_count": 6,
+    "latency_median_s": 50.4,
+    "latency_max_s": 66.2,
+    "canon_entities_delta": 0,
+    "change_log_entries": 0,
+    "turns_with_resource_change": 0,
+    "turns_with_condition_change": 1,
+    "turns_with_resources_present": 3,
+    "resources_seeded_but_static": true,
+    "total_xp_gained": 0,
+    "distinct_success_levels": [
+      "critical_success",
+      "pending",
+      "success"
+    ],
+    "turns_offering_choice": 5,
+    "fallback_count": 0,
+    "mechanical_engaged": true,
+    "judge": {},
+    "turns": [
+      {
+        "index": 1,
+        "phase": "active_play",
+        "intent": "I take stock of the outpost, scanning for threats, exits, and anything I can use.",
+        "player_text": "I take stock of the outpost, scanning for threats, exits, and anything I can use.",
+        "success_level": "pending",
+        "latency_s": 53.0,
+        "resource_deltas": {},
+        "conditions_added": [],
+        "xp_gained": 0,
+        "offered_choice": true,
+        "working_state": {}
+      },
+      {
+        "index": 2,
+        "phase": "active_play",
+        "intent": "I find the nearest survivor and demand to know what is really attacking us.",
+        "player_text": "I find the nearest survivor and demand to know what is really attacking us.",
+        "success_level": "pending",
+        "latency_s": 54.2,
+        "resource_deltas": {},
+        "conditions_added": [],
+        "xp_gained": 0,
+        "offered_choice": true,
+        "working_state": {}
+      },
+      {
+        "index": 3,
+        "phase": "active_play",
+        "intent": "I draw my weapon and charge the closest raider, striking to wound.",
+        "player_text": "I draw my weapon and charge the closest raider, striking to wound.",
+        "success_level": "pending",
+        "latency_s": 41.4,
+        "resource_deltas": {},
+        "conditions_added": [],
+        "xp_gained": 0,
+        "offered_choice": false,
+        "working_state": {}
+      },
+      {
+        "index": 4,
+        "phase": "active_play",
+        "intent": "Bloodied, I press the attack and try to bring the enemy down before they rally.",
+        "player_text": "Bloodied, I press the attack and try to bring the enemy down before they rally.",
+        "success_level": "critical_success",
+        "latency_s": 66.2,
+        "resource_deltas": {},
+        "conditions_added": [
+          "advantaged"
+        ],
+        "xp_gained": 0,
+        "offered_choice": true,
+        "working_state": {
+          "state_id": "0b839bc2-1069-456c-8269-5990da7183d9",
+          "entity_id": "a3bad946-0614-4681-9694-be0e8c3ae0cd",
+          "scene_id": "1d3cb380-290b-4bd8-92b6-5d413eb57155",
+          "story_id": "fd9436e1-ae73-4413-b56c-45f3b06bed97",
+          "current_stats": {
+            "Grit": 12,
+            "Wits": 13,
+            "Resolve": 11,
+            "conditions": [
+              "advantaged"
+            ],
+            "narrative_pressure": "surging",
+            "last_success_level": "critical_success"
+          },
+          "resources": {
+            "Health": {
+              "current": 10,
+              "max": 10,
+              "label": "Health"
+            },
+            "Nerve": {
+              "current": 6,
+              "max": 6,
+              "label": "Nerve"
+            }
+          },
+          "conditions": [
+            "advantaged"
+          ]
+        }
+      },
+      {
+        "index": 5,
+        "phase": "active_play",
+        "intent": "I tend my wounds, search the fallen for anything useful, and take a hard breath.",
+        "player_text": "I tend my wounds, search the fallen for anything useful, and take a hard breath.",
+        "success_level": "success",
+        "latency_s": 47.8,
+        "resource_deltas": {},
+        "conditions_added": [],
+        "xp_gained": 0,
+        "offered_choice": true,
+        "working_state": {
+          "state_id": "0b839bc2-1069-456c-8269-5990da7183d9",
+          "entity_id": "a3bad946-0614-4681-9694-be0e8c3ae0cd",
+          "scene_id": "1d3cb380-290b-4bd8-92b6-5d413eb57155",
+          "story_id": "fd9436e1-ae73-4413-b56c-45f3b06bed97",
+          "current_stats": {
+            "Grit": 12,
+            "Wits": 13,
+            "Resolve": 11,
+            "conditions": [
+              "advantaged"
+            ],
+            "narrative_pressure": "steady",
+            "last_success_level": "success"
+          },
+          "resources": {
+            "Health": {
+              "current": 10,
+              "max": 10,
+              "label": "Health"
+            },
+            "Nerve": {
+              "current": 6,
+              "max": 6,
+              "label": "Nerve"
+            }
+          },
+          "conditions": []
+        }
+      },
+      {
+        "index": 6,
+        "phase": "active_play",
+        "intent": "I move to end the siege for good — straight at whatever is leading them.",
+        "player_text": "I move to end the siege for good — straight at whatever is leading them.",
+        "success_level": "success",
+        "latency_s": 45.7,
+        "resource_deltas": {},
+        "conditions_added": [],
+        "xp_gained": 0,
+        "offered_choice": true,
+        "working_state": {
+          "state_id": "0b839bc2-1069-456c-8269-5990da7183d9",
+          "entity_id": "a3bad946-0614-4681-9694-be0e8c3ae0cd",
+          "scene_id": "1d3cb380-290b-4bd8-92b6-5d413eb57155",
+          "story_id": "fd9436e1-ae73-4413-b56c-45f3b06bed97",
+          "current_stats": {
+            "Grit": 12,
+            "Wits": 13,
+            "Resolve": 11,
+            "conditions": [
+              "advantaged"
+            ],
+            "narrative_pressure": "steady",
+            "last_success_level": "success"
+          },
+          "resources": {
+            "Health": {
+              "current": 10,
+              "max": 10,
+              "label": "Health"
+            },
+            "Nerve": {
+              "current": 6,
+              "max": 6,
+              "label": "Nerve"
+            }
+          },
+          "conditions": []
+        }
+      }
+    ],
+    "log_file": "docs/testing/observe_scripted_20260620T053518Z.md"
+  }
+]

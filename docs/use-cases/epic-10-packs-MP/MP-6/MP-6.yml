@@ -1,0 +1,33 @@
+id: "MP-6"
+title: "Save as New Pack (Independent)"
+category: "packs"
+epic: 10
+priority: "medium"
+status: "in-progress"
+
+summary: |
+  Persist the current Pack Editor working copy as a new fully independent pack
+  with parent_pack_ids = []. No lineage is recorded. The resulting pack can be
+  used, exported, and applied exactly as any other pack. Use when the user
+  wants a clean standalone artifact.
+
+acceptance_criteria:
+  - "New pack document created with parent_pack_ids = []"
+  - "Pack appears in the Pack Library without a lineage badge"
+  - "Source packs are unchanged"
+  - "User is prompted for a name before saving"
+
+depends_on:
+  - "MP-4"
+
+blocks:
+  - "MP-7"
+  - "MP-8"
+
+implementation:
+  layer: 1
+
+  files:
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/pack_tools.py"
+      - "packages/ui/frontend/src/app/forge/editor/page.tsx"
