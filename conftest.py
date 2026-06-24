@@ -77,6 +77,15 @@ def _wants_network(item: pytest.Item) -> bool:
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
+    # Honor the gating promised by the marker docs (pytest.ini): integration/e2e
+    # tests hit real services, so skip them unless their env flag is set.
+    # Without this they run against the unroutable hermetic URIs above and fail
+    # with a DB/connection timeout instead of skipping cleanly.
+    if "e2e" in item.keywords and not os.getenv("RUN_E2E"):
+        pytest.skip("e2e test — set RUN_E2E=1 to run")
+    if "integration" in item.keywords and not _INTEGRATION_MODE:
+        pytest.skip("integration test — set RUN_INTEGRATION=1 (or RUN_E2E=1) to run")
+
     if _INTEGRATION_MODE or _wants_network(item):
         enable_socket()
     else:

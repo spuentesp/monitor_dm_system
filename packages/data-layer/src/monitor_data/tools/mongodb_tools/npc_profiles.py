@@ -19,9 +19,11 @@ from monitor_data.schemas.npc_profiles import (
 
 def _npc_profile_doc_to_response(doc: Dict[str, Any]) -> NPCProfileResponse:
     """Convert a MongoDB NPC profile document into an API response model."""
+    universe_id_raw = doc.get("universe_id")
     return NPCProfileResponse(
         profile_id=UUID(doc["profile_id"]),
         entity_id=UUID(doc["entity_id"]),
+        universe_id=UUID(universe_id_raw) if universe_id_raw else None,
         traits=doc.get("traits", {}),
         values=doc.get("values", []),
         fears=doc.get("fears", []),
@@ -36,6 +38,8 @@ def _npc_profile_doc_to_response(doc: Dict[str, Any]) -> NPCProfileResponse:
         gm_notes=doc.get("gm_notes"),
         current_emotional_state=doc.get("current_emotional_state"),
         relationship_states=doc.get("relationship_states", {}),
+        relationship_states_by_universe=doc.get("relationship_states_by_universe", {}),
+        current_emotional_state_by_universe=doc.get("current_emotional_state_by_universe", {}),
         created_at=doc["created_at"],
         updated_at=doc.get("updated_at"),
     )
@@ -63,6 +67,7 @@ def mongodb_create_npc_profile(params: NPCProfileCreate) -> NPCProfileResponse:
     doc = {
         "profile_id": str(profile_id),
         "entity_id": str(params.entity_id),
+        "universe_id": str(params.universe_id) if params.universe_id else None,
         "traits": params.traits,
         "values": params.values,
         "fears": params.fears,
@@ -77,6 +82,8 @@ def mongodb_create_npc_profile(params: NPCProfileCreate) -> NPCProfileResponse:
         "gm_notes": params.gm_notes,
         "current_emotional_state": params.current_emotional_state,
         "relationship_states": params.relationship_states,
+        "relationship_states_by_universe": params.relationship_states_by_universe,
+        "current_emotional_state_by_universe": params.current_emotional_state_by_universe,
         "created_at": now,
         "updated_at": now,
     }
@@ -113,6 +120,7 @@ def mongodb_update_npc_profile(entity_id: UUID, params: NPCProfileUpdate) -> NPC
         existing = {
             "profile_id": str(uuid4()),
             "entity_id": str(entity_id),
+            "universe_id": None,
             "traits": {},
             "values": [],
             "fears": [],
@@ -127,6 +135,8 @@ def mongodb_update_npc_profile(entity_id: UUID, params: NPCProfileUpdate) -> NPC
             "gm_notes": None,
             "current_emotional_state": None,
             "relationship_states": {},
+            "relationship_states_by_universe": {},
+            "current_emotional_state_by_universe": {},
             "created_at": now,
             "updated_at": now,
         }
@@ -177,6 +187,27 @@ def mongodb_update_npc_profile(entity_id: UUID, params: NPCProfileUpdate) -> NPC
             else:
                 merged_relationships[target_id] = state
         update_fields["relationship_states"] = merged_relationships
+
+    # Per-universe relationship partition (Character Versions). Same merge
+    # semantics as the legacy map: deep-merge each per-(universe,target) entry.
+    if params.relationship_states_by_universe is not None:
+        merged_by_universe = dict(existing.get("relationship_states_by_universe", {}))
+        for universe_id, targets in params.relationship_states_by_universe.items():
+            universe_map = dict(merged_by_universe.get(universe_id, {}))
+            for target_id, state in (targets or {}).items():
+                existing_state = universe_map.get(target_id, {})
+                if isinstance(existing_state, dict) and isinstance(state, dict):
+                    universe_map[target_id] = {**existing_state, **state}
+                else:
+                    universe_map[target_id] = state
+            merged_by_universe[universe_id] = universe_map
+        update_fields["relationship_states_by_universe"] = merged_by_universe
+
+    if params.current_emotional_state_by_universe is not None:
+        merged_emotion = dict(existing.get("current_emotional_state_by_universe", {}))
+        for universe_id, state in params.current_emotional_state_by_universe.items():
+            merged_emotion[universe_id] = state
+        update_fields["current_emotional_state_by_universe"] = merged_emotion
 
     profiles.update_one(
         {"entity_id": str(entity_id)},

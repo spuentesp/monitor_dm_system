@@ -1073,3 +1073,253 @@ def neo4j_fork_universe(
         "entities_cloned": entities_cloned,
         "relationships_cloned": relationships_cloned,
     }
+
+
+# ---------------------------------------------------------------------------
+# Universe split & merge (M-39 / M-40) — built on the fork clone pattern.
+# ---------------------------------------------------------------------------
+
+
+def _clone_entity_into_universe(client, new_uid, old_data, now_iso) -> str:
+    """Deep-clone one ``:Entity`` (fresh id, re-homed) into ``new_uid``.
+
+    Copies every property of the source node, then overrides identity fields so
+    the clone is an independent entity in the target universe. Matches the
+    canonical model written by ``neo4j_create_entity``:
+    ``(:Universe)-[:HAS_ENTITY]->(e:Entity {universe_id})``.
+    """
+    new_entity_id = str(uuid4())
+    props = dict(old_data)
+    props["id"] = new_entity_id
+    props["universe_id"] = new_uid
+    props["updated_at"] = now_iso
+    client.execute_write(
+        """
+        MATCH (u:Universe {id: $new_uid})
+        CREATE (e:Entity)
+        SET e = $props
+        CREATE (u)-[:HAS_ENTITY]->(e)
+        """,
+        {"new_uid": new_uid, "props": props},
+    )
+    return new_entity_id
+
+
+def _clone_induced_relationships(client, source_uid, id_map, seen=None) -> int:
+    """Clone edges whose *both* endpoints were cloned (present in ``id_map``).
+
+    ``seen`` — an optional set of ``(from_new, rel_type, to_new)`` keys — lets a
+    caller dedupe identical edges across multiple source universes (merge).
+    """
+    if not id_map:
+        return 0
+    rels = client.execute_read(
+        """
+        MATCH (:Universe {id: $source_uid})-[:HAS_ENTITY]->(e1:Entity)
+        MATCH (:Universe {id: $source_uid})-[:HAS_ENTITY]->(e2:Entity)
+        MATCH (e1)-[r]->(e2)
+        WHERE type(r) <> 'HAS_ENTITY'
+        RETURN type(r) as rel_type, e1.id as from_id, e2.id as to_id, properties(r) as props
+        """,
+        {"source_uid": source_uid},
+    )
+    cloned = 0
+    for rel in rels:
+        from_new = id_map.get(rel["from_id"])
+        to_new = id_map.get(rel["to_id"])
+        if not (from_new and to_new):
+            continue
+        key = (from_new, rel["rel_type"], to_new)
+        if seen is not None:
+            if key in seen:
+                continue
+            seen.add(key)
+        client.execute_write(
+            f"""
+            MATCH (e1 {{id: $from_id}})
+            MATCH (e2 {{id: $to_id}})
+            CREATE (e1)-[:`{rel["rel_type"]}` $props]->(e2)
+            """,
+            {"from_id": from_new, "to_id": to_new, "props": rel["props"] or {}},
+        )
+        cloned += 1
+    return cloned
+
+
+def neo4j_split_universe(
+    source_universe_id: UUID,
+    name: str,
+    entity_ids: list,
+    description: str = "",
+) -> Dict[str, Any]:
+    """
+    Split a *subset* of a universe's entities into a new universe.
+
+    The selected entities (and the relationships induced between them) are
+    deep-cloned with fresh IDs into a new universe that shares the source's
+    multiverse and is tagged ``alt_world_type='split'``.
+
+    Authority: CanonKeeper only
+    Use Case: M-39
+    """
+    client = get_neo4j_client()
+    source_uid = str(source_universe_id)
+    wanted = [str(e) for e in entity_ids]
+    if not wanted:
+        raise ValueError("entity_ids must not be empty")
+
+    source = neo4j_get_universe(source_universe_id)
+    if not source:
+        raise ValueError(f"Universe {source_universe_id} not found")
+
+    new_universe_id = uuid4()
+    new_uid = str(new_universe_id)
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+
+    client.execute_write(
+        """
+        MATCH (source:Universe {id: $source_uid})-[:IN_MULTIVERSE]->(mv:Multiverse)
+        CREATE (new:Universe {
+            id: $new_uid, name: $name, description: $description,
+            genre: source.genre, tone: source.tone, tech_level: source.tech_level,
+            is_template: false, parent_universe_id: $source_uid, alt_world_type: 'split',
+            canon_level: source.canon_level, confidence: source.confidence,
+            authority: source.authority, created_at: datetime($now)
+        })
+        CREATE (new)-[:IN_MULTIVERSE]->(mv)
+        RETURN new
+        """,
+        {
+            "source_uid": source_uid,
+            "new_uid": new_uid,
+            "name": name,
+            "description": description or f"Split of {source.name}",
+            "now": now_iso,
+        },
+    )
+
+    entities = client.execute_read(
+        """
+        MATCH (:Universe {id: $source_uid})-[:HAS_ENTITY]->(e:Entity)
+        WHERE e.id IN $ids
+        RETURN e
+        """,
+        {"source_uid": source_uid, "ids": wanted},
+    )
+
+    id_map: Dict[str, str] = {}
+    for record in entities:
+        old_data = dict(record["e"])
+        new_id = _clone_entity_into_universe(client, new_uid, old_data, now_iso)
+        id_map[old_data.get("id", "")] = new_id
+
+    relationships_cloned = _clone_induced_relationships(client, source_uid, id_map)
+
+    return {
+        "new_universe_id": new_uid,
+        "entities_cloned": len(id_map),
+        "relationships_cloned": relationships_cloned,
+    }
+
+
+def neo4j_merge_universes(
+    source_universe_ids: list,
+    name: str,
+    description: str = "",
+    dedupe_by_name: bool = True,
+) -> Dict[str, Any]:
+    """
+    Merge two or more universes' canon into a single new universe.
+
+    Entities from every source are deep-cloned into the new universe. With
+    ``dedupe_by_name`` (default), entities that share a name collapse into one
+    node and their relationships are re-pointed at the survivor; identical edges
+    are de-duplicated. The new universe lives in the first source's multiverse
+    and is tagged ``alt_world_type='merge'``.
+
+    Authority: CanonKeeper only
+    Use Case: M-40
+    """
+    client = get_neo4j_client()
+    if len(source_universe_ids) < 2:
+        raise ValueError("merge requires at least two source universes")
+
+    sources = []
+    for sid in source_universe_ids:
+        s = neo4j_get_universe(sid if isinstance(sid, UUID) else UUID(str(sid)))
+        if not s:
+            raise ValueError(f"Universe {sid} not found")
+        sources.append(s)
+
+    primary_uid = str(source_universe_ids[0])
+    new_universe_id = uuid4()
+    new_uid = str(new_universe_id)
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+
+    created = client.execute_write(
+        """
+        MATCH (primary:Universe {id: $primary_uid})-[:IN_MULTIVERSE]->(mv:Multiverse)
+        CREATE (new:Universe {
+            id: $new_uid, name: $name, description: $description,
+            genre: primary.genre, tone: primary.tone, tech_level: primary.tech_level,
+            is_template: false, parent_universe_id: $primary_uid, alt_world_type: 'merge',
+            canon_level: primary.canon_level, confidence: primary.confidence,
+            authority: primary.authority, created_at: datetime($now)
+        })
+        CREATE (new)-[:IN_MULTIVERSE]->(mv)
+        RETURN new
+        """,
+        {
+            "primary_uid": primary_uid,
+            "new_uid": new_uid,
+            "name": name,
+            "description": description or f"Merge of {len(sources)} universes",
+            "now": now_iso,
+        },
+    )
+    if not created:
+        raise ValueError("Could not create merged universe (is the primary in a multiverse?)")
+
+    id_map: Dict[str, str] = {}
+    name_to_new: Dict[str, str] = {}
+    entities_cloned = 0
+    duplicates_merged = 0
+
+    for sid in source_universe_ids:
+        suid = str(sid)
+        entities = client.execute_read(
+            """
+            MATCH (:Universe {id: $source_uid})-[:HAS_ENTITY]->(e:Entity)
+            RETURN e
+            """,
+            {"source_uid": suid},
+        )
+        for record in entities:
+            old_data = dict(record["e"])
+            old_id = old_data.get("id", "")
+            nm = old_data.get("name", "Unknown")
+            if dedupe_by_name and nm in name_to_new:
+                id_map[old_id] = name_to_new[nm]
+                duplicates_merged += 1
+                continue
+            new_id = _clone_entity_into_universe(
+                client, new_uid, old_data, now_iso
+            )
+            id_map[old_id] = new_id
+            name_to_new[nm] = new_id
+            entities_cloned += 1
+
+    seen: set = set()
+    relationships_cloned = 0
+    for sid in source_universe_ids:
+        relationships_cloned += _clone_induced_relationships(client, str(sid), id_map, seen)
+
+    return {
+        "new_universe_id": new_uid,
+        "entities_cloned": entities_cloned,
+        "relationships_cloned": relationships_cloned,
+        "sources_merged": len(sources),
+        "duplicates_merged": duplicates_merged,
+    }

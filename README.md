@@ -114,13 +114,9 @@ Use the canonical docs below instead of hunting through overlapping summaries:
 
 | Canon doc | Purpose |
 |-----------|---------|
-| [`docs/STATUS.md`](docs/STATUS.md) | **Live verified status** — tests, gates, stack health |
-| [`SYSTEM.md`](SYSTEM.md) | Product vision, goals, and operating modes |
+| [`docs/_index.md`](docs/_index.md) | **Documentation Map** — entry point for architecture, product, loops, and ontology |
 | [`STRUCTURE.md`](STRUCTURE.md) | Repo layout and folder ownership |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Layer boundaries and dependency rules |
-| [`docs/README.md`](docs/README.md) | Documentation index and placement rules |
 | [`docs/USE_CASES.md`](docs/USE_CASES.md) | Use-case catalog and workflow targets |
-| [`docs/AI_DOCS.md`](docs/AI_DOCS.md) | Contributor and agent quick navigation |
 | [`infra/README.md`](infra/README.md) | Local infrastructure setup and maintenance |
 
 For subsystem detail, see [`docs/architecture/`](docs/architecture/) and [`docs/ontology/`](docs/ontology/). Historical planning notes live under [`docs/archive/`](docs/archive/).
@@ -131,12 +127,12 @@ For subsystem detail, see [`docs/architecture/`](docs/architecture/) and [`docs/
 
 Before changing code or docs:
 
-1. Read `SYSTEM.md`, `STRUCTURE.md`, and `ARCHITECTURE.md`
+1. Read `docs/_index.md` and `STRUCTURE.md`
 2. Respect layer boundaries (`cli → agents → data-layer`)
 3. Add or update tests for behavior changes
 4. Reference the relevant use-case ID in your PR or commit message
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md), [`AGENT_SETUP.md`](AGENT_SETUP.md), and [`docs/AI_DOCS.md`](docs/AI_DOCS.md) for contributor workflow details.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENT_SETUP.md`](AGENT_SETUP.md) for contributor workflow details.
 
 ---
 

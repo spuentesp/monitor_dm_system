@@ -7,19 +7,23 @@ import {
   Background,
   Controls,
   MiniMap,
+  addEdge,
   useNodesState,
   useEdgesState,
   BackgroundVariant,
   type Node,
   type Edge,
+  type Connection,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Compass,
   Filter,
+  Link2,
   Loader2,
   Network,
+  Plus,
   RefreshCw,
   Search,
   Trash2,
@@ -38,6 +42,23 @@ const ENTITY_TYPES = [
 ] as const;
 
 type EntityTypeId = (typeof ENTITY_TYPES)[number]["id"];
+
+// Relationship types the user can draw between nodes (M-37). Category is
+// inferred server-side from the type.
+const REL_TYPES = [
+  "RELATED_TO",
+  "ALLIED_WITH",
+  "HOSTILE_TO",
+  "KNOWS",
+  "MEMBER_OF",
+  "LEADS",
+  "WORKS_FOR",
+  "OWNS",
+  "LOCATED_IN",
+  "CONTAINS",
+  "CONTROLS",
+  "REVERES",
+] as const;
 
 export default function ExplorerPage() {
   return (
@@ -146,6 +167,53 @@ function ExplorerPageInner() {
     onSuccess: () => {
       setBatchSelection([]);
       setSelectedNode(null);
+      qc.invalidateQueries({ queryKey: ["universeGraph", universeId] });
+      graphQ.refetch();
+    },
+  });
+
+  // ─── Inline relationship drawing (M-37) ───────────────────
+  const [pendingEdge, setPendingEdge] = useState<Connection | null>(null);
+  const [relType, setRelType] = useState<string>(REL_TYPES[0]);
+
+  const onConnect = useCallback((conn: Connection) => {
+    // Don't connect a universe root node; only real entities can relate.
+    if (conn.source && conn.target && conn.source !== conn.target) {
+      setPendingEdge(conn);
+      setRelType(REL_TYPES[0]);
+    }
+  }, []);
+
+  const createEdge = useMutation({
+    mutationFn: ({ from_id, to_id, rel_type }: { from_id: string; to_id: string; rel_type: string }) =>
+      entitiesApi.createRelationship({ from_id, to_id, rel_type }),
+    onSuccess: (_data, vars) => {
+      setEdges((eds) =>
+        addEdge(
+          { source: vars.from_id, target: vars.to_id, label: vars.rel_type, id: `${vars.from_id}-${vars.rel_type}-${vars.to_id}` },
+          eds,
+        ),
+      );
+      setPendingEdge(null);
+      qc.invalidateQueries({ queryKey: ["universeGraph", universeId] });
+    },
+  });
+
+  // ─── On-canvas node creation (M-38) ───────────────────────
+  const [showAddNode, setShowAddNode] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState<string>(ENTITY_TYPES[0].id);
+
+  const createNode = useMutation({
+    mutationFn: () =>
+      entitiesApi.createEntity({
+        universe_id: universeId!,
+        name: newName.trim(),
+        entity_type: newType,
+      }),
+    onSuccess: () => {
+      setShowAddNode(false);
+      setNewName("");
       qc.invalidateQueries({ queryKey: ["universeGraph", universeId] });
       graphQ.refetch();
     },
@@ -266,6 +334,15 @@ function ExplorerPageInner() {
           </div>
 
           <button
+            className="btn-primary"
+            onClick={() => { setNewName(""); setShowAddNode(true); }}
+            disabled={!universeId}
+            title="Add a node to this universe"
+          >
+            <Plus className="h-4 w-4" /> Add node
+          </button>
+
+          <button
             className="btn-secondary"
             onClick={() => graphQ.refetch()}
             disabled={!universeId || graphQ.isFetching}
@@ -305,6 +382,7 @@ function ExplorerPageInner() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeClick={onNodeClick}
+            onConnect={onConnect}
             onSelectionChange={onSelectionChange}
             selectionOnDrag
             multiSelectionKeyCode="Shift"
@@ -382,8 +460,144 @@ function ExplorerPageInner() {
           Batch delete failed: {(batchDelete.error as Error)?.message}
         </div>
       )}
+
+      {/* Relationship-type picker for a drawn edge (M-37) */}
+      {pendingEdge && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-80 rounded-2xl border border-border bg-bg-card p-4 shadow-2xl">
+            <div className="flex items-center gap-2 mb-3">
+              <Link2 className="h-4 w-4 text-accent-primary" />
+              <h3 className="text-sm font-semibold text-fg-primary">New relationship</h3>
+              <button
+                className="ml-auto btn-ghost p-1"
+                onClick={() => setPendingEdge(null)}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="text-xs text-fg-muted mb-2">
+              {nodeLabel(nodes, pendingEdge.source)} →{" "}
+              {nodeLabel(nodes, pendingEdge.target)}
+            </p>
+            <label className="block text-[10px] text-fg-muted mb-0.5">Type</label>
+            <select
+              className="select text-sm w-full mb-3"
+              value={relType}
+              onChange={(e) => setRelType(e.target.value)}
+            >
+              {REL_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t.replace(/_/g, " ").toLowerCase()}
+                </option>
+              ))}
+            </select>
+            {createEdge.isError && (
+              <p className="text-[11px] text-red-300 mb-2">
+                Could not create: {(createEdge.error as Error)?.message}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                className="btn-primary flex-1 justify-center text-sm"
+                disabled={createEdge.isPending}
+                onClick={() =>
+                  createEdge.mutate({
+                    from_id: pendingEdge.source!,
+                    to_id: pendingEdge.target!,
+                    rel_type: relType,
+                  })
+                }
+              >
+                {createEdge.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2 className="h-4 w-4" />
+                )}
+                Connect
+              </button>
+              <button
+                className="btn-ghost flex-1 justify-center text-sm border border-border"
+                onClick={() => setPendingEdge(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Add-node form (M-38) */}
+      {showAddNode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-80 rounded-2xl border border-border bg-bg-card p-4 shadow-2xl">
+            <div className="flex items-center gap-2 mb-3">
+              <Plus className="h-4 w-4 text-accent-primary" />
+              <h3 className="text-sm font-semibold text-fg-primary">Add node</h3>
+              <button
+                className="ml-auto btn-ghost p-1"
+                onClick={() => setShowAddNode(false)}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <label className="block text-[10px] text-fg-muted mb-0.5">Name</label>
+            <input
+              autoFocus
+              className="input text-sm w-full mb-3"
+              placeholder="e.g. The Iron Brotherhood"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newName.trim()) createNode.mutate();
+              }}
+            />
+            <label className="block text-[10px] text-fg-muted mb-0.5">Type</label>
+            <select
+              className="select text-sm w-full mb-3"
+              value={newType}
+              onChange={(e) => setNewType(e.target.value)}
+            >
+              {ENTITY_TYPES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            {createNode.isError && (
+              <p className="text-[11px] text-red-300 mb-2">
+                Could not create: {(createNode.error as Error)?.message}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                className="btn-primary flex-1 justify-center text-sm"
+                disabled={createNode.isPending || !newName.trim()}
+                onClick={() => createNode.mutate()}
+              >
+                {createNode.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
+                Create
+              </button>
+              <button
+                className="btn-ghost flex-1 justify-center text-sm border border-border"
+                onClick={() => setShowAddNode(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function nodeLabel(nodes: Node[], id: string | null): string {
+  if (!id) return "?";
+  const n = nodes.find((x) => x.id === id);
+  return ((n?.data as { label?: string })?.label ?? id).toString();
 }
 
 // ─── Helpers ─────────────────────────────────────────────────

@@ -34,6 +34,7 @@ import {
   Network,
   Plus,
   RefreshCw,
+  Save,
   Search,
   Shield,
   Sparkles,
@@ -212,6 +213,38 @@ WorldNode.displayName = "WorldNode";
 const nodeTypes = { worldNode: WorldNode };
 
 function InspectorPanel({ node, onFocusEntity }: { node: Node<GraphNodeData> | null; onFocusEntity?: (id: string, label: string) => void }) {
+  const qc = useQueryClient();
+  const editable = !!node && !["multiverse", "universe"].includes(node.data.kind);
+
+  // ── Edit state (M-36) ──────────────────────────────────────
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+
+  // Reset the draft whenever a different node is selected.
+  useEffect(() => {
+    setEditing(false);
+    setName(node?.data.label ?? "");
+    setDescription(node?.data.description ?? "");
+    setTags(node?.data.tags ?? []);
+    setTagInput("");
+  }, [node?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = useMutation({
+    mutationFn: () =>
+      entitiesApi.updateEntity(node!.id, {
+        name: name.trim(),
+        description: description.trim(),
+        tags,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["worldGraph"] });
+      setEditing(false);
+    },
+  });
+
   if (!node) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-center px-6 gap-3">
@@ -227,6 +260,12 @@ function InspectorPanel({ node, onFocusEntity }: { node: Node<GraphNodeData> | n
   const cfg = KIND_CONFIG[node.data.kind as GraphNodeKind];
   const Icon = cfg.icon;
 
+  const addTag = () => {
+    const t = tagInput.trim();
+    if (t && !tags.includes(t)) setTags([...tags, t]);
+    setTagInput("");
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4">
       <div className="flex items-start gap-3">
@@ -234,65 +273,145 @@ function InspectorPanel({ node, onFocusEntity }: { node: Node<GraphNodeData> | n
           <Icon className={cn("w-5 h-5", cfg.iconColor)} />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 className="text-base font-semibold text-slate-100 leading-tight truncate">
-            {node.data.label}
-          </h2>
+          {editing ? (
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="input-cyber w-full text-sm py-1"
+              placeholder="Name"
+            />
+          ) : (
+            <h2 className="text-base font-semibold text-slate-100 leading-tight truncate">
+              {node.data.label}
+            </h2>
+          )}
           <span className={cn("text-[10px] mt-1 inline-block", cfg.tagClass)}>{cfg.label}</span>
         </div>
+        {editable && !editing && (
+          <button
+            onClick={() => setEditing(true)}
+            className="p-1.5 rounded text-slate-500 hover:text-purple-300 transition-colors"
+            title="Edit entity"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
-      {node.data.description && (
-        <div>
-          <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-1.5">Description</p>
+      <div>
+        <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-1.5">Description</p>
+        {editing ? (
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={4}
+            className="input-cyber w-full text-sm resize-none"
+            placeholder="Describe this entity…"
+          />
+        ) : node.data.description ? (
           <p className="text-sm text-slate-400 leading-relaxed">{node.data.description}</p>
-        </div>
-      )}
+        ) : (
+          <p className="text-xs text-slate-700 italic">No description.</p>
+        )}
+      </div>
 
-      {node.data.subtitle && (
+      {!editing && node.data.subtitle && (
         <div>
           <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-1.5">Details</p>
           <p className="text-sm text-slate-400">{node.data.subtitle}</p>
         </div>
       )}
 
-      {(node.data.tags ?? []).length > 0 && (
-        <div>
-          <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-2">Tags</p>
-          <div className="flex flex-wrap gap-1.5">
-            {(node.data.tags ?? []).map((t) => (
-              <span key={t} className="tag-dim">{t}</span>
-            ))}
-          </div>
+      <div>
+        <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-2">Tags</p>
+        <div className="flex flex-wrap gap-1.5">
+          {tags.map((t) => (
+            <span key={t} className="tag-dim inline-flex items-center gap-1">
+              {t}
+              {editing && (
+                <button
+                  onClick={() => setTags(tags.filter((x) => x !== t))}
+                  className="text-slate-500 hover:text-red-300"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              )}
+            </span>
+          ))}
+          {!editing && tags.length === 0 && (
+            <span className="text-xs text-slate-700 italic">No tags.</span>
+          )}
         </div>
-      )}
+        {editing && (
+          <div className="flex items-center gap-1.5 mt-2">
+            <input
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+              className="input-cyber flex-1 text-xs py-1"
+              placeholder="Add tag + Enter"
+            />
+            <button onClick={addTag} className="p-1 text-purple-400 hover:text-purple-300">
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
 
       <div>
         <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-1">ID</p>
         <p className="font-mono text-xs text-slate-700">{node.id}</p>
       </div>
 
-      <div className="flex gap-2 pt-1">
-        {onFocusEntity && !["multiverse", "universe"].includes(node.data.kind) && (
-          <button
-            onClick={() => onFocusEntity(node.id, node.data.label)}
-            className="btn-ghost flex-1 justify-center text-xs py-1.5 text-purple-400 hover:text-purple-300 border border-purple-500/20"
-            title="Show connections"
-          >
-            <Link2 className="w-3.5 h-3.5" />
-            Focus
-          </button>
-        )}
-        {node.data.kind === "universe" && (
-          <a
-            href={`/worlds?universe=${node.id}`}
-            className="btn-cyber flex-1 justify-center text-xs py-1.5"
-            title="Open in the tree with stories and scenes"
-          >
-            <Globe2 className="w-3.5 h-3.5" />
-            Open tree
-          </a>
-        )}
-      </div>
+      {editing ? (
+        <div className="space-y-2 pt-1">
+          {save.isError && (
+            <p className="text-[11px] text-red-300">
+              Save failed: {(save.error as Error)?.message}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => save.mutate()}
+              disabled={save.isPending || !name.trim()}
+              className="btn-cyber flex-1 justify-center text-xs py-1.5 disabled:opacity-40"
+            >
+              {save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              Save
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              disabled={save.isPending}
+              className="btn-ghost flex-1 justify-center text-xs py-1.5 border border-white/10"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-2 pt-1">
+          {onFocusEntity && editable && (
+            <button
+              onClick={() => onFocusEntity(node.id, node.data.label)}
+              className="btn-ghost flex-1 justify-center text-xs py-1.5 text-purple-400 hover:text-purple-300 border border-purple-500/20"
+              title="Show connections"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+              Focus
+            </button>
+          )}
+          {node.data.kind === "universe" && (
+            <a
+              href={`/worlds?universe=${node.id}`}
+              className="btn-cyber flex-1 justify-center text-xs py-1.5"
+              title="Open in the tree with stories and scenes"
+            >
+              <Globe2 className="w-3.5 h-3.5" />
+              Open tree
+            </a>
+          )}
+        </div>
+      )}
     </div>
   );
 }

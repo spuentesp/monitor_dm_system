@@ -84,18 +84,19 @@ FastAPI app at `packages/ui/backend/src/monitor_ui/`. Routers in `routers/`. The
 
 ## Documentation Map
 
-| Topic | Source |
-|-------|--------|
-| Product vision & epics | [SYSTEM.md](SYSTEM.md) |
-| Folder structure | [STRUCTURE.md](STRUCTURE.md) |
-| Layer rules & diagrams | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| Use-case catalog | [docs/USE_CASES.md](docs/USE_CASES.md) |
-| Quick implementation ref | [docs/AI_DOCS.md](docs/AI_DOCS.md) |
-| MCP transport | [docs/architecture/MCP_TRANSPORT.md](docs/architecture/MCP_TRANSPORT.md) |
-| Agent orchestration | [docs/architecture/AGENT_ORCHESTRATION.md](docs/architecture/AGENT_ORCHESTRATION.md) |
-| Data model | [docs/ontology/ONTOLOGY.md](docs/ontology/ONTOLOGY.md) |
-| Contributing workflow | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| DB integration | [docs/architecture/DATABASE_INTEGRATION.md](docs/architecture/DATABASE_INTEGRATION.md) |
+The documentation for MONITOR has been restructured for agent-friendliness.
+
+**Start Here:** [docs/_index.md](docs/_index.md)
+
+Quick Links:
+- Product & Epics: [docs/1_product/_index.md](docs/1_product/_index.md)
+- Architecture & Layers: [docs/2_architecture/_index.md](docs/2_architecture/_index.md)
+- Loops & Systems: [docs/3_loops_and_systems/_index.md](docs/3_loops_and_systems/_index.md)
+- Ontology & Models: [docs/4_ontology/_index.md](docs/4_ontology/_index.md)
+- Infrastructure: [docs/5_infrastructure/_index.md](docs/5_infrastructure/_index.md)
+- Folder Structure: [STRUCTURE.md](STRUCTURE.md)
+- Use-case catalog: [docs/USE_CASES.md](docs/USE_CASES.md)
+- Contributing workflow: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Common Mistakes
 
