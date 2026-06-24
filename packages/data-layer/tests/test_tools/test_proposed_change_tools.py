@@ -336,6 +336,29 @@ def test_create_proposed_change_no_scene_or_story():
         )
 
 
+@pytest.mark.parametrize("proposer", ["NPCVoice", "CharacterChat"])
+def test_create_proposed_change_conversatory_proposer_no_scene(proposer):
+    """Conversatory proposals (NPCVoice / CharacterChat) are universe-scoped
+    rather than scene-scoped, so they don't need scene_id or story_id.
+
+    Regression test for the conversation-loop bug where every conversatory
+    proposal was rejected with "Either scene_id or story_id must be provided"
+    (discovered via the live Kvothe e2e).
+    """
+    params = ProposedChangeCreate(
+        change_type=ProposalType.STATE_CHANGE,
+        content={
+            "entity_id": str(uuid4()),
+            "current_emotional_state": "guarded",
+        },
+        proposer=proposer,
+    )
+    # Must not raise; universe_id is required and is set on the content.
+    assert params.scene_id is None
+    assert params.story_id is None
+    assert params.proposer == proposer
+
+
 # =============================================================================
 # TESTS: mongodb_get_proposed_change
 # =============================================================================

@@ -1170,6 +1170,42 @@ async def delete_character_version(character_id: str, universe_id: str) -> None:
         raise HTTPException(status_code=404, detail="Version not found")
 
 
+@router.get(
+    "/characters/{character_id}/profile",
+    response_model=dict,
+)
+async def get_character_profile(character_id: str) -> dict:
+    """Return the NPCProfile doc for the character's default incarnation.
+
+    Read-only introspection — primarily used by e2e property tests and
+    debug tools that need to verify per-universe partitions are populated.
+    """
+    from monitor_data.tools.mongodb_tools import mongodb_get_npc_profile
+    from . import character_conversation as cc
+
+    if not _get_character_doc(character_id):
+        raise HTTPException(status_code=404, detail="Character not found")
+    # Ensure backing entity exists; don't auto-provision (read-only).
+    char = _get_character_doc(character_id)
+    entity_id = char.get("entity_id")
+    if not entity_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Character has no incarnation yet (light card not expanded).",
+        )
+    try:
+        profile = mongodb_get_npc_profile(uuid.UUID(entity_id))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Mongo read failed: {exc}")
+    if profile is None:
+        raise HTTPException(
+            status_code=404, detail="NPCProfile not found in MongoDB"
+        )
+    # Serialise the Pydantic response model so the per-universe partition
+    # maps and timestamps survive the JSON roundtrip.
+    return profile.model_dump(mode="json")
+
+
 @router.post(
     "/characters/{character_id}/conversations", response_model=ConversationStartResponse
 )

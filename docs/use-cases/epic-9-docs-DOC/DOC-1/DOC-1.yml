@@ -1,0 +1,43 @@
+id: "DOC-1"
+title: "Agentic Documentation Organization"
+category: "docs"
+epic: 9
+priority: "high"
+status: "done"
+
+summary: |
+  Restructure the entire documentation for agent-friendliness, splitting large monolithic files into smaller, graph-connected documents under specific categories (1_product, 2_architecture, etc.).
+
+acceptance_criteria:
+  - "Split SYSTEM.md into docs/1_product"
+  - "Split ARCHITECTURE.md into docs/2_architecture"
+  - "Remove old audit files and plans"
+  - "Create master index docs/_index.md"
+  - "Ensure no single markdown file is longer than 200 lines"
+  
+depends_on: []
+blocks: []
+
+implementation:
+  layer: 1
+  files:
+    create: ["docs/_index.md"]
+    modify: []
+  patterns: []
+  notes: |
+    Completed through automated restructuring.
+
+testing:
+  unit_tests: []
+  integration_tests: []
+  coverage_minimum: 0
+
+github:
+  labels: ["documentation"]
+  milestone: "v0.1.0"
+  assignees: []
+
+references:
+  docs: ["docs/_index.md"]
+  code: []
+  external: []

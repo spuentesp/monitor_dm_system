@@ -427,16 +427,21 @@ class TestEdgeCases:
         # is retained — this assertion catches it.
         assert cc._LOOPS_MAX == 64
         cap = cc._LOOPS_MAX
-        for i in range(cap + 5):
-            cc._cache_loop(f"id-{i}", MagicMock())
-        # The cache size must be EXACTLY the cap — not "<=cap" — so the LRU
-        # eviction is actually exercised.
-        assert len(cc._LOOPS) == cap
-        # Oldest entries gone.
-        assert cc.get_loop("id-0") is None
-        # Newest still present.
-        assert cc.get_loop(f"id-{cap + 4}") is not None
-        assert cc.get_loop(f"id-{cc._LOOPS_MAX + 4}") is not None
+        try:
+            for i in range(cap + 5):
+                cc._cache_loop(f"id-{i}", MagicMock())
+            # The cache size must be EXACTLY the cap — not "<=cap" — so the LRU
+            # eviction is actually exercised.
+            assert len(cc._LOOPS) == cap
+            # Oldest entries gone.
+            assert cc.get_loop("id-0") is None
+            # Newest still present.
+            assert cc.get_loop(f"id-{cap + 4}") is not None
+            assert cc.get_loop(f"id-{cc._LOOPS_MAX + 4}") is not None
+        finally:
+            # Always restore the cap so other tests see the production value.
+            cc._LOOPS_MAX = cap
+            cc._LOOPS.clear()
 
     def test_draft_card_propagates_errors(self):
         # If the underlying generator raises, draft_card must surface it.

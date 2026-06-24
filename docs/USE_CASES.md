@@ -40,6 +40,7 @@ See [SYSTEM.md](../SYSTEM.md) for core objectives (O1-O5) and epics (EPIC 0-9).
 | **STORY**      | `ST-1` to `ST-8`  | Planning & meta-narrative tools | [epic-8-planning-ST/](use-cases/epic-8-planning-ST/) |
 | **RULES**      | `RS-1` to `RS-8`  | Game system definition — stats, skills, mechanics | [epic-5-rules-RS/](use-cases/epic-5-rules-RS/) |
 | **PACKS**      | `MP-1` to `MP-9`  | Multiverse Packs — compose, apply, share worlds | [epic-10-packs-MP/](use-cases/epic-10-packs-MP/) |
+| **DOCS**       | `DOC-1`           | Documentation publishing & governance | [epic-9-docs-DOC/](use-cases/epic-9-docs-DOC/) |
 
 > The catalog evolves over time.
 
@@ -67,11 +68,6 @@ See [SYSTEM.md](../SYSTEM.md) for core objectives (O1-O5) and epics (EPIC 0-9).
 | **Epic 6** — Timeline Query | Q-1 to Q-11 | [epic-6-timeline-Q/](use-cases/epic-6-timeline-Q/) |
 | **Epic 7** — Co-Pilot | CF-1 to CF-8 | [epic-7-copilot-CF/](use-cases/epic-7-copilot-CF/) |
 | **Epic 8** — Planning Story | ST-1 to ST-8 | [epic-8-planning-ST/](use-cases/epic-8-planning-ST/) |
+| **Epic 9** — Docs | DOC-1 | [epic-9-docs-DOC/](use-cases/epic-9-docs-DOC/) |
 | **Epic 10** — Packs | MP-1 to MP-9 | [epic-10-packs-MP/](use-cases/epic-10-packs-MP/) |
 | **Epic 11** — System | SYS-1 to SYS-12 | [epic-11-system-SYS/](use-cases/epic-11-system-SYS/) |
-
-### Companion Documents
-
-- [Behavior Contracts](use-cases/behavior/) — Behavior definitions
-- [Co-Pilot Docs](use-cases/co-pilot/) — Co-Pilot specs
-- [Data Layer Models](use-cases/data-layer/) — Data structure details

@@ -65,7 +65,8 @@
       "Bash(pkill -f test_ingest_vtm_ao3)",
       "Bash(echo \"launched pid $!\")",
       "Bash(pkill -9 -f test_ingest_vtm_ao3)",
-      "Bash(ps -eo pid,cmd)"
+      "Bash(ps -eo pid,cmd)",
+      "Bash(xargs -I {} basename {})"
     ]
   }
 }
