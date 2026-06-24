@@ -114,7 +114,6 @@ Use the canonical docs below instead of hunting through overlapping summaries:
 
 | Canon doc | Purpose |
 |-----------|---------|
-| [`docs/STATUS.md`](docs/STATUS.md) | **Live verified status** — tests, gates, stack health |
 | [`docs/_index.md`](docs/_index.md) | **Documentation Map** — entry point for architecture, product, loops, and ontology |
 | [`STRUCTURE.md`](STRUCTURE.md) | Repo layout and folder ownership |
 | [`docs/USE_CASES.md`](docs/USE_CASES.md) | Use-case catalog and workflow targets |
@@ -133,7 +132,7 @@ Before changing code or docs:
 3. Add or update tests for behavior changes
 4. Reference the relevant use-case ID in your PR or commit message
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contributor workflow details.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENT_SETUP.md`](AGENT_SETUP.md) for contributor workflow details.
 
 ---
 
