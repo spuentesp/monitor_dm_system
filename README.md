@@ -114,6 +114,7 @@ Use the canonical docs below instead of hunting through overlapping summaries:
 
 | Canon doc | Purpose |
 |-----------|---------|
+| [`docs/STATUS.md`](docs/STATUS.md) | **Live verified status** — tests, gates, stack health |
 | [`docs/_index.md`](docs/_index.md) | **Documentation Map** — entry point for architecture, product, loops, and ontology |
 | [`STRUCTURE.md`](STRUCTURE.md) | Repo layout and folder ownership |
 | [`docs/USE_CASES.md`](docs/USE_CASES.md) | Use-case catalog and workflow targets |
