@@ -102,3 +102,28 @@ class TestForwardParsing:
     def test_falls_back_to_neutral_on_garbage(self):
         out = _run_forward_with_output("not json at all")
         assert out == _neutral_profile("Maeve")
+
+
+# ---------------------------------------------------------------------------
+# Tests added to kill surviving mutations from the manual mutation harness.
+# These exercise the negative bound (-1.0) of _clamp and the empty-trajectory
+# path through _neutral_profile.
+# ---------------------------------------------------------------------------
+
+
+class TestClampNegativeBound:
+    def test_negative_extreme_clamped_to_minus_one(self):
+        out = _coerce_profile({"traits": {"paranoia": -99.0}})
+        assert out["traits"]["paranoia"] == -1.0
+
+    def test_positive_extreme_clamped_to_plus_one(self):
+        out = _coerce_profile({"traits": {"courage": 99.0}})
+        assert out["traits"]["courage"] == 1.0
+
+    def test_neutral_profile_with_all_empty_fields_uses_neutral_state(self):
+        # Empty neutral profile (the parse-failure fallback shape) must still
+        # carry the default emotional state — mutations that strip it surface here.
+        n = _neutral_profile("X")
+        assert n["current_emotional_state"] == "neutral"
+        assert n["triggers"] == []
+        assert n["values"] == []

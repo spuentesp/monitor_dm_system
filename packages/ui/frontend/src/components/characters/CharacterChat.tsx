@@ -35,6 +35,9 @@ export function CharacterChat({
   const [draft, setDraft] = useState("");
   const [starting, setStarting] = useState(true);
   const [sending, setSending] = useState(false);
+  // Character Versions: broaden memory recall to other universes of this
+  // character when the user opts in (default off — strict universe scope).
+  const [includeCrossIncarnation, setIncludeCrossIncarnation] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const convRef = useRef<string | null>(null);
 
@@ -73,7 +76,12 @@ export function CharacterChat({
     setMessages((m) => [...m, { id: `u-${Date.now()}`, role: "user", text }]);
     setSending(true);
     try {
-      const reply = await entitiesApi.sendCharacterMessage(character.id, conversationId, text);
+      const reply = await entitiesApi.sendCharacterMessage(
+        character.id,
+        conversationId,
+        text,
+        { include_cross_incarnation: includeCrossIncarnation },
+      );
       setMessages((m) => [
         ...m,
         {
@@ -149,29 +157,43 @@ export function CharacterChat({
           )}
         </div>
 
-        <div className="flex items-end gap-2 border-t border-border p-3">
-          <textarea
-            className="input-cyber max-h-32 min-h-[42px] flex-1 resize-none"
-            placeholder={`Message ${character.name}…`}
-            value={draft}
-            rows={1}
-            disabled={starting || !conversationId}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-          />
-          <button
-            className="btn-cyber px-3 py-2.5"
-            onClick={send}
-            disabled={sending || starting || !draft.trim()}
-            title="Send"
-          >
-            <Send className="h-4 w-4" />
-          </button>
+        <div className="flex flex-col gap-2 border-t border-border p-3">
+          <label className="flex items-center gap-2 text-[11px] text-fg-muted">
+            <input
+              type="checkbox"
+              checked={includeCrossIncarnation}
+              onChange={(e) => setIncludeCrossIncarnation(e.target.checked)}
+              className="h-3 w-3 accent-accent-primary"
+            />
+            Remember across incarnations
+            <span className="text-fg-dim">
+              (broadens memory recall to other universes of this character)
+            </span>
+          </label>
+          <div className="flex items-end gap-2">
+            <textarea
+              className="input-cyber max-h-32 min-h-[42px] flex-1 resize-none"
+              placeholder={`Message ${character.name}…`}
+              value={draft}
+              rows={1}
+              disabled={starting || !conversationId}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+            />
+            <button
+              className="btn-cyber px-3 py-2.5"
+              onClick={send}
+              disabled={sending || starting || !draft.trim()}
+              title="Send"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
 

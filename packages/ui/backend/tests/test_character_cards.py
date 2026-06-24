@@ -260,3 +260,28 @@ class TestRoundTrip:
         assert parsed.first_message == original["first_message"]
         # gm_notes was placed in creator_notes by build_character_card
         assert "Secretly an ex-thief" in parsed.gm_notes
+
+# ---------------------------------------------------------------------------
+# Mutation-killing additions: distinct fields between name and char_name so the
+# fallback is actually exercised, and description-only cards (no name at all).
+# ---------------------------------------------------------------------------
+
+
+class TestMutationKillers:
+    def test_v1_uses_char_name_when_name_missing(self):
+        """v1 fallback path: 'name' missing, only 'char_name' present."""
+        card = {
+            "char_name": "FallbackName",
+            "char_persona": "v1 persona.",
+            "char_greeting": "v1 greeting.",
+            "personality": "v1 personality.",
+        }
+        parsed = parse_character_card(json.dumps(card).encode())
+        assert parsed.name == "FallbackName"
+        assert parsed.description == "v1 persona."
+        assert parsed.first_message == "v1 greeting."
+
+    def test_v1_picks_name_over_char_name_when_both_present(self):
+        card = {"name": "PrimaryName", "char_name": "ShouldBeIgnored"}
+        parsed = parse_character_card(json.dumps(card).encode())
+        assert parsed.name == "PrimaryName"

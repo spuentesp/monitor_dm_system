@@ -34,6 +34,7 @@ See [SYSTEM.md](../SYSTEM.md) for core objectives (O1-O5) and epics (EPIC 0-9).
 | **QUERY**      | `Q-1` to `Q-11`   | Canon exploration — search, browse, ask | [epic-6-timeline-Q/](use-cases/epic-6-timeline-Q/) |
 | **INGEST**     | `I-1` to `I-13`   | Knowledge import — documents, extraction, curation, synthesis | [epic-2-ingestion-I/](use-cases/epic-2-ingestion-I/) |
 | **IDENTITY**   | `M-31` etc.       | Identity and persona management | [epic-3-identity-M/](use-cases/epic-3-identity-M/) |
+| **VERSIONS**  | _no UC id_        | Character Versions — per-universe incarnations (no cross-incarnation leak); see [CHARACTER_VERSIONS.md](use-cases/epic-3-identity-M/M-31/CHARACTER_VERSIONS.md) | — |
 | **SYSTEM**     | `SYS-1` to `SYS-12` | App lifecycle, config, session | [epic-11-system-SYS/](use-cases/epic-11-system-SYS/) |
 | **CO-PILOT**   | `CF-1` to `CF-8`  | Human GM assistant features | [epic-7-copilot-CF/](use-cases/epic-7-copilot-CF/) |
 | **STORY**      | `ST-1` to `ST-8`  | Planning & meta-narrative tools | [epic-8-planning-ST/](use-cases/epic-8-planning-ST/) |

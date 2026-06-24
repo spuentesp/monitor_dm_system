@@ -211,8 +211,33 @@ async def fanout_completed_gm_message(
     *,
     exclude: WebSocket | None = None,
 ) -> None:
-    """Stream a completed GM message token-by-token for the typing effect."""
+    """Stream a completed GM message token-by-token for the typing effect.
+
+    Emits additive `phase` events before `start` so the frontend can show
+    an honest "GM is thinking" indicator (UI-2). The events are best-effort:
+    a failure to emit any one of them does NOT block the turn — the rest
+    are still streamed. This preserves back-compat: clients that ignore
+    `phase` still get `start`/`token`/`done` and the message renders.
+    """
     message_id = str(gm_msg.get("id") or uuid.uuid4())
+
+    # Best-effort phase hints. Each emit is independent — if one fails, the
+    # rest still go out. The set of phases is intentionally small (3-4) so
+    # we don't drown the socket in noise; the frontend has a copy mapping
+    # and falls back to "Thinking…" for unknown values.
+    for phase in ("assembling_context", "narrating"):
+        try:
+            await fanout_event(
+                session_id,
+                {"type": "phase", "phase": phase, "message_id": message_id},
+                exclude=exclude,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "ws.phase emit failed (phase=%s, session=%s): %s",
+                phase, session_id, exc,
+            )
+
     await fanout_event(
         session_id, {"type": "start", "message_id": message_id}, exclude=exclude
     )

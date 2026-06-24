@@ -34,6 +34,7 @@ import type {
   StandaloneCharacter,
   CharacterExpandResult,
   CharacterCardDraft,
+  CharacterVersion,
   ConversationStart,
   CharacterReply,
   CharacterConversation,
@@ -749,14 +750,52 @@ export const entitiesApi = {
     }),
 
   // ── Conversatory (MONITOR-backed chat) ──
-  expandCharacter: (id: string) =>
-    req<CharacterExpandResult>(`/entities/characters/${id}/expand`, { method: "POST" }),
-  startCharacterConversation: (id: string) =>
-    req<ConversationStart>(`/entities/characters/${id}/conversations`, { method: "POST" }),
-  sendCharacterMessage: (id: string, conversationId: string, text: string) =>
+  expandCharacter: (id: string, body?: { universe_id?: string }) =>
+    req<CharacterExpandResult>(`/entities/characters/${id}/expand`, {
+      method: "POST",
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+
+  // ── Character Versions (per-universe incarnations) ──
+  listCharacterVersions: (id: string) =>
+    req<CharacterVersion[]>(`/entities/characters/${id}/versions`),
+  createCharacterVersion: (
+    id: string,
+    body: { universe_id?: string } = {}
+  ) =>
+    req<CharacterExpandResult>(`/entities/characters/${id}/versions`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  deleteCharacterVersion: (id: string, universeId: string) =>
+    req<void>(
+      `/entities/characters/${id}/versions/${universeId}`,
+      { method: "DELETE" },
+    ),
+
+  startCharacterConversation: (
+    id: string,
+    body: { universe_id?: string } = {}
+  ) =>
+    req<ConversationStart>(`/entities/characters/${id}/conversations`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  sendCharacterMessage: (
+    id: string,
+    conversationId: string,
+    text: string,
+    options?: { include_cross_incarnation?: boolean }
+  ) =>
     req<CharacterReply>(
       `/entities/characters/${id}/conversations/${conversationId}/send`,
-      { method: "POST", body: JSON.stringify({ text }) },
+      {
+        method: "POST",
+        body: JSON.stringify({
+          text,
+          include_cross_incarnation: options?.include_cross_incarnation ?? false,
+        }),
+      },
     ),
   endCharacterConversation: (id: string, conversationId: string) =>
     req<{ ended: boolean; proposals: number }>(

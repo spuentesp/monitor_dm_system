@@ -391,6 +391,10 @@ export interface StandaloneCharacter {
   first_message: string;
   is_ooc_persona: boolean;
   entity_id: string | null;
+  // Character Versions: per-universe incarnations. Always present (defaults
+  // to [] for legacy docs); see character_storage.add_version.
+  default_universe_id: string | null;
+  versions: CharacterVersion[];
   memory_count: number;
   created_at: string;
   updated_at: string;
@@ -423,7 +427,23 @@ export interface ConversationStart {
   conversation_id: string;
   character_id: string;
   entity_id: string;
+  universe_id?: string;
+  version_id?: string;
   opening: string;
+}
+
+/**
+ * One Character Version (per-universe incarnation) of a roster character.
+ * Memories, emotional state, and relationship deltas are scoped to the
+ * (character, universe_id) pair — see character_versions_api.test.ts.
+ */
+export interface CharacterVersion {
+  version_id: string;
+  universe_id: string;
+  entity_id: string;
+  npc_profile_id: string | null;
+  created_at: string;
+  last_chatted_at: string | null;
 }
 
 export interface CharacterReply {
