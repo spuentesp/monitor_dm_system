@@ -195,7 +195,9 @@ class CharacterDetail(CharacterCreate):
     """Full character response with runtime stats."""
 
     id: str
-    entity_id: str | None = None  # Neo4j entity ID if linked to universe
+    entity_id: str | None = None  # Neo4j entity ID of the *default* incarnation
+    default_universe_id: str | None = None
+    versions: list[CharacterVersion] = Field(default_factory=list)
     memory_count: int = 0
     created_at: str
     updated_at: str
@@ -222,8 +224,38 @@ class CharacterExpandResponse(BaseModel):
     """Result of expanding a light card into a MONITOR-backed character."""
 
     character_id: str
+    version_id: str
     entity_id: str
     universe_id: str
+
+
+class CharacterVersion(BaseModel):
+    """One incarnation of a character in a specific universe.
+
+    A character card is the source of truth; each version is a separate
+    (entity_id, universe_id) pair with its own NPCProfile, memory set,
+    emotional state, and relationship deltas. Versions are isolated — no
+    cross-incarnation leak unless the caller opts in.
+    """
+
+    version_id: str
+    universe_id: str
+    entity_id: str
+    npc_profile_id: str | None = None
+    created_at: str
+    last_chatted_at: str | None = None
+
+
+class CharacterVersionCreateRequest(BaseModel):
+    """Request to create (or fetch) a per-universe incarnation of a character."""
+
+    universe_id: str | None = Field(
+        default=None,
+        description=(
+            "Target universe. If omitted, the character's default incarnation "
+            "is used (or the hidden Conversatory if no default is set)."
+        ),
+    )
 
 
 class CardDraftRequest(BaseModel):
@@ -245,12 +277,27 @@ class CardDraftResponse(BaseModel):
     gm_notes: str = ""
 
 
+class ConversationStartRequest(BaseModel):
+    """Open a conversatory session. Optional universe routes to a version."""
+
+    universe_id: str | None = Field(
+        default=None,
+        description=(
+            "Target universe for this session. If omitted, the character's "
+            "default incarnation is used. A new incarnation is created if the "
+            "character hasn't been expanded into this universe yet."
+        ),
+    )
+
+
 class ConversationStartResponse(BaseModel):
     """A freshly opened conversatory session."""
 
     conversation_id: str
     character_id: str
+    version_id: str
     entity_id: str
+    universe_id: str
     opening: str
 
 
@@ -258,6 +305,14 @@ class ConversationSendRequest(BaseModel):
     """A single player line in a conversatory session."""
 
     text: str = Field(..., min_length=1)
+    include_cross_incarnation: bool = Field(
+        default=False,
+        description=(
+            "If True, the NPC's memory recall also surfaces memories from "
+            "this character's other incarnations (other universes). Default "
+            "False — keeps each universe's memory strictly partitioned."
+        ),
+    )
 
 
 class ConversationReply(BaseModel):

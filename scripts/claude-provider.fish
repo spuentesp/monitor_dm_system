@@ -16,9 +16,9 @@
 #
 # Or just export MINIMAX_API_KEY in your fish config.
 
-set -g SETTINGS_FILE "$HOME/.claude/settings.json"
-set -g KEY_FILE "$HOME/.config/claude-provider/minimax_key"
-set -g BACKUP_FILE "$HOME/.config/claude-provider/settings.anthropic.bak.json"
+set -l SETTINGS_FILE "$HOME/.claude/settings.json"
+set -l KEY_FILE "$HOME/.config/claude-provider/minimax_key"
+set -l BACKUP_FILE "$HOME/.config/claude-provider/settings.anthropic.bak.json"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

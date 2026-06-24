@@ -276,6 +276,13 @@ async def generate_npc_responses(state: ConversationState) -> Dict[str, Any]:
                     story_id=state.story_id,
                     source_profile=state.source_profile,
                     npc_data=state.npc_contexts.get(str(npc_id)),
+                    # Character-versions: thread the loop's universe_id so
+                    # NPCVoice scopes recall, working state, and proposals
+                    # to this incarnation.
+                    universe_id=state.universe_id,
+                    include_cross_incarnation=getattr(
+                        state, "include_cross_incarnation", False
+                    ),
                 )
                 npc_name = state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
                 responses.append(
@@ -391,6 +398,15 @@ async def close_session(state: ConversationState) -> Dict[str, Any]:
                 params["scene_id"] = str(state.scene_id)
             if state.story_id is not None:
                 params["story_id"] = str(state.story_id)
+            # Stamp the incarnation's universe on every staged proposal so
+            # CanonKeeper (and downstream readers) can route the change to
+            # the right character-version partition.
+            if state.universe_id is not None:
+                params["universe_id"] = str(state.universe_id)
+                # Also stamp on content if NPCVoice didn't already.
+                content = params.setdefault("content", {})
+                if isinstance(content, dict) and "universe_id" not in content:
+                    content["universe_id"] = str(state.universe_id)
 
             turn_id = proposal.get("turn_id") or proposal.get("content", {}).get("turn_id")
             if turn_id is not None:

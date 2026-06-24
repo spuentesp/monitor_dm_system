@@ -36,5 +36,9 @@ Welcome to the MONITOR Agent Documentation. This structure is designed to be hig
 - [Observability](./5_infrastructure/observability.md): Structlog and tracing.
 - [Lain MCP Proxy](./5_infrastructure/lain_mcp_proxy.md): How Lain integrates.
 
+## 6. Reference & Guides
+- [Gameplay Examples & GM Craft](./6_reference/_index.md): Narrative examples and design principles.
+- [Use Case Catalog](./USE_CASES.md): The full list of target workflows and specifications.
+
 ## See Also
 - [AGENTS.md](../AGENTS.md) - The primary system instructions for agents.

@@ -112,6 +112,9 @@ class NPCVoice(BaseAgent):
         story_id: Optional[UUID] = None,
         source_profile: Optional[Dict[str, Any]] = None,
         npc_data: Optional[Dict[str, Any]] = None,
+        *,
+        universe_id: Optional[UUID] = None,
+        include_cross_incarnation: bool = False,
     ) -> Dict[str, Any]:
         """
         Generate a direct in-character NPC response.
@@ -124,6 +127,12 @@ class NPCVoice(BaseAgent):
             player_entity_id: The speaking player character, if known.
             scene_id: Current scene context for proposal staging.
             story_id: Current story context for proposal staging.
+            universe_id: Per-universe incarnation scope. When set, recall +
+                state + proposals are partitioned by this universe. Legacy
+                callers that omit it keep the historical entity_id-only
+                recall and write to the legacy profile fields.
+            include_cross_incarnation: Broadens recall beyond the current
+                incarnation. Only meaningful when universe_id is set.
 
         Returns:
             {
@@ -138,10 +147,17 @@ class NPCVoice(BaseAgent):
         # 1. Load NPC data from Neo4j + MongoDB profile
         npc_data = npc_data or await self._load_npc_data(npc_id)
         profile = npc_data["profile"]
-        relationship_snapshot_before = self._relationship_snapshot(profile, player_entity_id)
+        relationship_snapshot_before = self._relationship_snapshot(
+            profile, player_entity_id, universe_id=universe_id
+        )
 
-        # 2. Recall NPC's memories of the player from Qdrant
-        memories = await self._recall_memories(npc_id, player_said)
+        # 2. Recall NPC's memories of the player from Qdrant (universe-scoped)
+        memories = await self._recall_memories(
+            npc_id,
+            player_said,
+            universe_id=universe_id,
+            include_cross_incarnation=include_cross_incarnation,
+        )
 
         # 3. Build trigger context (only non-hidden ones at surface level)
         active_triggers = self._evaluate_triggers(profile.get("triggers", []), player_said)
@@ -159,7 +175,7 @@ class NPCVoice(BaseAgent):
             npc_role=npc_data["role"],
             personality_summary=self._format_personality(profile, relationship_snapshot_before),
             current_emotional_state=self._format_emotional_context(
-                profile, relationship_snapshot_before
+                profile, relationship_snapshot_before, universe_id=universe_id
             ),
             relevant_memories=json.dumps(memories[:5], default=str),
             known_facts=json.dumps(npc_data.get("facts", [])[:8], default=str),
@@ -180,6 +196,7 @@ class NPCVoice(BaseAgent):
             emotional_state_after=emotional_state_after,
             scene_id=scene_id,
             story_id=story_id,
+            universe_id=universe_id,
             reason=f'Player said: "{player_said}" | NPC replied: "{npc_response}"',
         )
         social_read = {
@@ -218,6 +235,7 @@ class NPCVoice(BaseAgent):
             emotional_state_after=emotional_state_after,
             relationship_snapshot=relationship_snapshot_after,
             player_entity_id=player_entity_id,
+            universe_id=universe_id,
         )
 
         # 8. Build proposals (relationship change + emotional state update)
@@ -229,6 +247,7 @@ class NPCVoice(BaseAgent):
             player_entity_id=player_entity_id,
             scene_id=scene_id,
             story_id=story_id,
+            universe_id=universe_id,
         )
 
         # 9. Write NPC memory of this exchange
@@ -241,6 +260,7 @@ class NPCVoice(BaseAgent):
             relationship_delta=relationship_delta,
             scene_id=scene_id,
             story_id=story_id,
+            universe_id=universe_id,
         )
 
         return {
@@ -364,16 +384,33 @@ class NPCVoice(BaseAgent):
             "facts": [f.get("statement", "") for f in facts],
         }
 
-    async def _recall_memories(self, npc_id: UUID, query: str) -> List[Dict[str, Any]]:
-        """Semantic memory recall from Qdrant for this NPC."""
-        result = await self.call_tool(
-            "qdrant_search_memories",
-            {
-                "entity_id": str(npc_id),
-                "query_text": query,
-                "top_k": 5,
-            },
-        )
+    async def _recall_memories(
+        self,
+        npc_id: UUID,
+        query: str,
+        *,
+        universe_id: Optional[UUID] = None,
+        include_cross_incarnation: bool = False,
+        top_k: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Semantic memory recall from Qdrant for this NPC.
+
+        By default filters strictly by (entity_id, universe_id) — no cross-
+        incarnation leak. Pass include_cross_incarnation=True to broaden the
+        filter to the entity as a whole (entity_id only). Legacy callers
+        that omit universe_id keep the historical entity_id-only recall.
+        """
+        search_kwargs: Dict[str, Any] = {
+            "entity_id": str(npc_id),
+            "query_text": query,
+            "top_k": top_k,
+        }
+        if universe_id is not None:
+            search_kwargs["universe_id"] = str(universe_id)
+        if include_cross_incarnation:
+            search_kwargs["include_cross_incarnation"] = True
+
+        result = await self.call_tool("qdrant_search_memories", search_kwargs)
         return result if isinstance(result, list) else []
 
     async def _get_story_context(self, npc_id: UUID) -> str:
@@ -422,8 +459,15 @@ class NPCVoice(BaseAgent):
         self,
         profile: Dict[str, Any],
         player_entity_id: Optional[UUID],
+        *,
+        universe_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
-        """Return the NPC's normalized stance toward the current speaker."""
+        """Return the NPC's normalized stance toward the current speaker.
+
+        Resolution order:
+          1. relationship_states_by_universe[universe_id][player_id] (preferred)
+          2. legacy relationship_states[player_id] (fallback for old data)
+        """
         if player_entity_id is None:
             return {}
 
@@ -436,8 +480,24 @@ class NPCVoice(BaseAgent):
             "familiarity": 0.0,
             "interest": 0.0,
         }
-        existing = (profile.get("relationship_states") or {}).get(str(player_entity_id)) or {}
-        if isinstance(existing, dict):
+
+        # Prefer the per-universe partition when available.
+        existing: Dict[str, Any] = {}
+        if universe_id is not None:
+            by_universe = profile.get("relationship_states_by_universe") or {}
+            universe_map = by_universe.get(str(universe_id)) or {}
+            candidate = universe_map.get(str(player_entity_id))
+            if isinstance(candidate, dict):
+                existing = candidate
+        # Fallback: legacy single-universe map (key by player).
+        if not existing:
+            legacy = (profile.get("relationship_states") or {}).get(
+                str(player_entity_id)
+            )
+            if isinstance(legacy, dict):
+                existing = legacy
+
+        if existing:
             snapshot.update(existing)
             if "score" in existing and "trust" not in existing:
                 snapshot["trust"] = existing.get("score", 0.0)
@@ -452,9 +512,21 @@ class NPCVoice(BaseAgent):
         self,
         profile: Dict[str, Any],
         relationship_snapshot: Optional[Dict[str, Any]] = None,
+        *,
+        universe_id: Optional[UUID] = None,
     ) -> str:
-        """Blend internal emotional state with relationship stance for prompt grounding."""
-        base = str(profile.get("current_emotional_state") or "neutral")
+        """Blend internal emotional state with relationship stance for prompt grounding.
+
+        Reads the per-universe emotional state when available; falls back to
+        the legacy single-emotion field for profiles that haven't been
+        versioned yet.
+        """
+        base = "neutral"
+        if universe_id is not None:
+            by_universe = profile.get("current_emotional_state_by_universe") or {}
+            base = str(by_universe.get(str(universe_id)) or base)
+        if base == "neutral":
+            base = str(profile.get("current_emotional_state") or "neutral")
         if not relationship_snapshot:
             return base
         return (
@@ -471,12 +543,23 @@ class NPCVoice(BaseAgent):
         scene_id: Optional[UUID] = None,
         story_id: Optional[UUID] = None,
         reason: str | None = None,
+        *,
+        universe_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
-        """Compute the NPC's updated working social stance after this exchange."""
+        """Compute the NPC's updated working social stance after this exchange.
+
+        When universe_id is provided, the snapshot's prior state is read from
+        (and the result can be written into) the per-universe partition,
+        isolating this NPC's relationship drift across incarnations.
+        """
         if player_entity_id is None:
             return {}
 
-        snapshot = dict(self._relationship_snapshot(profile, player_entity_id))
+        snapshot = dict(
+            self._relationship_snapshot(
+                profile, player_entity_id, universe_id=universe_id
+            )
+        )
         parsed = self._parse_relationship_delta(relationship_delta)
         deltas: Dict[str, float] = {}
 
@@ -617,14 +700,28 @@ class NPCVoice(BaseAgent):
         player_entity_id: Optional[UUID] = None,
         scene_id: Optional[UUID] = None,
         story_id: Optional[UUID] = None,
+        universe_id: Optional[UUID] = None,
     ) -> List[Dict[str, Any]]:
-        """Build canonical ProposedChange dicts for social state updates."""
+        """Build canonical ProposedChange dicts for social state updates.
+
+        When universe_id is provided, the proposal content's profile_updates
+        populate the per-universe partition maps (relationship_states_by_universe,
+        current_emotional_state_by_universe) so CanonKeeper commits the deltas
+        into the right incarnation only. The legacy fields stay populated as
+        a fallback for any reader that hasn't migrated.
+        """
         proposals: List[Dict[str, Any]] = []
         add_tags, remove_tags = self._emotion_to_state_tags(emotional_state_after)
 
-        if emotional_state_after and emotional_state_after != profile.get(
-            "current_emotional_state"
-        ):
+        # Per-universe emotional state takes precedence when universe_id is set.
+        current_emotion_for_diff: Optional[str] = None
+        if universe_id is not None:
+            by_universe = profile.get("current_emotional_state_by_universe") or {}
+            current_emotion_for_diff = by_universe.get(str(universe_id))
+        if current_emotion_for_diff is None:
+            current_emotion_for_diff = profile.get("current_emotional_state")
+
+        if emotional_state_after and emotional_state_after != current_emotion_for_diff:
             state_content: Dict[str, Any] = {
                 "entity_id": str(npc_id),
                 "current_emotional_state": emotional_state_after,
@@ -636,6 +733,11 @@ class NPCVoice(BaseAgent):
                 state_content["scene_id"] = str(scene_id)
             if story_id is not None:
                 state_content["story_id"] = str(story_id)
+            if universe_id is not None:
+                state_content["universe_id"] = str(universe_id)
+                state_content["profile_updates"][
+                    "current_emotional_state_by_universe"
+                ] = {str(universe_id): emotional_state_after}
             proposals.append(
                 {
                     "change_type": "state_change",
@@ -655,6 +757,7 @@ class NPCVoice(BaseAgent):
                 emotional_state_after=emotional_state_after,
                 scene_id=scene_id,
                 story_id=story_id,
+                universe_id=universe_id,
             )
             trust_after = relationship_snapshot.get("trust", 0.0)
             affinity_after = relationship_snapshot.get("affinity", 0.0)
@@ -697,6 +800,17 @@ class NPCVoice(BaseAgent):
                 relationship_content["scene_id"] = str(scene_id)
             if story_id is not None:
                 relationship_content["story_id"] = str(story_id)
+            if universe_id is not None:
+                relationship_content["universe_id"] = str(universe_id)
+                relationship_content["profile_updates"][
+                    "relationship_states_by_universe"
+                ] = {
+                    str(universe_id): {
+                        str(player_entity_id): {
+                            k: v for k, v in relationship_snapshot.items() if k != "last_delta"
+                        }
+                    }
+                }
             proposals.append(
                 {
                     "change_type": "relationship",
@@ -753,17 +867,36 @@ class NPCVoice(BaseAgent):
         emotional_state_after: str,
         relationship_snapshot: Optional[Dict[str, Any]],
         player_entity_id: Optional[UUID],
+        *,
+        universe_id: Optional[UUID] = None,
     ) -> None:
-        """Best-effort update of the NPC's working social state in MongoDB."""
+        """Best-effort update of the NPC's working social state in MongoDB.
+
+        When universe_id is provided, the emotional state + relationship
+        snapshot are written into the per-universe partition maps, isolating
+        this NPC's working state from other incarnations. The legacy
+        single-universe fields are still updated as a fallback so legacy
+        readers see fresh data.
+        """
         params: Dict[str, Any] = {"current_emotional_state": emotional_state_after}
         if player_entity_id is not None and relationship_snapshot:
-            params["relationship_states"] = {
-                str(player_entity_id): {
-                    key: value
-                    for key, value in relationship_snapshot.items()
-                    if key != "last_delta"
-                }
+            snapshot_without_delta = {
+                key: value
+                for key, value in relationship_snapshot.items()
+                if key != "last_delta"
             }
+            params["relationship_states"] = {
+                str(player_entity_id): snapshot_without_delta,
+            }
+            if universe_id is not None:
+                params["relationship_states_by_universe"] = {
+                    str(universe_id): {
+                        str(player_entity_id): snapshot_without_delta,
+                    }
+                }
+                params["current_emotional_state_by_universe"] = {
+                    str(universe_id): emotional_state_after,
+                }
         try:
             await self.call_tool(
                 "mongodb_update_npc_profile",
@@ -805,6 +938,7 @@ class NPCVoice(BaseAgent):
         relationship_delta: Optional[str] = None,
         scene_id: Optional[UUID] = None,
         story_id: Optional[UUID] = None,
+        universe_id: Optional[UUID] = None,
     ) -> None:
         """Create a CharacterMemory for the NPC about this exchange."""
         memory_bits = [
@@ -831,6 +965,25 @@ class NPCVoice(BaseAgent):
         if relationship_delta:
             metadata["relationship_delta"] = relationship_delta
 
+        # Universe_id partitions the memory into a specific incarnation.
+        # MemoryCreate.universe_id is required, so resolve it: prefer the
+        # caller's value, else look up the NPC's home universe from Neo4j
+        # (one extra read; legacy callers that don't pass it keep working).
+        resolved_universe_id: Optional[str] = (
+            str(universe_id) if universe_id is not None else None
+        )
+        if resolved_universe_id is None:
+            try:
+                ent = await self.call_tool(
+                    "neo4j_get_entity", {"entity_id": str(npc_id)}
+                )
+                if isinstance(ent, dict):
+                    resolved_universe_id = ent.get("universe_id") or ent.get(
+                        "properties", {}
+                    ).get("universe_id")
+            except Exception:  # noqa: BLE001
+                resolved_universe_id = None
+
         await self.call_tool(
             "mongodb_create_memory",
             {
@@ -838,5 +991,6 @@ class NPCVoice(BaseAgent):
                 "text": " ".join(memory_bits),
                 "importance": importance,
                 "metadata": metadata,
+                "universe_id": resolved_universe_id,
             },
         )

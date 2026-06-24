@@ -117,6 +117,19 @@ class NPCProfileCreate(BaseModel):
     """
 
     entity_id: UUID = Field(description="References Neo4j EntityInstance")
+    # Per-universe incarnation scope. Optional for backward compat with
+    # legacy single-universe profiles. When set, current_emotional_state +
+    # relationship_states are partitioned by universe_id (via the
+    # *_by_universe maps below). Legacy fields remain populated as a
+    # fallback for callers that don't yet know about versions.
+    universe_id: Optional[UUID] = Field(
+        default=None,
+        description=(
+            "If set, the profile is scoped to this universe incarnation. "
+            "Memories, emotional state, and relationship deltas are "
+            "partitioned accordingly."
+        ),
+    )
     # Personality dimensions (Big Five or custom labels — system agnostic)
     traits: Dict[str, float] = Field(
         default_factory=dict,
@@ -173,7 +186,26 @@ class NPCProfileCreate(BaseModel):
         default_factory=dict,
         description=(
             "Per-entity social stance snapshots keyed by target entity_id. "
-            "Used to remember trust/hostility drift across conversations."
+            "Used to remember trust/hostility drift across conversations. "
+            "Legacy single-universe field — still updated as a fallback when "
+            "the *by_universe partition is in use."
+        ),
+    )
+    # Per-universe incarnation partitions (Character Versions). Keyed by
+    # str(universe_id); the inner map is the same shape as relationship_states.
+    relationship_states_by_universe: Dict[str, Dict[str, Dict[str, Any]]] = Field(
+        default_factory=dict,
+        description=(
+            "Per-universe relationship-state map. The first key is "
+            "str(universe_id); the inner map is keyed by target entity_id. "
+            "When populated, this takes precedence over relationship_states."
+        ),
+    )
+    current_emotional_state_by_universe: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Per-universe emotional state. Keyed by str(universe_id). "
+            "Takes precedence over current_emotional_state when set."
         ),
     )
 
@@ -202,6 +234,14 @@ class NPCProfileUpdate(BaseModel):
         None,
         description="Partial or full relationship-state map keyed by target entity_id",
     )
+    relationship_states_by_universe: Optional[Dict[str, Dict[str, Dict[str, Any]]]] = Field(
+        None,
+        description="Per-universe relationship-state map. First key str(universe_id).",
+    )
+    current_emotional_state_by_universe: Optional[Dict[str, str]] = Field(
+        None,
+        description="Per-universe emotional state. Keyed by str(universe_id).",
+    )
     # Single-item append helpers (for in-session updates)
     add_preference: Optional[CharacterPreference] = Field(
         None, description="Append a single preference (convenience field)"
@@ -219,6 +259,7 @@ class NPCProfileResponse(BaseModel):
 
     profile_id: UUID
     entity_id: UUID
+    universe_id: Optional[UUID] = None
     traits: Dict[str, float]
     values: List[str]
     fears: List[str]
@@ -233,6 +274,10 @@ class NPCProfileResponse(BaseModel):
     gm_notes: Optional[str] = None
     current_emotional_state: Optional[str] = None
     relationship_states: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    relationship_states_by_universe: Dict[str, Dict[str, Dict[str, Any]]] = Field(
+        default_factory=dict
+    )
+    current_emotional_state_by_universe: Dict[str, str] = Field(default_factory=dict)
     created_at: datetime
     updated_at: Optional[datetime] = None
 
