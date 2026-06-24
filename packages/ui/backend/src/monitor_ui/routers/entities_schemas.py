@@ -211,3 +211,68 @@ class CharacterImportRequest(BaseModel):
         default=False,
         description="If True, import without universe/memory context",
     )
+
+
+# ---------------------------------------------------------------------------
+# Conversatory (MONITOR-backed chat with a roster character)
+# ---------------------------------------------------------------------------
+
+
+class CharacterExpandResponse(BaseModel):
+    """Result of expanding a light card into a MONITOR-backed character."""
+
+    character_id: str
+    entity_id: str
+    universe_id: str
+
+
+class CardDraftRequest(BaseModel):
+    """Ask the LLM to draft/fill a character card from a concept."""
+
+    concept: str = Field(..., min_length=1, description="Short premise for the character")
+    name: str = Field(default="", description="Name the user already chose (optional)")
+    description: str = Field(default="", description="Partial description to refine (optional)")
+    personality: str = Field(default="", description="Partial personality to refine (optional)")
+
+
+class CardDraftResponse(BaseModel):
+    """A drafted card — not persisted; the UI shows it for review/edit."""
+
+    name: str
+    description: str = ""
+    personality: str = ""
+    first_message: str = ""
+    gm_notes: str = ""
+
+
+class ConversationStartResponse(BaseModel):
+    """A freshly opened conversatory session."""
+
+    conversation_id: str
+    character_id: str
+    entity_id: str
+    opening: str
+
+
+class ConversationSendRequest(BaseModel):
+    """A single player line in a conversatory session."""
+
+    text: str = Field(..., min_length=1)
+
+
+class ConversationReply(BaseModel):
+    """The character's response plus its live emotional/relationship read."""
+
+    text: str
+    emotional_state: str | None = None
+    relationship_snapshot: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConversationSummary(BaseModel):
+    """A past conversatory session (for resume/history lists)."""
+
+    conversation_id: str | None = None
+    status: str | None = None
+    turn_count: int = 0
+    created_at: str = ""
+    updated_at: str = ""

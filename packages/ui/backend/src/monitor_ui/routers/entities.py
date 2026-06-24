@@ -39,9 +39,16 @@ from .entities_schemas import (
     AttributeInfo,
     Character,
     CharacterCreate,
+    CardDraftRequest,
+    CardDraftResponse,
     CharacterDetail,
+    CharacterExpandResponse,
     CharacterImportRequest,
     CharacterUpdate,
+    ConversationReply,
+    ConversationSendRequest,
+    ConversationStartResponse,
+    ConversationSummary,
     CoreMechanicInfo,
     GenerateEntityRequest,
     PaginatedNPCs,
@@ -1054,6 +1061,113 @@ async def clear_character_memories(character_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Conversatory — MONITOR-backed chat with a roster character
+# ---------------------------------------------------------------------------
+
+
+@router.post("/characters/draft", response_model=CardDraftResponse)
+async def draft_character_card(body: CardDraftRequest) -> CardDraftResponse:
+    """LLM-assisted: draft card fields from a concept (does not persist)."""
+    from . import character_conversation as cc
+
+    try:
+        draft = await cc.draft_card(
+            concept=body.concept,
+            name=body.name,
+            description=body.description,
+            personality=body.personality,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Draft failed: {exc}")
+    return CardDraftResponse(**draft)
+
+
+@router.post("/characters/{character_id}/expand", response_model=CharacterExpandResponse)
+async def expand_character(character_id: str) -> CharacterExpandResponse:
+    """Promote a light card into a MONITOR-backed character (entity + NPCProfile)."""
+    from . import character_conversation as cc
+
+    if not _get_character_doc(character_id):
+        raise HTTPException(status_code=404, detail="Character not found")
+    try:
+        backing = await cc.ensure_character_backed(character_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Expansion failed: {exc}")
+    return CharacterExpandResponse(
+        character_id=character_id,
+        entity_id=backing["entity_id"],
+        universe_id=backing["universe_id"],
+    )
+
+
+@router.post(
+    "/characters/{character_id}/conversations", response_model=ConversationStartResponse
+)
+async def start_character_conversation(character_id: str) -> ConversationStartResponse:
+    """Open a story-less conversatory session with the character."""
+    from . import character_conversation as cc
+
+    if not _get_character_doc(character_id):
+        raise HTTPException(status_code=404, detail="Character not found")
+    try:
+        result = await cc.start_conversation(character_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Could not start conversation: {exc}")
+    return ConversationStartResponse(**result)
+
+
+@router.post(
+    "/characters/{character_id}/conversations/{conversation_id}/send",
+    response_model=ConversationReply,
+)
+async def send_character_message(
+    character_id: str, conversation_id: str, body: ConversationSendRequest
+) -> ConversationReply:
+    """Send one line; return the character's reply + emotional/relationship read."""
+    from . import character_conversation as cc
+
+    try:
+        reply = await cc.send_message(conversation_id, body.text)
+    except KeyError:
+        raise HTTPException(
+            status_code=409,
+            detail="Conversation is no longer active. Start a new one.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Reply failed: {exc}")
+    return ConversationReply(**reply)
+
+
+@router.post("/characters/{character_id}/conversations/{conversation_id}/end")
+async def end_character_conversation(character_id: str, conversation_id: str) -> dict:
+    """Close a conversatory session (persist working state + stage proposals)."""
+    from . import character_conversation as cc
+
+    return await cc.end_conversation(conversation_id)
+
+
+@router.get(
+    "/characters/{character_id}/conversations",
+    response_model=list[ConversationSummary],
+)
+async def list_character_conversations(
+    character_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+) -> list[ConversationSummary]:
+    """List past conversatory sessions for this character (newest first)."""
+    from . import character_conversation as cc
+
+    char = _get_character_doc(character_id)
+    if not char:
+        raise HTTPException(status_code=404, detail="Character not found")
+    entity_id = char.get("entity_id")
+    if not entity_id:
+        return []
+    sessions = await asyncio.to_thread(cc.list_conversations, str(entity_id), limit)
+    return [ConversationSummary(**s) for s in sessions]
+
+
+# ---------------------------------------------------------------------------
 # Entity Template Cloning (M-31)
 # ---------------------------------------------------------------------------
 
@@ -1090,6 +1204,144 @@ async def link_entity_to_archetype(entity_id: UUID, archetype_id: UUID) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Single-entity CRUD — direct graph manipulation (M-36 / M-38)
+# ---------------------------------------------------------------------------
+
+
+class EntityCreateRequest(BaseModel):
+    """Create a single entity on the graph canvas (M-38)."""
+
+    universe_id: UUID
+    name: str
+    entity_type: str = "concept"
+    description: str = ""
+    properties: Optional[dict] = None
+
+
+class EntityPatchRequest(BaseModel):
+    """Partial update of an entity from the graph inspector (M-36).
+
+    ``tags`` is the *desired* full set of state tags; the diff against the
+    entity's current tags is computed server-side so the client never has to
+    reason about add/remove.
+    """
+
+    name: Optional[str] = None
+    description: Optional[str] = None
+    properties: Optional[dict] = None
+    tags: Optional[list[str]] = None
+
+
+@router.post("/entities", status_code=201)
+async def create_entity(body: EntityCreateRequest) -> dict:
+    """Create a single canon entity in a universe (M-38).
+
+    Writes through the data layer's CanonKeeper-authority entity tool so the
+    graph stays the single source of truth.
+    """
+    from monitor_data.schemas.base import Authority, CanonLevel, EntityType
+    from monitor_data.schemas.entities import EntityCreate
+    from monitor_data.tools.neo4j_tools.entities import neo4j_create_entity
+
+    try:
+        entity_type = EntityType(body.entity_type)
+    except ValueError as exc:
+        raise HTTPException(422, f"Invalid entity_type: {body.entity_type}") from exc
+
+    try:
+        created = neo4j_create_entity(
+            EntityCreate(
+                universe_id=body.universe_id,
+                name=body.name,
+                entity_type=entity_type,
+                is_archetype=False,
+                description=body.description,
+                properties=body.properties or {},
+                authority=Authority.GM,
+                canon_level=CanonLevel.CANON,
+                confidence=1.0,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(503, f"Create failed: {exc}") from exc
+
+    return created.model_dump(mode="json")
+
+
+@router.get("/entities/{entity_id}")
+async def get_entity(entity_id: str) -> dict:
+    """Fetch a single entity by ID for the graph inspector (M-36)."""
+    from monitor_data.tools.neo4j_tools.entities import neo4j_get_entity
+
+    uid = validate_uuid(entity_id)
+    try:
+        entity = neo4j_get_entity(uid)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(503, f"Lookup failed: {exc}") from exc
+
+    if not entity:
+        raise HTTPException(404, "Entity not found")
+    return entity.model_dump(mode="json")
+
+
+@router.patch("/entities/{entity_id}")
+async def update_entity(entity_id: str, body: EntityPatchRequest) -> dict:
+    """Update a single entity from the graph inspector (M-36).
+
+    Mutable fields (``name``/``description``/``properties``) go through
+    ``neo4j_update_entity``; ``tags`` are diffed against current state and
+    applied atomically via ``neo4j_set_state_tags``.  Both tools carry
+    CanonKeeper authority at the data layer.
+    """
+    from monitor_data.schemas.entities import EntityUpdate, StateTagsUpdate
+    from monitor_data.tools.neo4j_tools.entities import (
+        neo4j_get_entity,
+        neo4j_set_state_tags,
+        neo4j_update_entity,
+    )
+
+    uid = validate_uuid(entity_id)
+
+    existing = neo4j_get_entity(uid)
+    if not existing:
+        raise HTTPException(404, "Entity not found")
+
+    result = existing
+    has_field_update = any(
+        v is not None for v in (body.name, body.description, body.properties)
+    )
+
+    try:
+        if has_field_update:
+            result = neo4j_update_entity(
+                uid,
+                EntityUpdate(
+                    name=body.name,
+                    description=body.description,
+                    properties=body.properties,
+                ),
+            )
+
+        if body.tags is not None and not existing.is_archetype:
+            desired = set(body.tags)
+            current = set(existing.state_tags or [])
+            add = sorted(desired - current)
+            remove = sorted(current - desired)
+            if add or remove:
+                result = neo4j_set_state_tags(
+                    uid, StateTagsUpdate(add_tags=add, remove_tags=remove)
+                )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(503, f"Update failed: {exc}") from exc
+
+    return result.model_dump(mode="json")
+
+
+# ---------------------------------------------------------------------------
 # Character Relationships (GAP-F)
 # ---------------------------------------------------------------------------
 
@@ -1116,6 +1368,106 @@ async def create_character_relationship(
         return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Graph edges — inline relationship creation between any entities (M-37)
+# ---------------------------------------------------------------------------
+
+# Default category for each relationship type, so the graph UI only has to send
+# a rel_type when the user draws an edge.
+_REL_TYPE_CATEGORY = {
+    "KNOWS": "social",
+    "ALLIED_WITH": "social",
+    "HOSTILE_TO": "social",
+    "MEMBER_OF": "membership",
+    "PART_OF": "membership",
+    "SUBGROUP_OF": "membership",
+    "WORKS_FOR": "membership",
+    "OWNS": "ownership",
+    "LOCATED_IN": "spatial",
+    "CONTAINS": "spatial",
+    "PARTICIPATES_IN": "temporal",
+    "SUBTYPE_OF": "taxonomic",
+    "INSTANCE_OF": "taxonomic",
+    "DERIVES_FROM": "taxonomic",
+    "LEADS": "power",
+    "CONTROLS": "power",
+    "CONTROLLED_BY": "power",
+    "REVERES": "power",
+    "RELATED_TO": "generic",
+    "AFFILIATED_WITH": "generic",
+}
+
+
+class EdgeCreateRequest(BaseModel):
+    """Create a typed relationship between any two entities (M-37)."""
+
+    from_id: UUID
+    to_id: UUID
+    rel_type: str = "RELATED_TO"
+    category: Optional[str] = None
+    properties: Optional[dict] = None
+
+
+@router.post("/entities/edges", status_code=201)
+async def create_edge(body: EdgeCreateRequest) -> dict:
+    """Create a relationship edge between two canon entities (M-37).
+
+    Drawn by dragging between nodes on the graph; ``category`` is inferred from
+    ``rel_type`` when omitted. Writes via the CanonKeeper-authority data tool.
+    """
+    from monitor_data.schemas.relationships import (
+        RelationshipCategory,
+        RelationshipCreate,
+        RelationshipType,
+    )
+    from monitor_data.tools.neo4j_tools.relationships import neo4j_create_relationship
+
+    try:
+        rel_type = RelationshipType(body.rel_type)
+    except ValueError as exc:
+        raise HTTPException(422, f"Invalid rel_type: {body.rel_type}") from exc
+
+    category_value = body.category or _REL_TYPE_CATEGORY.get(rel_type.value, "generic")
+    try:
+        category = RelationshipCategory(category_value)
+    except ValueError as exc:
+        raise HTTPException(422, f"Invalid category: {category_value}") from exc
+
+    try:
+        rel = neo4j_create_relationship(
+            RelationshipCreate(
+                from_entity_id=body.from_id,
+                to_entity_id=body.to_id,
+                rel_type=rel_type,
+                category=category,
+                properties=body.properties or {},
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(503, f"Edge creation failed: {exc}") from exc
+
+    return rel.model_dump(mode="json")
+
+
+@router.get("/entities/{entity_id}/edges")
+async def list_edges(entity_id: str) -> dict:
+    """List relationships touching an entity, both directions (M-37)."""
+    from monitor_data.schemas.relationships import Direction, RelationshipFilter
+    from monitor_data.tools.neo4j_tools.relationships import neo4j_list_relationships
+
+    uid = validate_uuid(entity_id)
+    try:
+        result = neo4j_list_relationships(
+            RelationshipFilter(entity_id=uid, direction=Direction.BOTH, limit=200)
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(503, f"Edge lookup failed: {exc}") from exc
+
+    return result.model_dump(mode="json")
 
 
 # ---------------------------------------------------------------------------

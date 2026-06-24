@@ -19,6 +19,7 @@ import {
   Network,
   Settings,
   Sparkles,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
@@ -34,6 +35,7 @@ const NAV_GROUPS = [
     items: [
       { href: "/architect", icon: Compass,   label: "World Architect", sub: "Build multiverses & worlds",  accent: "purple" },
       { href: "/play",      icon: Gamepad2,  label: "Play",           sub: "Solo RPG session",            accent: "cyan"   },
+      { href: "/characters", icon: Users,    label: "Characters",     sub: "Roster & conversatory",       accent: "purple" },
       { href: "/gm",        icon: ClipboardList, label: "GM Assistant",   sub: "Rules, dice & session log",  accent: "emerald" },
     ],
   },

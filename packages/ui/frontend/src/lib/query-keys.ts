@@ -39,6 +39,7 @@ export const ENTITY_KEYS = {
   standaloneCharacters: (params?: any) => ["standalone-characters", params] as const,
   standaloneCharacter: (id: string) => ["standalone-character", id] as const,
   characterMemories: (id: string) => ["character-memories", id] as const,
+  characterConversations: (id: string) => ["character-conversations", id] as const,
 };
 
 export const UNIVERSE_KEYS = {

@@ -109,9 +109,28 @@ class ConversationState(BaseModel):
 # =============================================================================
 
 
+def _extract_conversation_id(result: Any) -> Optional[UUID]:
+    """Pull the persisted conversation_id out of a create-conversation response."""
+    raw: Any = None
+    if isinstance(result, dict):
+        raw = result.get("conversation_id")
+    elif result is not None and hasattr(result, "conversation_id"):
+        raw = getattr(result, "conversation_id")
+    if not raw:
+        return None
+    try:
+        return UUID(str(raw))
+    except (ValueError, TypeError):
+        return None
+
+
 async def open_session(state: ConversationState) -> Dict[str, Any]:
     """
-    Create the ConversationSession document in MongoDB and return its ID.
+    Create the ConversationSession document in MongoDB and adopt its ID.
+
+    The create tool always mints its own conversation_id, so we read it back
+    and propagate it into state — otherwise every later append/persist/close
+    would target a non-existent session.
 
     Write: ConversationSession → MongoDB.
     """
@@ -119,20 +138,25 @@ async def open_session(state: ConversationState) -> Dict[str, Any]:
         from monitor_agents.npc_voice import NPCVoice
 
         agent = NPCVoice()
-        await agent.call_tool(
+        result = await agent.call_tool(
             "mongodb_create_conversation",
             {
-                "universe_id": str(state.universe_id),
-                "mode": state.mode.value,
-                "npc_ids": [str(nid) for nid in state.npc_ids],
-                "scene_id": str(state.scene_id) if state.scene_id else None,
-                "story_id": str(state.story_id) if state.story_id else None,
-                "player_entity_id": (
-                    str(state.player_entity_id) if state.player_entity_id else None
-                ),
-                "metadata": {},
+                "params": {
+                    "universe_id": str(state.universe_id),
+                    "mode": state.mode.value,
+                    "npc_ids": [str(nid) for nid in state.npc_ids],
+                    "scene_id": str(state.scene_id) if state.scene_id else None,
+                    "story_id": str(state.story_id) if state.story_id else None,
+                    "player_entity_id": (
+                        str(state.player_entity_id) if state.player_entity_id else None
+                    ),
+                    "metadata": {},
+                },
             },
         )
+        conversation_id = _extract_conversation_id(result)
+        if conversation_id is not None:
+            return {"conversation_id": conversation_id}
     except Exception:  # noqa: BLE001
         import logging
 
@@ -465,6 +489,12 @@ class ConversationLoop:
             player_entity_id=player_entity_id,
         )
         self._graph = build_conversation_graph().compile()
+        self._closed = False
+
+    def _apply(self, update: Dict[str, Any]) -> None:
+        """Merge a node's partial-state update back into self.state."""
+        if update:
+            self.state = ConversationState(**{**self.state.model_dump(), **update})
 
     @classmethod
     async def start(
@@ -496,6 +526,11 @@ class ConversationLoop:
         """
         Process one player input → return list of NPC responses.
 
+        Drives the mid-session nodes directly. The compiled graph has a single
+        fixed entry point (open_session), so re-invoking it per turn would only
+        re-run the setup flow and never reach response generation — hence we
+        run process_player_turn → generate_npc_responses explicitly here.
+
         Args:
             player_input: What the player said / asked.
 
@@ -504,11 +539,14 @@ class ConversationLoop:
         """
         self.state.current_player_input = player_input
 
-        result = await self._graph.ainvoke(
-            {**self.state.model_dump(), "current_player_input": player_input},
-            # Use process_player_turn as entry for mid-session steps
-        )
-        self.state = ConversationState(**{**self.state.model_dump(), **result})
+        self._apply(await process_player_turn(self.state))
+        self._apply(await generate_npc_responses(self.state))
+
+        # Honor the loop's own ceiling (max_turns / explicit completion).
+        if route_after_npc_response(self.state) == "close" and not self._closed:
+            self._apply(await close_session(self.state))
+            self._closed = True
+
         return self.state.current_npc_responses
 
     async def finish(self) -> List[Dict[str, Any]]:
@@ -519,6 +557,7 @@ class ConversationLoop:
             Staged proposals list (for caller to display or confirm).
         """
         self.state.is_complete = True
-        result = await self._graph.ainvoke({**self.state.model_dump(), "is_complete": True})
-        self.state = ConversationState(**{**self.state.model_dump(), **result})
+        if not self._closed:
+            self._apply(await close_session(self.state))
+            self._closed = True
         return self.state.pending_proposals

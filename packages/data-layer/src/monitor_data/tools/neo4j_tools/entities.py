@@ -519,16 +519,22 @@ def neo4j_set_state_tags(entity_id: UUID, params: StateTagsUpdate) -> EntityResp
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    if params.remove_tags:
-        update_parts.append("e.state_tags = [tag IN e.state_tags WHERE NOT tag IN $remove_tags]")
-        update_params["remove_tags"] = params.remove_tags
-
-    if params.add_tags:
-        # Add tags, avoiding duplicates
-        update_parts.append(
-            "e.state_tags = e.state_tags + [tag IN $add_tags WHERE NOT tag IN e.state_tags]"
-        )
-        update_params["add_tags"] = params.add_tags
+    # Compose removal and addition into a SINGLE assignment. Two separate
+    # ``SET e.state_tags = ...`` clauses both read the *original* list, so an
+    # add clause would clobber a preceding remove when both are supplied.
+    if params.remove_tags or params.add_tags:
+        kept_expr = "e.state_tags"
+        if params.remove_tags:
+            kept_expr = "[tag IN e.state_tags WHERE NOT tag IN $remove_tags]"
+            update_params["remove_tags"] = params.remove_tags
+        if params.add_tags:
+            update_params["add_tags"] = params.add_tags
+            tag_expr = (
+                f"{kept_expr} + [tag IN $add_tags WHERE NOT tag IN {kept_expr}]"
+            )
+        else:
+            tag_expr = kept_expr
+        update_parts.append(f"e.state_tags = {tag_expr}")
 
     if not update_parts:
         # No changes, return current state

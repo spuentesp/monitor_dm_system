@@ -403,6 +403,43 @@ export interface PaginatedNPCs {
   offset: number;
 }
 
+// ─── Conversatory (MONITOR-backed chat with a roster character) ───
+
+export interface CharacterExpandResult {
+  character_id: string;
+  entity_id: string;
+  universe_id: string;
+}
+
+export interface CharacterCardDraft {
+  name: string;
+  description: string;
+  personality: string;
+  first_message: string;
+  gm_notes: string;
+}
+
+export interface ConversationStart {
+  conversation_id: string;
+  character_id: string;
+  entity_id: string;
+  opening: string;
+}
+
+export interface CharacterReply {
+  text: string;
+  emotional_state: string | null;
+  relationship_snapshot: Record<string, unknown>;
+}
+
+export interface CharacterConversation {
+  conversation_id: string | null;
+  status: string | null;
+  turn_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Source / World profiles ─────────────────────────────────
 
 export interface ProfileEvidenceRef {
@@ -710,6 +747,32 @@ export interface GraphNodeData extends Record<string, unknown> {
   subtitle?: string;
   description?: string;
   tags?: string[];
+}
+
+/** A relationship edge between two entities (M-37). */
+export interface EntityRelationship {
+  relationship_id: string;
+  from_entity_id: string;
+  to_entity_id: string;
+  rel_type: string;
+  category: string;
+  properties: Record<string, unknown>;
+  tags: string[];
+}
+
+/** A single canon entity as returned by the entities CRUD endpoints (M-36/M-38). */
+export interface EntityDetail {
+  id: string;
+  universe_id: string;
+  name: string;
+  entity_type: string;
+  description: string;
+  properties: Record<string, unknown>;
+  state_tags: string[];
+  canon_level: string;
+  confidence: number;
+  authority: string;
+  is_archetype: boolean;
 }
 
 export interface GraphNode {

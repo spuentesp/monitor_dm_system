@@ -15,11 +15,13 @@ import pytest
 from langgraph.graph import END
 
 from monitor_agents.loops.conversation_loop import (
+    ConversationLoop,
     ConversationState,
     build_conversation_graph,
     close_session,
     generate_npc_responses,
     load_npc_context,
+    open_session,
     process_player_turn,
     route_after_npc_response,
 )
@@ -520,3 +522,169 @@ class TestCloseSession:
         assert payload["params"]["scene_id"] == str(scene_id)
         assert payload["params"]["story_id"] == str(story_id)
         assert payload["params"]["evidence"][0]["type"] == "snippet"
+
+
+# ===========================================================================
+# open_session — params wrapping + conversation_id adoption
+# ===========================================================================
+
+
+class TestOpenSession:
+    @pytest.mark.asyncio
+    async def test_wraps_create_args_in_params(self):
+        state = _state()
+        mock_agent = MagicMock()
+        mock_agent.call_tool = AsyncMock(return_value={"conversation_id": str(uuid4())})
+
+        with patch("monitor_agents.npc_voice.NPCVoice", return_value=mock_agent):
+            await open_session(state)
+
+        call = mock_agent.call_tool.call_args
+        assert call[0][0] == "mongodb_create_conversation"
+        # The tool takes a single `params` model — args must be wrapped.
+        assert "params" in call[0][1]
+        assert call[0][1]["params"]["mode"] == state.mode.value
+
+    @pytest.mark.asyncio
+    async def test_adopts_persisted_conversation_id(self):
+        persisted = uuid4()
+        state = _state(conversation_id=uuid4())
+        mock_agent = MagicMock()
+        mock_agent.call_tool = AsyncMock(return_value={"conversation_id": str(persisted)})
+
+        with patch("monitor_agents.npc_voice.NPCVoice", return_value=mock_agent):
+            result = await open_session(state)
+
+        # The create tool mints its own id; the loop must adopt it so later
+        # append/persist/close target the real session.
+        assert result == {"conversation_id": persisted}
+
+    @pytest.mark.asyncio
+    async def test_no_persisted_id_returns_empty(self):
+        state = _state()
+        mock_agent = MagicMock()
+        mock_agent.call_tool = AsyncMock(return_value={})
+
+        with patch("monitor_agents.npc_voice.NPCVoice", return_value=mock_agent):
+            result = await open_session(state)
+
+        assert result == {}
+
+
+# ===========================================================================
+# ConversationLoop.step / finish — mid-session orchestration
+#
+# Regression coverage: the compiled graph has a single fixed entry point
+# (open_session), so re-invoking it per turn never reached response
+# generation. step()/finish() must drive the mid-session nodes directly.
+# ===========================================================================
+
+
+def _loop(**overrides) -> ConversationLoop:
+    return ConversationLoop(
+        conversation_id=overrides.get("conversation_id", uuid4()),
+        universe_id=overrides.get("universe_id", uuid4()),
+        mode=overrides.get("mode", ConversationMode.DIRECT),
+        npc_ids=overrides.get("npc_ids", [uuid4()]),
+    )
+
+
+class TestConversationLoopStep:
+    @pytest.mark.asyncio
+    async def test_step_returns_generated_responses(self):
+        loop = _loop()
+        responses = [{"npc_id": "x", "npc_name": "Maeve", "text": "We don't get trouble here."}]
+
+        async def fake_process(state):  # noqa: ARG001
+            return {}
+
+        async def fake_generate(state):
+            return {
+                "current_npc_responses": responses,
+                "turns_count": state.turns_count + 1,
+                "current_player_input": None,
+            }
+
+        with (
+            patch(
+                "monitor_agents.loops.conversation_loop.process_player_turn", new=fake_process
+            ),
+            patch(
+                "monitor_agents.loops.conversation_loop.generate_npc_responses",
+                new=fake_generate,
+            ),
+        ):
+            out = await loop.step("Evening.")
+
+        assert out == responses
+        assert loop.state.turns_count == 1
+
+    @pytest.mark.asyncio
+    async def test_step_does_not_auto_close_before_max_turns(self):
+        loop = _loop()
+        closed = {"called": False}
+
+        async def fake_process(state):  # noqa: ARG001
+            return {}
+
+        async def fake_generate(state):
+            return {"current_npc_responses": [], "turns_count": 1, "current_player_input": None}
+
+        async def fake_close(state):  # noqa: ARG001
+            closed["called"] = True
+            return {}
+
+        with (
+            patch(
+                "monitor_agents.loops.conversation_loop.process_player_turn", new=fake_process
+            ),
+            patch(
+                "monitor_agents.loops.conversation_loop.generate_npc_responses",
+                new=fake_generate,
+            ),
+            patch("monitor_agents.loops.conversation_loop.close_session", new=fake_close),
+        ):
+            await loop.step("hi")
+
+        assert closed["called"] is False
+
+
+class TestConversationLoopFinish:
+    @pytest.mark.asyncio
+    async def test_finish_closes_session_and_returns_proposals(self):
+        loop = _loop()
+        loop.state = ConversationState(
+            **{
+                **loop.state.model_dump(),
+                "pending_proposals": [{"change_type": "fact", "content": {}}],
+            }
+        )
+        closed = {"called": False}
+
+        async def fake_close(state):  # noqa: ARG001
+            closed["called"] = True
+            return {}
+
+        with patch("monitor_agents.loops.conversation_loop.close_session", new=fake_close):
+            props = await loop.finish()
+
+        assert closed["called"] is True
+        assert loop.state.is_complete is True
+        assert len(props) == 1
+
+    @pytest.mark.asyncio
+    async def test_finish_is_idempotent_after_step_close(self):
+        loop = _loop()
+        close_count = {"n": 0}
+
+        async def fake_close(state):  # noqa: ARG001
+            close_count["n"] += 1
+            return {}
+
+        # Simulate the loop already having closed during step().
+        loop._closed = True
+
+        with patch("monitor_agents.loops.conversation_loop.close_session", new=fake_close):
+            await loop.finish()
+
+        assert close_count["n"] == 0

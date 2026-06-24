@@ -14,6 +14,8 @@ import type {
   Multiverse,
   NPC,
   NodeAssignment,
+  EntityDetail,
+  EntityRelationship,
   NPCDetail,
   PaginatedNPCs,
   PerformanceAlert,
@@ -30,6 +32,11 @@ import type {
   Source,
   Character,
   StandaloneCharacter,
+  CharacterExpandResult,
+  CharacterCardDraft,
+  ConversationStart,
+  CharacterReply,
+  CharacterConversation,
   ChatSessionState,
   PlaytestBenchmark,
   TestResult,
@@ -597,6 +604,48 @@ export const entitiesApi = {
       },
     ),
   getNPC: (id: string) => req<NPCDetail>(`/entities/npcs/${id}`),
+  // ── Single-entity CRUD on the graph (M-36 / M-38) ──
+  getEntity: (id: string) => req<EntityDetail>(`/entities/entities/${id}`),
+  createEntity: (body: {
+    universe_id: string;
+    name: string;
+    entity_type?: string;
+    description?: string;
+    properties?: Record<string, unknown>;
+  }) =>
+    req<EntityDetail>("/entities/entities", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateEntity: (
+    id: string,
+    body: Partial<{
+      name: string;
+      description: string;
+      properties: Record<string, unknown>;
+      tags: string[];
+    }>,
+  ) =>
+    req<EntityDetail>(`/entities/entities/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  // ── Graph edges / relationships (M-37) ──
+  createRelationship: (body: {
+    from_id: string;
+    to_id: string;
+    rel_type?: string;
+    category?: string;
+    properties?: Record<string, unknown>;
+  }) =>
+    req<EntityRelationship>("/entities/entities/edges", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  listRelationships: (entityId: string) =>
+    req<{ relationships: EntityRelationship[]; total: number }>(
+      `/entities/entities/${entityId}/edges`,
+    ),
   listSystems: () => req<RPGSystem[]>("/entities/systems"),
   getSystem: (id: string) => req<RPGSystem>(`/entities/systems/${id}`),
   updateSystem: (
@@ -686,6 +735,38 @@ export const entitiesApi = {
     return res.json();
   },
   exportCharacterCardUrl: (id: string) => apiUrl(`/entities/characters/${id}/export-card`),
+
+  // ── LLM-assisted card drafting ──
+  draftCharacterCard: (body: {
+    concept: string;
+    name?: string;
+    description?: string;
+    personality?: string;
+  }) =>
+    req<CharacterCardDraft>("/entities/characters/draft", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  // ── Conversatory (MONITOR-backed chat) ──
+  expandCharacter: (id: string) =>
+    req<CharacterExpandResult>(`/entities/characters/${id}/expand`, { method: "POST" }),
+  startCharacterConversation: (id: string) =>
+    req<ConversationStart>(`/entities/characters/${id}/conversations`, { method: "POST" }),
+  sendCharacterMessage: (id: string, conversationId: string, text: string) =>
+    req<CharacterReply>(
+      `/entities/characters/${id}/conversations/${conversationId}/send`,
+      { method: "POST", body: JSON.stringify({ text }) },
+    ),
+  endCharacterConversation: (id: string, conversationId: string) =>
+    req<{ ended: boolean; proposals: number }>(
+      `/entities/characters/${id}/conversations/${conversationId}/end`,
+      { method: "POST" },
+    ),
+  listCharacterConversations: (id: string, limit = 20) =>
+    req<CharacterConversation[]>(`/entities/characters/${id}/conversations`, {
+      query: { limit },
+    }),
 };
 
 // ─── Universes ────────────────────────────────────────────────
