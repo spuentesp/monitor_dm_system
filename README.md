@@ -13,7 +13,7 @@ MONITOR is a **narrative intelligence system for tabletop RPGs**. It combines a 
 ### Current Runtime Reality (June 2026)
 
 - **Interactive play:** the web chat flow in `packages/ui/backend/src/monitor_ui/routers/chat.py`
-- **Wired CLI commands:** `monitor state`, `monitor rules`, `monitor mechanics`, `monitor ingest`, and `monitor playtest`
+- **Wired CLI commands:** `monitor play`, `monitor manage`, `monitor universe`, `monitor ingest`, `monitor state`, `monitor rules`, `monitor mechanics`, and `monitor playtest`
 - **Live data-layer MCP families:** `neo4j_*`, `mongodb_*`, `qdrant_*`, and `ingest_*`
 
 ### Core Principles
@@ -119,7 +119,7 @@ Use the canonical docs below instead of hunting through overlapping summaries:
 | [`docs/USE_CASES.md`](docs/USE_CASES.md) | Use-case catalog and workflow targets |
 | [`infra/README.md`](infra/README.md) | Local infrastructure setup and maintenance |
 
-For subsystem detail, see [`docs/architecture/`](docs/architecture/) and [`docs/ontology/`](docs/ontology/). Historical planning notes live under [`docs/archive/`](docs/archive/).
+For subsystem detail, see [`docs/2_architecture/`](docs/2_architecture/) and [`docs/4_ontology/`](docs/4_ontology/).
 
 ---
 
@@ -132,7 +132,7 @@ Before changing code or docs:
 3. Add or update tests for behavior changes
 4. Reference the relevant use-case ID in your PR or commit message
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENT_SETUP.md`](AGENT_SETUP.md) for contributor workflow details.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for contributor workflow details.
 
 ---
 
