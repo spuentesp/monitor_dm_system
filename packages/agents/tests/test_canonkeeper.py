@@ -185,7 +185,7 @@ class TestRecordVerdict:
         tool_name, args = ck.call_tool.call_args[0]
         assert tool_name == "mongodb_record_verdict"
         assert args["scene_id"] == str(scene_id)
-        assert args["proposal_id"] == v.proposal_id
+        assert args["proposal_id"] == str(v.proposal_id)
         assert args["decision"] == CanonKeeperDecision.ACCEPTED.value
 
     @pytest.mark.asyncio

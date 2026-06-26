@@ -439,6 +439,17 @@ class TestIngestionPipelineAgent:
 # =============================================================================
 
 
+def _iter_route_paths(router):
+    """Yield all route paths, recursing into included sub-routers."""
+    from fastapi.routing import APIRoute
+
+    for r in router.routes:
+        if isinstance(r, APIRoute):
+            yield r.path
+        elif hasattr(r, "original_router"):
+            yield from _iter_route_paths(r.original_router)
+
+
 class TestIngestRouter:
     def test_router_importable(self):
         """Ingest router module is importable."""
@@ -450,12 +461,12 @@ class TestIngestRouter:
         """Ingest router has upload endpoint."""
         from monitor_ui.routers.ingest import router
 
-        route_paths = [r.path for r in router.routes]
+        route_paths = list(_iter_route_paths(router))
         assert any("upload" in p for p in route_paths)
 
     def test_router_has_packs_route(self):
         """Ingest router has packs endpoint."""
         from monitor_ui.routers.ingest import router
 
-        route_paths = [r.path for r in router.routes]
+        route_paths = list(_iter_route_paths(router))
         assert any("packs" in p for p in route_paths)
