@@ -49,6 +49,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-timeout>=2.3",
     "pytest-socket>=0.7",
+    "cosmic-ray>=8.0",
 ]
 
 [tool.uv.sources]

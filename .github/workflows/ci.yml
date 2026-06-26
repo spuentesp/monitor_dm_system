@@ -48,7 +48,13 @@ jobs:
           python-version: "3.11"
       - run: uv sync --frozen || uv sync
       - name: Hermetic unit suite (no network, fake keys — enforced by conftest.py)
-        run: uv run pytest packages tests -q --tb=short -p no:cacheprovider
+        run: uv run pytest packages tests -q --tb=short -p no:cacheprovider --cov=packages --cov-report=xml --cov-report=term-missing
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          fail_ci_if_error: false
 
   frontend:
     runs-on: ubuntu-latest

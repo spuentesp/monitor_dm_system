@@ -1,0 +1,23 @@
+name: Property Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: property-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  property-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen || uv sync
+      - name: Property-based tests (Hypothesis — generative input strategies)
+        run: uv run pytest tests/property -q --tb=short -p no:cacheprovider
