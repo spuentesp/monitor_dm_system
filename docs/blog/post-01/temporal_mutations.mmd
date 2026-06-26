@@ -1,0 +1,22 @@
+graph LR
+    subgraph t0["t0 — Inicio de sesión"]
+        A0["Kael\nalive · at:RustNail"]
+    end
+
+    subgraph t1["t1 — Turno 4"]
+        A1["Kael\nalive · at:RustNail\n+informed"]
+    end
+
+    subgraph t2["t2 — Fin de escena"]
+        A2["Kael\nalive · at:DriftwardGraveyard"]
+    end
+
+    subgraph branch["Rama what-if (divergencia)"]
+        B2["Kael\nwounded · at:RustNail"]
+    end
+
+    t0 -->|"mutación: +condición"| t1
+    t1 -->|"mutación: +ubicación"| t2
+    t1 -. "cortar y divergir" .-> branch
+
+    style branch fill:#ffeaa7,stroke:#fdcb6e
