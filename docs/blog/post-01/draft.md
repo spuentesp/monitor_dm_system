@@ -100,10 +100,30 @@ No necesitaba un modelo con mejor memoria. Necesitaba una **barrera**.
 
 El sistema corre. Hay una interfaz web funcional y un conjunto de comandos CLI. La base de datos de conocimiento persiste entre sesiones. Los agentes narran, resuelven acciones, tiran dados y guardan el estado.
 
-Para probarlo, corremos sesiones donde **un segundo LLM hace de jugador** — el sistema actúa como GM, el modelo actúa como PC, y vemos si la sesión se sostiene. El log más reciente fue 22 turnos en el mundo de Millhaven, con `qwen2.5` como jugador, 19 tiradas de dados, cero fallbacks.
+Para probarlo, corremos sesiones donde **un segundo LLM hace de jugador** — el sistema actúa como GM, el modelo actúa como PC, y vemos si la sesión se sostiene. El log más reciente fue una sesión de 13 entradas en el mundo Millhaven, `player_mode: llm`, 0 fallbacks, 0 preguntas de clarificación del GM.
 
-<!-- SCREENSHOT: fragmento del log en tests/e2e/logs/long_form_22turn.md
-     Turnos 3-4 (intercambio del Rust Nail) son los más legibles visualmente -->
+Esto es lo que genera el sistema en el opening de esa sesión, antes de que el jugador haya declarado nada:
+
+> *The lantern's glow wavers as the mist curls in from the marshlands — thick, gray, and laced with something that smells of copper and old sorrow. You stand at the edge of Millhaven's market square where cobblestones gleam wet and the last stragglers hurry home with collars drawn high. A bell tolls somewhere distant. Then another. The lamplighter climbs his ladder with mechanical patience, his face hidden beneath a wide-brimmed hat, and the flame catches just as the murk swallows his silhouette.*
+>
+> *Old Tomas has been lighting these lamps for forty years. He has watched the mist take his neighbors and keeps to his rounds regardless. No one asks him why. In Millhaven, certain questions calcify in the throat before they reach the tongue.*
+
+Y esto es cómo se ve la capa mecánica debajo de cada turno:
+
+```json
+{
+  "type": "scene_turn",
+  "resolution_type": "trivial",
+  "intent_type": "dialogue",
+  "success_level": "success",
+  "roll_breakdown": "trivial — no roll needed",
+  "effects": ["fiction_advances"],
+  "narrative_pressure": "steady"
+}
+```
+
+<!-- FUENTE: tests/e2e/logs/live_gameplay_llm_run01_20260621T165920Z.md (master)
+     Opening + Turn 4 son los mejores para screenshot -->
 
 No es perfecto. Hay cosas que fallan, flujos a medio terminar, casos borde sin manejar. Pero la sesión no se cae, la narración tiene coherencia, y el estado del mundo se actualiza al final de cada escena.
 
