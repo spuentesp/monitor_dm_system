@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ReactFlow,
   Background,
@@ -19,11 +18,12 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  Bot,
   Compass,
   Globe2,
   Layers,
   Loader2,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   Send,
   Sparkles,
@@ -35,20 +35,18 @@ import {
   Zap,
   Tag,
   X,
-  PanelRightClose,
-  PanelRightOpen,
 } from "lucide-react";
 import { chatApi, graphApi, universesApi } from "@/lib/api";
-import { useChatWebSocket } from "@/hooks/use-chat-websocket";
+import { ChatList, Composer, useChatSession, type QuickAction } from "@/features/chat";
 import type {
   GraphNodeData,
   GraphNodeKind,
-  Message,
   Multiverse,
   Session,
   Universe,
 } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { ArchitectMessageBubble } from "./ArchitectMessageBubble";
 
 // ═══════════════════════════════════════════════════════════════
 //  Graph node renderer (mini)
@@ -289,94 +287,21 @@ function WorldSelector({
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  Message bubble
-// ═══════════════════════════════════════════════════════════════
-
-function WorldChangesCard({ meta }: { meta: Record<string, unknown> }) {
-  const committed = Number(meta.committed ?? 0);
-  const proposals = Number(meta.proposals ?? 0);
-  const universeId = typeof meta.universe_id === "string" ? meta.universe_id : null;
-  const questions = Array.isArray(meta.known_open_questions)
-    ? (meta.known_open_questions as unknown[]).map(String).slice(0, 3)
-    : [];
-  if (committed === 0 && proposals === 0 && !universeId) return null;
-
-  return (
-    <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 space-y-1.5 text-[11px]">
-      <div className="flex items-center gap-1.5 font-medium text-emerald-300">
-        <Sparkles className="w-3 h-3" />
-        World changes
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {committed > 0 && (
-          <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">
-            {committed} canonized
-          </span>
-        )}
-        {proposals > 0 && (
-          <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300">
-            {proposals} proposal{proposals !== 1 ? "s" : ""} pending review
-          </span>
-        )}
-      </div>
-      {questions.length > 0 && (
-        <ul className="space-y-0.5 text-slate-400">
-          {questions.map((q) => (
-            <li key={q} className="flex items-start gap-1.5">
-              <span className="text-emerald-500/70 mt-px">?</span> {q}
-            </li>
-          ))}
-        </ul>
-      )}
-      {universeId && (
-        <Link
-          href={`/worlds?universe=${universeId}`}
-          className="inline-flex items-center gap-1 text-emerald-300 hover:text-emerald-200 underline-offset-2 hover:underline"
-        >
-          <Globe2 className="w-3 h-3" /> Open in Worlds tree →
-        </Link>
-      )}
-    </div>
-  );
-}
-
-function MessageBubble({ msg }: { msg: Message }) {
-  const isUser = msg.role === "player";
-  const meta = (msg.metadata ?? {}) as Record<string, unknown>;
-  return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={cn("flex gap-2.5 items-end", isUser && "flex-row-reverse")}>
-      <div className={cn("w-6 h-6 rounded-full border flex items-center justify-center flex-shrink-0", isUser ? "bg-cyan-500/10 border-cyan-500/25" : "bg-purple-500/10 border-purple-500/25")}>
-        {isUser ? <User className="w-3 h-3 text-cyan-400" /> : <Compass className="w-3 h-3 text-purple-400" />}
-      </div>
-      <div className={cn("max-w-[80%] rounded-xl px-4 py-3 text-sm leading-relaxed", isUser ? "bg-cyan-500/10 border border-cyan-500/15 text-slate-200 rounded-br-sm" : "bg-purple-500/8 border border-purple-500/15 text-slate-300 rounded-bl-sm")}>
-        <p className="whitespace-pre-wrap">{msg.content}</p>
-        {!isUser && meta.type === "world_architect" && <WorldChangesCard meta={meta} />}
-        <p className={cn("text-[10px] mt-1", isUser ? "text-cyan-600 text-right" : "text-purple-700")}>{formatRelativeTime(msg.timestamp)}</p>
-      </div>
-    </motion.div>
-  );
-}
-
-function TypingDots() {
-  return (
-    <div className="flex items-end gap-2">
-      <div className="w-6 h-6 rounded-full bg-purple-500/10 border border-purple-500/25 flex items-center justify-center">
-        <Compass className="w-3 h-3 text-purple-400" />
-      </div>
-      <div className="bg-purple-500/8 border border-purple-500/15 rounded-xl rounded-bl-sm px-4 py-3">
-        <div className="flex gap-1">
-          {[0, 1, 2].map((i) => (
-            <motion.div key={i} className="w-1.5 h-1.5 rounded-full bg-purple-400" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }} />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
 //  Page
 // ═══════════════════════════════════════════════════════════════
+
+interface WorldCoverage {
+  summary: string;
+  openQuestions: string[];
+  priorityGaps: Array<{ area: string; priority: number; suggestion: string; example_prompt: string }>;
+}
+
+const STARTER_PROMPTS = [
+  "Create a fantasy universe called Aethoria",
+  "Add a faction: the Iron Brotherhood",
+  "Create an NPC: Mira, elven scout",
+  "Describe the world's magic system",
+];
 
 export default function ArchitectPage() {
   const qc = useQueryClient();
@@ -387,58 +312,15 @@ export default function ArchitectPage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [worldCoverage, setWorldCoverage] = useState<{
-    summary: string;
-    openQuestions: string[];
-    priorityGaps: Array<{ area: string; priority: number; suggestion: string; example_prompt: string }>;
-  } | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+
   const autoInitRef = useRef<string | null>(null);
-  let gmBuffer = useRef("");
-  let gmMsgId = useRef("");
 
-  const handleWsMessage = useCallback(
-    (data: Record<string, unknown>) => {
-      if (data.type === "token") {
-        const t = data as { type: "token"; token: string };
-        gmBuffer.current += t.token ?? "";
-        const buf = gmBuffer.current;
-        const id = gmMsgId.current;
-        setMessages((prev) => {
-          const existing = prev.find((m) => m.id === id);
-          if (existing) return prev.map((m) => m.id === id ? { ...m, content: buf } : m);
-          return [...prev, { id, session_id: activeSessionId!, role: "gm" as const, content: buf, timestamp: new Date().toISOString(), metadata: {} }];
-        });
-      } else if (data.type === "done") {
-        setStreaming(false);
-        qc.invalidateQueries({ queryKey: ["architect-graph", multiverseId, universeId] });
-        const meta = (data as { metadata?: Record<string, unknown> }).metadata ?? {};
-        // Attach turn metadata to the finished GM message so the bubble can
-        // render a "world changes" card (T-080 / plan T-070).
-        const doneId = gmMsgId.current;
-        if (doneId && Object.keys(meta).length > 0) {
-          setMessages((prev) => prev.map((m) => (m.id === doneId ? { ...m, metadata: meta } : m)));
-        }
-        if (meta.coverage_summary || (meta.known_open_questions as unknown[])?.length || (meta.priority_gaps as unknown[])?.length) {
-          setWorldCoverage({
-            summary: (meta.coverage_summary as string) ?? "",
-            openQuestions: (meta.known_open_questions as string[]) ?? [],
-            priorityGaps: (meta.priority_gaps as Array<{ area: string; priority: number; suggestion: string; example_prompt: string }>) ?? [],
-          });
-        }
-      } else if (data.type === "error") {
-        setStreaming(false);
-      }
-    },
-    [activeSessionId, multiverseId, universeId, qc],
-  );
-
-  const { status: wsStatus, send: wsSend } = useChatWebSocket({
+  const chat = useChatSession({
     sessionId: activeSessionId,
-    onMessage: handleWsMessage,
+    onTurnSettled: () => {
+      qc.invalidateQueries({ queryKey: ["architect-graph", multiverseId, universeId] });
+    },
   });
 
   const { data: multiverses = [] } = useQuery({ queryKey: ["multiverses"], queryFn: universesApi.listMultiverses });
@@ -455,18 +337,12 @@ export default function ArchitectPage() {
     }
   }, [multiverses]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (!activeSessionId) return;
-    chatApi.getMessages(activeSessionId).then(setMessages).catch(() => {});
-  }, [activeSessionId]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streaming]);
-
   const createSession = useMutation({
     mutationFn: () => chatApi.createSession({ title: "World Architect session", mode: "world_architect", multiverse_id: multiverseId, universe_id: universeId }),
-    onSuccess: (session) => { qc.invalidateQueries({ queryKey: ["architect-sessions"] }); setActiveSessionId(session.id); setMessages([]); },
+    onSuccess: (session) => {
+      qc.invalidateQueries({ queryKey: ["architect-sessions"] });
+      setActiveSessionId(session.id);
+    },
   });
 
   // Auto-init session when multiverse is selected
@@ -482,36 +358,42 @@ export default function ArchitectPage() {
     }
   }, [multiverseId, sessions, sessionsLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const send = useCallback(() => {
-    const text = input.trim();
-    if (!text || !activeSessionId || streaming) return;
+  // Derive world-coverage state from the most recent GM message metadata.
+  // Replaces the setState that used to live inside the WS handler.
+  const worldCoverage = useMemo<WorldCoverage | null>(() => {
+    for (let i = chat.messages.length - 1; i >= 0; i--) {
+      const m = chat.messages[i];
+      if (m.role !== "gm") continue;
+      const meta = (m.metadata ?? {}) as Record<string, unknown>;
+      if (
+        meta.coverage_summary ||
+        (Array.isArray(meta.known_open_questions) && (meta.known_open_questions as unknown[]).length > 0) ||
+        (Array.isArray(meta.priority_gaps) && (meta.priority_gaps as unknown[]).length > 0)
+      ) {
+        return {
+          summary: (meta.coverage_summary as string) ?? "",
+          openQuestions: (meta.known_open_questions as string[]) ?? [],
+          priorityGaps:
+            (meta.priority_gaps as WorldCoverage["priorityGaps"]) ?? [],
+        };
+      }
+    }
+    return null;
+  }, [chat.messages]);
 
-    const userMsg: Message = { id: crypto.randomUUID(), session_id: activeSessionId, role: "player", content: text, timestamp: new Date().toISOString(), metadata: {} };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput("");
-    setStreaming(true);
-
-    // Reset streaming buffer for new response
-    gmBuffer.current = "";
-    gmMsgId.current = crypto.randomUUID();
-
-    wsSend({ content: text });
-  }, [input, activeSessionId, streaming, wsSend]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
+  const starterActions: QuickAction[] = STARTER_PROMPTS.map((p) => ({
+    label: p,
+    onClick: "fill",
+    text: p,
+    disabled: chat.isTyping || !!chat.streamingMsg,
+    className: "bg-purple-500/8 border border-purple-500/20 text-purple-300 hover:bg-purple-500/15 px-3 py-1.5",
+  }));
 
   const handleNodeSelect = (id: string, data: GraphNodeData) => {
     setSelectedNodeId(id);
     setSelectedNodeData(data);
     if (!showRightPanel) setShowRightPanel(true);
   };
-
-  const STARTER_PROMPTS = [
-    "Create a fantasy universe called Aethoria",
-    "Add a faction: the Iron Brotherhood",
-    "Create an NPC: Mira, elven scout",
-    "Describe the world's magic system",
-  ];
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -597,43 +479,47 @@ export default function ArchitectPage() {
             </div>
           ) : (
             <>
-              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-                {messages.length === 0 && !streaming && (
-                  <div className="text-center py-12 space-y-3">
-                    <Compass className="w-10 h-10 text-slate-700 mx-auto" />
-                    <p className="text-sm text-slate-600">Tell the Architect what to build.</p>
-                    <div className="flex flex-wrap gap-2 justify-center mt-3">
-                      {STARTER_PROMPTS.map((p) => (
-                        <button key={p} onClick={() => { setInput(p); }} className="px-3 py-1.5 rounded-lg text-xs bg-purple-500/8 border border-purple-500/20 text-purple-300 hover:bg-purple-500/15 transition-colors">{p}</button>
-                      ))}
+              <ChatList
+                messages={chat.messages}
+                streamingMsg={chat.streamingMsg}
+                isTyping={chat.isTyping}
+                sendFailure={chat.sendFailure}
+                pendingDiceRequest={null}
+                renderBubble={(msg) => <ArchitectMessageBubble msg={msg} />}
+                onDiceResult={() => {
+                  /* architect doesn't use dice */
+                }}
+                onRetry={chat.retry}
+                onDismissFailure={chat.dismissFailure}
+                emptyState={
+                  chat.messages.length === 0 && !chat.isTyping && !chat.streamingMsg ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center space-y-3 px-8">
+                      <Compass className="w-10 h-10 text-slate-700 mx-auto" />
+                      <p className="text-sm text-slate-600">Tell the Architect what to build.</p>
+                      <div className="flex flex-wrap gap-2 justify-center mt-3">
+                        {starterActions.map((a, i) => (
+                          <button
+                            key={`${a.label}-${i}`}
+                            onClick={() => a.onClick === "fill" ? setInput(a.text) : chat.send(a.text)}
+                            className="px-3 py-1.5 rounded-lg text-xs bg-purple-500/8 border border-purple-500/20 text-purple-300 hover:bg-purple-500/15 transition-colors"
+                          >
+                            {a.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-                {messages.map((msg) => <MessageBubble key={msg.id} msg={msg} />)}
-                {streaming && <TypingDots />}
-                <div ref={messagesEndRef} />
-              </div>
+                  ) : undefined
+                }
+              />
 
-              <div className="px-6 py-4 border-t border-white/5 flex-shrink-0">
-                <div className="flex items-end gap-3">
-                  <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    rows={2}
-                    placeholder="Describe what to add to the world… (Enter to send)"
-                    className="input-cyber flex-1 resize-none text-sm leading-relaxed"
-                    disabled={streaming}
-                  />
-                  <button
-                    onClick={send}
-                    disabled={!input.trim() || streaming}
-                    className={cn("p-3 rounded-xl border transition-all flex-shrink-0", input.trim() && !streaming ? "bg-purple-500/15 border-purple-500/30 text-purple-300 hover:bg-purple-500/25" : "bg-white/4 border-white/8 text-slate-600 cursor-not-allowed")}
-                  >
-                    {streaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
+              <Composer
+                value={input}
+                onChange={setInput}
+                onSubmit={(text) => chat.send(text)}
+                status={chat.status}
+                isTyping={chat.isTyping}
+                placeholder="Describe what to add to the world… (Enter to send)"
+              />
             </>
           )}
         </div>
@@ -716,4 +602,3 @@ export default function ArchitectPage() {
     </div>
   );
 }
-

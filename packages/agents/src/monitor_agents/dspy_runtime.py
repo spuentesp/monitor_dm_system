@@ -489,11 +489,11 @@ def get_dspy_lm(
                 # Bypass DSPy's litellm wrapper to stream directly
                 import litellm
                 import asyncio
-                
+
                 # DSPy merges kwargs. We extract litellm kwargs.
                 merged_kwargs = {**self.kwargs, **call_kwargs}
                 merged_kwargs.pop("stream", None)
-                
+
                 try:
                     response = litellm.completion(
                         model=self.model,
@@ -501,44 +501,66 @@ def get_dspy_lm(
                         stream=True,
                         **merged_kwargs
                     )
-                    
+
                     full_text = ""
                     in_narrative = False
-                    
+
+                    def _emit(kind: str, data):
+                        """Schedule the callback on the running event loop.
+
+                        We tolerate both the new (kind, data) signature and the
+                        legacy single-arg signature for safety during rollout.
+                        """
+                        try:
+                            loop = asyncio.get_running_loop()
+                        except RuntimeError:
+                            return
+                        try:
+                            if kind in ("narrative_token",) and data:
+                                loop.create_task(cb(kind, data))
+                            elif kind == "thinking_chunk" and data:
+                                loop.create_task(cb(kind, data))
+                            elif kind == "thinking_end":
+                                loop.create_task(cb(kind, None))
+                        except Exception:
+                            pass
+
                     for chunk in response:
                         if getattr(chunk, "choices", None):
                             delta = chunk.choices[0].delta
                             text = getattr(delta, "content", "")
                             if text:
                                 full_text += text
-                                
-                                # Only stream the narrative text portion
-                                # DSPy fields are prefixed like "Narrative Text: "
+
+                                # DSPy fields are prefixed like "Narrative Text: ".
+                                # Everything before that prefix is CoT reasoning —
+                                # surface it as thinking events so the UI can
+                                # show a collapsible reasoning block. Everything
+                                # after the prefix is the narrative proper. The
+                                # "Proposed Changes:" tail is suppressed as before
+                                # (future: surface as tool_call events).
                                 if "Narrative Text:" in full_text and "Proposed Changes:" not in full_text:
                                     if not in_narrative:
                                         in_narrative = True
-                                        # Only send the part after the prefix
+                                        # Emit thinking_end so the UI can collapse
+                                        # the reasoning block, then start streaming
+                                        # the narrative text.
+                                        _emit("thinking_end", None)
                                         after_prefix = full_text.split("Narrative Text:", 1)[1]
-                                        # Lstrip spaces but preserve newlines
                                         clean_text = after_prefix.lstrip(" \t")
                                         if clean_text:
-                                            try:
-                                                loop = asyncio.get_running_loop()
-                                                loop.create_task(cb(clean_text))
-                                            except RuntimeError:
-                                                pass
+                                            _emit("narrative_token", clean_text)
                                     else:
-                                        try:
-                                            loop = asyncio.get_running_loop()
-                                            loop.create_task(cb(text))
-                                        except RuntimeError:
-                                            pass
-                                
+                                        _emit("narrative_token", text)
+                                else:
+                                    # Pre-narrative CoT text — surface as thinking.
+                                    _emit("thinking_chunk", text)
+
                     return [full_text]
                 except Exception:
                     # Fallback to standard (non-streaming) execution below.
                     pass
-            
+
             return super().__call__(prompt=prompt, messages=messages, **call_kwargs)
 
     return CachedDSPyLM(_model_string_for_dspy(client), monitor_node_name=node_name, **kwargs)

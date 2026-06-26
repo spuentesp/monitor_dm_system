@@ -68,22 +68,47 @@ import type {
 
 const RAW_API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 const BASE = RAW_API_BASE.replace(/\/$/, "");
+// Explicit WebSocket base. Defaults to deriving from NEXT_PUBLIC_API_URL,
+// or — for same-origin deployments — from window.location. The Next.js App
+// Router route handler at app/api/[...path]/route.ts does NOT proxy WebSocket
+// upgrades, so non-localhost deploys MUST set NEXT_PUBLIC_WS_URL to a URL
+// whose ingress (reverse proxy / CDN / load balancer) is configured to
+// upgrade /api/chat/ws/* connections to the backend.
+const RAW_WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? "";
 
 function apiUrl(path: string): string {
   return `${BASE}/api${path}`;
 }
 
 export function websocketBase(): string {
+  if (RAW_WS_BASE) return RAW_WS_BASE.replace(/\/$/, "");
   if (BASE) return BASE.replace(/^http/, "ws");
   if (typeof window === "undefined") return "ws://localhost:8000";
 
   const url = new URL(window.location.href);
   if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
     url.port = "8000";
+    url.protocol = "ws:";
+    return url.origin;
+  }
+
+  // Non-localhost without an explicit WS base. Same-origin will only work if
+  // a reverse proxy in front of the Next.js server upgrades /api/chat/ws/*
+  // to the backend. Surface a single console warning so deployers see it.
+  if (typeof window !== "undefined" && !warnedAboutWsFallback) {
+    warnedAboutWsFallback = true;
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[MONITOR] NEXT_PUBLIC_WS_URL is unset and the page is not on localhost. " +
+        "Assuming a reverse proxy upgrades /api/chat/ws/* to the backend. " +
+        "If chat fails to connect, set NEXT_PUBLIC_WS_URL to the backend's wss:// endpoint.",
+    );
   }
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.origin;
 }
+
+let warnedAboutWsFallback = false;
 
 class ApiError extends Error {
   constructor(

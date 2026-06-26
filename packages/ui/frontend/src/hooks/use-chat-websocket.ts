@@ -50,6 +50,9 @@ export function useChatWebSocket({
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const intentionalCloseRef = useRef(false);
+  // Guards against connect() races (Fast Refresh, double-effect, manual
+  // reconnect while a previous socket is still mid-handshake).
+  const isConnectingRef = useRef(false);
 
   // Stable refs for callbacks to avoid re-creating the WebSocket on every render
   const onMessageRef = useRef(onMessage);
@@ -87,6 +90,13 @@ export function useChatWebSocket({
   const connect = useCallback(() => {
     if (!sessionId) return;
 
+    // Idempotency guard — prevent double-socket races when connect() is
+    // invoked while a previous socket is still mid-handshake (manual
+    // reconnect, Fast Refresh, useEffect re-fire). The CONNECTING socket
+    // will be torn down by the close() call below before we open a new one.
+    if (isConnectingRef.current) return;
+    isConnectingRef.current = true;
+
     // Close any existing connection
     if (wsRef.current) {
       wsRef.current.onopen = null;
@@ -104,10 +114,19 @@ export function useChatWebSocket({
     setStatus("connecting");
 
     const url = `${websocketBase()}/api/chat/ws/${sessionId}`;
-    const ws = new WebSocket(url);
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url);
+    } catch (err) {
+      isConnectingRef.current = false;
+      setStatus("disconnected");
+      onErrorRef.current?.(new Event("ws-construct-failed"));
+      return;
+    }
     wsRef.current = ws;
 
     ws.onopen = () => {
+      isConnectingRef.current = false;
       retryCountRef.current = 0;
       setStatus("connected");
       startHeartbeat(ws);
@@ -126,6 +145,7 @@ export function useChatWebSocket({
     };
 
     ws.onclose = (event) => {
+      isConnectingRef.current = false;
       clearTimers();
       if (intentionalCloseRef.current) {
         setStatus("disconnected");
@@ -149,6 +169,7 @@ export function useChatWebSocket({
     };
 
     ws.onerror = (event) => {
+      isConnectingRef.current = false;
       onErrorRef.current?.(event);
     };
   }, [sessionId, maxBackoff, clearTimers, startHeartbeat]);
@@ -176,6 +197,7 @@ export function useChatWebSocket({
 
     return () => {
       intentionalCloseRef.current = true;
+      isConnectingRef.current = false;
       clearTimers();
       if (wsRef.current) {
         wsRef.current.onopen = null;
@@ -198,6 +220,7 @@ export function useChatWebSocket({
 
   const close = useCallback(() => {
     intentionalCloseRef.current = true;
+    isConnectingRef.current = false;
     clearTimers();
     if (wsRef.current) {
       wsRef.current.close();

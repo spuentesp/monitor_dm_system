@@ -32,7 +32,10 @@ function isUuidLike(value: string): boolean {
 export function IngestionJobsList() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  // id → EventSource (the live stream we own)
   const sseRefs = useRef<Map<string, EventSource>>(new Map());
+  // id → retry count for transient errors (cleared on a successful message)
+  const retryRefs = useRef<Map<string, number>>(new Map());
   const [expandedJobId, setExpandedId] = useState<string | null>(null);
 
   const { data: jobs = [], isLoading } = useQuery<IngestJob[]>({
@@ -55,46 +58,101 @@ export function IngestionJobsList() {
     [jobs],
   );
 
+  /**
+   * Open (or replace) the SSE for a given job id. Always closes the existing
+   * ES first so that status flips (processing → completed → processing on
+   * retry) don't leak the previous stream.
+   */
+  const openStream = useCallback(
+    (id: string) => {
+      const previous = sseRefs.current.get(id);
+      if (previous) {
+        previous.close();
+        sseRefs.current.delete(id);
+      }
+
+      let es: EventSource;
+      try {
+        es = ingestApi.streamJob(id);
+      } catch (err) {
+        // Construction failed (network down, etc.) — let the next reconcile
+        // or poll pick it up. Don't surface to the user: this is a dashboard,
+        // not a blocking surface, and the 5 s poll will retry naturally.
+        retryRefs.current.set(id, (retryRefs.current.get(id) ?? 0) + 1);
+        // eslint-disable-next-line no-console
+        console.warn(`[ingest] EventSource open failed for ${id}`, err);
+        return;
+      }
+      sseRefs.current.set(id, es);
+      retryRefs.current.set(id, 0);
+
+      es.onmessage = (evt) => {
+        let updated: IngestJob;
+        try {
+          updated = JSON.parse(evt.data);
+        } catch (err) {
+          // Don't swallow silently — leave a breadcrumb. A malformed message
+          // usually means the server sent something other than an IngestJob.
+          // eslint-disable-next-line no-console
+          console.warn(`[ingest] malformed SSE payload for ${id}`, err);
+          return;
+        }
+        retryRefs.current.set(id, 0);
+        queryClient.setQueryData<IngestJob[]>(FORGE_KEYS.jobs, (prev) => {
+          if (!prev) return prev;
+          // Only update if the status is actually different or progress increased
+          // to avoid jumping backwards due to polling race conditions
+          const existing = prev.find(j => j.id === updated.id);
+          if (existing && existing.status === updated.status && existing.progress >= updated.progress) {
+            return prev;
+          }
+          return prev.map((j) => (j.id === updated.id ? updated : j));
+        });
+
+        if (!LIVE_JOB_STATUSES.has(updated.status)) {
+          es.close();
+          sseRefs.current.delete(id);
+          retryRefs.current.delete(id);
+          queryClient.invalidateQueries({ queryKey: FORGE_KEYS.jobs });
+          queryClient.invalidateQueries({ queryKey: FORGE_KEYS.sources });
+          queryClient.invalidateQueries({ queryKey: FORGE_KEYS.packs });
+        }
+      };
+
+      es.onerror = () => {
+        // Transient error (network blip, server restart). Close the broken
+        // socket, then schedule a single retry — but only if the job is
+        // still live AND we haven't retried too many times already.
+        es.close();
+        sseRefs.current.delete(id);
+        const attempts = (retryRefs.current.get(id) ?? 0) + 1;
+        retryRefs.current.set(id, attempts);
+        if (attempts > 3) {
+          // Give up — let the 5 s poll pick up state changes.
+          retryRefs.current.delete(id);
+          return;
+        }
+        // Reopen with a small backoff so we don't hammer a flapping server.
+        const backoffMs = Math.min(1000 * 2 ** (attempts - 1), 8000);
+        setTimeout(() => {
+          // Re-check the job is still live before reopening.
+          const current = queryClient.getQueryData<IngestJob[]>(FORGE_KEYS.jobs);
+          const stillLive = current?.some(
+            (j) => j.id === id && LIVE_JOB_STATUSES.has(j.status),
+          );
+          if (stillLive) openStream(id);
+        }, backoffMs);
+      };
+    },
+    [queryClient],
+  );
+
   useEffect(() => {
     const activeIds = new Set(activeJobIds ? activeJobIds.split(",") : []);
-    
-    // Open new connections
-    for (const id of activeIds) {
-      if (sseRefs.current.has(id)) continue;
-      
-      const es = ingestApi.streamJob(id);
-      sseRefs.current.set(id, es);
-      
-      es.onmessage = (evt) => {
-        try {
-          const updated: IngestJob = JSON.parse(evt.data);
-          queryClient.setQueryData<IngestJob[]>(FORGE_KEYS.jobs, (prev) => {
-            if (!prev) return prev;
-            // Only update if the status is actually different or progress increased
-            // to avoid jumping backwards due to polling race conditions
-            const existing = prev.find(j => j.id === updated.id);
-            if (existing && existing.status === updated.status && existing.progress >= updated.progress) {
-              return prev;
-            }
-            return prev.map((j) => (j.id === updated.id ? updated : j));
-          });
 
-          if (!LIVE_JOB_STATUSES.has(updated.status)) {
-            es.close();
-            sseRefs.current.delete(id);
-            queryClient.invalidateQueries({ queryKey: FORGE_KEYS.jobs });
-            queryClient.invalidateQueries({ queryKey: FORGE_KEYS.sources });
-            queryClient.invalidateQueries({ queryKey: FORGE_KEYS.packs });
-          }
-        } catch {}
-      };
-      
-      es.onerror = () => { 
-        es.close(); 
-        // DO NOT delete from refs here. 
-        // Let the useEffect reconciliation on next activeJobIds change 
-        // (or poll) decide if it needs to be reopened.
-      };
+    // Open new connections (openStream always replaces existing)
+    for (const id of activeIds) {
+      openStream(id);
     }
 
     // Close connections for jobs that are no longer active
@@ -102,19 +160,17 @@ export function IngestionJobsList() {
       if (!activeIds.has(id)) {
         es.close();
         sseRefs.current.delete(id);
+        retryRefs.current.delete(id);
       }
     }
-
-    // NOTE: We don't return a bulk cleanup function here because it would 
-    // close all connections on every activeJobIds change. 
-    // The loop above handles surgical closing.
-  }, [activeJobIds, queryClient]);
+  }, [activeJobIds, openStream]);
 
   // Clean up all on unmount
   useEffect(() => {
     return () => {
       for (const es of sseRefs.current.values()) es.close();
       sseRefs.current.clear();
+      retryRefs.current.clear();
     };
   }, []);
 

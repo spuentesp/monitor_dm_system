@@ -967,6 +967,9 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                 _db_save_message(gm_msg)
 
                 start_payload = {"type": "start", "message_id": gm_id}
+                # Tone changes have no thinking phase — emit composing + done
+                # directly so the UI flow stays consistent.
+                composing_payload = {"type": "composing", "message_id": gm_id}
                 token_payload = {
                     "type": "token",
                     "message_id": gm_id,
@@ -977,6 +980,9 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                 if not await _send_ws_payload(websocket, start_payload):
                     break
                 await fanout_event(session_id, start_payload, exclude=websocket)
+                if not await _send_ws_payload(websocket, composing_payload):
+                    break
+                await fanout_event(session_id, composing_payload, exclude=websocket)
                 if not await _send_ws_payload(websocket, token_payload):
                     break
                 await fanout_event(session_id, token_payload, exclude=websocket)
@@ -986,29 +992,53 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                 continue
 
             start_payload = {"type": "start", "message_id": gm_id}
+            composing_payload = {"type": "composing", "message_id": gm_id}
             if not await _send_ws_payload(websocket, start_payload):
                 break
             await fanout_event(session_id, start_payload, exclude=websocket)
+            if not await _send_ws_payload(websocket, composing_payload):
+                break
+            await fanout_event(session_id, composing_payload, exclude=websocket)
 
             streamed_tokens = False
             delivered = True
 
-            async def on_token(token: str):
+            async def on_event(kind: str, data):
+                """Dispatch a stream callback from dspy_runtime.
+
+                The runtime emits three kinds:
+                  - "thinking_chunk": pre-narrative CoT text
+                  - "thinking_end": transition to narrative prose
+                  - "narrative_token": a piece of narrative prose
+
+                Each is forwarded as a typed WS payload so the client can render
+                thinking bubbles, typing indicators, and streaming prose
+                distinctly. We tolerate the legacy single-arg shape so callers
+                that haven't been updated don't crash.
+                """
                 nonlocal streamed_tokens, delivered
                 if not delivered:
                     return
-                streamed_tokens = True
-                token_payload = {
-                    "type": "token",
-                    "message_id": gm_id,
-                    "token": token,
-                }
-                if not await _send_ws_payload(websocket, token_payload):
+                if kind == "narrative_token" and isinstance(data, str):
+                    streamed_tokens = True
+                    payload = {"type": "token", "message_id": gm_id, "token": data}
+                elif kind == "thinking_chunk" and isinstance(data, str):
+                    payload = {"type": "thinking", "message_id": gm_id, "delta": data}
+                elif kind == "thinking_end":
+                    payload = {"type": "thinking_end", "message_id": gm_id}
+                else:
+                    # Unknown kind or legacy single-arg call: treat as narrative token.
+                    if isinstance(data, str):
+                        streamed_tokens = True
+                        payload = {"type": "token", "message_id": gm_id, "token": data}
+                    else:
+                        return
+                if not await _send_ws_payload(websocket, payload):
                     delivered = False
                 else:
-                    await fanout_event(session_id, token_payload, exclude=websocket)
+                    await fanout_event(session_id, payload, exclude=websocket)
 
-            token_cv = stream_callback_var.set(on_token)
+            token_cv = stream_callback_var.set(on_event)
             try:
                 session = _SESSIONS.get(session_id, {})
                 if session.get("mode") == "world_architect":
