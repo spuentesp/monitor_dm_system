@@ -142,7 +142,13 @@ def test_extract_pdf_text_rejects_empty_bytes():
         extract_pdf_text(b"")
 
 
-def test_extract_pdf_text_rejects_huge_pdf():
+def test_extract_pdf_text_rejects_large_invalid_bytes():
+    """Large non-PDF byte sequences raise PdfExtractionError (corrupt/truncated).
+
+    The streaming budget was raised to 64 MB and large valid PDFs are now
+    handled via a temp-file spill (not hard-rejected). Invalid bytes of any
+    size still raise PdfExtractionError with a 'corrupt or truncated' message.
+    """
     import pytest
 
     from monitor_data.tools.ingest_tools.pdf_processing import (
@@ -151,7 +157,7 @@ def test_extract_pdf_text_rejects_huge_pdf():
     )
 
     huge_bytes = b"0" * (50 * 1024 * 1024 + 1)
-    with pytest.raises(PdfExtractionError, match="exceeds streaming budget"):
+    with pytest.raises(PdfExtractionError, match="corrupt or truncated"):
         extract_pdf_text(huge_bytes)
 
 

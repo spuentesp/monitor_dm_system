@@ -33,10 +33,32 @@ def test_empty_file_rejected():
         extract_pdf_text(b"")
 
 
-def test_oversized_pdf_hits_streaming_budget():
-    # 50MB + 1 byte — just over the budget. Zero-filled allocation is cheap.
+def test_large_pdf_uses_temp_file_path():
+    """PDFs over the stream budget are spilled to a temp file and still succeed.
+
+    The streaming budget was raised to 64 MB and the code path changed from
+    hard-rejection to a disk-spill so large rulebooks (100+ MB) can ingest.
+    We patch the budget down to 1 byte so a tiny valid PDF exercises the
+    temp-file branch without allocating hundreds of MB.
+    """
+    import monitor_data.tools.ingest_tools.pdf_processing as _mod
+
+    small_pdf = _make_text_pdf("A short but valid PDF for large-file path testing.")
+    original_budget = _mod._PDF_STREAM_BUDGET_BYTES
+    try:
+        _mod._PDF_STREAM_BUDGET_BYTES = 1  # force every PDF over budget
+        pages = extract_pdf_text(small_pdf)
+    finally:
+        _mod._PDF_STREAM_BUDGET_BYTES = original_budget
+
+    assert len(pages) >= 1
+    assert "valid PDF" in pages[0]["text"]
+
+
+def test_oversized_invalid_bytes_raise_corrupt_error():
+    """Invalid bytes of any size raise PdfExtractionError with 'corrupt' message."""
     oversized = bytes(50 * 1024 * 1024 + 1)
-    with pytest.raises(PdfExtractionError, match="streaming budget"):
+    with pytest.raises(PdfExtractionError, match="corrupt or truncated"):
         extract_pdf_text(oversized)
 
 
