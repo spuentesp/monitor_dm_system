@@ -28,6 +28,41 @@ from monitor_data.tools._shared import to_native_datetime as _to_native_datetime
 # =============================================================================
 
 
+def _flatten_for_neo4j(value: Any) -> Any:
+    """Recursively coerce ``value`` so every leaf is a primitive Neo4j accepts.
+
+    Neo4j property values can only be primitives or arrays of primitives.
+    When CanonKeeper hands us a ``properties`` dict that contains nested
+    Maps (the scene_end checkpoint emits ``{scene_id, story_id, kind}``)
+    the underlying Cypher ``CREATE`` raises
+    ``Property values can only be of primitive types or arrays thereof``.
+    Serialize any nested structure to a JSON string so the round-trip
+    preserves the original shape without the Cypher type constraint.
+    """
+    import json
+
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return json.dumps(value, default=str, sort_keys=True)
+    if isinstance(value, (list, tuple, set)):
+        out = []
+        for v in value:
+            if isinstance(v, (dict, list)):
+                out.append(json.dumps(v, default=str, sort_keys=True))
+            else:
+                out.append(v)
+        return out
+    return str(value)
+
+
+def _flatten_properties(props: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Apply ``_flatten_for_neo4j`` to every value in a properties dict."""
+    if props is None:
+        return None
+    return {k: _flatten_for_neo4j(v) for k, v in props.items()}
+
+
 def neo4j_create_fact(params: FactCreate) -> FactResponse:
     """
     Create a new Fact node with provenance and entity relationships.
@@ -157,7 +192,7 @@ def neo4j_create_fact(params: FactCreate) -> FactResponse:
             "status": params.status.value,
             "created_at": created_at.isoformat(),
             "replaces": str(params.replaces) if params.replaces else None,
-            "properties": params.properties,
+            "properties": _flatten_properties(params.properties),
         },
     )
 
@@ -466,7 +501,7 @@ def neo4j_update_fact(fact_id: UUID, params: FactUpdate) -> FactResponse:
 
     if params.properties is not None:
         set_clauses.append("f.properties = $properties")
-        update_params["properties"] = params.properties
+        update_params["properties"] = _flatten_properties(params.properties)
 
     if not set_clauses:
         # No updates, just return current state
@@ -679,7 +714,7 @@ def neo4j_create_event(params: EventCreate) -> EventResponse:
             "confidence": params.confidence,
             "authority": params.authority.value,
             "created_at": created_at.isoformat(),
-            "properties": params.properties,
+            "properties": _flatten_properties(params.properties),
         },
     )
 

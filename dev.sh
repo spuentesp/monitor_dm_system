@@ -23,6 +23,15 @@ BACKEND_LOG="$PIDS_DIR/backend.log"
 FRONTEND_LOG="$PIDS_DIR/frontend.log"
 FRONTEND_TMUX_SESSION="${FRONTEND_TMUX_SESSION:-monitor-frontend}"
 
+# Resolve npm — nvm installs node outside the default PATH for non-interactive shells
+if [[ -z "$(command -v npm 2>/dev/null)" ]]; then
+    NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+    # shellcheck disable=SC1091
+    [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh" 2>/dev/null || true
+fi
+NPM="$(command -v npm 2>/dev/null || true)"
+[[ -z "$NPM" ]] && { err "npm not found — run 'nvm install' or install Node.js"; exit 1; }
+
 # Services that need a restart when code changes require it
 NEEDS_RESTART="${1:-}"
 
@@ -193,15 +202,15 @@ start_frontend_process() {
 
     if command -v tmux >/dev/null 2>&1; then
         local cmd
-        printf -v cmd 'exec env NEXT_PUBLIC_API_URL=%q BACKEND_URL=%q PORT=%q npm run dev >> %q 2>&1' \
-            "$api_url" "$backend_url" "$frontend_port" "$FRONTEND_LOG"
+        printf -v cmd 'exec env NEXT_PUBLIC_API_URL=%q BACKEND_URL=%q PORT=%q %q run dev >> %q 2>&1' \
+            "$api_url" "$backend_url" "$frontend_port" "$NPM" "$FRONTEND_LOG"
         tmux new-session -d -s "$FRONTEND_TMUX_SESSION" -c "$FRONTEND_DIR" "$cmd"
         tmux display-message -p -t "$FRONTEND_TMUX_SESSION" "#{pane_pid}" > "$FRONTEND_PID" 2>/dev/null || true
     else
         cd "$FRONTEND_DIR"
         env NEXT_PUBLIC_API_URL="$api_url" \
             BACKEND_URL="$backend_url" \
-            PORT="$frontend_port" npm run dev >> "$FRONTEND_LOG" 2>&1 &
+            PORT="$frontend_port" "$NPM" run dev >> "$FRONTEND_LOG" 2>&1 &
         echo $! > "$FRONTEND_PID"
         cd "$ROOT"
     fi

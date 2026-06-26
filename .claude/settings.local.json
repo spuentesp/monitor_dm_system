@@ -66,7 +66,9 @@
       "Bash(echo \"launched pid $!\")",
       "Bash(pkill -9 -f test_ingest_vtm_ao3)",
       "Bash(ps -eo pid,cmd)",
-      "Bash(xargs -I {} basename {})"
+      "Bash(xargs -I {} basename {})",
+      "Bash(command -v npm)",
+      "Read(//usr/**)"
     ]
   }
 }

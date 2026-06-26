@@ -95,7 +95,10 @@ def load_system(state: CharacterCreationState) -> Dict[str, Any]:
         if not steps_raw:
             steps_raw = _infer_creation_steps(gsr)
 
-        # Ensure a name step exists (inject at start if missing)
+        # Ensure a name step exists (inject at start if missing). Use a valid
+        # ``step_number`` (≥1) and the canonical enum value so the step
+        # survives the CreationStepType schema check in
+        # data-layer/schemas/game_systems.py.
         has_name_step = any(
             s.get("step_type") in ("choose_name", "name")
             or s.get("type") in ("choose_name", "name")
@@ -105,7 +108,7 @@ def load_system(state: CharacterCreationState) -> Dict[str, Any]:
             steps_raw.insert(
                 0,
                 {
-                    "step_number": 0,
+                    "step_number": 1,
                     "step_type": "choose_name",
                     "title": "Character Name",
                     "instructions": "What is your character's name?",

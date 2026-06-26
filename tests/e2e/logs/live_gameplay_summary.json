@@ -1,9 +1,9 @@
 [
   {
-    "api_url": "http://localhost:8001/api",
-    "session_id": "214fce09-bf1c-4ff3-b8cf-92f4ae8b9452",
-    "universe_id": "39fdf9cc-cebd-4ed1-abe9-cb9c046ea6f9",
-    "universe_name": "DiS Observe 1782060938 \u2014 Canon",
+    "api_url": "http://localhost:8000/api",
+    "session_id": "95bdeb73-60fb-4612-8d6d-a38017f50a3d",
+    "universe_id": "b11a5a6e-c31d-40c7-852a-d993a7d70ed8",
+    "universe_name": "Gothic Horror World",
     "player_mode": "llm",
     "benchmark_id": "three_arc_epic",
     "benchmark_name": "Three-Arc Epic Story",
@@ -11,32 +11,30 @@
     "fallback_count": 0,
     "entries": 13,
     "session_title": "Benchmark: 3-Arc Epic",
-    "generated_at": "2026-06-21T16:59:20.380992+00:00",
-    "avg_gm_reply_chars": 869.4,
-    "avg_player_reply_chars": 66.7,
-    "clarification_question_count": 0,
-    "question_marks_from_gm": 4,
+    "generated_at": "2026-06-25T16:47:17.712973+00:00",
+    "avg_gm_reply_chars": 645.7,
+    "avg_player_reply_chars": 96.2,
+    "clarification_question_count": 1,
+    "question_marks_from_gm": 6,
     "success_levels": [
       "pending",
-      "success",
-      "pending"
+      "success"
     ],
     "roll_breakdowns": [
-      "propose_roll \u2014 FIN check (DC 10)",
-      "trivial \u2014 no roll needed",
-      "propose_roll \u2014 FIN check (DC 10)"
+      "propose_roll \u2014 FOR check (DC 10)",
+      "trivial \u2014 no roll needed"
     ],
     "effects_seen": [
       "fiction_advances"
     ],
     "phase_sequence": [
       "char_creation",
+      "char_creation",
+      "char_creation",
       "active_play",
       "active_play",
-      "active_play",
-      "ooc",
       "active_play"
     ],
-    "log_file": "tests/e2e/logs/live_gameplay_llm_run01_20260621T165920Z.md"
+    "log_file": "/tmp/replay_smoke_3arc_6turn.md"
   }
 ]
