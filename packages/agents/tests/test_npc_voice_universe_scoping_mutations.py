@@ -310,7 +310,7 @@ class TestUpdateWorkingSocialState:
                 universe_id=None,
             )
         )
-        params = _captured["mongodb_update_npc_profile"][-1]["params"]
+        params = _captured["mongodb_update_npc_profile"][-1]
         assert params["current_emotional_state"] == "guarded"
         assert str(player_id) in params["relationship_states"]
         assert "current_emotional_state_by_universe" not in params
@@ -330,7 +330,7 @@ class TestUpdateWorkingSocialState:
                 universe_id=universe_id,
             )
         )
-        params = _captured["mongodb_update_npc_profile"][-1]["params"]
+        params = _captured["mongodb_update_npc_profile"][-1]
         assert params["relationship_states_by_universe"] == {
             str(universe_id): {str(player_id): snap}
         }
@@ -350,7 +350,7 @@ class TestUpdateWorkingSocialState:
                 universe_id=None,
             )
         )
-        params = _captured["mongodb_update_npc_profile"][-1]["params"]
+        params = _captured["mongodb_update_npc_profile"][-1]
         nested = params["relationship_states"][str(player_id)]
         assert "last_delta" not in nested
 
@@ -368,7 +368,7 @@ class TestUpdateWorkingSocialState:
                 universe_id=universe_id,
             )
         )
-        params = _captured["mongodb_update_npc_profile"][-1]["params"]
+        params = _captured["mongodb_update_npc_profile"][-1]
         assert "relationship_states" not in params
         assert "relationship_states_by_universe" not in params
 
@@ -529,7 +529,9 @@ class TestRespondDirectThreadingMutations:
             )
         recall = _captured.get("qdrant_search_memories", [{}])[-1]
         assert recall.get("include_cross_incarnation") is True
-        assert recall.get("universe_id") == str(conversatory_universe)
+        # universe_id is omitted when include_cross_incarnation=True so the
+        # recall spans all universes for this NPC (not scoped to one).
+        assert "universe_id" not in recall
 
     def test_explicit_include_cross_incarnation_false_not_in_kwargs(
         self, agent, npc_data, npc_id, player_id, conv_id

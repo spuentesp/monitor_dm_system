@@ -2,6 +2,26 @@
 
 *Multi-Ontology Narrative Intelligence Through Omniversal Representation*
 
+<!-- CI / build -->
+[![CI](https://github.com/spuentesp/monitor_dm_system/actions/workflows/ci.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/ci.yml)
+[![Nightly Integration](https://github.com/spuentesp/monitor_dm_system/actions/workflows/nightly-integration.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/nightly-integration.yml)
+[![Contract Tests](https://github.com/spuentesp/monitor_dm_system/actions/workflows/contract-tests.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/contract-tests.yml)
+[![Property Tests](https://github.com/spuentesp/monitor_dm_system/actions/workflows/property-tests.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/property-tests.yml)
+[![Behavior Tests](https://github.com/spuentesp/monitor_dm_system/actions/workflows/behavior-tests.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/behavior-tests.yml)
+[![Mutation Tests](https://github.com/spuentesp/monitor_dm_system/actions/workflows/mutation.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/mutation.yml)
+<!-- Coverage — activate after signing up at codecov.io and adding CODECOV_TOKEN secret -->
+[![codecov](https://codecov.io/gh/spuentesp/monitor_dm_system/branch/main/graph/badge.svg?token=CODECOV_TOKEN)](https://codecov.io/gh/spuentesp/monitor_dm_system)
+<!-- Mutation score — activate after creating a Gist and adding GIST_TOKEN + MUTATION_GIST_ID secrets (see docs/contributing/BADGES.md) -->
+<!-- [![Mutation Score](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/spuentesp/YOUR_GIST_ID/raw/mutation-score.json)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/mutation.yml) -->
+
+<!-- Stack & meta -->
+![Python 3.11](https://img.shields.io/badge/python-3.11-blue?logo=python&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-5%2C900%2B-brightgreen)
+![Contract Tests](https://img.shields.io/badge/contracts-deal-blueviolet)
+![Property Tests](https://img.shields.io/badge/property--based-hypothesis-orange)
+![Mutation Tested](https://img.shields.io/badge/mutation--tested-cosmic--ray-red)
+![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)
+
 **An Auto-GM system for tabletop RPGs and narrative games, built on a data-first, canonization-driven architecture.**
 
 ---

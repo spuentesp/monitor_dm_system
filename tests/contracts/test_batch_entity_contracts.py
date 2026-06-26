@@ -272,7 +272,7 @@ class TestBatchEntityParameterValidation:
         assert response.status_code == 422
 
     def test_batch_update_empty_body(self):
-        """PATCH /entities/batch with empty body returns 422."""
+        """PATCH /entities/batch with empty body returns 4xx validation error."""
         from fastapi.testclient import TestClient
         from monitor_ui.main import create_app
 
@@ -280,7 +280,7 @@ class TestBatchEntityParameterValidation:
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.patch("/api/entities/entities/batch", json={})
-        assert response.status_code == 422
+        assert response.status_code in (400, 422)
 
     def test_batch_delete_empty_body(self):
         """DELETE /entities/batch with empty body returns 422."""

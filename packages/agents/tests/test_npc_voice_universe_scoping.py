@@ -459,7 +459,9 @@ class TestRespondDirectThreading:
             include_cross_incarnation=True,
         )
 
-        assert captured["recall"]["universe_id"] == str(universe_id)
+        # When include_cross_incarnation=True, universe_id is NOT passed to
+        # recall so the search spans all universes for this NPC.
+        assert "universe_id" not in captured["recall"]
         assert captured["recall"]["include_cross_incarnation"] is True
 
 

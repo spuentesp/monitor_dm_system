@@ -91,7 +91,7 @@ class TestGameSystemEnumsContract:
         assert CreationStepType.CHOOSE_CLASS == "choose_class"
         assert CreationStepType.GENERATE_ATTRIBUTES == "generate_attributes"
         assert CreationStepType.CHOOSE_SKILLS == "choose_skills"
-        assert len(CreationStepType) == 13
+        assert len(CreationStepType) == 17
 
     def test_npc_tier_values(self):
         """NPCTier has expected values."""
