@@ -405,7 +405,12 @@ class NPCVoice(BaseAgent):
             "query_text": query,
             "top_k": top_k,
         }
-        if universe_id is not None:
+        # When cross-incarnation recall is requested, drop the universe
+        # scope so a sibling universe's incarnation of the same entity can
+        # answer. Without this, the universe_id filter below silently
+        # narrows recall back to the current incarnation and the flag is
+        # a no-op (codex P2).
+        if universe_id is not None and not include_cross_incarnation:
             search_kwargs["universe_id"] = str(universe_id)
         if include_cross_incarnation:
             search_kwargs["include_cross_incarnation"] = True

@@ -954,7 +954,7 @@ def neo4j_fork_universe(
         raise ValueError(f"Universe {source_universe_id} not found")
 
     create_universe_query = """
-    MATCH (source:Universe {id: $source_uid})-[:IN_MULTIVERSE]->(mv:Multiverse)
+    MATCH (mv:Multiverse)-[:CONTAINS]->(source:Universe {id: $source_uid})
     CREATE (new:Universe {
         id: $new_uid,
         name: $name,
@@ -970,7 +970,7 @@ def neo4j_fork_universe(
         authority: source.authority,
         created_at: datetime($now)
     })
-    CREATE (new)-[:IN_MULTIVERSE]->(mv)
+    CREATE (mv)-[:CONTAINS]->(new)
     RETURN new
     """
     client.execute_write(
@@ -1179,7 +1179,7 @@ def neo4j_split_universe(
 
     client.execute_write(
         """
-        MATCH (source:Universe {id: $source_uid})-[:IN_MULTIVERSE]->(mv:Multiverse)
+        MATCH (mv:Multiverse)-[:CONTAINS]->(source:Universe {id: $source_uid})
         CREATE (new:Universe {
             id: $new_uid, name: $name, description: $description,
             genre: source.genre, tone: source.tone, tech_level: source.tech_level,
@@ -1187,7 +1187,7 @@ def neo4j_split_universe(
             canon_level: source.canon_level, confidence: source.confidence,
             authority: source.authority, created_at: datetime($now)
         })
-        CREATE (new)-[:IN_MULTIVERSE]->(mv)
+        CREATE (mv)-[:CONTAINS]->(new)
         RETURN new
         """,
         {
@@ -1260,7 +1260,7 @@ def neo4j_merge_universes(
 
     created = client.execute_write(
         """
-        MATCH (primary:Universe {id: $primary_uid})-[:IN_MULTIVERSE]->(mv:Multiverse)
+        MATCH (mv:Multiverse)-[:CONTAINS]->(primary:Universe {id: $primary_uid})
         CREATE (new:Universe {
             id: $new_uid, name: $name, description: $description,
             genre: primary.genre, tone: primary.tone, tech_level: primary.tech_level,
@@ -1268,7 +1268,7 @@ def neo4j_merge_universes(
             canon_level: primary.canon_level, confidence: primary.confidence,
             authority: primary.authority, created_at: datetime($now)
         })
-        CREATE (new)-[:IN_MULTIVERSE]->(mv)
+        CREATE (mv)-[:CONTAINS]->(new)
         RETURN new
         """,
         {

@@ -103,6 +103,12 @@ class ConversationState(BaseModel):
     turns_count: int = 0
     max_turns: int = 100  # safety ceiling for a single session
 
+    # NPC memory scoping — when True, NPCVoice recall broadens past the
+    # current universe so a character version from a sibling universe can
+    # answer (e.g. canon Sister Veil across incarnations). Default False
+    # to preserve per-universe incarnation isolation.
+    include_cross_incarnation: bool = False
+
 
 # =============================================================================
 # NODES
