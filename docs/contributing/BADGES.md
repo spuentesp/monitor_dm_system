@@ -17,9 +17,14 @@ Codecov is free for public repos.
 
 ## 2. Mutation score badge (dynamic, via Gist)
 
-The `Mutation Tests` workflow computes a kill rate from cosmic-ray and writes it
-to a public GitHub Gist as a shields.io endpoint JSON. This gives a live
-percentage badge without needing any third-party service.
+The `Mutation Tests` workflow runs cosmic-ray across **10 modules** in parallel
+(matrix strategy), then aggregates all kill rates into a single percentage that
+gets written to a public GitHub Gist as a shields.io endpoint JSON. This gives
+a live badge without needing any third-party service.
+
+Modules covered: `canonkeeper`, `resolver`, `npc_voice`, `scene_loop`,
+`story_loop`, `resource_engine`, `world_architect`, `plot_hooks`,
+`delta_detection`, `contradiction_detection`.
 
 ### One-time setup
 

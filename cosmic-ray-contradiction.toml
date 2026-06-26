@@ -1,0 +1,6 @@
+[cosmic-ray]
+module-path = "packages/data-layer/src/monitor_data/tools/ingest_tools/contradiction_detection.py"
+python-version = ""
+timeout = 15
+excluded-modules = []
+test-command = "uv run pytest packages/data-layer/tests/test_tools/test_contradiction_detection.py -q"
