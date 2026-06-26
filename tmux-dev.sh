@@ -40,6 +40,15 @@ command -v docker >/dev/null 2>&1 || err "docker is not installed"
 
 [[ -f "$ROOT/.env" ]] || err ".env not found — copy env.example to .env and fill in your values"
 
+# Resolve npm via nvm if not already on PATH
+if [[ -z "$(command -v npm 2>/dev/null)" ]]; then
+    NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+    # shellcheck disable=SC1091
+    [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh" --no-use 2>/dev/null || true
+fi
+command -v npm >/dev/null 2>&1 || err "npm not found — ensure nvm is set up and a Node version is installed"
+NPM="$(command -v npm)"
+
 # ── kill command ──────────────────────────────────────────────────────────────
 if [[ "${1:-}" == "kill" ]]; then
     info "Stopping tmux session '$SESSION'..."
@@ -106,7 +115,7 @@ tmux send-keys -t "$SESSION:frontend" \
     echo '→ Waiting for backend (:8001)...' && \
     until nc -z 127.0.0.1 8001; do sleep 2; done && \
     echo '→ Starting Next.js frontend...' && \
-    cd '$FRONTEND_DIR' && npm run dev" \
+    cd '$FRONTEND_DIR' && '$NPM' run dev" \
     Enter
 
 # ── window 3: shell (scratch) ─────────────────────────────────────────────────

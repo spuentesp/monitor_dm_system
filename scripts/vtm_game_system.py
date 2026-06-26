@@ -97,14 +97,14 @@ VTM_GAME_CONTEXT = {
     "advancement": {"xp_per_session": 15},
     "character_creation": {
         "steps": [
-            {"step_number": 0, "step_type": "choose_name", "title": "Name & Concept",
+            {"step_number": 1, "step_type": "choose_name", "title": "Name & Concept",
              "instructions": "Who is your vampire? Give a name and concept.", "is_optional": False, "options": []},
-            {"step_number": 1, "step_type": "choose_attributes", "title": "Attributes",
+            {"step_number": 2, "step_type": "choose_attributes", "title": "Attributes",
              "instructions": "Describe your physical/social/mental strengths.", "is_optional": False, "options": []},
-            {"step_number": 2, "step_type": "choose_disciplines", "title": "Disciplines",
+            {"step_number": 3, "step_type": "choose_disciplines", "title": "Disciplines",
              "instructions": "Which Disciplines does your vampire command?", "is_optional": False,
              "options": ["Celerity", "Potence", "Blood Sorcery", "Fortitude", "Auspex"]},
-            {"step_number": 3, "step_type": "choose_background", "title": "Background & Flaws",
+            {"step_number": 4, "step_type": "choose_background", "title": "Background & Flaws",
              "instructions": "Your history, bonds, and any flaws (e.g. the Mark, Fabien).", "is_optional": False, "options": []},
         ]
     },

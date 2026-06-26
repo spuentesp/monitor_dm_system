@@ -1,0 +1,6 @@
+[cosmic-ray]
+module-path = "packages/agents/src/monitor_agents/resolver.py"
+python-version = ""
+timeout = 20
+excluded-modules = []
+test-command = "uv run pytest packages/agents/tests/test_resolver.py packages/agents/tests/test_resolver_oracle.py packages/agents/tests/test_resolver_pushback.py -q"

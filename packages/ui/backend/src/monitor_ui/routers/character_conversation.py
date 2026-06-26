@@ -149,39 +149,62 @@ def _provision_entity_and_profile(
 ) -> str:
     """Create the EntityInstance + NPCProfile. Returns the new entity id (str).
 
-    Mirrors entities._persist_generated_entity; synchronous (Neo4j/Mongo tools).
-    The NPCProfile is stamped with universe_id so its working state can be
-    partitioned by Character Version (per-universe recall + state).
+    Mirrors entities._persist_generated_entity. Routes the Entity write
+    through CanonKeeper.create_entity (the layer-2 authority path —
+    INV-1: only CanonKeeper writes Neo4j entity nodes). The NPCProfile
+    is stamped with universe_id so its working state can be partitioned
+    by Character Version (per-universe recall + state).
     """
+    import asyncio
+
     from monitor_data.schemas.base import Authority, CanonLevel, EntityType
     from monitor_data.schemas.entities import EntityCreate
     from monitor_data.schemas.npc_profiles import BehavioralTrigger, NPCProfileCreate
     from monitor_data.tools.mongodb_tools import mongodb_create_npc_profile
-    from monitor_data.tools.neo4j_tools.entities import neo4j_create_entity
+    from monitor_agents.canonkeeper import CanonKeeper
 
-    entity = neo4j_create_entity(
-        EntityCreate(
-            universe_id=uuid.UUID(universe_id),
-            name=char["name"],
-            entity_type=EntityType.CHARACTER,
-            sub_type="npc",
-            is_archetype=False,
-            description=char.get("description", "") or "",
-            properties={
-                "role": "character",
-                "standalone_character_id": char["id"],
-                "generation_source": "character_card_expansion",
-            },
-            authority=Authority.SYSTEM,
-            canon_level=CanonLevel.CANON,
-            confidence=1.0,
-        )
+    entity_create = EntityCreate(
+        universe_id=uuid.UUID(universe_id),
+        name=char["name"],
+        entity_type=EntityType.CHARACTER,
+        sub_type="npc",
+        is_archetype=False,
+        description=char.get("description", "") or "",
+        properties={
+            "role": "character",
+            "standalone_character_id": char["id"],
+            "generation_source": "character_card_expansion",
+        },
+        authority=Authority.SYSTEM,
+        canon_level=CanonLevel.CANON,
+        confidence=1.0,
     )
+
+    # INV-1: route the Entity write through CanonKeeper rather than
+    # calling neo4j_create_entity directly. The keeper owns the Neo4j
+    # authority layer and runs the canonical-side bookkeeping.
+    keeper = CanonKeeper()
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        # We're inside another async context — run the keeper call in a
+        # worker thread so we don't block the request loop.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            created = pool.submit(
+                lambda: asyncio.run(keeper.create_entity(entity_create))
+            ).result()
+    else:
+        created = asyncio.run(keeper.create_entity(entity_create))
+
+    entity_id = created["id"] if isinstance(created, dict) else str(created)
 
     triggers = [BehavioralTrigger(**t) for t in fields.get("triggers", [])]
     mongodb_create_npc_profile(
         NPCProfileCreate(
-            entity_id=entity.id,
+            entity_id=uuid.UUID(entity_id),
             universe_id=uuid.UUID(universe_id),
             traits=fields.get("traits", {}),
             values=fields.get("values", []),
@@ -194,7 +217,7 @@ def _provision_entity_and_profile(
             current_emotional_state=fields.get("current_emotional_state", "neutral"),
         )
     )
-    return str(entity.id)
+    return entity_id
 
 
 async def ensure_character_backed(

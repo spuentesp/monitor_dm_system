@@ -14,7 +14,7 @@ game_system = {
     "character_creation": {
         "steps": [
             {
-                "step_number": 0,
+                "step_number": 1,
                 "step_type": "choose_name",
                 "title": "Character Name",
                 "instructions": "What is your character's name?",
@@ -22,15 +22,15 @@ game_system = {
                 "options": [],
             },
             {
-                "step_number": 1,
-                "step_type": "choose_concept",
+                "step_number": 2,
+                "step_type": "custom",
                 "title": "Concept",
                 "instructions": "Describe your character concept in a few words",
                 "is_optional": False,
                 "options": [],
             },
             {
-                "step_number": 2,
+                "step_number": 3,
                 "step_type": "generate_attributes",
                 "title": "Attributes",
                 "instructions": "Roll or assign your attributes (STR, DEX, CON, INT, WIS, CHA)",

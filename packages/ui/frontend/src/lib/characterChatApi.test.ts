@@ -46,7 +46,12 @@ describe("character conversatory API payloads", () => {
     const { url, init } = lastCall(fetchMock);
     expect(url).toContain("/api/entities/characters/char-1/conversations/conv-9/send");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(String(init.body))).toEqual({ text: "Evening." });
+    // include_cross_incarnation is sent by default (false) — see
+    // characterVersionsApi.test.ts for the explicit opt-in case.
+    expect(JSON.parse(String(init.body))).toEqual({
+      text: "Evening.",
+      include_cross_incarnation: false,
+    });
   });
 
   it("endCharacterConversation POSTs to the end path", async () => {

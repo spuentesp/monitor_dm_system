@@ -185,7 +185,7 @@ class TestRecordVerdict:
         tool_name, args = ck.call_tool.call_args[0]
         assert tool_name == "mongodb_record_verdict"
         assert args["scene_id"] == str(scene_id)
-        assert args["proposal_id"] == v.proposal_id
+        assert args["proposal_id"] == str(v.proposal_id)
         assert args["decision"] == CanonKeeperDecision.ACCEPTED.value
 
     @pytest.mark.asyncio
@@ -221,20 +221,33 @@ class TestRecordVerdict:
 
 class TestFetchWorldRules:
     @pytest.mark.asyncio
-    async def test_returns_raw_when_tool_responds(self, monkeypatch):
+    async def test_returns_stable_default(self, monkeypatch):
+        # _fetch_world_rules no longer calls any MCP tool — it returns a
+        # hardcoded safe baseline until per-scene content rules are persisted.
         _patch_commit_mongo(monkeypatch)
         ck = CanonKeeper.__new__(CanonKeeper)
-        ck.call_tool = AsyncMock(return_value="- No violence against children")
 
         result = await ck._fetch_world_rules(uuid4())
 
-        assert result == "- No violence against children"
+        assert "No explicit content restrictions" in result
+        assert "internal consistency" in result
+
+    @pytest.mark.asyncio
+    async def test_does_not_call_any_tool(self, monkeypatch):
+        _patch_commit_mongo(monkeypatch)
+        ck = CanonKeeper.__new__(CanonKeeper)
+        ck.call_tool = AsyncMock()
+
+        await ck._fetch_world_rules(uuid4())
+
+        ck.call_tool.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_default_when_tool_returns_none(self, monkeypatch):
+        # Kept for backwards compatibility — even if call_tool were re-added,
+        # the fallback must produce the safe default.
         _patch_commit_mongo(monkeypatch)
         ck = CanonKeeper.__new__(CanonKeeper)
-        ck.call_tool = AsyncMock(return_value=None)
 
         result = await ck._fetch_world_rules(uuid4())
 
@@ -245,7 +258,6 @@ class TestFetchWorldRules:
     async def test_returns_default_when_tool_returns_empty(self, monkeypatch):
         _patch_commit_mongo(monkeypatch)
         ck = CanonKeeper.__new__(CanonKeeper)
-        ck.call_tool = AsyncMock(return_value="")
 
         result = await ck._fetch_world_rules(uuid4())
 
@@ -259,20 +271,31 @@ class TestFetchWorldRules:
 
 class TestFetchProtectedEntities:
     @pytest.mark.asyncio
-    async def test_returns_raw_json_from_tool(self, monkeypatch):
+    async def test_returns_empty_list_json(self, monkeypatch):
+        # _fetch_protected_entities no longer calls any MCP tool — it returns
+        # "[]" directly until per-scene entity protection is persisted.
         _patch_commit_mongo(monkeypatch)
         ck = CanonKeeper.__new__(CanonKeeper)
-        ck.call_tool = AsyncMock(return_value='["entity-1", "entity-2"]')
 
         result = await ck._fetch_protected_entities(uuid4())
 
-        assert result == '["entity-1", "entity-2"]'
+        assert result == "[]"
+
+    @pytest.mark.asyncio
+    async def test_does_not_call_any_tool(self, monkeypatch):
+        _patch_commit_mongo(monkeypatch)
+        ck = CanonKeeper.__new__(CanonKeeper)
+        ck.call_tool = AsyncMock()
+
+        await ck._fetch_protected_entities(uuid4())
+
+        ck.call_tool.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_json_on_none(self, monkeypatch):
+        # Same behavior regardless — no tool means always "[]".
         _patch_commit_mongo(monkeypatch)
         ck = CanonKeeper.__new__(CanonKeeper)
-        ck.call_tool = AsyncMock(return_value=None)
 
         result = await ck._fetch_protected_entities(uuid4())
 

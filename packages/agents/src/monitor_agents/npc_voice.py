@@ -405,12 +405,22 @@ class NPCVoice(BaseAgent):
             "query_text": query,
             "top_k": top_k,
         }
-        if universe_id is not None:
+        # When cross-incarnation recall is requested, drop the universe
+        # scope so a sibling universe's incarnation of the same entity can
+        # answer. Without this, the universe_id filter below silently
+        # narrows recall back to the current incarnation and the flag is
+        # a no-op (codex P2).
+        if universe_id is not None and not include_cross_incarnation:
             search_kwargs["universe_id"] = str(universe_id)
         if include_cross_incarnation:
             search_kwargs["include_cross_incarnation"] = True
 
-        result = await self.call_tool("qdrant_search_memories", search_kwargs)
+        # Wrap params per the data-layer tool contract (MemorySearchRequest).
+        # Live e2e (Kvothe) surfaced that flat dicts fail Pydantic validation
+        # in production; this restore is required.
+        result = await self.call_tool(
+            "qdrant_search_memories", {"params": search_kwargs}
+        )
         return result if isinstance(result, list) else []
 
     async def _get_story_context(self, npc_id: UUID) -> str:
@@ -984,13 +994,39 @@ class NPCVoice(BaseAgent):
             except Exception:  # noqa: BLE001
                 resolved_universe_id = None
 
+        # Wrap params per the data-layer tool contract (MemoryCreate).
+        # Live e2e surfaced that flat dicts fail Pydantic validation.
+        # MemoryCreate.universe_id is REQUIRED — callers must pass a
+        # resolved id; if the caller did not, fall back to the
+        # character doc via a best-effort Mongo read.
+        if not resolved_universe_id:
+            try:
+                from monitor_data.db.mongodb import get_mongodb_client
+                coll = get_mongodb_client().get_collection("characters")
+                doc = coll.find_one({"versions.entity_id": str(npc_id)})
+                if doc:
+                    for v in doc.get("versions", []):
+                        if v.get("entity_id") == str(npc_id):
+                            resolved_universe_id = v.get("universe_id")
+                            break
+            except Exception:  # noqa: BLE001
+                pass
+        if not resolved_universe_id:
+            raise RuntimeError(
+                "_write_npc_memory: no universe_id resolved for entity "
+                f"{npc_id}; ensure ConversationLoop passes state.universe_id "
+                "or the character was expanded in the conversatory universe."
+            )
         await self.call_tool(
             "mongodb_create_memory",
             {
-                "entity_id": str(npc_id),
-                "text": " ".join(memory_bits),
-                "importance": importance,
-                "metadata": metadata,
-                "universe_id": resolved_universe_id,
+                "params": {
+                    "entity_id": str(npc_id),
+                    "text": " ".join(memory_bits),
+                    "importance": importance,
+                    "metadata": metadata,
+                    "universe_id": resolved_universe_id,
+                },
             },
         )
+

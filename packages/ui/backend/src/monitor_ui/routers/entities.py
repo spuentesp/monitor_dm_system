@@ -45,8 +45,11 @@ from .entities_schemas import (
     CharacterExpandResponse,
     CharacterImportRequest,
     CharacterUpdate,
+    CharacterVersion,
+    CharacterVersionCreateRequest,
     ConversationReply,
     ConversationSendRequest,
+    ConversationStartRequest,
     ConversationStartResponse,
     ConversationSummary,
     CoreMechanicInfo,
@@ -858,7 +861,11 @@ async def list_characters(system_id: str) -> list[Character]:
 
 
 def _serialise_character(doc: dict) -> dict:
-    """Convert MongoDB document fields to JSON-safe strings for CharacterDetail."""
+    """Convert MongoDB document fields to JSON-safe strings for CharacterDetail.
+
+    Adds defaults for fields introduced by the Character Versions feature so
+    legacy character docs (created before versions existed) serialize cleanly.
+    """
     doc["created_at"] = (
         doc["created_at"].isoformat()
         if hasattr(doc["created_at"], "isoformat")
@@ -869,6 +876,20 @@ def _serialise_character(doc: dict) -> dict:
         if hasattr(doc["updated_at"], "isoformat")
         else str(doc["updated_at"])
     )
+    doc.setdefault("versions", [])
+    doc.setdefault("default_universe_id", doc.get("source_universe_id"))
+    # version entries carry datetimes — stringify any nested ts.
+    out_versions = []
+    for v in doc.get("versions", []) or []:
+        nv = dict(v)
+        for ts_field in ("created_at", "last_chatted_at"):
+            ts = nv.get(ts_field)
+            if hasattr(ts, "isoformat"):
+                nv[ts_field] = ts.isoformat()
+            elif ts is not None:
+                nv[ts_field] = str(ts)
+        out_versions.append(nv)
+    doc["versions"] = out_versions
     return doc
 
 
@@ -1083,34 +1104,126 @@ async def draft_character_card(body: CardDraftRequest) -> CardDraftResponse:
 
 
 @router.post("/characters/{character_id}/expand", response_model=CharacterExpandResponse)
-async def expand_character(character_id: str) -> CharacterExpandResponse:
-    """Promote a light card into a MONITOR-backed character (entity + NPCProfile)."""
+async def expand_character(
+    character_id: str, body: CharacterVersionCreateRequest | None = None
+) -> CharacterExpandResponse:
+    """Promote a light card into a MONITOR-backed character (entity + NPCProfile).
+
+    Optional body {universe_id} routes expansion to a specific universe.
+    """
     from . import character_conversation as cc
 
     if not _get_character_doc(character_id):
         raise HTTPException(status_code=404, detail="Character not found")
+    target_universe = body.universe_id if body else None
     try:
-        backing = await cc.ensure_character_backed(character_id)
+        backing = await cc.ensure_character_backed(character_id, target_universe)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Expansion failed: {exc}")
     return CharacterExpandResponse(
         character_id=character_id,
+        version_id=str(backing["version_id"]),
         entity_id=backing["entity_id"],
         universe_id=backing["universe_id"],
     )
 
 
 @router.post(
-    "/characters/{character_id}/conversations", response_model=ConversationStartResponse
+    "/characters/{character_id}/versions",
+    response_model=CharacterExpandResponse,
 )
-async def start_character_conversation(character_id: str) -> ConversationStartResponse:
-    """Open a story-less conversatory session with the character."""
+async def create_character_version(
+    character_id: str, body: CharacterVersionCreateRequest
+) -> CharacterExpandResponse:
+    """Create (or fetch) a per-universe incarnation of the character."""
+    return await expand_character(character_id, body)
+
+
+@router.get(
+    "/characters/{character_id}/versions",
+    response_model=list[CharacterVersion],
+)
+async def list_character_versions(character_id: str) -> list[CharacterVersion]:
+    """List all per-universe incarnations of a character (newest first)."""
+    from .character_storage import list_versions
+
+    if not _get_character_doc(character_id):
+        raise HTTPException(status_code=404, detail="Character not found")
+    return [CharacterVersion(**v) for v in list_versions(character_id)]
+
+
+@router.delete(
+    "/characters/{character_id}/versions/{universe_id}",
+    status_code=204,
+)
+async def delete_character_version(character_id: str, universe_id: str) -> None:
+    """Tear down a Character Version (deletes the EntityInstance + NPCProfile)."""
     from . import character_conversation as cc
 
     if not _get_character_doc(character_id):
         raise HTTPException(status_code=404, detail="Character not found")
     try:
-        result = await cc.start_conversation(character_id)
+        ok = await cc.delete_incarnation(character_id, universe_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Delete failed: {exc}")
+    if not ok:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+
+@router.get(
+    "/characters/{character_id}/profile",
+    response_model=dict,
+)
+async def get_character_profile(character_id: str) -> dict:
+    """Return the NPCProfile doc for the character's default incarnation.
+
+    Read-only introspection — primarily used by e2e property tests and
+    debug tools that need to verify per-universe partitions are populated.
+    """
+    from monitor_data.tools.mongodb_tools import mongodb_get_npc_profile
+    from . import character_conversation as cc
+
+    if not _get_character_doc(character_id):
+        raise HTTPException(status_code=404, detail="Character not found")
+    # Ensure backing entity exists; don't auto-provision (read-only).
+    char = _get_character_doc(character_id)
+    entity_id = char.get("entity_id")
+    if not entity_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Character has no incarnation yet (light card not expanded).",
+        )
+    try:
+        profile = mongodb_get_npc_profile(uuid.UUID(entity_id))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Mongo read failed: {exc}")
+    if profile is None:
+        raise HTTPException(
+            status_code=404, detail="NPCProfile not found in MongoDB"
+        )
+    # Serialise the Pydantic response model so the per-universe partition
+    # maps and timestamps survive the JSON roundtrip.
+    return profile.model_dump(mode="json")
+
+
+@router.post(
+    "/characters/{character_id}/conversations", response_model=ConversationStartResponse
+)
+async def start_character_conversation(
+    character_id: str, body: ConversationStartRequest | None = None
+) -> ConversationStartResponse:
+    """Open a story-less conversatory session.
+
+    Body {universe_id} picks the incarnation. If omitted, the character's
+    default incarnation is used (or the hidden Conversatory for light cards).
+    """
+    from . import character_conversation as cc
+
+    if not _get_character_doc(character_id):
+        raise HTTPException(status_code=404, detail="Character not found")
+    target_universe = body.universe_id if body else None
+    try:
+        result = await cc.start_conversation(character_id, target_universe)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Could not start conversation: {exc}")
     return ConversationStartResponse(**result)
@@ -1123,11 +1236,17 @@ async def start_character_conversation(character_id: str) -> ConversationStartRe
 async def send_character_message(
     character_id: str, conversation_id: str, body: ConversationSendRequest
 ) -> ConversationReply:
-    """Send one line; return the character's reply + emotional/relationship read."""
+    """Send one line; return the character's reply + emotional/relationship read.
+
+    Set include_cross_incarnation=true to broaden NPC memory recall to all
+    universes of this character (default false — strict universe partition).
+    """
     from . import character_conversation as cc
 
     try:
-        reply = await cc.send_message(conversation_id, body.text)
+        reply = await cc.send_message(
+            conversation_id, body.text, body.include_cross_incarnation
+        )
     except KeyError:
         raise HTTPException(
             status_code=409,

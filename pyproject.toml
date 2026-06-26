@@ -49,6 +49,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-timeout>=2.3",
     "pytest-socket>=0.7",
+    "cosmic-ray>=8.0",
 ]
 
 [tool.uv.sources]
@@ -109,6 +110,35 @@ module = [
     "monitor_data.tools.ingest_tools.pdf_processing",
 ]
 disable_error_code = ["type-arg"]
+
+[tool.coverage.run]
+branch = true
+source = ["packages"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/migrations/*",
+    "*/conftest.py",
+    "packages/ui/frontend/*",
+    "scripts/*",
+    "infra/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
+skip_covered = false
+precision = 1
+
+[tool.coverage.xml]
+output = "coverage.xml"
 
 [[tool.mypy.overrides]]
 module = [

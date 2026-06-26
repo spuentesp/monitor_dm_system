@@ -1,0 +1,62 @@
+{
+  "generated_at": "2026-06-26T00:32:38.036497+00:00",
+  "universe_id": "394bdc96-53d6-44d5-a049-3dfca27f32f8",
+  "session_id": "ecf876e8-d77d-4cee-9bee-bfa8719fc3a2",
+  "story_id": "473d9fce-da8f-4f70-ab4a-400426438714",
+  "canon_entity_count": 0,
+  "surfaces": {
+    "recap": {
+      "latency_s": 17.3,
+      "error": null,
+      "chars": 368,
+      "canon_refs": 0
+    },
+    "hooks": {
+      "latency_s": 24.4,
+      "error": null,
+      "count": 3,
+      "grounded": 0,
+      "grounded_pct": 0.0,
+      "titles": [
+        "The Pale Wells' True Purpose",
+        "Memory Fragments Surface at The Pale Wells",
+        "The Observer's Shadow"
+      ],
+      "urgencies": [
+        "critical",
+        "medium",
+        "low"
+      ]
+    },
+    "contradictions": {
+      "latency_s": 17.5,
+      "error": null,
+      "count": 0,
+      "severities": []
+    },
+    "session_prep": {
+      "latency_s": 8.3,
+      "error": null,
+      "has_recap": true,
+      "open_threads": 0,
+      "hooks": 3,
+      "npc_reminders": 0
+    },
+    "handout": {
+      "latency_s": 60.4,
+      "error": null,
+      "chars": 1976,
+      "has_title": true,
+      "in_character": true,
+      "canon_refs": 0
+    },
+    "threads": {
+      "latency_s": 0.2,
+      "error": null,
+      "count": 1,
+      "statuses": [
+        "open"
+      ]
+    }
+  }
+}

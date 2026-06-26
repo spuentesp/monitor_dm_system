@@ -98,12 +98,22 @@ class ProposedChangeCreate(BaseModel):
 
         Scene-based proposals require scene_id or story_id.
         System-level proposals (e.g., snapshot_restore) may omit both.
+        Conversatory proposals (NPCVoice / CharacterChat) are universe-scoped
+        rather than scene-scoped, so they don't need either. They also pass
+        a conversation_id in evidence — CanonKeeper correlates by universe.
         """
-        system_proposers = {"snapshot_restore", "system", "world_architect"}
+        scope_free_proposers = {
+            "snapshot_restore",
+            "system",
+            "world_architect",
+            # Conversatory proposals carry universe_id instead of scene/story.
+            "NPCVoice",
+            "CharacterChat",
+        }
         if (
             self.scene_id is None
             and self.story_id is None
-            and self.proposer not in system_proposers
+            and self.proposer not in scope_free_proposers
         ):
             raise ValueError("Either scene_id or story_id must be provided")
 

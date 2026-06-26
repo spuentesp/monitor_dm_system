@@ -84,6 +84,13 @@ class CreationStepType(str, Enum):
     CHOOSE_EQUIPMENT = "choose_equipment"
     CALCULATE_DERIVED = "calculate_derived"
     WRITE_BACKSTORY = "write_backstory"
+    # Legacy aliases — older bundles (and the character_creation_loop default
+    # injector) used these names before the enum was tightened. Keep them
+    # accepted so ingestion + forge paths don't reject pre-existing data.
+    CHOOSE_NAME = "choose_name"
+    CHOOSE_ATTRIBUTES = "choose_attributes"
+    CHOOSE_DISCIPLINES = "choose_disciplines"
+    CHOOSE_ADVANTAGES = "choose_advantages"
     CUSTOM = "custom"
 
 

@@ -259,6 +259,7 @@ async def test_respond_direct_full_flow(
         if tool_name == "neo4j_get_entity":
             return {
                 "name": sample_npc_data["name"],
+                "universe_id": "uni-test",  # used by _write_npc_memory fallback
                 "properties": {"role": sample_npc_data["role"]},
             }
         if tool_name == "mongodb_get_npc_profile":
@@ -266,7 +267,9 @@ async def test_respond_direct_full_flow(
         if tool_name == "neo4j_list_facts":
             return [{"statement": f} for f in sample_npc_data["facts"]]
         if tool_name == "qdrant_search_memories":
-            recorded_memory_args.update(args)
+            # Live fix wraps in {"params": ...}; unwrap to read fields.
+            inner = args.get("params", args) if isinstance(args, dict) else args
+            recorded_memory_args.update(inner)
             return [{"text": "I saw you defend the market from bandits"}]
         if tool_name in ("mongodb_append_conversation_turn", "mongodb_create_memory"):
             return {}
@@ -289,6 +292,7 @@ async def test_respond_direct_full_flow(
         player_entity_id=uuid4(),
         scene_id=uuid4(),
         story_id=uuid4(),
+        universe_id=uuid4(),  # legacy callers may omit; we pass it explicitly
     )
 
     assert result["npc_response"] == "I remember you. You have guts, I'll grant you that."
@@ -325,6 +329,7 @@ async def test_respond_direct_passes_profile_context_to_voice_module(
         if tool_name == "neo4j_get_entity":
             return {
                 "name": sample_npc_data["name"],
+                "universe_id": "uni-test",
                 "properties": {"role": sample_npc_data["role"]},
             }
         if tool_name == "mongodb_get_npc_profile":
@@ -351,6 +356,7 @@ async def test_respond_direct_passes_profile_context_to_voice_module(
         player_said="Tell me about the Embrace.",
         conversation_history=[],
         source_profile=source_profile,
+        universe_id=uuid4(),
     )
 
     kwargs = agent._direct_module.call_args.kwargs

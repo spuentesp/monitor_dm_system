@@ -1,0 +1,148 @@
+name: Mutation Tests
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"  # weekly, Sunday 3 AM UTC
+  workflow_dispatch:
+    inputs:
+      target:
+        description: >
+          Module to mutate — leave blank to run all.
+          Valid values: canonkeeper, resolver, npc-voice, scene-loop, story-loop,
+          resource-engine, world-architect, plot-hooks, delta-detection, contradiction
+        required: false
+        default: ""
+
+jobs:
+  mutate:
+    name: "mutate / ${{ matrix.target.name }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: canonkeeper,     toml: cosmic-ray.toml }
+          - { name: resolver,        toml: cosmic-ray-resolver.toml }
+          - { name: npc-voice,       toml: cosmic-ray-npc-voice.toml }
+          - { name: scene-loop,      toml: cosmic-ray-scene-loop.toml }
+          - { name: story-loop,      toml: cosmic-ray-story-loop.toml }
+          - { name: resource-engine, toml: cosmic-ray-resource-engine.toml }
+          - { name: world-architect, toml: cosmic-ray-world-architect.toml }
+          - { name: plot-hooks,      toml: cosmic-ray-plot-hooks.toml }
+          - { name: delta-detection, toml: cosmic-ray-delta-detection.toml }
+          - { name: contradiction,   toml: cosmic-ray-contradiction.toml }
+    if: >-
+      github.event.inputs.target == '' ||
+      github.event.inputs.target == matrix.target.name
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen || uv sync
+
+      - name: Install cosmic-ray
+        run: uv pip install "cosmic-ray>=8.0"
+
+      - name: Initialize session
+        run: uv run cosmic-ray init ${{ matrix.target.toml }} session-${{ matrix.target.name }}.sqlite
+
+      - name: Run mutations
+        run: uv run cosmic-ray exec ${{ matrix.target.toml }} session-${{ matrix.target.name }}.sqlite
+
+      - name: Report + extract score
+        id: score
+        run: |
+          REPORT=$(uv run cr-report session-${{ matrix.target.name }}.sqlite)
+          echo "$REPORT"
+          SCORE=$(echo "$REPORT" | python3 -c "
+          import sys, re
+          text = sys.stdin.read()
+          pct = re.search(r'kill rate[:\s]+(\d+\.?\d*)\s*%', text, re.IGNORECASE)
+          dec = re.search(r'score[:\s]+(\d+\.\d+)', text, re.IGNORECASE)
+          if pct:
+              print(round(float(pct.group(1))))
+          elif dec:
+              print(round(float(dec.group(1)) * 100))
+          else:
+              print(0)
+          ")
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "$SCORE" > score-${{ matrix.target.name }}.txt
+          echo "Kill rate for ${{ matrix.target.name }}: $SCORE%"
+
+      - name: Upload score artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-score-${{ matrix.target.name }}
+          path: score-${{ matrix.target.name }}.txt
+
+  aggregate:
+    name: "mutate / aggregate + badge"
+    needs: mutate
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Download all score artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mutation-score-*
+          merge-multiple: true
+          path: scores/
+
+      - name: Compute aggregate kill rate and update badge
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          MUTATION_GIST_ID: ${{ secrets.MUTATION_GIST_ID }}
+        run: |
+          python3 << 'PYEOF'
+          import glob, json, os, urllib.request
+
+          scores = {}
+          for path in glob.glob("scores/score-*.txt"):
+              name = os.path.basename(path).removeprefix("score-").removesuffix(".txt")
+              try:
+                  scores[name] = int(open(path).read().strip())
+              except (ValueError, OSError):
+                  pass
+
+          if not scores:
+              print("No score artifacts found — all mutation jobs may have failed.")
+              raise SystemExit(1)
+
+          avg = round(sum(scores.values()) / len(scores))
+          count = len(scores)
+          print(f"\nPer-module kill rates:")
+          for name, score in sorted(scores.items()):
+              bar = "█" * (score // 5) + "░" * (20 - score // 5)
+              print(f"  {name:<20} {bar} {score}%")
+          print(f"\nAggregate: {avg}% across {count} modules\n")
+
+          token = os.environ.get("GIST_TOKEN", "")
+          gist_id = os.environ.get("MUTATION_GIST_ID", "")
+          if not token or not gist_id:
+              print("GIST_TOKEN or MUTATION_GIST_ID not configured — badge update skipped.")
+              print("See docs/contributing/BADGES.md for setup instructions.")
+              raise SystemExit(0)
+
+          color = "brightgreen" if avg >= 80 else "yellow" if avg >= 60 else "red"
+          badge = {
+              "schemaVersion": 1,
+              "label": "mutation score",
+              "message": f"{avg}% ({count} modules)",
+              "color": color,
+          }
+          payload = json.dumps({
+              "files": {"mutation-score.json": {"content": json.dumps(badge, indent=2)}}
+          }).encode()
+          req = urllib.request.Request(
+              f"https://api.github.com/gists/{gist_id}",
+              data=payload, method="PATCH",
+              headers={"Authorization": f"token {token}", "Content-Type": "application/json"},
+          )
+          with urllib.request.urlopen(req) as r:
+              print(f"Gist badge updated: {avg}% across {count} modules ({color})")
+          PYEOF

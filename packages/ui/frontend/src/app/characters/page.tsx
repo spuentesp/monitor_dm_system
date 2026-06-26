@@ -165,16 +165,26 @@ function RosterCard({
         </div>
       </div>
       <div className="mt-3 flex items-center justify-between">
-        <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[10px] font-medium",
-            character.entity_id
-              ? "bg-emerald-500/10 text-emerald-300"
-              : "bg-bg-hover text-fg-dim",
-          )}
-        >
-          {character.entity_id ? "MONITOR" : "Light card"}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 text-[10px] font-medium",
+              character.entity_id
+                ? "bg-emerald-500/10 text-emerald-300"
+                : "bg-bg-hover text-fg-dim",
+            )}
+          >
+            {character.entity_id ? "MONITOR" : "Light card"}
+          </span>
+          {character.versions && character.versions.length > 1 ? (
+            <span
+              className="rounded-full bg-bg-hover px-2 py-0.5 text-[10px] font-medium text-fg-muted"
+              title={`${character.versions.length} incarnations across universes`}
+            >
+              {character.versions.length}×
+            </span>
+          ) : null}
+        </div>
         <button
           className="btn-ghost gap-1 px-2 py-1 text-xs opacity-0 transition-opacity group-hover:opacity-100"
           onClick={(e) => {
@@ -230,6 +240,35 @@ function CharacterDetail({
       notify("success", "Expanded into a MONITOR profile");
     },
     onError: (e: any) => notify("error", `Expansion failed: ${e.message ?? e}`),
+  });
+
+  // ── Character Versions (per-universe incarnations) ──
+  const [newIncUniverse, setNewIncUniverse] = useState("");
+  const versionsQ = useQuery({
+    queryKey: ["character-versions", character.id],
+    queryFn: () => entitiesApi.listCharacterVersions(character.id),
+    enabled: !!character.entity_id,
+  });
+  const addVersion = useMutation({
+    mutationFn: (universeId: string) =>
+      entitiesApi.createCharacterVersion(character.id, { universe_id: universeId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["character-versions", character.id] });
+      qc.invalidateQueries({ queryKey: ENTITY_KEYS.standaloneCharacters() });
+      setNewIncUniverse("");
+      notify("success", "Incarnation created in that universe");
+    },
+    onError: (e: any) => notify("error", `Add incarnation failed: ${e.message ?? e}`),
+  });
+  const delVersion = useMutation({
+    mutationFn: (universeId: string) =>
+      entitiesApi.deleteCharacterVersion(character.id, universeId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["character-versions", character.id] });
+      qc.invalidateQueries({ queryKey: ENTITY_KEYS.standaloneCharacters() });
+      notify("success", "Incarnation deleted");
+    },
+    onError: (e: any) => notify("error", `Delete failed: ${e.message ?? e}`),
   });
 
   const del = useMutation({
@@ -298,6 +337,80 @@ function CharacterDetail({
             Expand to MONITOR profile
           </button>
         )}
+
+        {character.entity_id ? (
+          <div className="mt-4 rounded-lg border border-border bg-bg-card/50 p-3">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-xs font-semibold text-fg-secondary">
+                Incarnations
+              </span>
+              <span className="text-[10px] text-fg-dim">
+                {versionsQ.data?.length ?? 0}
+              </span>
+            </div>
+            <ul className="space-y-1 text-xs">
+              {versionsQ.data?.map((v) => (
+                <li
+                  key={v.version_id}
+                  className="flex items-center gap-2 rounded bg-bg-hover px-2 py-1"
+                  title={`entity ${v.entity_id.slice(0, 8)}…`}
+                >
+                  <span className="font-mono text-fg-muted">
+                    uni:{v.universe_id.slice(0, 8)}…
+                  </span>
+                  <span className="text-fg-dim">
+                    ent:{v.entity_id.slice(0, 8)}…
+                  </span>
+                  <button
+                    className="btn-ghost ml-auto h-6 px-2 text-[10px] text-red-300 hover:bg-red-500/10"
+                    disabled={delVersion.isPending}
+                    onClick={() => {
+                      if (
+                        confirm(
+                          `Delete incarnation in universe ${v.universe_id.slice(0, 8)}…? ` +
+                            "This removes the entity + NPCProfile.",
+                        )
+                      ) {
+                        delVersion.mutate(v.universe_id);
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </li>
+              ))}
+              {versionsQ.isLoading ? (
+                <li className="flex items-center gap-2 text-fg-muted">
+                  <Loader2 className="h-3 w-3 animate-spin" /> loading…
+                </li>
+              ) : null}
+            </ul>
+            <div className="mt-2 flex gap-1">
+              <input
+                value={newIncUniverse}
+                onChange={(e) => setNewIncUniverse(e.target.value)}
+                placeholder="Universe UUID (paste or pick)"
+                className="input-cyber flex-1 px-2 py-1 text-xs"
+              />
+              <button
+                className="btn-cyber px-2 py-1 text-xs"
+                disabled={!newIncUniverse.trim() || addVersion.isPending}
+                onClick={() => addVersion.mutate(newIncUniverse.trim())}
+              >
+                {addVersion.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Plus className="h-3 w-3" />
+                )}
+                Add
+              </button>
+            </div>
+            <p className="mt-1 text-[10px] text-fg-dim">
+              Each incarnation gets its own entity, NPCProfile, memory set,
+              and relationship deltas. Two universes never share state.
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-2 border-t border-border p-3">
