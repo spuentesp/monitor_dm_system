@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { lorebookApi } from "@/lib/api";
 import type { LorebookEntry, LorebookEntryCreate, LorebookIngestRequest } from "@/lib/types";
+import { chunkLorebookEntries, lorebookChunksForText } from "./lorebookChunking";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -207,6 +208,7 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
 
   // Ingest state (M3-G.2)
   const [isIngesting, setIsIngesting] = useState(false);
+  const [ingestProgress, setIngestProgress] = useState({ done: 0, total: 0 });
   const [ingestSource, setIngestSource] = useState("");
   const [ingestContent, setIngestContent] = useState("");
   const [ingestChunkSize, setIngestChunkSize] = useState(1000);
@@ -258,34 +260,44 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
   });
 
   // M3-G.2: Ingest document mutation
+  //
+  // Chunks the document locally and posts in BATCHES of ~20 chunks so a
+  // large document (e.g. a 50-page book at chunk_size=200 → ~300 chunks)
+  // doesn't blow the backend's default 30s request timeout on a single
+  // bulkCreate POST. Batches are sequential so failures are localized —
+  // a 500 on batch 7 still saves batches 1-6.
+  const LOREBOOK_INGEST_BATCH = 20;
   const ingestMutation = useMutation({
-    mutationFn: (data: LorebookIngestRequest) => {
-      // No dedicated ingest endpoint — chunk client-side and bulk-create.
-      const size = Math.max(200, data.chunk_size ?? 1000);
-      const text = data.content ?? "";
-      const chunks: string[] = [];
-      for (let i = 0; i < text.length; i += size) {
-        chunks.push(text.slice(i, i + size).trim());
+    mutationFn: async (data: LorebookIngestRequest) => {
+      // Chunk the text into sized pieces (chunking module also clamps
+      // the size to a safe minimum).
+      const chunks = lorebookChunksForText(data.content ?? "", data.chunk_size ?? 1000);
+      const entries = chunks.map((chunk, idx) => ({
+        keywords: data.auto_keywords
+          ? Array.from(
+              new Set(
+                chunk
+                  .split(/\W+/)
+                  .filter((w) => w.length > 4)
+                  .slice(0, 5)
+                  .map((w) => w.toLowerCase()),
+              ),
+            )
+          : [],
+        content: chunk,
+        priority: data.priority_hint ?? 50,
+        tags: [...(data.tags ?? []), data.source ? `src:${data.source}` : `chunk:${idx + 1}`],
+      }));
+      setIngestProgress({ done: 0, total: entries.length });
+      // Batch POSTs so a 300-chunk document doesn't blow the backend's
+      // 30s request timeout on a single bulkCreate call.
+      const created: unknown[] = [];
+      for (const batch of chunkLorebookEntries(entries, LOREBOOK_INGEST_BATCH)) {
+        const result = await lorebookApi.bulkCreate(characterId, batch);
+        created.push(...result);
+        setIngestProgress({ done: Math.min(entries.length, created.length), total: entries.length });
       }
-      const entries = chunks
-        .filter(Boolean)
-        .map((chunk, idx) => ({
-          keywords: data.auto_keywords
-            ? Array.from(
-                new Set(
-                  chunk
-                    .split(/\W+/)
-                    .filter((w) => w.length > 4)
-                    .slice(0, 5)
-                    .map((w) => w.toLowerCase()),
-                ),
-              )
-            : [],
-          content: chunk,
-          priority: data.priority_hint ?? 50,
-          tags: [...(data.tags ?? []), data.source ? `src:${data.source}` : `chunk:${idx + 1}`],
-        }));
-      return lorebookApi.bulkCreate(characterId, entries);
+      return created;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["lorebook", characterId] });
@@ -294,6 +306,7 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
       setIngestSource("");
       setIngestContent("");
       setIngestChunkSize(1000);
+      setIngestProgress({ done: 0, total: 0 });
       setIngestAutoKeywords(true);
       setIngestPriority(50);
       setIngestTags("");
