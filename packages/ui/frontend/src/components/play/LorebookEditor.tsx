@@ -211,9 +211,12 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
   const [ingestProgress, setIngestProgress] = useState({ done: 0, total: 0 });
   const [ingestSource, setIngestSource] = useState("");
   const [ingestContent, setIngestContent] = useState("");
-  const [ingestChunkSize, setIngestChunkSize] = useState(1000);
+  // Stored as strings so an empty input shows an empty field instead of
+  // silently snapping back to the default. Parsed on submit, with safe
+  // fallback if the user submits with an empty / invalid value.
+  const [ingestChunkSize, setIngestChunkSize] = useState("1000");
   const [ingestAutoKeywords, setIngestAutoKeywords] = useState(true);
-  const [ingestPriority, setIngestPriority] = useState(50);
+  const [ingestPriority, setIngestPriority] = useState("50");
   const [ingestTags, setIngestTags] = useState("");
 
   // Fetch lorebook entries
@@ -305,10 +308,10 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
       setIsIngesting(false);
       setIngestSource("");
       setIngestContent("");
-      setIngestChunkSize(1000);
+      setIngestChunkSize("1000");
       setIngestProgress({ done: 0, total: 0 });
       setIngestAutoKeywords(true);
-      setIngestPriority(50);
+      setIngestPriority("50");
       setIngestTags("");
     },
   });
@@ -566,7 +569,7 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
                     min={200}
                     max={5000}
                     value={ingestChunkSize}
-                    onChange={(e) => setIngestChunkSize(parseInt(e.target.value) || 1000)}
+                    onChange={(e) => setIngestChunkSize(e.target.value)}
                     className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:border-purple-500 focus:outline-none"
                   />
                 </div>
@@ -577,7 +580,7 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
                     min={0}
                     max={100}
                     value={ingestPriority}
-                    onChange={(e) => setIngestPriority(parseInt(e.target.value) || 50)}
+                    onChange={(e) => setIngestPriority(e.target.value)}
                     className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:border-purple-500 focus:outline-none"
                   />
                 </div>
@@ -612,9 +615,9 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
                   ingestMutation.mutate({
                     source: ingestSource.trim(),
                     content: ingestContent.trim(),
-                    chunk_size: ingestChunkSize,
+                    chunk_size: parseInt(ingestChunkSize, 10) || 1000,
                     auto_keywords: ingestAutoKeywords,
-                    priority_hint: ingestPriority,
+                    priority_hint: parseInt(ingestPriority, 10) || 50,
                     tags: ingestTags.split(",").map((t) => t.trim()).filter(Boolean),
                     character_id: characterId,
                   });
