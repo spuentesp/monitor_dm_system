@@ -4,3 +4,16 @@ python-version = ""
 timeout = 15
 excluded-modules = []
 test-command = "uv run pytest packages/data-layer/tests/test_tools/test_contradiction_detection.py -q"
+
+[cosmic-ray.distributor]
+name = "local"
+
+[cosmic-ray.operators]
+# Contradiction detection compares strings and numeric confidence values.
+enabled = [
+    "core/Boolean",
+    "core/Deletion",
+    "core/Number",
+    "core/String",
+    "core/Variable",
+]

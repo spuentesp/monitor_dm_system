@@ -4,3 +4,16 @@ python-version = ""
 timeout = 20
 excluded-modules = []
 test-command = "uv run pytest packages/data-layer/tests/test_db/test_ingest_tools.py packages/data-layer/tests/test_db/test_ingest_tools_coverage.py -q"
+
+[cosmic-ray.distributor]
+name = "local"
+
+[cosmic-ray.operators]
+# Delta detection parses strings and compares numeric values.
+enabled = [
+    "core/Boolean",
+    "core/Deletion",
+    "core/Number",
+    "core/String",
+    "core/Variable",
+]

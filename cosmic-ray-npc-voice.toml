@@ -5,3 +5,18 @@ timeout = 20
 excluded-modules = []
 # Mutation-focused test file first — kills branch-level mutations the happy-path misses
 test-command = "uv run pytest packages/agents/tests/test_npc_voice_universe_scoping_mutations.py packages/agents/tests/test_npc_voice.py packages/agents/tests/test_npc_voice_universe_scoping.py -q"
+
+[cosmic-ray.distributor]
+name = "local"
+
+[cosmic-ray.operators]
+# NPC voice has string-matching logic for universe scoping.
+enabled = [
+    "core/Boolean",
+    "core/Break",
+    "core/Continue",
+    "core/Deletion",
+    "core/Number",
+    "core/String",
+    "core/Variable",
+]

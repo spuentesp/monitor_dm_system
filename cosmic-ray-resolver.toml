@@ -4,3 +4,17 @@ python-version = ""
 timeout = 20
 excluded-modules = []
 test-command = "uv run pytest packages/agents/tests/test_resolver.py packages/agents/tests/test_resolver_oracle.py packages/agents/tests/test_resolver_pushback.py -q"
+
+[cosmic-ray.distributor]
+name = "local"
+
+[cosmic-ray.operators]
+# Resolver has numeric logic (dice, modifiers) and branching.
+enabled = [
+    "core/Boolean",
+    "core/Break",
+    "core/Continue",
+    "core/Deletion",
+    "core/Number",
+    "core/Variable",
+]
