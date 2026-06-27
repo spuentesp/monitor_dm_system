@@ -158,7 +158,12 @@ export function Sidebar() {
               const active = pathname.startsWith(href);
               const ac = ACCENT_CLASSES[accent as Accent];
               return (
-                <Link key={href} href={href} className="block">
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  className="block"
+                >
                   <motion.div
                     whileHover={{ x: collapsed ? 0 : 2 }}
                     className={cn(

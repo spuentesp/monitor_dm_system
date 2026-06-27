@@ -17,6 +17,12 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <body className="h-full flex overflow-hidden dot-grid">
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:rounded focus:bg-cyan-500 focus:text-slate-950 focus:text-sm focus:font-semibold"
+        >
+          Skip to main content
+        </a>
         <Providers>
           {/* Fixed sidebar. Wrapped in Suspense because Sidebar (via
               WorldPicker) calls useSearchParams() — without Suspense,
@@ -27,7 +33,7 @@ export default function RootLayout({
             <Sidebar />
           </Suspense>
           {/* Main content */}
-          <main className="flex-1 flex flex-col overflow-hidden relative">
+          <main id="main-content" tabIndex={-1} className="flex-1 flex flex-col overflow-hidden relative">
             {/* Scan line decoration */}
             <div className="scan-line" />
             {children}
