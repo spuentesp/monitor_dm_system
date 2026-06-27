@@ -119,6 +119,14 @@ class ModelParams(BaseModel):
     top_p: Optional[float] = None
     frequency_penalty: Optional[float] = None
     presence_penalty: Optional[float] = None
+    # Stop sequences — the LLM stops generating when it encounters any of these.
+    stop: Optional[list[str]] = None
+    # Seed for reproducibility (supported by OpenAI, Anthropic, and others).
+    seed: Optional[int] = None
+    # Top-k sampling (Anthropic and some other providers support this).
+    top_k: Optional[int] = None
+    # Response format enforcement (e.g. {"type": "json_object"} for OpenAI JSON mode).
+    response_format: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return only the fields that have been explicitly set."""
@@ -169,6 +177,13 @@ class LLMNodeAssignment(BaseModel):
     provider_id: str
     param_overrides: dict[str, Any] = Field(default_factory=dict)
     notes: Optional[str] = None
+    # Prompt version tag — allows A/B testing prompt variants. When set,
+    # the agent should log this version alongside LLM call metadata so
+    # output quality can be correlated with prompt versions over time.
+    prompt_version: Optional[str] = Field(
+        default=None,
+        description="Prompt version tag for A/B testing (e.g. 'narrator-v2', 'canonkeeper-experimental')",
+    )
 
     # Populated when fetched with a JOIN on llm_providers:
     provider_name: Optional[str] = None
@@ -200,6 +215,10 @@ class EffectiveLLMConfig(BaseModel):
     node_name: Optional[str] = Field(
         default=None,
         description="None when resolved via role fallback rather than explicit assignment",
+    )
+    prompt_version: Optional[str] = Field(
+        default=None,
+        description="Prompt version tag from the node assignment (for A/B testing correlation)",
     )
 
 

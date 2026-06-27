@@ -632,7 +632,8 @@ class PostgresClient:
                 """
                 SELECT p.id, p.name, p.provider, p.model, p.api_key, p.base_url,
                        p.model_params, p.role,
-                       COALESCE(a.param_overrides, '{}')::jsonb AS param_overrides
+                       COALESCE(a.param_overrides, '{}')::jsonb AS param_overrides,
+                       a.prompt_version
                 FROM   llm_providers p
                 LEFT JOIN llm_node_assignments a
                        ON a.provider_id = p.id AND a.node_name = $1

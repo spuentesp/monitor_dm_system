@@ -162,6 +162,7 @@ def normalize_node_name(node_name: str) -> str:
 
 # Canonical role assignments per agent node.  Add entries here when a new agent
 # is introduced; do not scatter ModelRole literals across callers.
+# Can be overridden at runtime via the MONITOR_NODE_ROLES env var (JSON dict).
 _NODE_DEFAULT_ROLES: dict[str, ModelRole] = {
     "narrator": ModelRole.HEAVY,
     "canon_keeper": ModelRole.HEAVY,
@@ -174,9 +175,36 @@ _NODE_DEFAULT_ROLES: dict[str, ModelRole] = {
 }
 
 
+def _load_node_roles_from_env() -> dict[str, ModelRole]:
+    """Load role overrides from MONITOR_NODE_ROLES env var (JSON dict).
+
+    Example: MONITOR_NODE_ROLES='{"narrator":"heavy","resolver":"standard"}'
+    """
+    import json
+
+    raw = os.environ.get("MONITOR_NODE_ROLES", "").strip()
+    if not raw:
+        return _NODE_DEFAULT_ROLES
+    try:
+        overrides = json.loads(raw)
+        merged = dict(_NODE_DEFAULT_ROLES)
+        for node, role_str in overrides.items():
+            try:
+                merged[node] = ModelRole(role_str.lower())
+            except ValueError:
+                logging.getLogger(__name__).warning(
+                    "MONITOR_NODE_ROLES: invalid role %r for node %r", role_str, node
+                )
+        return merged
+    except (json.JSONDecodeError, TypeError):
+        logging.getLogger(__name__).warning("MONITOR_NODE_ROLES: invalid JSON, using defaults")
+        return _NODE_DEFAULT_ROLES
+
+
 def default_role_for_node(node_name: str) -> ModelRole:
     normalized = normalize_node_name(node_name)
-    return _NODE_DEFAULT_ROLES.get(normalized, ModelRole.STANDARD)
+    roles = _load_node_roles_from_env()
+    return roles.get(normalized, ModelRole.STANDARD)
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +216,10 @@ def default_role_for_node(node_name: str) -> ModelRole:
 # ---------------------------------------------------------------------------
 
 # Keywords that signal dramatic intensity in player actions or resolution.
-_HIGH_INTENSITY_KEYWORDS: set[str] = {
+# Can be overridden at runtime via env vars (comma-separated lists):
+#   MONITOR_HIGH_INTENSITY_KEYWORDS="attack,kill,death,..."
+#   MONITOR_MODERATE_INTENSITY_KEYWORDS="ask,question,investigate,..."
+_DEFAULT_HIGH_INTENSITY_KEYWORDS: set[str] = {
     "attack",
     "kill",
     "death",
@@ -223,7 +254,7 @@ _HIGH_INTENSITY_KEYWORDS: set[str] = {
     "resurrect",
 }
 
-_MODERATE_INTENSITY_KEYWORDS: set[str] = {
+_DEFAULT_MODERATE_INTENSITY_KEYWORDS: set[str] = {
     "ask",
     "question",
     "investigate",
@@ -250,6 +281,22 @@ _MODERATE_INTENSITY_KEYWORDS: set[str] = {
     "watch",
     "follow",
 }
+
+
+def _load_keywords(env_var: str, defaults: set[str]) -> set[str]:
+    """Load comma-separated keywords from an env var, falling back to defaults."""
+    raw = os.environ.get(env_var, "").strip()
+    if not raw:
+        return defaults
+    return {kw.strip().lower() for kw in raw.split(",") if kw.strip()}
+
+
+def _get_high_intensity_keywords() -> set[str]:
+    return _load_keywords("MONITOR_HIGH_INTENSITY_KEYWORDS", _DEFAULT_HIGH_INTENSITY_KEYWORDS)
+
+
+def _get_moderate_intensity_keywords() -> set[str]:
+    return _load_keywords("MONITOR_MODERATE_INTENSITY_KEYWORDS", _DEFAULT_MODERATE_INTENSITY_KEYWORDS)
 
 
 def resolve_dynamic_role(
@@ -303,7 +350,7 @@ def resolve_dynamic_role(
     combined_words = set(combined.split())
 
     # Check for high-intensity signals.
-    if combined_words & _HIGH_INTENSITY_KEYWORDS:
+    if combined_words & _get_high_intensity_keywords():
         return ModelRole.HEAVY
 
     # Check for dramatic resolution outcomes.
@@ -318,7 +365,7 @@ def resolve_dynamic_role(
                 return ModelRole.HEAVY
 
     # Moderate intensity → STANDARD for balanced cost/quality.
-    if combined_words & _MODERATE_INTENSITY_KEYWORDS:
+    if combined_words & _get_moderate_intensity_keywords():
         return ModelRole.STANDARD
 
     # No special signals → use default (usually HEAVY for narrator).
@@ -386,7 +433,11 @@ def describe_dspy_target(
     node_name: str,
     role: Optional[ModelRole] = None,
 ) -> dict[str, Optional[str]]:
-    """Return provider/model metadata for a node without duplicating registry logic."""
+    """Return provider/model metadata for a node without duplicating registry logic.
+
+    Includes ``prompt_version`` if the node assignment has one set, enabling
+    A/B testing correlation between prompt versions and output quality.
+    """
     normalized = normalize_node_name(node_name)
     resolved_role = role or default_role_for_node(normalized)
     try:
@@ -397,6 +448,7 @@ def describe_dspy_target(
             "provider": client.provider.value,
             "model": client.model,
             "base_url": client.base_url,
+            "prompt_version": getattr(client, "prompt_version", None),
         }
     except Exception as exc:  # noqa: BLE001
         logging.getLogger(__name__).debug(
@@ -431,6 +483,9 @@ def get_dspy_lm(
     role: Optional[ModelRole] = None,
     *,
     max_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    seed: Optional[int] = None,
     enable_cache: bool = True,
 ) -> dspy.LM:
     """Resolve the saved provider config for a DSPy module and build a runtime LM.
@@ -440,6 +495,12 @@ def get_dspy_lm(
             provider config.  Use this for extraction modules whose output
             regularly exceeds the provider default (e.g. character-sheet or
             NPC extraction producing thousands of pipe-delimited tokens).
+        temperature: Per-call temperature override.  Use lower values (0-0.3)
+            for classification/extraction tasks and higher values (0.7-1.0)
+            for creative generation.  Overrides the provider's configured
+            temperature without requiring a separate provider config row.
+        top_p: Per-call top_p override for nucleus sampling.
+        seed: Per-call seed for reproducibility (supported by some providers).
         enable_cache: When True (default), enables prompt caching for providers
             that support it (Anthropic, OpenAI).  This allows the static prefix
             of multi-turn prompts to be cached, reducing cost and latency on
@@ -460,6 +521,13 @@ def get_dspy_lm(
     # Allow callers to raise the output-token cap for extraction-heavy modules.
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
+    # Per-call sampling parameter overrides.
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    if top_p is not None:
+        kwargs["top_p"] = top_p
+    if seed is not None:
+        kwargs["seed"] = seed
     # Prompt caching: pass cache_control headers for supported providers.
     # For Anthropic, litellm supports cache_control via the messages API.
     # For OpenAI, automatic prompt caching is enabled by default on gpt-4o+.
@@ -485,7 +553,14 @@ def get_dspy_lm(
                         break
             
             cb = stream_callback_var.get()
-            if cb and messages and self.node_name == "narrator":
+            # Streaming is configurable via MONITOR_LLM_STREAMABLE_NODES env var
+            # (comma-separated node names). Defaults to "narrator" for backward compat.
+            _streamable_nodes = set(
+                n.strip()
+                for n in os.environ.get("MONITOR_LLM_STREAMABLE_NODES", "narrator").split(",")
+                if n.strip()
+            )
+            if cb and messages and self.node_name in _streamable_nodes:
                 # Bypass DSPy's litellm wrapper to stream directly
                 import litellm
                 import asyncio
@@ -571,6 +646,25 @@ def dspy_context_for(
     role: Optional[ModelRole] = None,
     *,
     max_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    seed: Optional[int] = None,
 ):
-    """Return a DSPy context manager bound to the configured provider for a node."""
-    return dspy.context(lm=get_dspy_lm(node_name, role, max_tokens=max_tokens))
+    """Return a DSPy context manager bound to the configured provider for a node.
+
+    Args:
+        temperature: Per-call temperature override.  Use 0-0.3 for
+            classification/extraction, 0.7-1.0 for creative generation.
+        top_p: Per-call top_p override for nucleus sampling.
+        seed: Per-call seed for reproducibility.
+    """
+    return dspy.context(
+        lm=get_dspy_lm(
+            node_name,
+            role,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            seed=seed,
+        )
+    )

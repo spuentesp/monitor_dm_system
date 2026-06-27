@@ -20,6 +20,7 @@ async def test_call_llm_structured_uses_configured_node_and_role(monkeypatch):
 
     class FakeClient:
         model = "openai/gpt-4.1-mini"
+        params = {}
 
         async def create(self, response_model, messages, **kwargs):
             calls.append(("create", messages, kwargs))
@@ -48,6 +49,7 @@ async def test_call_llm_structured_uses_standard_role_for_analyzer(monkeypatch):
 
     class FakeClient:
         model = "openai/gpt-4.1-mini"
+        params = {}
 
         async def create(self, response_model, messages, **kwargs):
             calls.append(("create", messages, kwargs))
@@ -95,6 +97,7 @@ async def test_call_llm_structured_returns_model_instance(monkeypatch):
 
     class FakeClient:
         model = "openai/gpt-4.1-mini"
+        params = {}
 
         async def create(self, response_model, messages, **kwargs):
             return response_model(ok=True)
@@ -122,6 +125,7 @@ async def test_call_llm_structured_with_system_message(monkeypatch):
 
     class FakeClient:
         model = "openai/gpt-4.1-mini"
+        params = {}
 
         async def create(self, response_model, messages, **kwargs):
             calls.append(messages)
@@ -155,6 +159,7 @@ async def test_call_llm_structured_uses_light_role_for_query(monkeypatch):
 
     class FakeClient:
         model = "openai/gpt-4.1-mini"
+        params = {}
 
         async def create(self, response_model, messages, **kwargs):
             return response_model(ok=True)
