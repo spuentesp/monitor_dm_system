@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, Filter, Globe2, Layers, Link2, Loader2, MapP
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { entitiesApi, graphApi, universesApi } from "@/lib/api";
+import { UNIVERSE_KEYS, WORLDS_KEYS } from "@/lib/query-keys";
 import { InspectorPanel } from "./InspectorPanel";
 import { GraphLegend } from "./GraphLegend";
 import { GraphCanvas } from "./GraphCanvas";
@@ -29,7 +30,7 @@ export function GraphTab() {
 
   // ── Load multiverses / universes for dropdowns ────────────
   const { data: multiverses = [] } = useQuery({
-    queryKey: ["multiverses"],
+    queryKey: UNIVERSE_KEYS.multiverses,
     queryFn: universesApi.listMultiverses,
   });
 
@@ -41,7 +42,7 @@ export function GraphTab() {
   }, [multiverses, filterMvId]);
 
   const { data: allUniverses = [] } = useQuery({
-    queryKey: ["universes", filterMvId],
+    queryKey: UNIVERSE_KEYS.universes(filterMvId ?? undefined),
     queryFn: () => universesApi.listUniverses(filterMvId ?? undefined),
   });
 
@@ -58,7 +59,7 @@ export function GraphTab() {
 
   // ── Entity search for "related to" ────────────────────────
   const { data: entitySearchResults = [] } = useQuery({
-    queryKey: ["entitySearch", entitySearch],
+    queryKey: WORLDS_KEYS.entitySearch(entitySearch),
     queryFn: () => entitiesApi.search(entitySearch, 10),
     enabled: entitySearch.length >= 2,
     staleTime: 10_000,
@@ -66,7 +67,7 @@ export function GraphTab() {
 
   // ── Graph query ───────────────────────────────────────────
   const { data, isLoading, error } = useQuery({
-    queryKey: ["worldGraph", graphFilter],
+    queryKey: WORLDS_KEYS.graph(graphFilter),
     queryFn: () => graphApi.getWorldGraph(graphFilter),
     staleTime: 30_000,
     retry: 1,
@@ -156,7 +157,7 @@ export function GraphTab() {
         )}
 
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["worldGraph"] })}
+          onClick={() => qc.invalidateQueries({ queryKey: WORLDS_KEYS.graphBase })}
           className="btn-ghost py-1.5 px-2"
           title="Refresh"
         >

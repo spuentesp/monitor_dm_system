@@ -615,19 +615,12 @@ function LLMTab() {
   const [modelErrors, setModelErrors] = useState<Record<string, string>>({});
   const [loadingProviders, setLoadingProviders] = useState<Record<string, boolean>>({});
 
-  // "Test all" — sequentially probe every configured provider.
   const [testingAll, setTestingAll] = useState(false);
   const testAll = async () => {
     if (testingAll || providers.length === 0) return;
     setTestingAll(true);
     try {
-      for (const p of providers) {
-        try {
-          await llmApi.testProvider(p.id);
-        } catch (error) {
-          console.error(`Test failed for provider ${p.id}:`, error);
-        }
-      }
+      await Promise.allSettled(providers.map((p) => llmApi.testProvider(p.id)));
     } finally {
       setTestingAll(false);
       qc.invalidateQueries({ queryKey: SETTINGS_KEYS.providers });

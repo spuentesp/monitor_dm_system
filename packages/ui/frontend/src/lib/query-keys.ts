@@ -35,12 +35,17 @@ export const ENTITY_KEYS = {
   system: (id: string) => ["system", id] as const,
   npcs: (params?: any) => ["npcs", params] as const,
   npc: (id: string) => ["npc", id] as const,
-  graph: (filter?: any) => ["world-graph", filter] as const,
   characters: (systemId?: string) => ["play-characters", systemId] as const,
   standaloneCharacters: (params?: any) => ["standalone-characters", params] as const,
   standaloneCharacter: (id: string) => ["standalone-character", id] as const,
   characterMemories: (id: string) => ["character-memories", id] as const,
   characterConversations: (id: string) => ["character-conversations", id] as const,
+};
+
+export const WORLDS_KEYS = {
+  graph: (filter?: unknown) => ["worldGraph", filter] as const,
+  graphBase: ["worldGraph"] as const,
+  entitySearch: (q: string) => ["entitySearch", q] as const,
 };
 
 export const UNIVERSE_KEYS = {

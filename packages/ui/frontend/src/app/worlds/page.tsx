@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { entitiesApi, universesApi } from "@/lib/api";
+import { UNIVERSE_KEYS } from "@/lib/query-keys";
 import type {
   Multiverse,
   NPC,
@@ -27,6 +28,7 @@ import type {
   Universe,
 } from "@/lib/types";
 import { cn, formatRelativeTime, truncate } from "@/lib/utils";
+import { errorMessage } from "@/lib/errors";
 import { UniverseTree } from "@/components/worlds/UniverseTree";
 import { useWorldContext } from "@/lib/world-context";
 import { NPCCard } from "./NPCCard";
@@ -57,7 +59,7 @@ function CreateMultiverseForm({
   const mut = useMutation({
     mutationFn: () => universesApi.createMultiverse({ name, description: desc || undefined }),
     onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: ["multiverses"] });
+      qc.invalidateQueries({ queryKey: UNIVERSE_KEYS.multiverses });
       onCreated?.(created);
       onClose();
     },
@@ -89,6 +91,9 @@ function CreateMultiverseForm({
         value={desc}
         onChange={(e) => setDesc(e.target.value)}
       />
+      {mut.isError && (
+        <p className="text-xs text-red-400">{errorMessage(mut.error)}</p>
+      )}
       <button
         onClick={() => mut.mutate()}
         disabled={!name.trim() || mut.isPending}
@@ -124,8 +129,8 @@ function CreateUniverseForm({
         description: desc || undefined,
       }),
     onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: ["universes"] });
-      qc.invalidateQueries({ queryKey: ["multiverses"] });
+      qc.invalidateQueries({ queryKey: UNIVERSE_KEYS.universes() });
+      qc.invalidateQueries({ queryKey: UNIVERSE_KEYS.multiverses });
       onCreated?.(created);
       onClose();
     },
@@ -142,7 +147,7 @@ function CreateUniverseForm({
     >
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-slate-200">New Universe</p>
-        <button onClick={onClose} className="text-slate-600 hover:text-slate-300">
+        <button onClick={onClose} aria-label="Close" className="text-slate-600 hover:text-slate-300">
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -183,6 +188,9 @@ function CreateUniverseForm({
         onChange={(e) => setDesc(e.target.value)}
       />
 
+      {mut.isError && (
+        <p className="text-xs text-red-400">{errorMessage(mut.error)}</p>
+      )}
       <button
         onClick={() => mut.mutate()}
         disabled={!name.trim() || mut.isPending}

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { entitiesApi } from "@/lib/api";
+import { WORLDS_KEYS } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 import type { GraphNodeData, GraphNodeKind } from "@/lib/types";
 import type { Node } from "@xyflow/react";
@@ -61,7 +62,7 @@ export function InspectorPanel({ node, onFocusEntity }: { node: Node<GraphNodeDa
         tags,
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["worldGraph"] });
+      qc.invalidateQueries({ queryKey: WORLDS_KEYS.graphBase });
       setEditing(false);
     },
   });
@@ -152,6 +153,7 @@ export function InspectorPanel({ node, onFocusEntity }: { node: Node<GraphNodeDa
               {editing && (
                 <button
                   onClick={() => setTags(tags.filter((x) => x !== t))}
+                  aria-label={`Remove tag ${t}`}
                   className="text-slate-500 hover:text-red-300"
                 >
                   <X className="w-2.5 h-2.5" />

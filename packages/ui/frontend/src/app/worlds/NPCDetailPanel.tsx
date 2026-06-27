@@ -124,7 +124,7 @@ export function NPCDetailPanel({ npcId, onClose }: { npcId: string; onClose: () 
             <div className="space-y-2">
               <p className="section-label">Relationships</p>
               {npc.relationships.slice(0, 6).map((r, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs text-slate-400">
+                <div key={`${String(r.target ?? r.target_name ?? i)}-${String(r.relation_type ?? r.type ?? i)}`} className="flex items-center gap-2 text-xs text-slate-400">
                   <div className="w-1.5 h-1.5 rounded-full bg-purple-500 flex-shrink-0" />
                   <span>{String(r.target_name ?? r.target ?? "Unknown")}</span>
                   <span className="text-slate-600 ml-auto">{String(r.relation_type ?? r.type ?? "")}</span>
