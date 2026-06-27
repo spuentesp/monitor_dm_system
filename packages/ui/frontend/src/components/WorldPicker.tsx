@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Globe2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { universesApi } from "@/lib/api";
 import { useWorldContext } from "@/lib/world-context";
 
@@ -12,6 +13,12 @@ import { useWorldContext } from "@/lib/world-context";
  */
 export function WorldPicker({ collapsed }: { collapsed: boolean }) {
   const { universeId, setWorld, clearWorld } = useWorldContext();
+  // On session routes (?universe=…) the sidebar can show the session's
+  // universe even if the persisted preference differs, so the player
+  // doesn't see "stale" world info while playing. The picker still
+  // WRITES to the persisted preference when changed.
+  const searchParams = useSearchParams();
+  const sessionUniverseId = searchParams.get("universe");
 
   const { data: multiverses = [] } = useQuery({
     queryKey: ["multiverses"],
@@ -48,8 +55,18 @@ export function WorldPicker({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div className="px-1 pb-1">
-      <label className="flex items-center gap-1.5 px-1.5 pb-1 text-[9px] font-semibold tracking-[0.18em] uppercase text-slate-600">
-        <Globe2 className="w-3 h-3 text-cyan-500/70" /> Active world
+      <label className="flex items-center justify-between gap-1.5 px-1.5 pb-1 text-[9px] font-semibold tracking-[0.18em] uppercase text-slate-600">
+        <span className="flex items-center gap-1.5">
+          <Globe2 className="w-3 h-3 text-cyan-500/70" /> Active world
+        </span>
+        {sessionUniverseId && sessionUniverseId !== universeId && (
+          <span
+            className="normal-case tracking-normal text-[9px] text-amber-400 font-mono"
+            title="The current session uses a different world. The sidebar shows your saved preference."
+          >
+            session ≠
+          </span>
+        )}
       </label>
       <select
         value={universeId ?? ""}
