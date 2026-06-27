@@ -23,7 +23,7 @@ export default function RootLayout({
               Next 15 prerender bails on every page. The skeleton renders
               instantly; the live search-params content swaps in after
               hydration. */}
-          <Suspense fallback={<div className="w-60 shrink-0" aria-hidden="true" />}>
+          <Suspense fallback={<div className="w-[224px] shrink-0" aria-hidden="true" />}>
             <Sidebar />
           </Suspense>
           {/* Main content */}
