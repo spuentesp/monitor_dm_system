@@ -45,6 +45,8 @@ export function ThinkingBubble({ trace, defaultExpanded, className }: ThinkingBu
     >
       <button
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={effectiveExpanded}
+        aria-label={effectiveExpanded ? "Collapse reasoning" : "Expand reasoning"}
         className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-violet-500/5 transition-colors"
       >
         <Brain

@@ -320,14 +320,14 @@ function SessionNotebook({
   const STORAGE_KEY = `gm-notebook-${universeId ?? "default"}`;
 
   // Load from localStorage when universe changes
-  useState(() => {
+  useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) setNotes(saved);
     } catch {
       // ignore
     }
-  });
+  }, [STORAGE_KEY]);
 
   const saveNotes = () => {
     try {

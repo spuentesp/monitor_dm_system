@@ -26,7 +26,7 @@ export function NPCDetailPanel({ npcId, onClose }: { npcId: string; onClose: () 
         <span className="text-sm font-semibold text-slate-200">
           {isLoading ? "Loading…" : npc?.name ?? "NPC"}
         </span>
-        <button onClick={onClose} className="text-slate-600 hover:text-slate-200">
+        <button onClick={onClose} aria-label="Close" className="text-slate-600 hover:text-slate-200">
           <X className="w-4 h-4" />
         </button>
       </div>

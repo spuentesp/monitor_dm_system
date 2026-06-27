@@ -33,6 +33,8 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
     >
       <button
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-label={expanded ? `Collapse ${call.name}` : `Expand ${call.name}`}
         className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-white/[0.02] transition-colors"
       >
         <ChevronRight
