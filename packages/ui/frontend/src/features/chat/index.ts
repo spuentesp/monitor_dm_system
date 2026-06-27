@@ -29,6 +29,8 @@ export { DiceResultCard } from "./DiceResultCard";
 export { DiceRollPrompt } from "./DiceRollPrompt";
 export { ProseBubble } from "./ProseBubble";
 export { StatusPill } from "./StatusPill";
+export { ToolCallCard } from "./ToolCallCard";
+export type { ToolCallCardProps } from "./ToolCallCard";
 export { ThinkingBubble } from "./ThinkingBubble";
 export type { ThinkingBubbleProps } from "./ThinkingBubble";
 export { TypingIndicator } from "./TypingIndicator";

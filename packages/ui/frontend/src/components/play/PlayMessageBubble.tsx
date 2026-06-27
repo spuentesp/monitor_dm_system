@@ -8,6 +8,7 @@ import { CopyButton } from "@/features/chat/CopyButton";
 import { DiceResultCard } from "@/features/chat/DiceResultCard";
 import { ProseBubble } from "@/features/chat/ProseBubble";
 import { ThinkingBubble } from "@/features/chat/ThinkingBubble";
+import { ToolCallCard } from "@/features/chat/ToolCallCard";
 import type { ThinkingTrace } from "@/features/chat";
 
 interface BubbleMetadata {
@@ -47,7 +48,7 @@ interface BubbleMetadata {
 export function PlayMessageBubble({
   msg,
 }: {
-  msg: Message & { streaming?: string; thinking?: ThinkingTrace };
+  msg: Message & { streaming?: string; thinking?: ThinkingTrace; toolCalls?: Array<{ id: string; name: string; args: Record<string, unknown>; result_preview?: string; error?: string; pending: boolean }> };
 }) {
   const isGM = msg.role === "gm";
   const isSystem = msg.role === "system";
@@ -122,6 +123,17 @@ export function PlayMessageBubble({
         {/* Reasoning trace — visible while streaming, persisted + collapsible after. */}
         {isGM && thinkingTrace && (
           <ThinkingBubble trace={thinkingTrace} />
+        )}
+
+        {/* Phase 2B: MCP tool invocations surfaced by the agent. Rendered
+            below the prose bubble, one card per tool call. The same list
+            lives on metadata.tool_calls after the turn completes. */}
+        {isGM && msg.toolCalls && msg.toolCalls.length > 0 && (
+          <div className="space-y-1">
+            {msg.toolCalls.map((tc) => (
+              <ToolCallCard key={tc.id} call={tc} />
+            ))}
+          </div>
         )}
 
         {/* Inline dice result card (from agent resolution metadata) */}

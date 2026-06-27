@@ -1026,6 +1026,27 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                     payload = {"type": "thinking", "message_id": gm_id, "delta": data}
                 elif kind == "thinking_end":
                     payload = {"type": "thinking_end", "message_id": gm_id}
+                elif kind == "tool_call" and isinstance(data, dict):
+                    # Phase 2B: an MCP tool is being invoked. Forward to the
+                    # client so it can render an inline tool card while the
+                    # tool runs. The client correlates the matching
+                    # tool_result via the shared `id`.
+                    payload = {
+                        "type": "tool_call",
+                        "message_id": gm_id,
+                        "id": data.get("id"),
+                        "name": data.get("name"),
+                        "args": data.get("args") or {},
+                    }
+                elif kind == "tool_result" and isinstance(data, dict):
+                    payload = {
+                        "type": "tool_result",
+                        "message_id": gm_id,
+                        "tool_call_id": data.get("tool_call_id"),
+                        "name": data.get("name"),
+                        "result_preview": data.get("result_preview"),
+                        "error": data.get("error"),
+                    }
                 else:
                     # Unknown kind or legacy single-arg call: treat as narrative token.
                     if isinstance(data, str):

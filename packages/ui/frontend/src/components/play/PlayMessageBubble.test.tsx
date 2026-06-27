@@ -92,6 +92,24 @@ describe("PlayMessageBubble", () => {
     expect(screen.getByText("Session paused.")).toBeInTheDocument();
   });
 
+  it("renders ToolCallCard for each tool call when msg.toolCalls is set (Phase 2B)", () => {
+    render(
+      <PlayMessageBubble
+        msg={msg({
+          content: "The search revealed a single node.",
+          toolCalls: [
+            { id: "tc-1", name: "neo4j_search", args: { q: "Geralt" }, pending: false, result_preview: "[1 hit]" },
+            { id: "tc-2", name: "qdrant_search", args: { q: "Yennefer" }, pending: true },
+          ],
+        })}
+      />,
+    );
+    const cards = screen.getAllByTestId("tool-call-card");
+    expect(cards).toHaveLength(2);
+    expect(cards[0]).toHaveTextContent("neo4j_search");
+    expect(cards[1]).toHaveTextContent("qdrant_search");
+  });
+
   it("renders social_read chip when GM metadata has social continuity data", () => {
     render(
       <PlayMessageBubble

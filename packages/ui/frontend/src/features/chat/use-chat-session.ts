@@ -179,26 +179,94 @@ export function useChatSession({
         });
         setIsTyping(false);
       } else if (msg.type === "tool_call") {
-        // Reserved for Phase 2B (MCP tool-call surfacing). Currently the
-        // backend doesn't emit these, but the type is in place so the
-        // client is forward-compatible.
-        return;
+        // Phase 2B: append a new pending ToolCall entry. We correlate the
+        // matching tool_result by `id`. If the server emits tool_call
+        // without ever emitting tool_result, the entry stays pending and
+        // renders with a spinner until the turn ends.
+        const t = msg as {
+          type: "tool_call";
+          message_id?: string;
+          id?: string;
+          name?: string;
+          args?: Record<string, unknown>;
+        };
+        const id = t.id;
+        const name = t.name ?? "unknown";
+        if (!id) return;
+        setStreamingMsg((prev) => {
+          if (!prev || prev.id !== t.message_id) return prev;
+          const existing = prev.toolCalls ?? [];
+          // Dedupe — server may emit twice if WS reconnects mid-call.
+          if (existing.some((tc) => tc.id === id)) return prev;
+          return {
+            ...prev,
+            toolCalls: [...existing, { id, name, args: t.args ?? {}, pending: true }],
+          };
+        });
       } else if (msg.type === "tool_result") {
-        return;
+        // Phase 2B: resolve the matching ToolCall with its result or
+        // error. The bubble's ToolCallCard flips from pending to done.
+        const r = msg as {
+          type: "tool_result";
+          message_id?: string;
+          tool_call_id?: string;
+          name?: string;
+          result_preview?: string;
+          error?: string;
+        };
+        const toolCallId = r.tool_call_id;
+        if (!toolCallId) return;
+        setStreamingMsg((prev) => {
+          if (!prev || prev.id !== r.message_id) return prev;
+          const calls = prev.toolCalls ?? [];
+          return {
+            ...prev,
+            toolCalls: calls.map((tc) =>
+              tc.id === toolCallId
+                ? {
+                    ...tc,
+                    pending: false,
+                    result_preview: r.result_preview,
+                    error: r.error,
+                  }
+                : tc,
+            ),
+          };
+        });
       } else if (msg.type === "done" || msg.type === "end") {
         const d = msg as { type: string; message_id?: string; metadata?: Record<string, unknown> };
         const id = d.message_id;
         const meta = d.metadata ?? {};
         if (id) liveTurnIdsRef.current.delete(id);
         clearWatchdog();
-        setStreamingMsg(null);
+        // Phase 2B: capture the toolCalls list BEFORE nulling streamingMsg
+        // so we can persist it onto the cached message metadata. The setter
+        // callback runs synchronously, so capturedToolCalls is populated
+        // before the next line executes.
+        let capturedToolCalls: Array<{
+          id: string;
+          name: string;
+          args: Record<string, unknown>;
+          result_preview?: string;
+          error?: string;
+        }> = [];
+        setStreamingMsg((prev) => {
+          capturedToolCalls = prev?.toolCalls ?? [];
+          return null;
+        });
         const thinkingText = id ? (thinkingByMsgIdRef.current.get(id) ?? "") : "";
         if (id) thinkingByMsgIdRef.current.delete(id);
         setSendFailure(null);
-        // Mirror metadata + persisted thinking trace to local cache so the
-        // next refetch sees the dice_request / thinking / etc. without an
-        // extra round trip.
+        // Mirror metadata + persisted thinking trace + tool_calls to local
+        // cache so the next refetch sees them without an extra round trip.
         if (id && sessionId) {
+          const persistedToolCalls = capturedToolCalls.map((tc) => ({
+            id: tc.id,
+            name: tc.name,
+            args: tc.args,
+            result_preview: tc.result_preview,
+            error: tc.error,
+          }));
           qc.setQueryData<Message[]>(PLAY_KEYS.messages(sessionId), (prev) => {
             if (!prev) return prev;
             return prev.map((m) => {
@@ -207,8 +275,9 @@ export function useChatSession({
                 ...(m.metadata ?? {}),
                 ...meta,
                 ...(thinkingText ? { thinking: thinkingText } : {}),
+                ...(persistedToolCalls.length > 0 ? { tool_calls: persistedToolCalls } : {}),
               };
-              return Object.keys(meta).length > 0 || thinkingText
+              return Object.keys(meta).length > 0 || thinkingText || persistedToolCalls.length > 0
                 ? { ...m, metadata: nextMetadata }
                 : m;
             });

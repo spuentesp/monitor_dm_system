@@ -31,6 +31,24 @@ export interface ThinkingTrace {
   streaming: boolean;
 }
 
+/** A single MCP tool invocation surfaced to the client (Phase 2B). Each
+ *  tool_call frame starts an entry; the matching tool_result frame fills
+ *  in the result or error. The client correlates via `id`. */
+export interface ToolCall {
+  /** Server-issued correlation id (uuid). */
+  id: string;
+  /** MCP tool name (e.g. "neo4j_search", "mongo_query"). */
+  name: string;
+  /** Tool arguments. */
+  args: Record<string, unknown>;
+  /** Truncated result preview (server caps at 2000 chars). */
+  result_preview?: string;
+  /** Error string if the tool failed. */
+  error?: string;
+  /** True while waiting for the matching tool_result. */
+  pending: boolean;
+}
+
 /** WS frame types the client sends. */
 export type WsClientMsg =
   | { type: "message"; content: string; chat_mode?: "ic" | "ooc"; character_id?: string; is_ooc_persona?: boolean }
@@ -45,6 +63,9 @@ export interface StreamingMessage {
   text: string;
   /** Live thinking trace for this turn, if the server emits one. */
   thinking?: ThinkingTrace;
+  /** Live tool-call list for this turn, populated as the agent invokes
+   *  MCP tools. Persisted to metadata.tool_calls on `done`. */
+  toolCalls?: ToolCall[];
 }
 
 /** A dice-roll request surfaced to the player. */

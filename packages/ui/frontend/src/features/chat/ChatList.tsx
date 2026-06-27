@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import type { ThinkingTrace, ToolCall } from "./types";
 import { useRef } from "react";
 import { AlertCircle, ChevronDown, RotateCcw, X } from "lucide-react";
 import type { Message } from "@/lib/types";
@@ -63,8 +64,11 @@ export function ChatList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamingMsg?.id]);
 
-  const items: Array<Message & { streaming?: string; thinking?: typeof streamingMsg.thinking }> = [...messages];
+  const items: Array<Message & { streaming?: string; thinking?: ThinkingTrace; toolCalls?: ToolCall[] }> = [...messages];
   if (streamingMsg) {
+    // Local alias narrows the type for the spread below.
+    const liveThinking = streamingMsg.thinking;
+    const liveToolCalls = streamingMsg.toolCalls;
     items.push({
       id: streamingMsg.id,
       session_id: "",
@@ -73,7 +77,8 @@ export function ChatList({
       timestamp: new Date().toISOString(),
       metadata: {},
       streaming: streamingMsg.text,
-      thinking: streamingMsg.thinking,
+      thinking: liveThinking,
+      toolCalls: liveToolCalls,
     });
   }
 

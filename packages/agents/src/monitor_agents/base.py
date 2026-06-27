@@ -12,6 +12,7 @@ IMPORTS FROM: monitor_data (Layer 1), external libraries
 CALLED BY: CLI (Layer 3), other agents
 """
 
+import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -27,7 +28,11 @@ from tenacity import (
 )
 from pydantic import BaseModel
 
-from monitor_agents.dspy_runtime import default_role_for_node, normalize_node_name
+from monitor_agents.dspy_runtime import (
+    default_role_for_node,
+    normalize_node_name,
+    stream_callback_var,
+)
 from monitor_agents.llm_errors import (
     LLMErrorClass,
     classify_llm_error,
@@ -172,14 +177,76 @@ class BaseAgent(ABC):
         """
         from monitor_data.server import call_tool as server_call_tool
 
+        # Surface MCP tool invocations to the client as tool_call /
+        # tool_result WS events. Each call gets a fresh id so the result
+        # can be correlated back even when tools fire concurrently inside
+        # a single turn. Errors are caught and surfaced as a tool_result
+        # with an error payload so the UI can render the failure inline
+        # instead of crashing the turn.
+        import uuid as _uuid
+        call_id = str(_uuid.uuid4())
+        cb = stream_callback_var.get()
+        full_args = {**arguments, "agent_type": self.agent_type, "agent_id": self.agent_id}
+        if cb is not None:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(cb("tool_call", {
+                    "id": call_id,
+                    "name": tool_name,
+                    "args": arguments,
+                }))
+            except RuntimeError:
+                pass
+
         with logfire.span(
             "{agent_type}.call_tool",
             agent_type=self.agent_type,
             agent_id=self.agent_id,
             tool_name=tool_name,
+            call_id=call_id,
         ):
-            full_args = {**arguments, "agent_type": self.agent_type, "agent_id": self.agent_id}
-            result_contents = await server_call_tool(tool_name, full_args)
+            try:
+                result_contents = await server_call_tool(tool_name, full_args)
+            except Exception as exc:
+                if cb is not None:
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(cb("tool_result", {
+                            "tool_call_id": call_id,
+                            "name": tool_name,
+                            "error": repr(exc),
+                        }))
+                    except RuntimeError:
+                        pass
+                raise
+
+        # Surface the successful result to the client. Truncated to 2000
+        # chars so a giant Mongo cursor or embedding blob doesn't blow up
+        # the WS payload — the agent keeps the full result for downstream
+        # reasoning; the UI gets a preview only.
+        if cb is not None:
+            try:
+                loop = asyncio.get_running_loop()
+                # Use the raw text from the MCP server response when
+                # available — it gives the UI a meaningful preview. Falls
+                # back to repr of the full result for non-text payloads.
+                # Capped at 2000 chars so a giant Mongo cursor doesn't
+                # blow up the WS payload — the agent keeps the full
+                # result for downstream reasoning.
+                _raw_text = (
+                    result_contents[0].text
+                    if result_contents and hasattr(result_contents[0], "text")
+                    else None
+                )
+                if _raw_text and len(_raw_text) > 2000:
+                    _raw_text = _raw_text[:2000] + "...[truncated]"
+                loop.create_task(cb("tool_result", {
+                    "tool_call_id": call_id,
+                    "name": tool_name,
+                    "result_preview": _raw_text or repr(result_contents),
+                }))
+            except RuntimeError:
+                pass
 
         if result_contents:
             result = result_contents[0].text
