@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  X, Edit3, Save, Trash2, Plus,
+  X, Edit3, Save, Trash2, Plus, Link2, Loader2,
   MapPin, Users, Shield, Brain, Sparkles, Tag, Network,
   Layers, Globe2, FlaskConical,
 } from "lucide-react";
@@ -114,7 +114,7 @@ export function InspectorPanel({ node, onFocusEntity }: { node: Node<GraphNodeDa
             className="p-1.5 rounded text-slate-500 hover:text-purple-300 transition-colors"
             title="Edit entity"
           >
-            <Edit2 className="w-3.5 h-3.5" />
+            <Edit3 className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
