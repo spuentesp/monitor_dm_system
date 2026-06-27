@@ -8,7 +8,8 @@ export const FORGE_KEYS = {
   sources: ["forge-sources"] as const,
   packs: ["forge-packs"] as const,
   system: (systemId?: string | null) => ["forge-system", systemId] as const,
-  assets: (opts?: any) => ["forge-assets", opts] as const,
+  assets: (opts?: { source_id?: string; universe_id?: string; asset_type?: string; limit?: number; offset?: number }) =>
+    ["forge-assets", opts] as const,
   proposals: (packId: string) => ["forge-proposals", packId] as const,
 };
 

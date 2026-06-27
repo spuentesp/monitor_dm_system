@@ -32,6 +32,7 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
 import { DialogFooter, DialogShell } from "@/components/DialogShell";
 import { FORGE_KEYS, UNIVERSE_KEYS } from "@/lib/query-keys";
+import { errorMessage } from "@/lib/errors";
 
 export function PackLibrary({ onOpenPack }: { onOpenPack?: (packId: string) => void }) {
   const qc = useQueryClient();
@@ -128,20 +129,20 @@ export function PackLibrary({ onOpenPack }: { onOpenPack?: (packId: string) => v
   const mergeMut = useMutation({
     mutationFn: (ids: string[]) => ingestApi.mergePacks({ pack_ids: ids }),
     onSuccess: () => { refreshPacks(); clearSelection(); },
-    onError: (e: any) => setOpError(e?.message ?? "Merge failed."),
+    onError: (e: unknown) => setOpError(errorMessage(e) ?? "Merge failed."),
   });
 
   const cloneMut = useMutation({
     mutationFn: (id: string) => ingestApi.clonePack(id, { with_lineage: true }),
     onSuccess: () => { refreshPacks(); clearSelection(); },
-    onError: (e: any) => setOpError(e?.message ?? "Clone failed."),
+    onError: (e: unknown) => setOpError(errorMessage(e) ?? "Clone failed."),
   });
 
   const importMut = useMutation({
     mutationFn: (envelope: { schema_version: string; exported_at: string; pack: object }) =>
       ingestApi.importPack(envelope),
     onSuccess: () => refreshPacks(),
-    onError: (e: any) => setOpError(e?.message ?? "Import failed."),
+    onError: (e: unknown) => setOpError(errorMessage(e) ?? "Import failed."),
   });
 
   const sliceMut = useMutation({
@@ -154,7 +155,7 @@ export function PackLibrary({ onOpenPack }: { onOpenPack?: (packId: string) => v
         with_lineage: true,
       }),
     onSuccess: () => { refreshPacks(); setSliceFor(null); },
-    onError: (e: any) => setOpError(e?.message ?? "Slice failed."),
+    onError: (e: unknown) => setOpError(errorMessage(e) ?? "Slice failed."),
   });
 
   const exportSelected = async () => {
@@ -169,8 +170,8 @@ export function PackLibrary({ onOpenPack }: { onOpenPack?: (packId: string) => v
         a.download = `${(pack?.name ?? id).replace(/[^\w.-]+/g, "_")}.pack.json`;
         a.click();
         URL.revokeObjectURL(url);
-      } catch (e: any) {
-        setOpError(e?.message ?? `Export failed for ${id}.`);
+      } catch (e) {
+        setOpError(errorMessage(e) ?? `Export failed for ${id}.`);
       }
     }
   };
@@ -181,8 +182,8 @@ export function PackLibrary({ onOpenPack }: { onOpenPack?: (packId: string) => v
       const envelope = JSON.parse(await file.text());
       if (!envelope?.pack) throw new Error("Not a pack export (missing 'pack').");
       importMut.mutate(envelope);
-    } catch (e: any) {
-      setOpError(e?.message ?? "Could not read pack file.");
+    } catch (e) {
+      setOpError(errorMessage(e) ?? "Could not read pack file.");
     }
   };
 

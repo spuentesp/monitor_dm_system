@@ -15,6 +15,7 @@ import {
   type Edge,
   type Connection,
 } from "@xyflow/react";
+import { toReactFlowNode, toReactFlowEdge, toReactFlowGraph } from "@/features/graph/adapters";
 import "@xyflow/react/dist/style.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -605,8 +606,8 @@ function nodeLabel(nodes: Node[], id: string | null): string {
 function filterGraph(graph: WorldGraph, search: string): { nodes: Node[]; edges: Edge[] } {
   if (!search.trim()) {
     return {
-      nodes: (graph.nodes ?? []) as unknown as Node[],
-      edges: (graph.edges ?? []) as unknown as Edge[],
+      nodes: toReactFlowGraph(graph).nodes,
+      edges: toReactFlowGraph(graph).edges,
     };
   }
   const q = search.toLowerCase();
@@ -618,13 +619,14 @@ function filterGraph(graph: WorldGraph, search: string): { nodes: Node[]; edges:
       .map((n: { id: string }) => n.id),
   );
   return {
-    nodes: (graph.nodes ?? []).filter((n: { id: string }) =>
-      matchingIds.has(n.id),
-    ) as unknown as Node[],
-    edges: (graph.edges ?? []).filter(
-      (e: { source: string; target: string }) =>
-        matchingIds.has(e.source) && matchingIds.has(e.target),
-    ) as unknown as Edge[],
+    nodes: (graph.nodes ?? [])
+      .filter((n) => matchingIds.has(n.id))
+      .map(toReactFlowNode),
+    edges: (graph.edges ?? [])
+      .filter(
+        (e) => matchingIds.has(e.source) && matchingIds.has(e.target),
+      )
+      .map(toReactFlowEdge),
   };
 }
 

@@ -22,6 +22,7 @@ import { DialogShell, DialogFooter } from "@/components/DialogShell";
 import { useNotify } from "@/components/NotificationProvider";
 import { CharacterChat } from "@/components/characters/CharacterChat";
 import { cn } from "@/lib/utils";
+import { errorMessage } from "@/lib/errors";
 
 export default function CharactersPage() {
   const qc = useQueryClient();
@@ -44,7 +45,7 @@ export default function CharactersPage() {
       setSelectedId(ch.id);
       notify("success", `Imported ${ch.name}`);
     },
-    onError: (e: any) => notify("error", `Import failed: ${e.message ?? e}`),
+    onError: (e: unknown) => notify("error", `Import failed: ${errorMessage(e)}`),
   });
 
   if (chatting && selected) {
@@ -230,7 +231,7 @@ function CharacterDetail({
       qc.invalidateQueries({ queryKey: ENTITY_KEYS.standaloneCharacters() });
       notify("success", "Saved");
     },
-    onError: (e: any) => notify("error", `Save failed: ${e.message ?? e}`),
+    onError: (e: unknown) => notify("error", `Save failed: ${errorMessage(e)}`),
   });
 
   const expand = useMutation({
@@ -239,7 +240,7 @@ function CharacterDetail({
       qc.invalidateQueries({ queryKey: ENTITY_KEYS.standaloneCharacters() });
       notify("success", "Expanded into a MONITOR profile");
     },
-    onError: (e: any) => notify("error", `Expansion failed: ${e.message ?? e}`),
+    onError: (e: unknown) => notify("error", `Expansion failed: ${errorMessage(e)}`),
   });
 
   // ── Character Versions (per-universe incarnations) ──
@@ -258,7 +259,7 @@ function CharacterDetail({
       setNewIncUniverse("");
       notify("success", "Incarnation created in that universe");
     },
-    onError: (e: any) => notify("error", `Add incarnation failed: ${e.message ?? e}`),
+    onError: (e: unknown) => notify("error", `Add incarnation failed: ${errorMessage(e)}`),
   });
   const delVersion = useMutation({
     mutationFn: (universeId: string) =>
@@ -268,7 +269,7 @@ function CharacterDetail({
       qc.invalidateQueries({ queryKey: ENTITY_KEYS.standaloneCharacters() });
       notify("success", "Incarnation deleted");
     },
-    onError: (e: any) => notify("error", `Delete failed: ${e.message ?? e}`),
+    onError: (e: unknown) => notify("error", `Delete failed: ${errorMessage(e)}`),
   });
 
   const del = useMutation({
@@ -278,7 +279,7 @@ function CharacterDetail({
       notify("success", "Deleted");
       onClose();
     },
-    onError: (e: any) => notify("error", `Delete failed: ${e.message ?? e}`),
+    onError: (e: unknown) => notify("error", `Delete failed: ${errorMessage(e)}`),
   });
 
   return (
@@ -458,7 +459,7 @@ function NewCharacterDialog({
       notify("success", `Created ${ch.name}`);
       onCreated(ch);
     },
-    onError: (e: any) => notify("error", `Create failed: ${e.message ?? e}`),
+    onError: (e: unknown) => notify("error", `Create failed: ${errorMessage(e)}`),
   });
 
   const assist = useMutation({
@@ -479,7 +480,7 @@ function NewCharacterDialog({
       });
       notify("success", "Card drafted — review and tweak before creating");
     },
-    onError: (e: any) => notify("error", `Assist failed: ${e.message ?? e}`),
+    onError: (e: unknown) => notify("error", `Assist failed: ${errorMessage(e)}`),
   });
 
   return (

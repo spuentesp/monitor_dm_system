@@ -7,6 +7,7 @@ import { entitiesApi } from "@/lib/api";
 import type { StandaloneCharacter } from "@/lib/types";
 import { useNotify } from "@/components/NotificationProvider";
 import { cn } from "@/lib/utils";
+import { errorMessage } from "@/lib/errors";
 
 type ChatMessage = {
   id: string;
@@ -53,7 +54,7 @@ export function CharacterChat({
         setConversationId(res.conversation_id);
         setMessages([{ id: "opening", role: "char", text: res.opening }]);
       })
-      .catch((e) => active && notify("error", `Couldn't start chat: ${e.message ?? e}`))
+      .catch((e) => active && notify("error", `Couldn't start chat: ${errorMessage(e)}`))
       .finally(() => active && setStarting(false));
     return () => {
       active = false;
@@ -92,8 +93,8 @@ export function CharacterChat({
           snapshot: reply.relationship_snapshot,
         },
       ]);
-    } catch (e: any) {
-      notify("error", `Reply failed: ${e.message ?? e}`);
+    } catch (e) {
+      notify("error", `Reply failed: ${errorMessage(e)}`);
     } finally {
       setSending(false);
     }

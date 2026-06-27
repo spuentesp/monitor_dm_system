@@ -1462,12 +1462,12 @@ function ForgePageInner() {
                   {/* Game System chip (I-11) */}
                   <GameSystemChip
                     pack={pack}
-                    onUpdate={(gsId) => patchArtifactPack({ game_system_id: gsId } as any)}
+                    onUpdate={(gsId) => patchArtifactPack({ game_system_id: gsId })}
                   />
                   {/* Source links (I-10) */}
                   <SourceLinksChip
                     pack={pack}
-                    onUpdate={(ids) => patchArtifactPack({ source_document_ids: ids } as any)}
+                    onUpdate={(ids) => patchArtifactPack({ source_document_ids: ids })}
                   />
                 </div>
               </div>

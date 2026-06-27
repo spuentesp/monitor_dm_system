@@ -47,6 +47,7 @@ import type {
 } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { ArchitectMessageBubble } from "./ArchitectMessageBubble";
+import { toReactFlowGraph } from "@/features/graph/adapters";
 
 // ═══════════════════════════════════════════════════════════════
 //  Graph node renderer (mini)
@@ -114,8 +115,9 @@ function MiniGraph({
 
   useEffect(() => {
     if (!graph) return;
-    setNodes(graph.nodes as unknown as Node[]);
-    setEdges(graph.edges as unknown as Edge[]);
+    const { nodes: rfNodes, edges: rfEdges } = toReactFlowGraph(graph);
+    setNodes(rfNodes);
+    setEdges(rfEdges);
   }, [graph, setNodes, setEdges]);
 
   if (!multiverseId && !universeId) {
