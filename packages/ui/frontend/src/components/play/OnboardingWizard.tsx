@@ -44,8 +44,7 @@ export function OnboardingWizard() {
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button
-          onClick={handleDemo}
-          disabled={loading}
+          onClick={handleDemo} aria-label="Start demo" disabled={loading}
           className="btn-cyber text-xs px-3 py-1.5 gap-1.5"
         >
           {loading ? (

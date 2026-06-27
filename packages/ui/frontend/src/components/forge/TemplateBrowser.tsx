@@ -56,7 +56,7 @@ function TemplateCard({
 
   return (
     <button
-      onClick={onSelect}
+      onClick={onSelect} aria-label="Select template"
       className={cn(
         "w-full text-left glass-dark rounded-xl border p-3 space-y-2 transition-all",
         isSelected

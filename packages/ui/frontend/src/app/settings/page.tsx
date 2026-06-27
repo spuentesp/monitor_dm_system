@@ -140,7 +140,7 @@ function AddProviderForm({
     >
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-cyan-300">Add LLM Provider</h3>
-        <button onClick={onClose} className="text-slate-600 hover:text-slate-300">
+        <button onClick={onClose} aria-label="Close" className="text-slate-600 hover:text-slate-300">
           <X className="w-4 h-4" />
         </button>
       </div>

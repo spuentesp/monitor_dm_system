@@ -187,7 +187,7 @@ function TableEditor({
           >
             {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
           </button>
-          <button onClick={onClose} className="btn-ghost text-xs py-1 px-2">
+          <button onClick={onClose} aria-label="Close" className="btn-ghost text-xs py-1 px-2">
             <X className="w-3 h-3" />
           </button>
         </div>

@@ -70,7 +70,7 @@ export function MemoryInspector({ characterId, onClose }: MemoryInspectorProps) 
             <h2 className="text-sm font-semibold">Memories</h2>
             <span className="text-[10px] text-slate-500">{total} total</span>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/5 transition-all">
+          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-white/5 transition-all">
             <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>

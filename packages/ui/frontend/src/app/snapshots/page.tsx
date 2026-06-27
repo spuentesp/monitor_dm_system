@@ -554,7 +554,7 @@ function ConfirmDialog({
           <button className="btn-ghost" onClick={onClose} disabled={isPending}>
             Cancel
           </button>
-          <button className={confirmClassName} onClick={onConfirm} disabled={isPending}>
+          <button className={confirmClassName} onClick={onConfirm} aria-label="Confirm" disabled={isPending}>
             {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {confirmLabel}
           </button>

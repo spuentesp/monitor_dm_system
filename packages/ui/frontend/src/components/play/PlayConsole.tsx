@@ -388,7 +388,7 @@ export default function PlayConsole() {
             <div className="flex items-center gap-2">
               {activeSession?.tone && (
                 <div className="relative group">
-                  <button className="tag-purple capitalize flex items-center gap-1 cursor-pointer hover:bg-purple-500/20 transition-colors">
+                  <button aria-label="Change session tone" className="tag-purple capitalize flex items-center gap-1 cursor-pointer hover:bg-purple-500/20 transition-colors">
                     {activeSession.tone}
                     <ChevronDown className="w-2.5 h-2.5 opacity-60" />
                   </button>

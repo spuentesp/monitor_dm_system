@@ -678,7 +678,7 @@ function NodeDetailPanel({
         <h3 className="text-sm font-semibold text-fg-primary flex-1 truncate">
           {data.label ?? node.id}
         </h3>
-        <button className="btn-ghost p-1" onClick={onClose}>
+        <button className="btn-ghost p-1" onClick={onClose} aria-label="Close">
           <X className="h-4 w-4" />
         </button>
       </header>

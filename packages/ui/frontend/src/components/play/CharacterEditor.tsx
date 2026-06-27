@@ -99,7 +99,7 @@ export function CharacterEditor({ character, onClose }: CharacterEditorProps) {
           <h2 className="text-sm font-semibold text-slate-200">
             {isEdit ? "Edit Character" : "Create Character"}
           </h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/5 transition-all">
+          <button onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-white/5 transition-all">
             <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
@@ -227,8 +227,7 @@ export function CharacterEditor({ character, onClose }: CharacterEditorProps) {
             Cancel
           </button>
           <button
-            onClick={handleSubmit}
-            disabled={!name.trim() || isPending}
+            onClick={handleSubmit} aria-label="Save" disabled={!name.trim() || isPending}
             className={cn(
               "btn-cyber gap-2",
               (!name.trim() || isPending) && "opacity-50 cursor-not-allowed",

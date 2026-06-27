@@ -351,7 +351,7 @@ function InspectorPanel({ node, onFocusEntity }: { node: Node<GraphNodeData> | n
               className="input-cyber flex-1 text-xs py-1"
               placeholder="Add tag + Enter"
             />
-            <button onClick={addTag} className="p-1 text-purple-400 hover:text-purple-300">
+            <button onClick={addTag} aria-label="Add tag" className="p-1 text-purple-400 hover:text-purple-300">
               <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -932,7 +932,7 @@ function CreateMultiverseForm({
     >
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold text-purple-300">New Multiverse</p>
-        <button onClick={onClose} className="text-slate-600 hover:text-slate-300">
+        <button onClick={onClose} aria-label="Close" className="text-slate-600 hover:text-slate-300">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>

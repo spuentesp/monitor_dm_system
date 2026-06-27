@@ -88,7 +88,7 @@ export function TemplateInstantiator({ template, open, onClose, onCreated }: Tem
               <Sparkles className="w-4 h-4 text-cyan-400" />
               <h2 className="text-sm font-semibold text-slate-200">Instantiate Template</h2>
             </div>
-            <button onClick={handleClose} className="text-slate-500 hover:text-slate-300 transition-colors">
+            <button onClick={handleClose} aria-label="Close" className="text-slate-500 hover:text-slate-300 transition-colors">
               <X className="w-4 h-4" />
             </button>
           </div>

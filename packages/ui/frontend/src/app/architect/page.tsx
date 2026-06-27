@@ -177,7 +177,7 @@ function ElementPanel({ nodeData, onClose }: { nodeData: GraphNodeData | null; o
             <div className="text-sm font-semibold text-slate-100">{nodeData.label}</div>
           </div>
         </div>
-        <button onClick={onClose} className="p-1 rounded text-slate-600 hover:text-slate-300 transition-colors">
+        <button onClick={onClose} aria-label="Close" className="p-1 rounded text-slate-600 hover:text-slate-300 transition-colors">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -254,7 +254,7 @@ function WorldSelector({
         {showNewMv ? (
           <form onSubmit={(e) => { e.preventDefault(); if (newMvName.trim()) { createMv.mutate(newMvName.trim()); setNewMvName(""); setShowNewMv(false); } }} className="flex items-center gap-1">
             <input autoFocus value={newMvName} onChange={(e) => setNewMvName(e.target.value)} placeholder="Multiverse name…" className="input-cyber py-1 text-xs w-36" />
-            <button type="submit" className="p-1 text-purple-400 hover:text-purple-300">{createMv.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}</button>
+            <button type="submit" aria-label="Create multiverse" className="p-1 text-purple-400 hover:text-purple-300">{createMv.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}</button>
             <button type="button" onClick={() => setShowNewMv(false)} className="p-1 text-slate-600 hover:text-slate-400"><X className="w-3.5 h-3.5" /></button>
           </form>
         ) : (
@@ -276,7 +276,7 @@ function WorldSelector({
           {showNewUv ? (
             <form onSubmit={(e) => { e.preventDefault(); if (newUvName.trim()) { createUv.mutate(newUvName.trim()); setNewUvName(""); setShowNewUv(false); } }} className="flex items-center gap-1">
               <input autoFocus value={newUvName} onChange={(e) => setNewUvName(e.target.value)} placeholder="Universe name…" className="input-cyber py-1 text-xs w-36" />
-              <button type="submit" className="p-1 text-cyan-400 hover:text-cyan-300">{createUv.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}</button>
+              <button type="submit" aria-label="Create universe" className="p-1 text-cyan-400 hover:text-cyan-300">{createUv.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}</button>
               <button type="button" onClick={() => setShowNewUv(false)} className="p-1 text-slate-600 hover:text-slate-400"><X className="w-3.5 h-3.5" /></button>
             </form>
           ) : (

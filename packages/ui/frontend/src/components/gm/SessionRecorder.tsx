@@ -324,8 +324,7 @@ export function SessionRecorder({
                 className="flex-1 bg-transparent text-xs text-slate-200 placeholder:text-slate-600 resize-none focus:outline-none"
               />
               <button
-                onClick={logEntry}
-                disabled={!entry.trim() || waiting}
+                onClick={logEntry} aria-label="Log entry" disabled={!entry.trim() || waiting}
                 className={cn(
                   "flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all",
                   entry.trim() && !waiting

@@ -380,7 +380,7 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
             Add Entry
           </button>
           {onClose && (
-            <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-800 text-gray-400">
+            <button onClick={onClose} aria-label="Close" className="p-1.5 rounded hover:bg-gray-800 text-gray-400">
               <X size={16} />
             </button>
           )}
