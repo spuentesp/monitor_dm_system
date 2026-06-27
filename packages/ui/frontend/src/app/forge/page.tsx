@@ -1318,8 +1318,10 @@ function ForgePageInner() {
       {forgeMode === "sources" ? (
         <SourcesPanel
           onOpenPack={(packId) => {
-            selectPack(packId);
-            setForgeMode("packs");
+            // Route to the dedicated editor route instead of swapping
+            // forgeMode to "packs" (which jumps to a totally different
+            // sidebar+detail layout and was jarring for the player).
+            router.push(`/forge/editor?pack=${packId}`);
           }}
         />
       ) : forgeMode === "assets" ? (
