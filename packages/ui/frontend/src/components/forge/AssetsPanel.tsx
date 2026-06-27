@@ -114,7 +114,7 @@ export function AssetsPanel({ sourceId, universeId }: AssetsPanelProps) {
         </select>
         <input
           ref={fileRef}
-          type="file"
+          type="file" aria-label="Choose asset file"
           className="hidden"
           accept={ASSET_TYPES.find(t => t.value === uploadType)?.accept ?? "*/*"}
           onChange={handleUpload}

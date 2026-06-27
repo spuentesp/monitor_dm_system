@@ -1380,7 +1380,7 @@ function ForgePageInner() {
           {/* Hidden file input for import */}
           <input
             ref={importFileRef}
-            type="file"
+            type="file" aria-label="Choose pack file to import"
             accept=".monitorpack,application/json"
             className="sr-only"
             onChange={e => {

@@ -129,7 +129,7 @@ export function UploadCard() {
           >
             <input
               ref={inputRef}
-              type="file"
+              type="file" aria-label="Choose document to upload"
               accept=".pdf,.epub,.txt,.md,.docx,.html,.htm"
               className="hidden"
               onChange={(e) => applyFiles(Array.from(e.target.files ?? []))}

@@ -97,7 +97,7 @@ export function SourceLibrary() {
         <input
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Search library…"
+          placeholder="Search library…" aria-label="Search library"
           className="w-full bg-white/2 border border-white/5 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500/30 transition-colors"
         />
       </div>

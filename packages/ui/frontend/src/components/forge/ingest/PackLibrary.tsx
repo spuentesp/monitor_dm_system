@@ -241,7 +241,7 @@ export function PackLibrary({ onOpenPack }: { onOpenPack?: (packId: string) => v
           <input
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search packs…"
+            placeholder="Search packs…" aria-label="Search packs"
             className="w-full bg-white/2 border border-white/5 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-cyan-500/30"
           />
         </div>
@@ -249,7 +249,7 @@ export function PackLibrary({ onOpenPack }: { onOpenPack?: (packId: string) => v
           {importMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
           Import
           <input
-            type="file"
+            type="file" aria-label="Choose pack file to import"
             accept="application/json,.json"
             className="hidden"
             onChange={(e) => {

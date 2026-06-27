@@ -334,7 +334,7 @@ export function RandomTableBrowser({ universeId }: RandomTableBrowserProps) {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tables..."
+            placeholder="Search tables..." aria-label="Search tables"
             className="input-cyber pl-7 py-1 text-xs w-full"
           />
         </div>

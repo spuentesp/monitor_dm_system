@@ -245,7 +245,7 @@ export function TemplateBrowser({ universeId, onInstantiate }: TemplateBrowserPr
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search templates..."
+              placeholder="Search templates..." aria-label="Search templates"
               className="input-cyber pl-7 py-1 text-xs w-full"
             />
           </div>

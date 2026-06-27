@@ -70,7 +70,7 @@ export default function CharactersPage() {
             <Upload className="h-4 w-4" />
             <span className="text-xs">Import card</span>
             <input
-              type="file"
+              type="file" aria-label="Upload character card"
               accept=".json,.png"
               className="hidden"
               onChange={(e) => {

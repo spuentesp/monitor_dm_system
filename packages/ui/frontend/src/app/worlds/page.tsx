@@ -754,7 +754,7 @@ function GraphTab() {
                     <input
                       value={entitySearch}
                       onChange={(e) => setEntitySearch(e.target.value)}
-                      placeholder="Search an entity to see its connections…"
+                      placeholder="Search an entity to see its connections…" aria-label="Search entities by name"
                       className="w-full bg-slate-900/60 border border-white/10 rounded-lg pl-7 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500/50"
                     />
                     {entitySearch.length >= 2 && entitySearchResults.length > 0 && (
@@ -1476,7 +1476,7 @@ function EntitiesTab() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && (setQuery(search), setPage(0))}
-              placeholder="Search by name or description…"
+              placeholder="Search by name or description…" aria-label="Search by name or description"
               className="input-cyber pl-9"
             />
           </div>

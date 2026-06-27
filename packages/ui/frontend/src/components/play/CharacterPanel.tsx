@@ -125,7 +125,7 @@ export function CharacterPanel({
         <div className="flex items-center gap-1.5">
           <input
             ref={cardInputRef}
-            type="file"
+            type="file" aria-label="Upload character card file"
             accept=".json,.png"
             className="hidden"
             onChange={(e) => {
