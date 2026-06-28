@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BrainCircuit,
   Clock,
@@ -10,16 +10,16 @@ import {
   Library,
 } from "lucide-react";
 import { ingestApi } from "@/lib/api";
-import type { IngestJob } from "@/lib/types";
 import { UploadCard } from "./UploadCard";
 import { IngestionJobsList } from "./IngestionJobsList";
 import { SourceLibrary } from "./SourceLibrary";
 import { QuickStartPanel } from "./QuickStartPanel";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
-import { LIVE_JOB_STATUSES, mergeJobsSafely } from "./ingest-constants";
+import { LIVE_JOB_STATUSES } from "./ingest-constants";
 import { FORGE_KEYS } from "@/lib/query-keys";
 import { useSystems } from "@/hooks/use-systems";
+import { useIngestJobs } from "@/hooks/use-ingest-jobs";
 
 type ForgeMode = "quick" | "lorebook";
 
@@ -28,16 +28,7 @@ export function IngestionDashboard() {
   const queryClient = useQueryClient();
   useSystems();
 
-  const { data: jobs = [] } = useQuery<IngestJob[]>({
-    queryKey: FORGE_KEYS.jobs,
-    queryFn: async () => {
-      const incoming = await ingestApi.listJobs();
-      const prev = queryClient.getQueryData<IngestJob[]>(FORGE_KEYS.jobs);
-      return mergeJobsSafely(prev, incoming);
-    },
-    staleTime: 5000,
-    refetchInterval: 5000,
-  });
+  const { jobs = [] } = useIngestJobs();
 
 
   const activeJobs = jobs.filter(j => LIVE_JOB_STATUSES.has(j.status));

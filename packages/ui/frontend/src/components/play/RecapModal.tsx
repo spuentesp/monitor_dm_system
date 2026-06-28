@@ -1,40 +1,19 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, BookOpen, Check, Copy, Loader2, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { AlertCircle, BookOpen, Loader2, RotateCcw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { chatApi } from "@/lib/api";
 import { DialogShell } from "@/components/DialogShell";
-import { cn } from "@/lib/utils";
-
-function RecapCopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      onClick={() =>
-        navigator.clipboard?.writeText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        })
-      }
-      className={cn(
-        "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-white/10",
-        "text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-all",
-      )}
-    >
-      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-      {copied ? "Copied" : "Copy"}
-    </button>
-  );
-}
+import { CopyButton } from "@/features/chat/CopyButton";
+import { PLAY_KEYS } from "@/lib/query-keys";
 
 /** Server-generated "story so far" prose recap for a chat session (T-068 / CF-2). */
 export function RecapModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["session-recap", sessionId],
+    queryKey: PLAY_KEYS.recap(sessionId),
     queryFn: () => chatApi.getRecap(sessionId),
     staleTime: 60_000,
     retry: false,
@@ -71,7 +50,7 @@ export function RecapModal({ sessionId, onClose }: { sessionId: string; onClose:
             </div>
             {data?.recap && (
               <div className="flex justify-end">
-                <RecapCopyButton text={data.recap} />
+                <CopyButton text={data.recap} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-all" />
               </div>
             )}
           </div>

@@ -229,8 +229,7 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
   // Fetch stats
   const { data: stats } = useQuery({
     queryKey: LOREBOOK_KEYS.stats(characterId),
-    queryFn: () =>
-      lorebookApi.stats(characterId) as Promise<Record<string, number>>,
+    queryFn: () => lorebookApi.stats(characterId),
   });
 
   const createMutation = useMutation({

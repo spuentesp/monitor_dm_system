@@ -65,6 +65,9 @@ import type {
   RollResult,
   WorldSnapshot,
   SnapshotComparison,
+  LorebookEntry,
+  LorebookStats,
+  LorebookEntryCreate,
 } from "./types";
 
 const RAW_API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -111,7 +114,7 @@ export function websocketBase(): string {
 
 let warnedAboutWsFallback = false;
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
@@ -556,7 +559,7 @@ export const toneApi = {
 
 export const lorebookApi = {
   list: (characterId: string, sortBy = "priority", ascending = false) =>
-    req<unknown[]>("/lorebook/entries", {
+    req<LorebookEntry[]>("/lorebook/entries", {
       query: {
         character_id: characterId,
         sort_by: sortBy,
@@ -564,23 +567,25 @@ export const lorebookApi = {
       },
     }),
   stats: (characterId: string) =>
-    req<Record<string, unknown>>("/lorebook/stats", {
+    req<LorebookStats>("/lorebook/stats", {
       query: { character_id: characterId },
     }),
-  create: (characterId: string, body: unknown) =>
-    req<unknown>(`/lorebook/entries?character_id=${encodeURIComponent(characterId)}`, {
+  create: (characterId: string, body: LorebookEntryCreate) =>
+    req<LorebookEntry>("/lorebook/entries", {
+      query: { character_id: characterId },
       method: "POST",
       body: JSON.stringify(body),
     }),
-  update: (entryId: string, body: unknown) =>
-    req<unknown>(`/lorebook/entries/${entryId}`, {
+  update: (entryId: string, body: Partial<LorebookEntryCreate>) =>
+    req<LorebookEntry>(`/lorebook/entries/${entryId}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
   remove: (entryId: string) =>
     req<void>(`/lorebook/entries/${entryId}`, { method: "DELETE" }),
-  bulkCreate: (characterId: string, entries: unknown[]) =>
-    req<unknown[]>(`/lorebook/bulk?character_id=${encodeURIComponent(characterId)}`, {
+  bulkCreate: (characterId: string, entries: LorebookEntryCreate[]) =>
+    req<LorebookEntry[]>("/lorebook/bulk", {
+      query: { character_id: characterId },
       method: "POST",
       body: JSON.stringify(entries),
     }),

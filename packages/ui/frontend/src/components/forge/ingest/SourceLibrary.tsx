@@ -13,12 +13,13 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ingestApi } from "@/lib/api";
-import type { Source, IngestJob } from "@/lib/types";
+import type { Source } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
 import { DialogFooter, DialogShell } from "@/components/DialogShell";
-import { SCAN_TYPES, INGEST_TARGETS, getLayersForTarget, type ScanType, type IngestTarget, mergeJobsSafely } from "./ingest-constants";
+import { SCAN_TYPES, INGEST_TARGETS, getLayersForTarget, type ScanType, type IngestTarget } from "./ingest-constants";
 import { FORGE_KEYS } from "@/lib/query-keys";
+import { useIngestJobs } from "@/hooks/use-ingest-jobs";
 
 export function SourceLibrary() {
   const qc = useQueryClient();
@@ -34,16 +35,7 @@ export function SourceLibrary() {
     queryFn: ingestApi.listSources,
   });
 
-  const { data: jobs = [] } = useQuery<IngestJob[]>({
-    queryKey: FORGE_KEYS.jobs,
-    queryFn: async () => {
-      const incoming = await ingestApi.listJobs();
-      const prev = qc.getQueryData<IngestJob[]>(FORGE_KEYS.jobs);
-      return mergeJobsSafely(prev, incoming);
-    },
-    staleTime: 5000,
-    refetchInterval: 5000,
-  });
+  const { jobs = [] } = useIngestJobs();
 
   const deleteSource = useMutation({
     mutationFn: (id: string) => ingestApi.deleteSource(id),

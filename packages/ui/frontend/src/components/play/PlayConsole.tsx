@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Bot,
@@ -22,6 +22,7 @@ import { useWorldContext } from "@/lib/world-context";
 import { workingStateChips } from "@/lib/workingState";
 import type { ChatSessionState, Message, PlaytestBenchmark, Session, StandaloneCharacter } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { TONES, TONE_DESCRIPTIONS, MODE_LABEL, PHASE_STYLE } from "@/lib/play-constants";
 
 import {
   ChatList,
@@ -42,32 +43,7 @@ import { SessionList } from "./SessionList";
 import { SetupPanel, type SetupPayload } from "./SetupPanel";
 
 // ─── Tone / mode labels (Play-specific) ─────────────────────────────
-
-const TONES = ["dramatic", "grim", "horror", "heroic", "mystery", "adventure"] as const;
-type Tone = (typeof TONES)[number];
-
-const TONE_DESCRIPTIONS: Record<Tone, string> = {
-  dramatic: "Baroque, weighty, personal stakes",
-  grim: "Terse, industrial, cosmic dread",
-  horror: "Dread through omission, slow tension",
-  heroic: "Elevated, mythic, earned hope",
-  mystery: "Layered, rationed, careful",
-  adventure: "Kinetic, immediate, punchy",
-};
-
-const MODE_LABEL: Record<string, string> = {
-  autonomous_gm: "Autonomous GM",
-  gm_assistant: "GM Assistant",
-  world_architect: "World Architect",
-};
-
-const PHASE_STYLE: Record<string, { label: string; cls: string }> = {
-  awaiting_character: { label: "Choosing character", cls: "text-amber-300 border-amber-500/30 bg-amber-500/10" },
-  awaiting_premise: { label: "Setting premise", cls: "text-amber-300 border-amber-500/30 bg-amber-500/10" },
-  setup: { label: "Setup", cls: "text-amber-300 border-amber-500/30 bg-amber-500/10" },
-  active_play: { label: "In play", cls: "text-emerald-300 border-emerald-500/30 bg-emerald-500/10" },
-  scene_ended: { label: "Scene ended", cls: "text-cyan-300 border-cyan-500/30 bg-cyan-500/10" },
-};
+// See lib/play-constants.ts — shared with SetupPanel.
 
 // ─── Phase chip ──────────────────────────────────────────────────────
 
@@ -167,11 +143,13 @@ export default function PlayConsole() {
   }, [sessions, activeSessionId, requestedSessionId]);
 
   // ─── Chat session (the streaming state machine) ──────────────────
+  const onTurnSettled = useCallback(() => {
+    qc.invalidateQueries({ queryKey: PLAY_KEYS.sessions });
+  }, [qc]);
+
   const chat = useChatSession({
     sessionId: activeSessionId,
-    onTurnSettled: () => {
-      qc.invalidateQueries({ queryKey: ["play-sessions"] });
-    },
+    onTurnSettled,
   });
 
   const { data: sessionState } = useQuery<ChatSessionState>({
@@ -218,7 +196,7 @@ export default function PlayConsole() {
   const patchTone = useMutation({
     mutationFn: ({ tone }: { tone: string }) =>
       chatApi.patchSession(activeSessionId!, { tone }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["play-sessions"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: PLAY_KEYS.sessions }),
   });
 
   const renameSession = useMutation({
@@ -299,7 +277,7 @@ export default function PlayConsole() {
   const relationshipSnapshot = (sessionState?.latest_relationship_snapshot ?? {}) as Record<string, unknown>;
   const socialDeltaEntries = Object.entries(socialRead.deltas ?? {}).slice(0, 4);
 
-  const quickActions: QuickAction[] = [
+  const quickActions = useMemo<QuickAction[]>(() => [
     {
       label: "Look around",
       icon: Eye,
@@ -348,7 +326,7 @@ export default function PlayConsole() {
           },
         ]
       : []),
-  ];
+  ], [chat.messages]);
 
   const pendingConsequence = sessionState?.pending_consequence;
   const hasConsequence =
@@ -359,6 +337,11 @@ export default function PlayConsole() {
     ((pendingConsequence as { options: unknown[] }).options ?? []).length > 0;
 
   // ─── Render ─────────────────────────────────────────────────────
+  const renderBubble = useCallback(
+    (msg: (typeof chat.messages)[number]) => <PlayMessageBubble msg={msg} />,
+    [],
+  );
+
   return (
     <div className="flex h-full min-h-0">
       <SessionList
@@ -473,7 +456,7 @@ export default function PlayConsole() {
                 isTyping={chat.isTyping}
                 sendFailure={chat.sendFailure}
                 pendingDiceRequest={chat.pendingDiceRequest}
-                renderBubble={(msg) => <PlayMessageBubble msg={msg} />}
+                renderBubble={renderBubble}
                 onDiceResult={chat.submitDiceResult}
                 onRetry={chat.retry}
                 onDismissFailure={chat.dismissFailure}

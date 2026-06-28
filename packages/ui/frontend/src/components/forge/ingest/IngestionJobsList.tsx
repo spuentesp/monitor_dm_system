@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
   RotateCcw,
@@ -19,9 +19,10 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
 import { JobIcon } from "./JobIcon";
 import { useRouter } from "next/navigation";
-import { FAILED_JOB_STATUSES, LIVE_JOB_STATUSES, mergeJobsSafely } from "./ingest-constants";
+import { FAILED_JOB_STATUSES, LIVE_JOB_STATUSES } from "./ingest-constants";
 import { FORGE_KEYS } from "@/lib/query-keys";
 import { useNotify } from "@/components/NotificationProvider";
+import { useIngestJobs } from "@/hooks/use-ingest-jobs";
 
 const UUID_LIKE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -38,16 +39,7 @@ export function IngestionJobsList() {
   const retryRefs = useRef<Map<string, number>>(new Map());
   const [expandedJobId, setExpandedId] = useState<string | null>(null);
 
-  const { data: jobs = [], isLoading } = useQuery<IngestJob[]>({
-    queryKey: FORGE_KEYS.jobs,
-    queryFn: async () => {
-      const incoming = await ingestApi.listJobs();
-      const prev = queryClient.getQueryData<IngestJob[]>(FORGE_KEYS.jobs);
-      return mergeJobsSafely(prev, incoming);
-    },
-    staleTime: 5000,
-    refetchInterval: 5000, // Background fallback
-  });
+  const { jobs = [], isLoading } = useIngestJobs();
 
   const activeJobIds = useMemo(
     () => jobs
