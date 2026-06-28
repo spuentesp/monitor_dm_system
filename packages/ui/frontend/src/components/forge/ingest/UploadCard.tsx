@@ -120,9 +120,6 @@ export function UploadCard() {
             onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
             onClick={() => !hasFile && inputRef.current?.click()}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!hasFile) inputRef.current?.click(); } }}
             className={cn(
               "rounded-xl p-6 border-2 border-dashed text-center transition-all flex flex-col items-center justify-center min-h-[120px]",
               hasFile ? "border-cyan-500/20 bg-cyan-500/5" : dragging

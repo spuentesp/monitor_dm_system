@@ -254,6 +254,17 @@ class Narrator(BaseAgent):
                 actor_block += f"- Personality: {personality}\n"
             if tags:
                 actor_block += f"- State: {tags}\n"
+            # Inject character stats, inventory, and conditions
+            stats = actor.get("stats")
+            if stats and isinstance(stats, dict):
+                stats_str = ", ".join(f"{k}: {v}" for k, v in stats.items())
+                actor_block += f"- Stats: {stats_str}\n"
+            inventory = actor.get("inventory")
+            if inventory and isinstance(inventory, list) and inventory:
+                actor_block += f"- Inventory: {', '.join(inventory)}\n"
+            conditions = actor.get("conditions")
+            if conditions and isinstance(conditions, list) and conditions:
+                actor_block += f"- Conditions: {', '.join(conditions)}\n"
             profile_context += actor_block
 
         # Inject lorebook entries into profile_context
@@ -276,6 +287,61 @@ class Narrator(BaseAgent):
             )
             profile_context += story_block
 
+        # Inject established facts for continuity (prevents name/setting drift)
+        established_facts = context.get("established_facts")
+        if established_facts and isinstance(established_facts, list) and established_facts:
+            facts_block = "\n\nESTABLISHED FACTS (do not contradict these):\n"
+            for fact in established_facts[-20:]:  # cap at 20 most recent
+                facts_block += f"- {fact}\n"
+            profile_context += facts_block
+
+        # Inject turn context for spatial/situational awareness
+        turn_ctx = context.get("turn_context")
+        if turn_ctx:
+            if isinstance(turn_ctx, dict):
+                from monitor_agents.turn_context import TurnContext
+
+                try:
+                    tc = TurnContext(**turn_ctx)
+                    tc_prompt = tc.to_narrator_prompt()
+                    if tc_prompt:
+                        profile_context += "\n\nTURN CONTEXT:\n" + tc_prompt
+                except Exception:
+                    # If TurnContext construction fails, inject raw dict
+                    profile_context += (
+                        "\n\nTURN CONTEXT:\n" + json.dumps(turn_ctx, default=str)[:2000]
+                    )
+            elif hasattr(turn_ctx, "to_narrator_prompt"):
+                tc_prompt = turn_ctx.to_narrator_prompt()
+                if tc_prompt:
+                    profile_context += "\n\nTURN CONTEXT:\n" + tc_prompt
+
+        # Build setting anchor: genre + setting + character identity.
+        # This locks the genre and setting to prevent drift mid-session.
+        setting_parts: list[str] = []
+        genre = ""
+        if isinstance(source_profile, dict):
+            genre = source_profile.get("genre", "") or source_profile.get("taxonomy", {}).get("genre", "")
+            setting_summary = source_profile.get("setting_summary", "") or source_profile.get("description", "")
+            if genre:
+                setting_parts.append(f"GENRE: {genre.upper()}")
+            if setting_summary:
+                setting_parts.append(f"SETTING: {setting_summary}")
+        if actor:
+            actor_name = actor.get("name", "")
+            actor_role = actor.get("role", "")
+            if actor_name:
+                setting_parts.append(f"CHARACTER: {actor_name}")
+            if actor_role:
+                setting_parts.append(f"ROLE: {actor_role}")
+        if system_name:
+            setting_parts.append(f"SYSTEM: {system_name}")
+        setting_parts.append(
+            "CRITICAL: Never change the genre, setting, or character identity mid-session. "
+            "Never describe technology as magic or vice versa."
+        )
+        setting_anchor = " | ".join(setting_parts)
+
         # Resolve dynamic model role based on dramatic intensity.
         dynamic_role = resolve_dynamic_role(
             "narrator",
@@ -289,9 +355,11 @@ class Narrator(BaseAgent):
             scene_context=json.dumps(context.get("entities", [])[:5], default=str),
             profile_context=profile_context,
             memory_context=json.dumps(context.get("memories", [])[:3], default=str),
-            prior_turns=json.dumps(context.get("turns", [])[-3:], default=str),
+            prior_turns=json.dumps(context.get("turns", [])[-8:], default=str),
             player_action=user_input or "(scene description)",
             resolution_summary=resolution_summary,
+            setting_anchor=setting_anchor,
+            context_summary=context.get("context_summary", ""),
             role=dynamic_role,
         )
         # Resilience: some providers (notably MiniMax) intermittently return a

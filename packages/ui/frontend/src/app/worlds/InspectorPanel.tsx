@@ -2,14 +2,36 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { X, Edit3, Save, Plus, Link2, Loader2, Network, Globe2 } from "lucide-react";
+import {
+  X, Edit3, Save, Trash2, Plus,
+  MapPin, Users, Shield, Brain, Sparkles, Tag, Network,
+  Layers, Globe2, FlaskConical,
+} from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { entitiesApi } from "@/lib/api";
-import { WORLDS_KEYS } from "@/lib/query-keys";
-import { KIND_CONFIG } from "@/lib/kind-config";
 import { cn } from "@/lib/utils";
 import type { GraphNodeData, GraphNodeKind } from "@/lib/types";
 import type { Node } from "@xyflow/react";
+
+// Minimal per-kind config (border + bg + icon + colors) used by the
+// inspector for node chrome. Subset of the worldGraph KIND_CONFIG —
+// lives here so this file is self-contained and doesn't break when
+// other extraction work happens.
+const KIND_CONFIG: Record<
+  GraphNodeKind,
+  { border: string; bg: string; icon: React.ElementType; iconColor: string; tagClass: string; label: string }
+> = {
+  multiverse: { border: "border-purple-500/40", bg: "bg-purple-500/8",  icon: Layers,    iconColor: "text-purple-400",  tagClass: "tag-purple",  label: "Multiverse" },
+  universe:   { border: "border-cyan-500/40",   bg: "bg-cyan-500/8",    icon: Globe2,    iconColor: "text-cyan-400",    tagClass: "tag-cyan",    label: "Universe" },
+  character:  { border: "border-emerald-500/40",bg: "bg-emerald-500/8", icon: Users,     iconColor: "text-emerald-400", tagClass: "tag-emerald", label: "Character" },
+  location:   { border: "border-amber-500/40",  bg: "bg-amber-500/8",   icon: MapPin,    iconColor: "text-amber-400",   tagClass: "tag-amber",   label: "Location" },
+  faction:    { border: "border-red-500/40",    bg: "bg-red-500/8",     icon: Shield,    iconColor: "text-red-400",     tagClass: "tag-red",     label: "Faction" },
+  concept:    { border: "border-violet-500/40", bg: "bg-violet-500/8",  icon: Brain,     iconColor: "text-violet-400",  tagClass: "tag-violet",  label: "Concept" },
+  axiom:      { border: "border-slate-500/40",  bg: "bg-slate-500/8",   icon: Sparkles,  iconColor: "text-slate-400",   tagClass: "tag-slate",   label: "Axiom" },
+  lore:       { border: "border-teal-500/40",   bg: "bg-teal-500/8",    icon: Tag,       iconColor: "text-teal-400",    tagClass: "tag-teal",    label: "Lore" },
+  rule:       { border: "border-orange-500/40", bg: "bg-orange-500/8",  icon: FlaskConical, iconColor: "text-orange-400", tagClass: "tag-orange", label: "Rule" },
+  pack:       { border: "border-pink-500/40",   bg: "bg-pink-500/8",    icon: Sparkles,  iconColor: "text-pink-400",   tagClass: "tag-pink",    label: "Pack" },
+};
 
 export function InspectorPanel({ node, onFocusEntity }: { node: Node<GraphNodeData> | null; onFocusEntity?: (id: string, label: string) => void }) {
   const qc = useQueryClient();
@@ -39,7 +61,7 @@ export function InspectorPanel({ node, onFocusEntity }: { node: Node<GraphNodeDa
         tags,
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: WORLDS_KEYS.graphBase });
+      qc.invalidateQueries({ queryKey: ["worldGraph"] });
       setEditing(false);
     },
   });
@@ -92,7 +114,7 @@ export function InspectorPanel({ node, onFocusEntity }: { node: Node<GraphNodeDa
             className="p-1.5 rounded text-slate-500 hover:text-purple-300 transition-colors"
             title="Edit entity"
           >
-            <Edit3 className="w-3.5 h-3.5" />
+            <Edit2 className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
@@ -130,7 +152,6 @@ export function InspectorPanel({ node, onFocusEntity }: { node: Node<GraphNodeDa
               {editing && (
                 <button
                   onClick={() => setTags(tags.filter((x) => x !== t))}
-                  aria-label={`Remove tag ${t}`}
                   className="text-slate-500 hover:text-red-300"
                 >
                   <X className="w-2.5 h-2.5" />

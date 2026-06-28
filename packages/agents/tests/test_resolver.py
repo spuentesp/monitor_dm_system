@@ -852,7 +852,25 @@ class TestClassifyRollNecessity:
     @pytest.mark.asyncio
     async def test_forced_narrative_still_works(self, resolver):
         """Forced narrative should bypass roll_necessity entirely (for low stakes)."""
-        result = await resolver.resolve_turn("s1", "I successfully enter the room", _make_context())
+        from monitor_agents.gm_awareness import (
+            ActionType, IntentType, RollNecessity, Severity, CausalityAction, GMAwareness,
+        )
+        accept_verdict = GMAwareness(
+            intent_type=IntentType.ACTION,
+            action_type=ActionType.MOVEMENT,
+            roll_necessity=RollNecessity.TRIVIAL,
+            declares_outcome=True,
+            violates_causality=False,
+            severity=Severity.NONE,
+            action=CausalityAction.ACCEPT,
+            reasoning="Entering an empty room is a declared low-stakes outcome.",
+        )
+        with patch(
+            "monitor_agents.resolver.check_gm_awareness",
+            new_callable=AsyncMock,
+            return_value=accept_verdict,
+        ):
+            result = await resolver.resolve_turn("s1", "I successfully enter the room", _make_context())
         assert result["resolution_type"] == "forced_narrative"
         assert result["forced_narrative"] is True
 

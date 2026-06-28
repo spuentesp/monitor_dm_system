@@ -80,8 +80,6 @@ class LLMClient:
     params: dict[str, Any]
     api_key: str = ""
     base_url: Optional[str] = None
-    # Prompt version tag for A/B testing (from LLMNodeAssignment.prompt_version).
-    prompt_version: Optional[str] = None
     _instructor_client: Any = field(repr=False, default=None)
     _raw_client: Any = field(repr=False, default=None)
 
@@ -307,7 +305,6 @@ class LLMRegistry:
             role=ModelRole(row.get("role", "standard")),
             effective_params=params,
             node_name=node_name,
-            prompt_version=row.get("prompt_version"),
         )
 
     @staticmethod
@@ -410,7 +407,6 @@ class LLMRegistry:
             params=config.effective_params,
             api_key=api_key,
             base_url=base_url,
-            prompt_version=config.prompt_version,
             _instructor_client=instructor_client,
             _raw_client=raw,
         )

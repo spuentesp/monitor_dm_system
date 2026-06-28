@@ -108,7 +108,7 @@ class BaseAgent(ABC):
         self,
         response_model: Type[T],
         messages: list[dict[str, Any]],
-        max_tokens: int | None = None,
+        max_tokens: int = 2048,
     ) -> T:
         """
         Call the configured LLM and enforce a Pydantic response model via instructor.
@@ -116,21 +116,9 @@ class BaseAgent(ABC):
         Resolution order:
           1. explicit provider assigned to this agent node
           2. best available provider for the agent's complexity role
-
-        Args:
-            max_tokens: Maximum output tokens.  If None, falls back to the
-                provider's configured ``max_tokens`` (recommended).  The old
-                hardcoded default of 2048 was a footgun that silently truncated
-                extraction-heavy calls; prefer per-provider configuration.
         """
         registry = LLMRegistry(get_postgres_client())
         client = await registry.for_node_or_role(self._node_name(), self._default_model_role())
-
-        # Resolve max_tokens: caller override → provider config → env default
-        if max_tokens is None:
-            max_tokens = client.params.get("max_tokens") or int(
-                __import__("os").environ.get("MONITOR_LLM_DEFAULT_MAX_TOKENS", "2048")
-            )
 
         with logfire.span(
             "{agent_type}.call_llm_structured",

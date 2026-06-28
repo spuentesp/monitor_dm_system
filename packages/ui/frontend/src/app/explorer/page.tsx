@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ReactFlow,
@@ -95,17 +95,17 @@ function ExplorerPageInner() {
     enabled: !!multiverseId,
   });
 
-  useEffect(() => {
-    if (!multiverseId && multiversesQ.data && multiversesQ.data.length > 0) {
-      setMultiverseId(multiversesQ.data[0].id);
-    }
-  }, [multiverseId, multiversesQ.data]);
-
-  useEffect(() => {
-    if (multiverseId && !universeId && universesQ.data && universesQ.data.length > 0) {
-      setUniverseId(universesQ.data[0].id);
-    }
-  }, [multiverseId, universeId, universesQ.data]);
+  if (!multiverseId && multiversesQ.data && multiversesQ.data.length > 0) {
+    setMultiverseId(multiversesQ.data[0].id);
+  }
+  if (
+    multiverseId &&
+    !universeId &&
+    universesQ.data &&
+    universesQ.data.length > 0
+  ) {
+    setUniverseId(universesQ.data[0].id);
+  }
 
   // ─── Graph data ───────────────────────────────────────────
   const graphQ = useQuery({
@@ -125,7 +125,7 @@ function ExplorerPageInner() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
 
   // Sync React Flow state from query data, with search filter.
-  useEffect(() => {
+  useMemo(() => {
     if (!graphQ.data) {
       setNodes([]);
       setEdges([]);

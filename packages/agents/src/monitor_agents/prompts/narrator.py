@@ -95,6 +95,21 @@ class NarratorSignature(dspy.Signature):
             "For others: the outcome is already determined — narrate its consequences."
         )
     )
+    setting_anchor: str = dspy.InputField(
+        desc=(
+            "CRITICAL — Genre, setting, and character identity that must never change mid-session. "
+            "Example: 'GENRE: SCI-FI | SETTING: A derelict salvage station | CHARACTER: Kael Draven | ROLE: void-born salvage engineer'. "
+            "Never describe technology as magic, never introduce medieval elements, "
+            "never change the character's name or species. This is the ground truth for setting consistency."
+        )
+    )
+    context_summary: str = dspy.InputField(
+        desc=(
+            "Relevance-ranked context summary from ContextAssembly. Contains entities, memories, "
+            "and plot threads most relevant to the current action. Use this to ground narration "
+            "in established facts and avoid contradicting prior turns."
+        )
+    )
 
     # Outputs
     narrative_text: str = dspy.OutputField(
@@ -174,6 +189,8 @@ class NarratorModule(dspy.Module):
         prior_turns: str,
         player_action: str,
         resolution_summary: str,
+        setting_anchor: str = "",
+        context_summary: str = "",
         role: Optional[ModelRole] = None,
     ) -> dspy.Prediction:
         with dspy_context_for("narrator", role or ModelRole.HEAVY):
@@ -187,6 +204,8 @@ class NarratorModule(dspy.Module):
                 prior_turns=prior_turns,
                 player_action=player_action,
                 resolution_summary=resolution_summary,
+                setting_anchor=setting_anchor,
+                context_summary=context_summary,
             )
 
 

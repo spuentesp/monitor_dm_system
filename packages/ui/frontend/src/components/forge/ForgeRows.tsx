@@ -65,7 +65,6 @@ function InlineEdit({
       {multiline ? (
         <textarea
           autoFocus
-          aria-label="Edit value"
           className="min-h-[60px] flex-1 resize-y rounded border border-accent-primary/40 bg-bg-card px-2 py-1 text-sm text-fg-primary focus:border-accent-primary focus:outline-none"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -76,7 +75,6 @@ function InlineEdit({
       ) : (
         <input
           autoFocus
-          aria-label="Edit value"
           className="flex-1 rounded border border-accent-primary/40 bg-bg-card px-2 py-1 text-sm text-fg-primary focus:border-accent-primary focus:outline-none"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -146,8 +144,6 @@ function RowKebabMenu({ children }: { children: React.ReactNode }) {
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
         className="self-start p-1 text-fg-muted opacity-0 group-hover/row:opacity-60 hover:text-fg-primary transition-all"
         title="More actions"
-        aria-label="More actions"
-        aria-expanded={open}
       >
         <MoreVertical className="h-3.5 w-3.5" />
       </button>

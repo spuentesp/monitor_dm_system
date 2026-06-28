@@ -21,7 +21,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { chatApi, storiesApi } from "@/lib/api";
-import { PLAY_KEYS } from "@/lib/query-keys";
 import type { Message, Session, StoryThread } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { RecapModal } from "@/components/play/RecapModal";
@@ -52,7 +51,7 @@ export function SessionRecorder({
   const endRef = useRef<HTMLDivElement>(null);
 
   const { data: allSessions = [], isLoading: sessionsLoading } = useQuery({
-    queryKey: PLAY_KEYS.sessions,
+    queryKey: ["sessions"],
     queryFn: () => chatApi.listSessions(),
   });
 
@@ -73,7 +72,7 @@ export function SessionRecorder({
   const active = recordings.find((r) => r.id === activeId) ?? null;
 
   const { data: messages = [] } = useQuery({
-    queryKey: PLAY_KEYS.messages(activeId),
+    queryKey: ["chat", activeId, "messages"],
     queryFn: () => chatApi.getMessages(activeId!),
     enabled: !!activeId,
   });
@@ -100,7 +99,7 @@ export function SessionRecorder({
         tone: "dramatic",
       }),
     onSuccess: (s) => {
-      qc.invalidateQueries({ queryKey: PLAY_KEYS.sessions });
+      qc.invalidateQueries({ queryKey: ["sessions"] });
       setActiveId(s.id);
     },
   });
@@ -120,7 +119,7 @@ export function SessionRecorder({
       timestamp: new Date().toISOString(),
       metadata: {},
     };
-    qc.setQueryData<Message[]>(PLAY_KEYS.messages(activeId), (prev) => [
+    qc.setQueryData<Message[]>(["chat", activeId, "messages"], (prev) => [
       ...(prev ?? []),
       optimistic,
     ]);
@@ -128,8 +127,8 @@ export function SessionRecorder({
     chatApi
       .sendMessage(activeId, text)
       .then(() => {
-        qc.invalidateQueries({ queryKey: PLAY_KEYS.messages(activeId) });
-        qc.invalidateQueries({ queryKey: PLAY_KEYS.sessions });
+        qc.invalidateQueries({ queryKey: ["chat", activeId, "messages"] });
+        qc.invalidateQueries({ queryKey: ["sessions"] });
       })
       .catch((err: unknown) => {
         setFailure(err instanceof Error ? err.message : "Logging failed");
@@ -144,8 +143,8 @@ export function SessionRecorder({
     chatApi
       .endScene(activeId)
       .then(() => {
-        qc.invalidateQueries({ queryKey: PLAY_KEYS.messages(activeId) });
-        qc.invalidateQueries({ queryKey: PLAY_KEYS.sessions });
+        qc.invalidateQueries({ queryKey: ["chat", activeId, "messages"] });
+        qc.invalidateQueries({ queryKey: ["sessions"] });
       })
       .catch((err: unknown) => {
         setFailure(err instanceof Error ? err.message : "Scene wrap-up failed");

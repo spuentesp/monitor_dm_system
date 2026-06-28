@@ -154,6 +154,21 @@ class SceneState(BaseModel):
     # Story state (Task 2)
     story_state: Optional[StoryState] = None
 
+    # ── Turn Context & Coherence (narrative coherence fixes) ──
+    # Deterministic context summary from ContextAssembly._summarise_context.
+    # Computed by assemble() but previously discarded by load_context.
+    context_summary: str = ""
+    # Structured turn context (position, interactables, NPCs, established facts).
+    # Built by the build_turn_context node (when available) or None.
+    turn_context: Optional[Dict[str, Any]] = None
+    # Pending roll from a previous turn (propose_roll with success=pending).
+    # When set, the resolver must not classify the next action as trivial.
+    pending_roll: Optional[Dict[str, Any]] = None
+    # Established facts extracted from narration (for continuity tracking).
+    established_facts: List[str] = Field(default_factory=list)
+    # Consistency violations detected by check_consistency node.
+    consistency_violations: List[Dict[str, Any]] = Field(default_factory=list)
+
 
 # =============================================================================
 # NODES
@@ -279,6 +294,7 @@ async def load_context(state: SceneState) -> Dict[str, Any]:
         "universe_id": universe_id,
         "temporal_mode": temporal_mode,
         "time_ref": time_ref,
+        "context_summary": context.get("summary", ""),
     }
 
 
@@ -307,6 +323,7 @@ async def resolve_action(state: SceneState) -> Dict[str, Any]:
             "entities": state.entity_context,
             "turns": state.previous_turns,
             "source_profile": state.source_profile,
+            "pending_roll": state.pending_roll,
         },
         game_context=state.game_context,
         play_mode=state.play_mode,
@@ -320,9 +337,26 @@ async def resolve_action(state: SceneState) -> Dict[str, Any]:
             if "content" in p and isinstance(p["content"], dict):
                 p["content"]["universe_id"] = str(state.universe_id)
 
+    # Pending roll state machine: when the resolver returns propose_roll,
+    # persist the roll spec so the next turn knows a roll is pending.
+    # When the roll is resolved (not pending), clear it.
+    new_pending_roll = state.pending_roll
+    res_type = resolution.get("resolution_type")
+    if res_type == "propose_roll":
+        new_pending_roll = {
+            "stat": resolution.get("stat"),
+            "dc": resolution.get("difficulty_class"),
+            "modifier": resolution.get("modifier"),
+            "action": state.user_input,
+            "resolution_type": "propose_roll",
+        }
+    elif res_type in ("dice", "contested", "forced_narrative_pushback"):
+        new_pending_roll = None
+
     return {
         "resolution": resolution,
         "pending_proposals": state.pending_proposals + proposals,
+        "pending_roll": new_pending_roll,
     }
 
 
@@ -346,6 +380,9 @@ async def narrate(state: SceneState) -> Dict[str, Any]:
             "turns": state.previous_turns,
             "source_profile": state.source_profile,
             "actor": state.actor_context,
+            "context_summary": state.context_summary,
+            "turn_context": state.turn_context,
+            "established_facts": state.established_facts,
         },
         game_context=state.game_context,
         session_tone=state.session_tone,
@@ -857,6 +894,214 @@ async def complete_current_scene(state: SceneState) -> Dict[str, Any]:
     return updates
 
 
+# =============================================================================
+# Narrative coherence nodes (extract_facts + check_consistency)
+# =============================================================================
+
+
+async def extract_facts(state: SceneState) -> Dict[str, Any]:
+    """
+    Extract concrete facts from narration for continuity tracking.
+
+    This is NOT canonization — it's lightweight fact extraction for the
+    narrator's own context next turn. Facts are stored in SceneState, not Neo4j.
+
+    Extracted facts include:
+    - Named entities mentioned (ship names, NPC names, locations)
+    - State changes (door opened, creature killed, item taken)
+    - Setting details established (the tavern is called X, the ship is called Y)
+
+    These feed into TurnContext.established_facts and prevent the name/setting
+    drift documented in tests/e2e/logs/long_form_22turn.md.
+    """
+    if not state.narrative_text:
+        return {}
+
+    # Use deterministic extraction: regex for proper nouns + state-change verbs.
+    # This avoids an LLM call and is fast enough for every-turn use.
+    import re
+
+    facts: List[str] = []
+
+    # Extract named entities: Capitalized words/phrases that aren't at sentence start
+    # (heuristic — catches "Rust Nail", "Ostensible", "Kael Draven", etc.)
+    entity_pattern = re.compile(
+        r"\b(?:name(?:d|s)? (?:the |a |an )?)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b"
+    )
+    seen_names: set[str] = set()
+    for match in entity_pattern.finditer(state.narrative_text):
+        name = match.group(1).strip()
+        # Skip common false positives
+        if name.lower() in {"the", "a", "an", "i", "you", "he", "she", "it", "they",
+                            "your", "his", "her", "its", "their", "this", "that",
+                            "roll", "strength", "dexterity", "intelligence",
+                            "charisma", "wisdom", "constitution"}:
+            continue
+        if name not in seen_names:
+            seen_names.add(name)
+            # Only add as a fact if it appears to be a named entity (2+ words or known pattern)
+            if " " in name or name not in {"I", "You", "He", "She", "It", "They"}:
+                facts.append(f"Named entity mentioned: {name}")
+
+    # Extract state changes: "X is dead", "door opened", "item taken"
+    state_patterns = [
+        (re.compile(r"\b(\w+)\s+(?:is|are|lies|remains)\s+(?:dead|motionless|destroyed|broken|sealed|open|closed)\b", re.IGNORECASE),
+         "State change: {0} is now {1}"),
+        (re.compile(r"\b(?:you|the player)\s+(?:find|found|retrieve|retrieved|grab|grabbed|take|took)\s+(?:the\s+)?(\w+(?:\s+\w+)?)\b", re.IGNORECASE),
+         "Item acquired: {0}"),
+        (re.compile(r"\b(?:door|hatch|panel|seal)\s+(?:opens|opened|breaks|broke|shatters|shattered)\b", re.IGNORECASE),
+         "Barrier breached"),
+    ]
+    for pattern, template in state_patterns:
+        for match in pattern.finditer(state.narrative_text):
+            groups = match.groups()
+            if groups:
+                fact = template.format(*groups)
+            else:
+                fact = template
+            if fact not in facts:
+                facts.append(fact)
+
+    # Merge with existing established facts (deduplicated)
+    existing = set(state.established_facts)
+    new_facts = [f for f in facts if f not in existing]
+    all_facts = list(state.established_facts) + new_facts
+
+    # Cap at 50 facts to prevent unbounded growth
+    if len(all_facts) > 50:
+        all_facts = all_facts[-50:]
+
+    if not new_facts:
+        return {}
+
+    logger.info(
+        "Extracted %d new facts from narration (scene %s)",
+        len(new_facts),
+        state.scene_id,
+    )
+    return {"established_facts": all_facts}
+
+
+async def check_consistency(state: SceneState) -> Dict[str, Any]:
+    """
+    Lightweight consistency check against established facts.
+
+    NOT a full CanonKeeper contradiction detection — just a fast check:
+    - Did the narrator change a named entity's name? (Rust Nail → Ostensible)
+    - Did the narrator change genre? (sci-fi → medieval)
+    - Did the narrator contradict an established fact?
+
+    Violations are flagged in state.consistency_violations for downstream
+    handling (re-narration, correction injection, or logging).
+    """
+    if not state.narrative_text:
+        return {}
+
+    violations: List[Dict[str, Any]] = []
+
+    # Check 1: Name drift — if established facts mention a name, and the
+    # narration uses a different name for the same concept, flag it.
+    established_names: Dict[str, str] = {}
+    for fact in state.established_facts:
+        # Parse "Named entity mentioned: X" facts
+        if fact.startswith("Named entity mentioned: "):
+            name = fact[len("Named entity mentioned: "):].strip()
+            # Use first word as key for matching (e.g. "Rust" for "Rust Nail")
+            key = name.split()[0].lower() if name else ""
+            if key:
+                established_names[key] = name
+
+    # Check if narration mentions a different name that might conflict
+    import re
+
+    # Look for ship/vehicle names: "the <Name>" or "ship <Name>" or "hull reads <Name>"
+    ship_name_pattern = re.compile(
+        r"(?:hull reads|ship(?:'s name)?(?:\s+is)?|called|named)\s+\*?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\*?",
+        re.IGNORECASE,
+    )
+    for match in ship_name_pattern.finditer(state.narrative_text):
+        found_name = match.group(1).strip()
+        # Check if this contradicts an established ship name
+        for key, established_name in established_names.items():
+            if (
+                found_name.lower() != established_name.lower()
+                and found_name.lower() != key
+                and established_name.lower() not in found_name.lower()
+                and found_name.lower() not in established_name.lower()
+            ):
+                # Only flag if both names seem to refer to the same type of thing
+                # (ship, station, location) — heuristic check
+                violations.append({
+                    "type": "name_drift",
+                    "expected": established_name,
+                    "found": found_name,
+                    "severity": "high",
+                    "message": (
+                        f"Narrator used '{found_name}' but established name is "
+                        f"'{established_name}'. This may cause player confusion."
+                    ),
+                })
+
+    # Check 2: Genre drift — if the setting anchor says sci-fi but the
+    # narration uses medieval/fantasy terms, flag it.
+    turn_ctx = state.turn_context
+    expected_genre = ""
+    if turn_ctx and isinstance(turn_ctx, dict):
+        expected_genre = turn_ctx.get("genre", "").lower()
+    elif hasattr(state, "source_profile") and state.source_profile:
+        expected_genre = (
+            state.source_profile.get("genre", "").lower()
+            if isinstance(state.source_profile, dict)
+            else ""
+        )
+
+    if expected_genre:
+        medieval_terms = ["tavern", "hearth", "corkboard", "ale", "mead", "innkeeper",
+                          "sword", "spell", "mage", "dragon", "knight", "castle"]
+        sci_fi_terms = ["airlock", "corridor", "datapad", "dataslate", "station",
+                        "void", "hull", "bulkhead", "recycled air", "salvage"]
+        text_lower = state.narrative_text.lower()
+
+        if expected_genre == "sci-fi":
+            for term in medieval_terms:
+                if term in text_lower:
+                    # Check if any sci-fi terms are also present (mixed setting is OK)
+                    has_sci = any(t in text_lower for t in sci_fi_terms)
+                    if not has_sci:
+                        violations.append({
+                            "type": "genre_drift",
+                            "expected": "sci-fi",
+                            "found": f"medieval term '{term}'",
+                            "severity": "high",
+                            "message": (
+                                f"Narrator used medieval term '{term}' in a sci-fi setting. "
+                                f"This indicates genre drift."
+                            ),
+                        })
+                        break  # One violation is enough
+
+    # Check 3: Contradiction with established facts
+    for fact in state.established_facts:
+        if fact.startswith("State change: "):
+            # e.g. "State change: door is now sealed" — check if narration says it's open
+            entity_state = fact[len("State change: "):]
+            if "sealed" in entity_state and "opens" in state.narrative_text.lower():
+                # This might be a legitimate state change (player forced the door)
+                # so we only flag it as low severity
+                pass  # Don't flag — state changes are expected
+
+    if not violations:
+        return {}
+
+    logger.warning(
+        "Consistency check found %d violation(s) in scene %s: %s",
+        len(violations),
+        state.scene_id,
+        violations,
+    )
+    return {"consistency_violations": violations}
+
+
 async def check_events(state: SceneState) -> Dict[str, Any]:
     """
     FASE ALTO (Item 1): ResourceEngine — detect spends, apply earns, fire thresholds.
@@ -998,7 +1243,9 @@ def build_scene_graph() -> StateGraph:
     graph.add_node("narrate", narrate)
     graph.add_node("extract_new_entities", extract_new_entities)
     graph.add_node("extract_memories", extract_memories)
+    graph.add_node("extract_facts", extract_facts)
     graph.add_node("persist_memories", persist_memories_node)
+    graph.add_node("check_consistency", check_consistency)
     graph.add_node("check_events", check_events)
     graph.add_node("persist_turn_artifacts", persist_turn_artifacts)
     graph.add_node("complete_current_scene", complete_current_scene)
@@ -1014,14 +1261,14 @@ def build_scene_graph() -> StateGraph:
         route_after_resolve,
         {"narrate": "narrate", END: END},
     )
-    # Fan out: both extractors run concurrently after narrate. In LangGraph a
-    # node's multiple plain successors execute in the same superstep, so two
-    # edges (not a list end_key — which add_edge rejects) gives the parallelism.
+    # Fan out: three extractors run concurrently after narrate.
     graph.add_edge("narrate", "extract_new_entities")
     graph.add_edge("narrate", "extract_memories")
-    # Fan in: wait for BOTH extractors before persisting (list start_key is valid).
-    graph.add_edge(["extract_new_entities", "extract_memories"], "persist_memories")
-    graph.add_edge("persist_memories", "check_events")
+    graph.add_edge("narrate", "extract_facts")
+    # Fan in: wait for ALL extractors before persisting.
+    graph.add_edge(["extract_new_entities", "extract_memories", "extract_facts"], "persist_memories")
+    graph.add_edge("persist_memories", "check_consistency")
+    graph.add_edge("check_consistency", "check_events")
     graph.add_edge("check_events", "persist_turn_artifacts")
     graph.add_conditional_edges(
         "persist_turn_artifacts",

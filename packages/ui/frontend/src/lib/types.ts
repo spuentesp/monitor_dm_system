@@ -953,11 +953,6 @@ export interface LorebookEntry {
   created_at: string;
 }
 
-export interface LorebookStats {
-  total_entries: number;
-  total_triggers: number;
-}
-
 export interface LorebookEntryCreate {
   keywords: string[];
   content: string;

@@ -4,17 +4,3 @@ python-version = ""
 timeout = 30
 excluded-modules = []
 test-command = "uv run pytest packages/agents/tests/test_scene_loop.py tests/behavior/test_scene_loop_routing_behavior.py tests/behavior/test_scene_end_choreography_behavior.py tests/behavior/test_scene_support_behavior.py -q"
-
-[cosmic-ray.distributor]
-name = "local"
-
-[cosmic-ray.operators]
-# Scene loop is control-flow heavy (routing, state transitions).
-enabled = [
-    "core/Boolean",
-    "core/Break",
-    "core/Continue",
-    "core/Deletion",
-    "core/Number",
-    "core/Variable",
-]

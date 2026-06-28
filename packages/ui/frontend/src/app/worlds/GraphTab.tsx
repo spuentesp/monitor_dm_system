@@ -2,17 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type Node, type Edge } from "@xyflow/react";
-import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, Filter, Globe2, Layers, Link2, Loader2, MapPin, Network, RefreshCw, Search, Shield, Sparkles, User, WifiOff, X } from "lucide-react";
+import { ReactFlow, Background, BackgroundVariant, Controls, useNodesState, useEdgesState, Handle, Position, type Node, type Edge, type NodeProps } from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import { ChevronLeft, ChevronRight, Filter, Globe2, Layers, Link2, Loader2, Network, RefreshCw, Search, WifiOff } from "lucide-react";
+import { motion } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { entitiesApi, graphApi, universesApi } from "@/lib/api";
-import { UNIVERSE_KEYS, WORLDS_KEYS } from "@/lib/query-keys";
 import { InspectorPanel } from "./InspectorPanel";
 import { GraphLegend } from "./GraphLegend";
 import { GraphCanvas } from "./GraphCanvas";
-import type { GraphNodeData, WorldGraphFilter } from "@/lib/types";
+import type { GraphNodeData } from "@/lib/types";
 
 export function GraphTab() {
   const qc = useQueryClient();
@@ -30,7 +30,7 @@ export function GraphTab() {
 
   // ── Load multiverses / universes for dropdowns ────────────
   const { data: multiverses = [] } = useQuery({
-    queryKey: UNIVERSE_KEYS.multiverses,
+    queryKey: ["multiverses"],
     queryFn: universesApi.listMultiverses,
   });
 
@@ -42,7 +42,7 @@ export function GraphTab() {
   }, [multiverses, filterMvId]);
 
   const { data: allUniverses = [] } = useQuery({
-    queryKey: UNIVERSE_KEYS.universes(filterMvId ?? undefined),
+    queryKey: ["universes", filterMvId],
     queryFn: () => universesApi.listUniverses(filterMvId ?? undefined),
   });
 
@@ -59,7 +59,7 @@ export function GraphTab() {
 
   // ── Entity search for "related to" ────────────────────────
   const { data: entitySearchResults = [] } = useQuery({
-    queryKey: WORLDS_KEYS.entitySearch(entitySearch),
+    queryKey: ["entitySearch", entitySearch],
     queryFn: () => entitiesApi.search(entitySearch, 10),
     enabled: entitySearch.length >= 2,
     staleTime: 10_000,
@@ -67,7 +67,7 @@ export function GraphTab() {
 
   // ── Graph query ───────────────────────────────────────────
   const { data, isLoading, error } = useQuery({
-    queryKey: WORLDS_KEYS.graph(graphFilter),
+    queryKey: ["worldGraph", graphFilter],
     queryFn: () => graphApi.getWorldGraph(graphFilter),
     staleTime: 30_000,
     retry: 1,
@@ -157,7 +157,7 @@ export function GraphTab() {
         )}
 
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: WORLDS_KEYS.graphBase })}
+          onClick={() => qc.invalidateQueries({ queryKey: ["worldGraph"] })}
           className="btn-ghost py-1.5 px-2"
           title="Refresh"
         >

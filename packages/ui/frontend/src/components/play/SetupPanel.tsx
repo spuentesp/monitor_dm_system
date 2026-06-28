@@ -6,9 +6,26 @@ import { Loader2, Plus } from "lucide-react";
 import { entitiesApi, universesApi, chatApi } from "@/lib/api";
 import { useSystems } from "@/hooks/use-systems";
 import { PLAY_KEYS, UNIVERSE_KEYS } from "@/lib/query-keys";
-import { TONES, TONE_DESCRIPTIONS, MODE_LABEL, type Tone } from "@/lib/play-constants";
 import type { Character, PlaytestBenchmark } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+const TONES = ["dramatic", "grim", "horror", "heroic", "mystery", "adventure"] as const;
+type Tone = typeof TONES[number];
+
+const TONE_DESCRIPTIONS: Record<Tone, string> = {
+  dramatic: "Baroque, weighty, personal stakes",
+  grim: "Terse, industrial, cosmic dread",
+  horror: "Dread through omission, slow tension",
+  heroic: "Elevated, mythic, earned hope",
+  mystery: "Layered, rationed, careful",
+  adventure: "Kinetic, immediate, punchy",
+};
+
+const MODE_LABEL: Record<string, string> = {
+  autonomous_gm: "Autonomous GM",
+  gm_assistant: "GM Assistant",
+  world_architect: "World Architect",
+};
 
 export interface SetupPayload {
   title: string;

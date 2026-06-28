@@ -157,21 +157,6 @@ class Settings(BaseSettings):
     llm_retry_max_wait: float = Field(default=30.0, alias="LLM_RETRY_MAX_WAIT")
 
     # -------------------------------------------------------------------------
-    # LLM / DSPy runtime knobs
-    # -------------------------------------------------------------------------
-    # Per-request timeout for LLM calls (seconds). Prevents a single hung
-    # request from stalling the pipeline.
-    llm_timeout: int = Field(default=120, alias="MONITOR_LLM_TIMEOUT")
-    # Default max_tokens for call_llm_structured when neither the caller nor
-    # the provider config specifies one. The old hardcoded 2048 was a footgun.
-    llm_default_max_tokens: int = Field(default=2048, alias="MONITOR_LLM_DEFAULT_MAX_TOKENS")
-    # Comma-separated list of node names that may stream tokens to the UI.
-    # Defaults to "narrator" for backward compatibility.
-    llm_streamable_nodes: str = Field(default="narrator", alias="MONITOR_LLM_STREAMABLE_NODES")
-    # Toggle DSPy prompt optimizers (MIPROv2/BootstrapFewShot) when implemented.
-    dspy_enable_optimizers: bool = Field(default=False, alias="MONITOR_DSPY_ENABLE_OPTIMIZERS")
-
-    # -------------------------------------------------------------------------
     # NLP / GLiNER (Named Entity Recognition)
     # -------------------------------------------------------------------------
     nlp_enabled: bool = Field(default=True, alias="NLP_ENABLED")

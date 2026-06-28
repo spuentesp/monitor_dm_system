@@ -5,7 +5,7 @@ import { Bot } from "lucide-react";
 /** Three pulsing dots inside a GM bubble. */
 export function TypingIndicator() {
   return (
-    <div role="status" aria-label="GM is typing" className="flex items-end gap-2 animate-fade-in">
+    <div className="flex items-end gap-2 animate-fade-in">
       <div className="w-6 h-6 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
         <Bot className="w-3 h-3 text-purple-400" />
       </div>

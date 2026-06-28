@@ -1,16 +1,42 @@
 import pytest
+from unittest.mock import patch, AsyncMock
 from uuid import uuid4
+
+from monitor_agents.gm_awareness import (
+    ActionType, IntentType, RollNecessity, Severity, CausalityAction, GMAwareness,
+)
 from monitor_agents.resolver import Resolver
 
 
 @pytest.mark.asyncio
 async def test_forced_narrative_pushback_high_stakes():
+    """When the LLM-driven causality check decides the declared outcome violates
+    causality (PUSH_BACK), the resolver must request a roll from the player."""
     resolver = Resolver()
     scene_id = str(uuid4())
 
-    # "I kill the boss" should trigger pushback because it's high stakes (combat/kill)
-    user_input = "I kill the boss"
-    res = await resolver.resolve_turn(scene_id, user_input, play_mode="dice_standard")
+    pushback_verdict = GMAwareness(
+        intent_type=IntentType.ACTION,
+        action_type=ActionType.COMBAT,
+        roll_necessity=RollNecessity.PROPOSE_ROLL,
+        declares_outcome=True,
+        violates_causality=True,
+        severity=Severity.MAJOR,
+        reasons=["Killing without a roll requires a check."],
+        action=CausalityAction.PUSH_BACK,
+        suggested_stat="Strength",
+        suggested_dc=15,
+        pushback_prompt="Roll Strength (DC 15) to land the killing blow.",
+        reasoning="Combat declaration requires a roll.",
+    )
+
+    with patch(
+        "monitor_agents.resolver.check_gm_awareness",
+        new_callable=AsyncMock,
+        return_value=pushback_verdict,
+    ):
+        user_input = "I kill the boss"
+        res = await resolver.resolve_turn(scene_id, user_input, play_mode="dice_standard")
 
     assert res["resolution_type"] == "forced_narrative_pushback"
     assert res["requires_player_choice"] is True
@@ -20,16 +46,30 @@ async def test_forced_narrative_pushback_high_stakes():
 
 @pytest.mark.asyncio
 async def test_forced_narrative_no_pushback_low_stakes():
+    """When the LLM-driven causality check decides the declared outcome is fine
+    (ACCEPT), the resolver must advance the fiction without requesting a roll."""
     resolver = Resolver()
     scene_id = str(uuid4())
 
-    # "I enter the room" is forced narrative but low stakes
-    user_input = "I enter the room"
-    res = await resolver.resolve_turn(scene_id, user_input, play_mode="dice_standard")
+    accept_verdict = GMAwareness(
+        intent_type=IntentType.ACTION,
+        action_type=ActionType.MOVEMENT,
+        roll_necessity=RollNecessity.TRIVIAL,
+        declares_outcome=True,
+        violates_causality=False,
+        severity=Severity.NONE,
+        action=CausalityAction.ACCEPT,
+        reasoning="Entering an empty room is a declared low-stakes outcome.",
+    )
 
-    # Heuristic check: "enter" is in forced narrative list.
-    # But is it high stakes? _classify_roll_necessity for "enter" returns "trivial"
-    # unless danger keywords are present.
+    with patch(
+        "monitor_agents.resolver.check_gm_awareness",
+        new_callable=AsyncMock,
+        return_value=accept_verdict,
+    ):
+        user_input = "I enter the room"
+        res = await resolver.resolve_turn(scene_id, user_input, play_mode="dice_standard")
+
     assert res["resolution_type"] == "forced_narrative"
     assert res["success"] is True
 

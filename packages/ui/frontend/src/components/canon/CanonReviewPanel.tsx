@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { canonApi, ingestApi } from "@/lib/api";
 import type { ProposalItem, SceneReview } from "@/lib/types";
+import { CANON_KEYS } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 
 // ─── Constants ───────────────────────────────────────────────
@@ -311,14 +312,14 @@ export function CanonReviewPanel({
 
   // ── Queries ──────────────────────────────────────────────
   const storyQuery = useQuery({
-    queryKey: ["canon-queue", storyId],
+    queryKey: [...CANON_KEYS.queue, storyId],
     queryFn: () => canonApi.storyQueue(storyId!, true),
     enabled: !!storyId && !sceneId,
     refetchInterval: 15_000,
   });
 
   const sceneQuery = useQuery({
-    queryKey: ["canon-review", sceneId],
+    queryKey: CANON_KEYS.review(sceneId!),
     queryFn: () => canonApi.sceneReview(sceneId!),
     enabled: !!sceneId,
     refetchInterval: 10_000,
@@ -328,7 +329,7 @@ export function CanonReviewPanel({
   const acceptMutation = useMutation({
     mutationFn: (proposalId: string) => canonApi.acceptProposal(proposalId, acceptReason || "Approved by GM"),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["canon-queue"] });
+      qc.invalidateQueries({ queryKey: CANON_KEYS.queue });
       qc.invalidateQueries({ queryKey: ["canon-review"] });
       onProposalsChanged?.();
     },
@@ -337,7 +338,7 @@ export function CanonReviewPanel({
   const rejectMutation = useMutation({
     mutationFn: (proposalId: string) => canonApi.rejectProposal(proposalId, rejectReason || "Not suitable for canon"),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["canon-queue"] });
+      qc.invalidateQueries({ queryKey: CANON_KEYS.queue });
       qc.invalidateQueries({ queryKey: ["canon-review"] });
       onProposalsChanged?.();
     },
@@ -347,7 +348,7 @@ export function CanonReviewPanel({
     mutationFn: (items: Array<{ proposal_id: string; decision: "accepted" | "rejected"; reason: string }>) =>
       canonApi.batchVerdicts(items),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["canon-queue"] });
+      qc.invalidateQueries({ queryKey: CANON_KEYS.queue });
       qc.invalidateQueries({ queryKey: ["canon-review"] });
       onProposalsChanged?.();
     },
@@ -406,7 +407,7 @@ export function CanonReviewPanel({
             <Gavel className="w-4 h-4 text-cyan-400" />
             Canon Review
           </h3>
-          {scene.pending.length > 0 && (
+          {scene.pending.length > 0 && storyId && (
             <button
               onClick={acceptAllPending}
               disabled={batchMutation.isPending}

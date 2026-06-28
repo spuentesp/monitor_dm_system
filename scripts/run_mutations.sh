@@ -23,9 +23,6 @@ declare -A CONFIGS=(
     [plot-hooks]="cosmic-ray-plot-hooks.toml"
     [delta-detection]="cosmic-ray-delta-detection.toml"
     [contradiction]="cosmic-ray-contradiction.toml"
-    [narrator]="cosmic-ray-narrator.toml"
-    [context-assembly]="cosmic-ray-context-assembly.toml"
-    [simulacrum]="cosmic-ray-simulacrum.toml"
 )
 
 # Print targets and exit

@@ -21,7 +21,6 @@ export function ChatModeToggle({ mode, onChange, className }: ChatModeToggleProp
     <div className={cn("flex items-center gap-1 p-0.5 rounded-lg bg-white/5 border border-white/10", className)}>
       <button
         onClick={() => onChange("ic")}
-        aria-pressed={mode === "ic"}
         className={cn(
           "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all",
           mode === "ic"
@@ -39,7 +38,6 @@ export function ChatModeToggle({ mode, onChange, className }: ChatModeToggleProp
       </button>
       <button
         onClick={() => onChange("ooc")}
-        aria-pressed={mode === "ooc"}
         className={cn(
           "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all",
           mode === "ooc"

@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { History, Loader2, ScrollText } from "lucide-react";
 import { changeLogApi } from "@/lib/api";
 import type { ChangeLogEntry } from "@/lib/types";
+import { CHANGE_LOG_KEYS } from "@/lib/query-keys";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { changeIcon, changeColor } from "@/lib/historyMapping";
 
@@ -55,7 +56,7 @@ function EntryRow({ entry }: { entry: ChangeLogEntry }) {
 export function HistoryTab() {
   const [subjectType, setSubjectType] = useState<string>("");
   const q = useQuery({
-    queryKey: ["change-log", subjectType],
+    queryKey: CHANGE_LOG_KEYS.subject(subjectType),
     queryFn: () =>
       changeLogApi.list({ subject_type: subjectType || undefined, limit: 200 }),
     refetchInterval: 15000,

@@ -31,12 +31,9 @@ dev = [
     "pytest-mock>=3.12",
     "mypy>=1.7",
     "ruff>=0.1",
-    # Property-based testing
+    # Contract testing & property-based testing
+    "deal>=4.0.0,<4.25.0",
     "hypothesis>=6.0.0",
-    "pytest-cov>=7.1.0",
-    "pytest-timeout>=2.3",
-    "pytest-socket>=0.7",
-    "cosmic-ray>=8.0",
 ]
 
 [dependency-groups]
@@ -46,7 +43,8 @@ dev = [
     "pytest-mock>=3.12",
     "mypy>=1.7",
     "ruff>=0.1",
-    # Property-based testing
+    # Contract testing & property-based testing
+    "deal>=4.0.0,<4.25.0",
     "hypothesis>=6.0.0",
     "pytest-cov>=7.1.0",
     "pytest-timeout>=2.3",

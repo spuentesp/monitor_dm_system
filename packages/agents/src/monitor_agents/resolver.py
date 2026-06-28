@@ -3,6 +3,24 @@ Resolver Agent implementation.
 
 LAYER: 2 (agents)
 Authority: MongoDB (resolutions, proposals), Character State
+
+ARCHITECTURE NOTE
+-----------------
+The resolver uses TWO LLM-driven decision points:
+
+1. **GMAwareness** (DSPy) — replaces the old regex-based forced-narrative
+   detection. The GM (LLM) consciously reads the player's text and returns
+   a structured verdict: did the player declare an outcome? Does it violate
+   causality? What should the resolver do? This is the "conscious thought
+   process of the GM" — no regex, no keyword lists.
+
+2. **Roll necessity classification** — still uses regex heuristics
+   (`_classify_roll_necessity`) for dice-mode routing (trivial/propose_roll/
+   contested). This is a separate concern from causality and will be
+   migrated to DSPy in a follow-up.
+
+The causality branch (Branch 2) is LLM-driven. The dice branch (Branch 3)
+is still heuristic. Both coexist cleanly.
 """
 
 import json
@@ -15,6 +33,14 @@ from monitor_data.utils.dice import calculate_modifier, roll_dice
 
 from monitor_agents.base import BaseAgent
 from monitor_agents.game_system import GameSystemRuntime
+
+# LLM-driven causality check (replaces legacy regex forced-narrative detection).
+# Imported at module level so tests can patch ``monitor_agents.resolver.check_gm_awareness``.
+from monitor_agents.gm_awareness import (  # noqa: E402
+    check_gm_awareness,
+    GMAwareness,
+    CausalityAction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -606,41 +632,118 @@ class Resolver(BaseAgent):
             }
 
         # ------------------------------------------------------------------
-        # Branch 2 — Forced narrative (dice mode, player declares outcome)
+        # Branch 2 — Forced narrative / causality (LLM-driven via GMAwareness)
         # ------------------------------------------------------------------
-        if _detect_forced_narrative(user_input or ""):
-            # P-20: Forced Narrative Pushback
-            # If stakes are high, we might want to push back and ask for a roll.
-            # Heuristic: if action_type is dialogue with stakes or combat, it's high stakes.
-            initial_action_type, _, _ = self._infer_action_profile(user_input or "")
+        # The GM (LLM) consciously reads the player's text and decides:
+        #   1. Did the player DECLARE a completed outcome?
+        #   2. If so, does it violate causality (deus ex machina, skipped
+        #      rolls, contradicted facts)?
+        #   3. What should the resolver do? (ACCEPT / PUSH_BACK /
+        #      REQUEST_CLARIFICATION / NARRATIVE_OVERRIDE)
+        #
+        # NO regex, NO keyword lists. The LLM's structured verdict drives
+        # routing. If the LLM says the player is ATTEMPTING (not declaring),
+        # we fall through to Branch 3 (dice resolution).
+        # ------------------------------------------------------------------
+        scene_context_for_awareness: Dict[str, Any] = dict(context or {})
+        scene_context_for_awareness.setdefault("entities", [])
+        scene_context_for_awareness.setdefault("turns", [])
+        scene_context_for_awareness.setdefault("source_profile", {})
 
-            # Use same logic as _classify_roll_necessity but for forced narrative
-            necessity = _classify_roll_necessity(user_input or "", initial_action_type, intent_type)
+        established_facts: list[str] = []
+        sp = scene_context_for_awareness.get("source_profile") or {}
+        if isinstance(sp, dict):
+            established_facts = list(sp.get("established_facts") or [])
+            scene_context_for_awareness["character_name"] = (
+                sp.get("character_name") or sp.get("name") or "the player"
+            )
+            scene_context_for_awareness["character_role"] = (
+                sp.get("class") or sp.get("role") or "adventurer"
+            )
 
-            if necessity in ("contested", "propose_roll") and not auto_roll:
-                # Push back!
-                return {
-                    "scene_id": scene_id,
-                    "action_type": initial_action_type,
-                    "intent_type": intent_type,
-                    "roll_type": roll_type,
-                    "intent_target": intent_target,
-                    "requires_clarification": False,
-                    "stat": None,
-                    "difficulty_class": None,
-                    "resolution_type": "forced_narrative_pushback",
-                    "forced_narrative": True,
-                    "success": None,
-                    "success_level": "pending",
-                    "pushback_prompt": (
-                        "That's a bold claim! The stakes are high here—would you like to "
-                        "roll for it, or are you sure you want to bypass the dice?"
-                    ),
-                    "requires_player_choice": True,
-                    "narrative_pressure": "spiking",
-                    "proposals": [],
-                }
+        gm_verdict: Optional[GMAwareness] = None
+        try:
+            gm_verdict = await check_gm_awareness(
+                agent=self,
+                user_input=user_input or "",
+                scene_context=scene_context_for_awareness,
+                play_mode=play_mode or "",
+                established_facts=established_facts,
+                roll_mode=auto_roll and "auto" or "normal",
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "check_gm_awareness raised unexpectedly (%s); "
+                "falling through to dice resolution",
+                exc,
+            )
+            gm_verdict = None
 
+        # If the LLM says the player is ATTEMPTING (not declaring), fall
+        # through to Branch 3 (dice resolution).
+        if gm_verdict is not None and not gm_verdict.declares_outcome:
+            gm_verdict = None  # route through dice resolution below
+
+        # PUSH_BACK → request a roll from the player
+        if gm_verdict is not None and gm_verdict.action == CausalityAction.PUSH_BACK:
+            suggested_stat = gm_verdict.suggested_stat or "Strength"
+            suggested_dc = gm_verdict.suggested_dc or 12
+            return {
+                "scene_id": scene_id,
+                "action_type": "action",
+                "intent_type": intent_type,
+                "roll_type": roll_type,
+                "intent_target": intent_target,
+                "requires_clarification": False,
+                "stat": suggested_stat,
+                "difficulty_class": suggested_dc,
+                "resolution_type": "forced_narrative_pushback",
+                "forced_narrative": True,
+                "success": None,
+                "success_level": "pending",
+                "pushback_prompt": gm_verdict.pushback_prompt
+                or (
+                    f"That's a bold claim — roll {suggested_stat} (DC {suggested_dc}) "
+                    "to see if it lands."
+                ),
+                "causality_reasons": list(gm_verdict.reasons or []),
+                "causality_severity": gm_verdict.severity.value,
+                "requires_player_choice": True,
+                "narrative_pressure": "spiking",
+                "proposals": [],
+                "gm_reasoning": gm_verdict.reasoning,
+            }
+
+        # REQUEST_CLARIFICATION → ask the player for missing info
+        if gm_verdict is not None and gm_verdict.action == CausalityAction.REQUEST_CLARIFICATION:
+            return {
+                "scene_id": scene_id,
+                "action_type": "action",
+                "intent_type": intent_type,
+                "roll_type": roll_type,
+                "intent_target": intent_target,
+                "requires_clarification": True,
+                "stat": None,
+                "difficulty_class": None,
+                "resolution_type": "forced_narrative_clarification",
+                "forced_narrative": True,
+                "success": None,
+                "success_level": "pending",
+                "pushback_prompt": gm_verdict.pushback_prompt
+                or "Can you clarify where that came from?",
+                "causality_reasons": list(gm_verdict.reasons or []),
+                "causality_severity": gm_verdict.severity.value,
+                "requires_player_choice": True,
+                "narrative_pressure": "steady",
+                "proposals": [],
+                "gm_reasoning": gm_verdict.reasoning,
+            }
+
+        # ACCEPT / NARRATIVE_OVERRIDE → declared outcome advances without a roll
+        if gm_verdict is not None and gm_verdict.action in (
+            CausalityAction.ACCEPT,
+            CausalityAction.NARRATIVE_OVERRIDE,
+        ):
             return {
                 "scene_id": scene_id,
                 "action_type": "action",
@@ -664,7 +767,10 @@ class Resolver(BaseAgent):
                 "requires_player_choice": False,
                 "narrative_pressure": "surging",
                 "proposals": [],
+                "gm_reasoning": gm_verdict.reasoning,
             }
+
+        # Unknown / no-verdict / declares_outcome=False → fall through to dice
 
         # ------------------------------------------------------------------
         # Branch 3 — Dice resolution (dice_standard or dice_game_system)
@@ -722,6 +828,53 @@ class Resolver(BaseAgent):
         # ------------------------------------------------------------------
         intent_type = _infer_intent_type(user_input or "", action_type)
         roll_necessity = _classify_roll_necessity(user_input or "", action_type, intent_type)
+
+        # ------------------------------------------------------------------
+        # Pending roll interception (narrative coherence fix)
+        # ------------------------------------------------------------------
+        # If the previous turn left a pending roll (propose_roll), the player
+        # must resolve it before the narrative can advance. If they try to
+        # narrate past it, we push back and require the roll.
+        pending_roll = context.get("pending_roll") if isinstance(context, dict) else None
+        if pending_roll and not auto_roll:
+            _ROLL_INDICATORS = re.compile(
+                r"\b(roll|rolling|rolled|dice|d20|1d20|/roll)\b", re.IGNORECASE
+            )
+            is_explicit_roll = bool(_ROLL_INDICATORS.search(user_input or ""))
+
+            if not is_explicit_roll:
+                pr_stat = pending_roll.get("stat", stat_name or "the relevant stat")
+                pr_dc = pending_roll.get("dc", dc)
+                pr_action = pending_roll.get("action", "your previous action")
+                dc_hint = f" (DC {pr_dc})" if pr_dc else ""
+                return {
+                    "scene_id": scene_id,
+                    "action_type": action_type,
+                    "intent_type": intent_type,
+                    "roll_type": roll_type,
+                    "intent_target": intent_target,
+                    "requires_clarification": False,
+                    "stat": pr_stat,
+                    "difficulty_class": pr_dc,
+                    "attribute_value": None,
+                    "modifier": pending_roll.get("modifier"),
+                    "roll_total": None,
+                    "roll_breakdown": f"pending_roll — {pr_stat} check{dc_hint}",
+                    "resolution_type": "forced_narrative_pushback",
+                    "forced_narrative": True,
+                    "success": None,
+                    "success_level": "pending",
+                    "pushback_prompt": (
+                        f"You still need to roll {pr_stat}{dc_hint} for: {pr_action}. "
+                        f"Roll the dice to resolve this before continuing."
+                    ),
+                    "requires_player_choice": True,
+                    "narrative_pressure": "rising",
+                    "proposals": [],
+                    "subsystem_hint": subsystem_hint,
+                    "roll_necessity": "pending_roll",
+                }
+
         if roll_necessity == "trivial":
             return {
                 "scene_id": scene_id,

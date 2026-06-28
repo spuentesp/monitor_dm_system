@@ -1571,7 +1571,7 @@ function ForgePageInner() {
               {isDirty && (
                 <button
                   className="btn-ghost text-xs text-fg-muted"
-                  onClick={() => { setDirtyPack(null); setDirtySystem(null); }}
+                  onClick={() => setDirtyPack(null)}
                   title="Discard changes"
                 >
                   <X className="h-3.5 w-3.5" />

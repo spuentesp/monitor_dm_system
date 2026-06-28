@@ -29,7 +29,7 @@ export function MemoryInspector({ characterId, onClose }: MemoryInspectorProps) 
 
   // Fetch memories
   const { data, isLoading } = useQuery({
-    queryKey: [...ENTITY_KEYS.characterMemories(characterId), minImportance],
+    queryKey: ENTITY_KEYS.characterMemories(characterId),
     queryFn: () =>
       entitiesApi.getCharacterMemories(characterId, {
         min_importance: minImportance,

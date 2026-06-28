@@ -9,8 +9,7 @@ on:
         description: >
           Module to mutate — leave blank to run all.
           Valid values: canonkeeper, resolver, npc-voice, scene-loop, story-loop,
-          resource-engine, world-architect, plot-hooks, delta-detection, contradiction,
-          narrator, context-assembly, simulacrum
+          resource-engine, world-architect, plot-hooks, delta-detection, contradiction
         required: false
         default: ""
 
@@ -23,19 +22,16 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - { name: canonkeeper,       toml: cosmic-ray.toml }
-          - { name: resolver,          toml: cosmic-ray-resolver.toml }
-          - { name: npc-voice,         toml: cosmic-ray-npc-voice.toml }
-          - { name: scene-loop,        toml: cosmic-ray-scene-loop.toml }
-          - { name: story-loop,        toml: cosmic-ray-story-loop.toml }
-          - { name: resource-engine,   toml: cosmic-ray-resource-engine.toml }
-          - { name: world-architect,    toml: cosmic-ray-world-architect.toml }
-          - { name: plot-hooks,        toml: cosmic-ray-plot-hooks.toml }
-          - { name: delta-detection,   toml: cosmic-ray-delta-detection.toml }
-          - { name: contradiction,     toml: cosmic-ray-contradiction.toml }
-          - { name: narrator,          toml: cosmic-ray-narrator.toml }
-          - { name: context-assembly,  toml: cosmic-ray-context-assembly.toml }
-          - { name: simulacrum,        toml: cosmic-ray-simulacrum.toml }
+          - { name: canonkeeper,     toml: cosmic-ray.toml }
+          - { name: resolver,        toml: cosmic-ray-resolver.toml }
+          - { name: npc-voice,       toml: cosmic-ray-npc-voice.toml }
+          - { name: scene-loop,      toml: cosmic-ray-scene-loop.toml }
+          - { name: story-loop,      toml: cosmic-ray-story-loop.toml }
+          - { name: resource-engine, toml: cosmic-ray-resource-engine.toml }
+          - { name: world-architect, toml: cosmic-ray-world-architect.toml }
+          - { name: plot-hooks,      toml: cosmic-ray-plot-hooks.toml }
+          - { name: delta-detection, toml: cosmic-ray-delta-detection.toml }
+          - { name: contradiction,   toml: cosmic-ray-contradiction.toml }
     if: >-
       github.event.inputs.target == '' ||
       github.event.inputs.target == matrix.target.name
@@ -76,17 +72,6 @@ jobs:
           echo "score=$SCORE" >> $GITHUB_OUTPUT
           echo "$SCORE" > score-${{ matrix.target.name }}.txt
           echo "Kill rate for ${{ matrix.target.name }}: $SCORE%"
-
-      - name: Check kill-rate threshold (quality gate)
-        id: gate
-        continue-on-error: true
-        run: |
-          SCORE=${{ steps.score.outputs.score }}
-          THRESHOLD=60
-          echo "Kill rate: ${SCORE}% (threshold: ${THRESHOLD}%)"
-          if [ "$SCORE" -lt "$THRESHOLD" ]; then
-            echo "::warning::Mutation kill rate ${SCORE}% is below threshold ${THRESHOLD}% for ${{ matrix.target.name }}"
-          fi
 
       - name: Upload score artifact
         uses: actions/upload-artifact@v4

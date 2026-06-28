@@ -288,90 +288,6 @@ class FakeLLMClient:
         self._generate_proxy = value if isinstance(value, _GenerateProxy) else None
 
 
-class FakeDSPyPrediction:
-    """A fake dspy.Prediction-like object for unit testing DSPy modules.
-
-    DSPy modules access output fields as attributes (e.g. ``result.narrative_text``).
-    This class lets tests script those attributes without a real LLM call.
-
-    Usage::
-
-        pred = FakeDSPyPrediction(narrative_text="The dragon roars.")
-        # In a test, patch the DSPy module to return this:
-        mock_module = MagicMock()
-        mock_module.forward.return_value = pred
-    """
-
-    def __init__(self, **fields: Any) -> None:
-        self._fields = fields
-        for name, value in fields.items():
-            setattr(self, name, value)
-
-    def __repr__(self) -> str:
-        return f"FakeDSPyPrediction({self._fields})"
-
-
-class FakeDSPyLM:
-    """Fake DSPy LM for unit testing DSPy modules without real LLM calls.
-
-    Produces ``FakeDSPyPrediction`` objects with scripted output fields.
-    Supports both queue mode (pop responses in order) and mapping mode
-    (match by prompt content).
-
-    Usage in tests::
-
-        fake_lm = FakeDSPyLM(responses=[
-            FakeDSPyPrediction(narrative_text="The dragon roars."),
-            FakeDSPyPrediction(narrative_text="The hero strikes!"),
-        ])
-        with dspy.context(lm=fake_lm):
-            result = narrator_module.forward(...)
-
-    Or with a mapping::
-
-        fake_lm = FakeDSPyLM(responses={
-            "narrator": FakeDSPyPrediction(narrative_text="..."),
-            "canonkeeper": FakeDSPyPrediction(decision="approve"),
-        })
-    """
-
-    def __init__(
-        self,
-        responses: list[FakeDSPyPrediction] | dict[str, FakeDSPyPrediction] | None = None,
-    ) -> None:
-        self.model = "fake/model"
-        self.kwargs: dict[str, Any] = {}
-        if isinstance(responses, dict):
-            self._response_map: dict[str, FakeDSPyPrediction] = responses
-            self._response_queue: list[FakeDSPyPrediction] = []
-        else:
-            self._response_map = {}
-            self._response_queue = list(responses or [FakeDSPyPrediction(output="ok")])
-
-    def __call__(
-        self,
-        prompt: str | None = None,
-        messages: list[dict] | None = None,
-        **kwargs: Any,
-    ) -> list[FakeDSPyPrediction]:
-        """Return the next scripted prediction (or match by prompt content)."""
-        # Try mapping mode first
-        if self._response_map and prompt:
-            for key, pred in self._response_map.items():
-                if key.lower() in prompt.lower():
-                    return [pred]
-            for key, pred in self._response_map.items():
-                if messages and any(key.lower() in str(m.get("content", "")).lower() for m in messages):
-                    return [pred]
-
-        # Queue mode
-        if self._response_queue:
-            return [self._response_queue.pop(0)]
-
-        # Fallback
-        return [FakeDSPyPrediction(output="ok")]
-
-
 @pytest.fixture
 def fake_mcp_client() -> FakeMCPClient:
     """Fake MCP client for agents/data-layer interactions.
@@ -400,20 +316,6 @@ def fake_mcp_client() -> FakeMCPClient:
 def fake_llm_client() -> FakeLLMClient:
     """Fake LLM client for narrator/resolver/canonkeeper tests."""
     return FakeLLMClient()
-
-
-@pytest.fixture
-def fake_dspy_lm() -> FakeDSPyLM:
-    """Fake DSPy LM for unit testing DSPy modules without real LLM calls.
-
-    Returns a FakeDSPyLM in queue mode. Pre-populate with FakeDSPyPrediction
-    objects in tests that exercise DSPy modules::
-
-        fake_dspy_lm._response_queue = [
-            FakeDSPyPrediction(narrative_text="The dragon roars."),
-        ]
-    """
-    return FakeDSPyLM()
 
 
 # Alias for tests that reference ``llm_client`` fixture name

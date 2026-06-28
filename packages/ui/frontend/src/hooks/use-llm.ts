@@ -8,7 +8,6 @@ export function useLLMProviders() {
     queryKey: SETTINGS_KEYS.providers,
     queryFn: llmApi.listProviders,
     staleTime: 60_000,
-    refetchOnWindowFocus: false,
   });
 }
 
@@ -17,6 +16,5 @@ export function useLLMAssignments() {
     queryKey: SETTINGS_KEYS.assignments,
     queryFn: llmApi.listAssignments,
     staleTime: 30_000,
-    refetchOnWindowFocus: false,
   });
 }

@@ -4,18 +4,3 @@ python-version = ""
 timeout = 25
 excluded-modules = []
 test-command = "uv run pytest packages/agents/tests/test_world_architect.py packages/agents/tests/test_world_architect_procedural.py -q"
-
-[cosmic-ray.distributor]
-name = "local"
-
-[cosmic-ray.operators]
-# World architect has branching and string logic for gap analysis.
-enabled = [
-    "core/Boolean",
-    "core/Break",
-    "core/Continue",
-    "core/Deletion",
-    "core/Number",
-    "core/String",
-    "core/Variable",
-]

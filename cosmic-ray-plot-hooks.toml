@@ -4,18 +4,3 @@ python-version = ""
 timeout = 25
 excluded-modules = []
 test-command = "uv run pytest packages/agents/tests/test_plot_hooks.py tests/behavior/test_plot_hooks_choreography_behavior.py -q"
-
-[cosmic-ray.distributor]
-name = "local"
-
-[cosmic-ray.operators]
-# Plot hooks has branching and string-matching logic.
-enabled = [
-    "core/Boolean",
-    "core/Break",
-    "core/Continue",
-    "core/Deletion",
-    "core/Number",
-    "core/String",
-    "core/Variable",
-]

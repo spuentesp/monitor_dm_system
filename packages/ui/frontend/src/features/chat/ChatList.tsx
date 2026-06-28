@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { ThinkingTrace, ToolCall } from "./types";
+import { useRef } from "react";
 import { AlertCircle, ChevronDown, RotateCcw, X } from "lucide-react";
 import type { Message } from "@/lib/types";
 import type { DiceRequest, StreamingMessage, TurnFailure } from "./types";
@@ -81,70 +82,6 @@ export function ChatList({
     });
   }
 
-  const itemContent = useCallback(
-    (_index: number, msg: Message & { streaming?: string; thinking?: ThinkingTrace; toolCalls?: ToolCall[] }) => (
-      <div className="px-6 py-2">
-        {renderBubble(msg)}
-      </div>
-    ),
-    [renderBubble],
-  );
-
-  const virtuosoComponents = useMemo(
-    () => ({
-      Footer: () => (
-        <div className="px-6 py-3 space-y-3">
-          <AnimatePresence>
-            {isTyping && !streamingMsg && <TypingIndicator key="typing" />}
-          </AnimatePresence>
-
-          <AnimatePresence>
-            {sendFailure && !isTyping && !streamingMsg && (
-              <div
-                key="failure"
-                className="rounded-xl border border-red-500/25 bg-red-500/5 px-4 py-3 space-y-2"
-              >
-                <div className="flex items-center gap-2 text-xs text-red-300 font-medium">
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  Turn didn&apos;t go through
-                </div>
-                <p className="text-xs text-slate-400 leading-relaxed break-words">
-                  {sendFailure.detail}
-                </p>
-                <div className="flex items-center gap-2">
-                  {sendFailure.text && onRetry && (
-                    <button onClick={onRetry} className="btn-cyber text-xs py-1 px-3">
-                      <RotateCcw className="w-3 h-3" /> Retry
-                    </button>
-                  )}
-                  {onDismissFailure && (
-                    <button
-                      onClick={onDismissFailure}
-                      className="btn-ghost text-xs py-1 px-2 text-slate-500"
-                    >
-                      <X className="w-3 h-3" /> Dismiss
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </AnimatePresence>
-
-          <AnimatePresence>
-            {pendingDiceRequest && !isTyping && (
-              <DiceRollPrompt
-                key="dice-prompt"
-                request={pendingDiceRequest}
-                onResult={onDiceResult}
-              />
-            )}
-          </AnimatePresence>
-        </div>
-      ),
-    }),
-    [isTyping, streamingMsg, sendFailure, onRetry, onDismissFailure, pendingDiceRequest, onDiceResult],
-  );
-
   const hasContent = items.length > 0 || isTyping || !!pendingDiceRequest || !!sendFailure;
 
   return (
@@ -164,8 +101,62 @@ export function ChatList({
           alignToBottom={alignToBottom}
           followOutput={isTyping || !!streamingMsg ? "smooth" : false}
           increaseViewportBy={{ top: 200, bottom: 200 }}
-          itemContent={itemContent}
-          components={virtuosoComponents}
+          itemContent={(index, msg) => (
+            <div className="px-6 py-2">
+              {renderBubble(msg)}
+            </div>
+          )}
+          components={{
+            Footer: () => (
+              <div className="px-6 py-3 space-y-3">
+                <AnimatePresence>
+                  {isTyping && !streamingMsg && <TypingIndicator key="typing" />}
+                </AnimatePresence>
+
+                <AnimatePresence>
+                  {sendFailure && !isTyping && !streamingMsg && (
+                    <div
+                      key="failure"
+                      className="rounded-xl border border-red-500/25 bg-red-500/5 px-4 py-3 space-y-2"
+                    >
+                      <div className="flex items-center gap-2 text-xs text-red-300 font-medium">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        Turn didn&apos;t go through
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed break-words">
+                        {sendFailure.detail}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        {sendFailure.text && onRetry && (
+                          <button onClick={onRetry} className="btn-cyber text-xs py-1 px-3">
+                            <RotateCcw className="w-3 h-3" /> Retry
+                          </button>
+                        )}
+                        {onDismissFailure && (
+                          <button
+                            onClick={onDismissFailure}
+                            className="btn-ghost text-xs py-1 px-2 text-slate-500"
+                          >
+                            <X className="w-3 h-3" /> Dismiss
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </AnimatePresence>
+
+                <AnimatePresence>
+                  {pendingDiceRequest && !isTyping && (
+                    <DiceRollPrompt
+                      key="dice-prompt"
+                      request={pendingDiceRequest}
+                      onResult={onDiceResult}
+                    />
+                  )}
+                </AnimatePresence>
+              </div>
+            ),
+          }}
         />
       )}
     </div>

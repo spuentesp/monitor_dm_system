@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,31 +21,16 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const timeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-
-  // Clear all pending timeouts on unmount.
-  useEffect(() => {
-    return () => {
-      timeoutsRef.current.forEach((tid) => clearTimeout(tid));
-    };
-  }, []);
 
   const notify = useCallback((type: NotificationType, message: string) => {
-    const id = crypto.randomUUID();
+    const id = Math.random().toString(36).substring(2, 9);
     setNotifications((prev) => [...prev, { id, type, message }]);
-    const tid = setTimeout(() => {
-      timeoutsRef.current.delete(id);
+    setTimeout(() => {
       setNotifications((prev) => prev.filter((n) => n.id !== id));
     }, 5000);
-    timeoutsRef.current.set(id, tid);
   }, []);
 
   const remove = (id: string) => {
-    const tid = timeoutsRef.current.get(id);
-    if (tid !== undefined) {
-      clearTimeout(tid);
-      timeoutsRef.current.delete(id);
-    }
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   };
 

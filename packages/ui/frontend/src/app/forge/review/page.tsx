@@ -35,7 +35,6 @@ import {
   Zap,
 } from "lucide-react";
 import { ingestApi } from "@/lib/api";
-import { FORGE_KEYS } from "@/lib/query-keys";
 import {
   ENTITY_TYPE_CONFIG,
 } from "@/lib/forge";
@@ -250,7 +249,7 @@ function ReviewPageInner() {
 
   // Fetch pack info
   const { data: pack, isLoading: packLoading } = useQuery({
-    queryKey: FORGE_KEYS.pack(packId!),
+    queryKey: ["pack", packId],
     queryFn: () => ingestApi.getPack(packId!),
     enabled: !!packId,
     staleTime: 30000,
@@ -258,7 +257,7 @@ function ReviewPageInner() {
 
   // Fetch proposals
   const { data: proposalsData, isLoading: proposalsLoading } = useQuery({
-    queryKey: FORGE_KEYS.proposals(packId!),
+    queryKey: ["proposals", packId],
     queryFn: () => ingestApi.listProposals(packId!, { per_page: 200 }),
     enabled: !!packId,
     staleTime: 10000,
@@ -301,7 +300,7 @@ function ReviewPageInner() {
     mutationFn: ({ proposalId, action, reason }: { proposalId: string; action: "accept" | "reject"; reason?: string }) =>
       ingestApi.reviewProposal(proposalId, action, reason),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: FORGE_KEYS.proposals(packId!) });
+      queryClient.invalidateQueries({ queryKey: ["proposals", packId] });
     },
   });
 
@@ -310,7 +309,7 @@ function ReviewPageInner() {
     mutationFn: (actions: Array<{ proposal_id: string; action: "accept" | "reject"; reason?: string }>) =>
       ingestApi.batchReview(actions),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: FORGE_KEYS.proposals(packId!) });
+      queryClient.invalidateQueries({ queryKey: ["proposals", packId] });
     },
   });
 
@@ -318,9 +317,9 @@ function ReviewPageInner() {
   const commitMutation = useMutation({
     mutationFn: () => ingestApi.commitAccepted(packId!),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: FORGE_KEYS.proposals(packId!) });
-      queryClient.invalidateQueries({ queryKey: FORGE_KEYS.pack(packId!) });
-      queryClient.invalidateQueries({ queryKey: FORGE_KEYS.packs });
+      queryClient.invalidateQueries({ queryKey: ["proposals", packId] });
+      queryClient.invalidateQueries({ queryKey: ["pack", packId] });
+      queryClient.invalidateQueries({ queryKey: ["forge-packs"] });
     },
   });
 

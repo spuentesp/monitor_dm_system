@@ -2,7 +2,6 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { modesApi } from "@/lib/api";
-import { MODE_KEYS } from "@/lib/query-keys";
 import type { ActiveMode, ModeConfig } from "@/lib/types";
 
 /**
@@ -14,19 +13,19 @@ export function ModeSwitcher({ collapsed }: { collapsed: boolean }) {
   const qc = useQueryClient();
 
   const modesQ = useQuery({
-    queryKey: MODE_KEYS.all,
+    queryKey: ["modes"],
     queryFn: () => modesApi.list(),
     staleTime: 5 * 60_000,
   });
   const activeQ = useQuery({
-    queryKey: MODE_KEYS.active,
+    queryKey: ["modes", "active"],
     queryFn: () => modesApi.getActive(),
   });
 
   const setActive = useMutation({
     mutationFn: (mode_id: string) => modesApi.setActive({ mode_id }),
     onSuccess: (data: ActiveMode) => {
-      qc.setQueryData(MODE_KEYS.active, data);
+      qc.setQueryData(["modes", "active"], data);
     },
   });
 

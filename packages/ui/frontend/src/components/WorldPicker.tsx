@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Globe2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { universesApi } from "@/lib/api";
-import { UNIVERSE_KEYS } from "@/lib/query-keys";
 import { useWorldContext } from "@/lib/world-context";
 
 /**
@@ -22,12 +21,12 @@ export function WorldPicker({ collapsed }: { collapsed: boolean }) {
   const sessionUniverseId = searchParams.get("universe");
 
   const { data: multiverses = [] } = useQuery({
-    queryKey: UNIVERSE_KEYS.multiverses,
+    queryKey: ["multiverses"],
     queryFn: universesApi.listMultiverses,
     staleTime: 60_000,
   });
   const { data: universes = [] } = useQuery({
-    queryKey: UNIVERSE_KEYS.universes(),
+    queryKey: ["universes", "all"],
     queryFn: () => universesApi.listUniverses(),
     staleTime: 60_000,
   });
