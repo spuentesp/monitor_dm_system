@@ -70,6 +70,7 @@ export function SessionList({
           onClick={onNew}
           className="w-7 h-7 flex items-center justify-center rounded border border-cyan-500/25 text-cyan-400 hover:bg-cyan-500/10 transition-all"
           title="New session"
+          aria-label="New session"
         >
           <Plus className="w-3.5 h-3.5" />
         </button>
@@ -191,6 +192,7 @@ export function SessionList({
                     }}
                     className="w-6 h-6 flex items-center justify-center rounded text-slate-600 hover:text-cyan-300 hover:bg-cyan-500/10"
                     title="Rename session"
+                    aria-label="Rename session"
                   >
                     <Pencil className="w-3 h-3" />
                   </button>
@@ -207,6 +209,7 @@ export function SessionList({
                     }}
                     className="w-6 h-6 flex items-center justify-center rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10"
                     title="Delete session"
+                    aria-label="Delete session"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>

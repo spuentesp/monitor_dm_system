@@ -20,6 +20,7 @@ export function CopyButton({ text, className }: { text: string; className?: stri
         "p-1 rounded text-slate-600 hover:text-slate-200 hover:bg-white/10 transition-all",
         className,
       )}
+      aria-label={copied ? "Copied" : "Copy prose"}
       title="Copy prose"
     >
       {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}

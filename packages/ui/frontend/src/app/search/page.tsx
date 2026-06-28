@@ -102,6 +102,7 @@ function SearchPageInner() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submit()}
               placeholder="Ask the canon — “who rules the Silver Alliance?”"
+              aria-label="Search the canon"
               className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-9 pr-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-cyan-500"
             />
           </div>
@@ -120,6 +121,7 @@ function SearchPageInner() {
               <button
                 key={id}
                 onClick={() => toggle(id)}
+                aria-pressed={enabled.has(id)}
                 className={cn(
                   "flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border transition-colors",
                   enabled.has(id)
