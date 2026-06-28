@@ -17,6 +17,7 @@ import {
   File,
 } from "lucide-react";
 import { ingestApi } from "@/lib/api";
+import { FORGE_KEYS } from "@/lib/query-keys";
 import type { BinaryAsset } from "@/lib/types";
 import { cn, formatBytes, formatRelativeTime } from "@/lib/utils";
 
@@ -57,13 +58,13 @@ export function AssetsPanel({ sourceId, universeId }: AssetsPanelProps) {
   };
 
   const assetsQuery = useQuery({
-    queryKey: ["assets", filter],
+    queryKey: FORGE_KEYS.assets(filter),
     queryFn: () => ingestApi.listAssets(filter),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => ingestApi.deleteAsset(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["assets", filter] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: FORGE_KEYS.assets(), exact: false }),
   });
 
   const handleUpload = useCallback(async () => {
@@ -77,7 +78,7 @@ export function AssetsPanel({ sourceId, universeId }: AssetsPanelProps) {
         universe_id: universeId,
         asset_type: uploadType,
       });
-      qc.invalidateQueries({ queryKey: ["assets", filter] });
+      qc.invalidateQueries({ queryKey: FORGE_KEYS.assets(), exact: false });
       if (fileRef.current) fileRef.current.value = "";
     } catch (err) {
       console.error("Upload failed:", err);

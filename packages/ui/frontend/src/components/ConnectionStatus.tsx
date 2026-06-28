@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { systemApi } from "../lib/api";
+import { HEALTH_KEYS } from "../lib/query-keys";
 
 type BackendStatus = "checking" | "online" | "degraded" | "offline";
 
@@ -16,7 +17,7 @@ type BackendStatus = "checking" | "online" | "degraded" | "offline";
  */
 export function ConnectionStatus() {
   const { data, error, isLoading, refetch } = useQuery({
-    queryKey: ["health"],
+    queryKey: HEALTH_KEYS.status,
     queryFn: () => systemApi.getHealth(),
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,

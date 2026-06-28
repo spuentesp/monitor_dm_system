@@ -12,6 +12,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { chatApi, universesApi } from "@/lib/api";
+import { PLAY_KEYS, UNIVERSE_KEYS } from "@/lib/query-keys";
 import { OnboardingWizard } from "@/components/play/OnboardingWizard";
 import type { Session, Universe } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -57,11 +58,11 @@ const ACCENT: Record<string, { border: string; icon: string }> = {
 
 export default function Home() {
   const sessionsQ = useQuery({
-    queryKey: ["sessions"],
+    queryKey: PLAY_KEYS.sessions,
     queryFn: () => chatApi.listSessions(),
   });
   const universesQ = useQuery({
-    queryKey: ["universes"],
+    queryKey: UNIVERSE_KEYS.universes(),
     queryFn: () => universesApi.listUniverses(),
   });
 
