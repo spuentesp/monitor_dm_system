@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Camera,
@@ -42,23 +42,17 @@ export default function SnapshotsPage() {
   });
 
   // Auto-select first multiverse + universe on first load.
-  if (
-    !selectedMvId &&
-    multiversesQ.data &&
-    multiversesQ.data.length > 0 &&
-    !multiversesQ.isLoading
-  ) {
-    setSelectedMvId(multiversesQ.data[0].id);
-  }
-  if (
-    selectedMvId &&
-    !selectedUniverseId &&
-    universesQ.data &&
-    universesQ.data.length > 0 &&
-    !universesQ.isLoading
-  ) {
-    setSelectedUniverseId(universesQ.data[0].id);
-  }
+  useEffect(() => {
+    if (!selectedMvId && multiversesQ.data && multiversesQ.data.length > 0 && !multiversesQ.isLoading) {
+      setSelectedMvId(multiversesQ.data[0].id);
+    }
+  }, [selectedMvId, multiversesQ.data, multiversesQ.isLoading]);
+
+  useEffect(() => {
+    if (selectedMvId && !selectedUniverseId && universesQ.data && universesQ.data.length > 0 && !universesQ.isLoading) {
+      setSelectedUniverseId(universesQ.data[0].id);
+    }
+  }, [selectedMvId, selectedUniverseId, universesQ.data, universesQ.isLoading]);
 
   const snapshotsQ = useQuery({
     queryKey: ["snapshots", selectedUniverseId],

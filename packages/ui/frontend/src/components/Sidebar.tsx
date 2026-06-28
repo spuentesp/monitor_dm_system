@@ -155,7 +155,7 @@ export function Sidebar() {
             </div>
 
             {group.items.map(({ href, icon: Icon, label, sub, accent }) => {
-              const active = pathname.startsWith(href);
+              const active = pathname === href || pathname.startsWith(href + "/");
               const ac = ACCENT_CLASSES[accent as Accent];
               return (
                 <Link
