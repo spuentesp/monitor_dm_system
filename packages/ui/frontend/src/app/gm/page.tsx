@@ -322,8 +322,8 @@ function SessionNotebook({
   // Load from localStorage when universe changes
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setNotes(saved);
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) setNotes(stored);
     } catch {
       // ignore
     }

@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { lorebookApi } from "@/lib/api";
 import type { LorebookEntry, LorebookEntryCreate, LorebookIngestRequest } from "@/lib/types";
+import { LOREBOOK_KEYS } from "@/lib/query-keys";
 import { chunkLorebookEntries, lorebookChunksForText } from "./lorebookChunking";
 
 // ---------------------------------------------------------------------------
@@ -57,7 +58,7 @@ function SortHeader({
   const active = current === field;
   return (
     <button
-      onClick={() => onSort(field, active && !ascending ? false : true)}
+      onClick={() => onSort(field, active ? !ascending : true)}
       className={cn(
         "flex items-center gap-1 text-xs font-medium uppercase tracking-wider",
         active ? "text-blue-400" : "text-gray-500 hover:text-gray-300",
@@ -221,13 +222,13 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
 
   // Fetch lorebook entries
   const { data: entries = [], isLoading } = useQuery({
-    queryKey: ["lorebook", characterId],
+    queryKey: LOREBOOK_KEYS.entries(characterId),
     queryFn: () => lorebookApi.list(characterId) as Promise<LorebookEntry[]>,
   });
 
   // Fetch stats
   const { data: stats } = useQuery({
-    queryKey: ["lorebook-stats", characterId],
+    queryKey: LOREBOOK_KEYS.stats(characterId),
     queryFn: () =>
       lorebookApi.stats(characterId) as Promise<Record<string, number>>,
   });
@@ -235,8 +236,8 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
   const createMutation = useMutation({
     mutationFn: (data: LorebookEntryCreate) => lorebookApi.create(characterId, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["lorebook", characterId] });
-      qc.invalidateQueries({ queryKey: ["lorebook-stats", characterId] });
+      qc.invalidateQueries({ queryKey: LOREBOOK_KEYS.entries(characterId) });
+      qc.invalidateQueries({ queryKey: LOREBOOK_KEYS.stats(characterId) });
       setIsCreating(false);
       setNewKeywords("");
       setNewContent("");
@@ -249,7 +250,7 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
     mutationFn: ({ id, body }: { id: string; body: Partial<LorebookEntry> }) =>
       lorebookApi.update(id, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["lorebook", characterId] });
+      qc.invalidateQueries({ queryKey: LOREBOOK_KEYS.entries(characterId) });
       setEditingEntry(null);
     },
   });
@@ -257,8 +258,8 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => lorebookApi.remove(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["lorebook", characterId] });
-      qc.invalidateQueries({ queryKey: ["lorebook-stats", characterId] });
+      qc.invalidateQueries({ queryKey: LOREBOOK_KEYS.entries(characterId) });
+      qc.invalidateQueries({ queryKey: LOREBOOK_KEYS.stats(characterId) });
     },
   });
 
@@ -303,8 +304,8 @@ export function LorebookEditor({ characterId, onClose }: LorebookEditorProps) {
       return created;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["lorebook", characterId] });
-      qc.invalidateQueries({ queryKey: ["lorebook-stats", characterId] });
+      qc.invalidateQueries({ queryKey: LOREBOOK_KEYS.entries(characterId) });
+      qc.invalidateQueries({ queryKey: LOREBOOK_KEYS.stats(characterId) });
       setIsIngesting(false);
       setIngestSource("");
       setIngestContent("");
