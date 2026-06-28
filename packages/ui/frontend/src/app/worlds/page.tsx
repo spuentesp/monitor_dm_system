@@ -20,7 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { entitiesApi, universesApi } from "@/lib/api";
-import { UNIVERSE_KEYS } from "@/lib/query-keys";
+import { ENTITY_KEYS, UNIVERSE_KEYS } from "@/lib/query-keys";
 import type {
   Multiverse,
   NPC,
@@ -213,15 +213,15 @@ function HierarchyTab() {
   const [createUnderMvId, setCreateUnderMvId] = useState<string | null>(null);
 
   const { data: multiverses = [], isLoading: mvLoading } = useQuery({
-    queryKey: ["multiverses"],
+    queryKey: UNIVERSE_KEYS.multiverses,
     queryFn: universesApi.listMultiverses,
   });
 
   const deleteUnivMut = useMutation({
     mutationFn: universesApi.deleteUniverse,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["universes"] });
-      qc.invalidateQueries({ queryKey: ["multiverses"] });
+      qc.invalidateQueries({ queryKey: UNIVERSE_KEYS.universes() });
+      qc.invalidateQueries({ queryKey: UNIVERSE_KEYS.multiverses });
     },
   });
 
@@ -282,8 +282,8 @@ function HierarchyTab() {
                   multiverseId={createUnderMvId}
                   onClose={() => setCreateUnderMvId(null)}
                   onCreated={() => {
-                    qc.invalidateQueries({ queryKey: ["universes"] });
-                    qc.invalidateQueries({ queryKey: ["multiverses"] });
+                    qc.invalidateQueries({ queryKey: UNIVERSE_KEYS.universes() });
+                    qc.invalidateQueries({ queryKey: UNIVERSE_KEYS.multiverses });
                     setCreateUnderMvId(null);
                   }}
                 />
@@ -343,7 +343,7 @@ function EntitiesTab() {
   ];
 
   const { data, isLoading } = useQuery({
-    queryKey: ["entities", query, page, activeType],
+    queryKey: ENTITY_KEYS.entities({ query, page, activeType }),
     queryFn: () =>
       entitiesApi.listNPCs({
         q: query || undefined,

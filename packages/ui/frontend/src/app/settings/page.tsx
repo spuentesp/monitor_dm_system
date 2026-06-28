@@ -4,7 +4,7 @@ import { StatusDot } from "@/components/StatusDot";
 import { ToneTab } from "@/components/settings/ToneTab";
 import { PerformanceTab } from "@/components/settings/PerformanceTab";
 import { chatApi, dbApi, llmApi, performanceApi, promptsApi, toneApi } from "@/lib/api";
-import { SETTINGS_KEYS, PLAY_KEYS } from "@/lib/query-keys";
+import { SETTINGS_KEYS, PLAY_KEYS, BENCHMARK_KEYS } from "@/lib/query-keys";
 import { useLLMProviders, useLLMAssignments } from "@/hooks/use-llm";
 import { useDatabases } from "@/hooks/use-databases";
 import type {
@@ -768,12 +768,12 @@ function BenchmarkTestbedTab() {
   const [selectedSessionId, setSelectedSessionId] = useState("");
 
   const { data: benchmarks = [], isLoading: benchmarksLoading } = useQuery<PlaytestBenchmark[]>({
-    queryKey: ["play-benchmarks"],
+    queryKey: PLAY_KEYS.benchmarks,
     queryFn: chatApi.listBenchmarks,
   });
 
   const { data: benchmarkSessions = [], isLoading: sessionsLoading } = useQuery<Session[]>({
-    queryKey: ["benchmark-sessions"],
+    queryKey: BENCHMARK_KEYS.sessions,
     queryFn: async () => {
       const sessions = await chatApi.listSessions();
       return sessions
@@ -801,13 +801,13 @@ function BenchmarkTestbedTab() {
     benchmarkSessions.find((item) => item.id === selectedSessionId) ?? benchmarkSessions[0] ?? null;
 
   const { data: sessionState, isLoading: stateLoading } = useQuery<ChatSessionState>({
-    queryKey: ["benchmark-session-state", selectedSession?.id],
+    queryKey: BENCHMARK_KEYS.sessionState(selectedSession?.id),
     queryFn: () => chatApi.getSessionState(selectedSession!.id),
     enabled: !!selectedSession?.id,
   });
 
   const { data: sessionMessages = [] } = useQuery<Message[]>({
-    queryKey: ["benchmark-session-messages", selectedSession?.id],
+    queryKey: BENCHMARK_KEYS.sessionMessages(selectedSession?.id),
     queryFn: () => chatApi.getMessages(selectedSession!.id),
     enabled: !!selectedSession?.id,
   });
@@ -825,7 +825,11 @@ function BenchmarkTestbedTab() {
         benchmark_label: benchmark.name,
       }),
     onSuccess: (session) => {
+<<<<<<< HEAD
       qc.invalidateQueries({ queryKey: ["benchmark-sessions"] });
+=======
+      qc.invalidateQueries({ queryKey: BENCHMARK_KEYS.sessions });
+>>>>>>> 051d255d (refactor(ui): extract KIND_CONFIG + expand query-keys constants)
       qc.invalidateQueries({ queryKey: PLAY_KEYS.sessions });
       setSelectedSessionId(session.id);
       router.push(`/play?session=${session.id}`);

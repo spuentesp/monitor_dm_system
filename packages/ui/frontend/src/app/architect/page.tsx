@@ -25,46 +25,21 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Plus,
-  Send,
   Sparkles,
-  User,
-  MapPin,
-  Users,
-  Shield,
-  Brain,
-  Zap,
-  Tag,
   X,
 } from "lucide-react";
 import { chatApi, graphApi, universesApi } from "@/lib/api";
 import { ChatList, Composer, useChatSession, type QuickAction } from "@/features/chat";
-import type {
-  GraphNodeData,
-  GraphNodeKind,
-  Multiverse,
-  Session,
-  Universe,
-} from "@/lib/types";
+import { ARCHITECT_KEYS, UNIVERSE_KEYS } from "@/lib/query-keys";
+import type { GraphNodeData, Multiverse, Session, Universe } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { KIND_CONFIG } from "@/lib/kind-config";
 import { ArchitectMessageBubble } from "./ArchitectMessageBubble";
 import { toReactFlowGraph } from "@/features/graph/adapters";
 
 // ═══════════════════════════════════════════════════════════════
 //  Graph node renderer (mini)
 // ═══════════════════════════════════════════════════════════════
-
-const KIND_CONFIG: Record<GraphNodeKind, { border: string; bg: string; icon: React.ElementType; iconColor: string; label: string }> = {
-  multiverse: { border: "border-purple-500/40", bg: "bg-purple-500/8",  icon: Layers,  iconColor: "text-purple-400",  label: "Multiverse" },
-  universe:   { border: "border-cyan-500/40",   bg: "bg-cyan-500/8",    icon: Globe2,  iconColor: "text-cyan-400",    label: "Universe"   },
-  character:  { border: "border-emerald-500/40",bg: "bg-emerald-500/8", icon: User,    iconColor: "text-emerald-400", label: "Character"  },
-  location:   { border: "border-amber-500/40",  bg: "bg-amber-500/8",   icon: MapPin,  iconColor: "text-amber-400",   label: "Location"   },
-  faction:    { border: "border-red-500/40",    bg: "bg-red-500/8",     icon: Shield,  iconColor: "text-red-400",     label: "Faction"    },
-  concept:    { border: "border-violet-500/40", bg: "bg-violet-500/8",  icon: Brain,   iconColor: "text-violet-400",  label: "Concept"    },
-  axiom:      { border: "border-slate-500/40",  bg: "bg-slate-500/8",   icon: Zap,     iconColor: "text-slate-400",   label: "Axiom"      },
-  lore:       { border: "border-teal-500/40",   bg: "bg-teal-500/8",    icon: Tag,     iconColor: "text-teal-400",    label: "Lore"       },
-  rule:       { border: "border-orange-500/40", bg: "bg-orange-500/8",  icon: Brain,   iconColor: "text-orange-400",  label: "Rule"       },
-  pack:       { border: "border-pink-500/40",   bg: "bg-pink-500/8",    icon: Users,   iconColor: "text-pink-400",    label: "Pack"       },
-};
 
 function WorldNodeMini({ data, selected }: NodeProps) {
   const nodeData = data as GraphNodeData;
@@ -100,7 +75,7 @@ function MiniGraph({
   onSelectNode: (id: string, data: GraphNodeData) => void;
 }) {
   const { data: graph, isLoading } = useQuery({
-    queryKey: ["architect-graph", multiverseId, universeId],
+    queryKey: ARCHITECT_KEYS.graph(multiverseId, universeId),
     queryFn: () =>
       graphApi.getWorldGraph({
         multiverse_id: multiverseId ?? undefined,
@@ -218,20 +193,20 @@ function WorldSelector({
   onUniverseChange: (id: string | null) => void;
 }) {
   const qc = useQueryClient();
-  const { data: multiverses = [] } = useQuery({ queryKey: ["multiverses"], queryFn: universesApi.listMultiverses });
+  const { data: multiverses = [] } = useQuery({ queryKey: UNIVERSE_KEYS.multiverses, queryFn: universesApi.listMultiverses });
   const { data: universes = [] } = useQuery({
-    queryKey: ["universes", multiverseId],
+    queryKey: UNIVERSE_KEYS.universes(multiverseId ?? undefined),
     queryFn: () => universesApi.listUniverses(multiverseId ?? undefined),
     enabled: Boolean(multiverseId),
   });
 
   const createMv = useMutation({
     mutationFn: (name: string) => universesApi.createMultiverse({ name }),
-    onSuccess: (mv) => { qc.invalidateQueries({ queryKey: ["multiverses"] }); onMultiverseChange(mv.id); },
+    onSuccess: (mv) => { qc.invalidateQueries({ queryKey: UNIVERSE_KEYS.multiverses }); onMultiverseChange(mv.id); },
   });
   const createUv = useMutation({
     mutationFn: (name: string) => universesApi.createUniverse({ name, multiverse_id: multiverseId! }),
-    onSuccess: (uv) => { qc.invalidateQueries({ queryKey: ["universes", multiverseId] }); onUniverseChange(uv.id); },
+    onSuccess: (uv) => { qc.invalidateQueries({ queryKey: UNIVERSE_KEYS.universes(multiverseId ?? undefined) }); onUniverseChange(uv.id); },
   });
 
   const [newMvName, setNewMvName] = useState("");
@@ -321,28 +296,31 @@ export default function ArchitectPage() {
   const chat = useChatSession({
     sessionId: activeSessionId,
     onTurnSettled: () => {
-      qc.invalidateQueries({ queryKey: ["architect-graph", multiverseId, universeId] });
+      qc.invalidateQueries({ queryKey: ARCHITECT_KEYS.graph(multiverseId, universeId) });
     },
   });
 
-  const { data: multiverses = [] } = useQuery({ queryKey: ["multiverses"], queryFn: universesApi.listMultiverses });
+  const { data: multiverses = [] } = useQuery({ queryKey: UNIVERSE_KEYS.multiverses, queryFn: universesApi.listMultiverses });
 
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
-    queryKey: ["architect-sessions"],
+    queryKey: ARCHITECT_KEYS.sessions,
     queryFn: () => chatApi.listSessions().then((s) => s.filter((x) => x.mode === "world_architect")),
   });
 
-  // Auto-select first multiverse on load
+  // Auto-select first multiverse on load. Guard checks `multiverses` so we
+  // don't overwrite the user's selection on a refetch — `multiverseId`
+  // is intentionally NOT in deps so this effect runs only when the list
+  // changes.
   useEffect(() => {
     if (!multiverseId && multiverses.length > 0) {
       setMultiverseId(multiverses[0].id);
     }
-  }, [multiverses]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [multiverses, multiverseId]);
 
   const createSession = useMutation({
     mutationFn: () => chatApi.createSession({ title: "World Architect session", mode: "world_architect", multiverse_id: multiverseId, universe_id: universeId }),
     onSuccess: (session) => {
-      qc.invalidateQueries({ queryKey: ["architect-sessions"] });
+      qc.invalidateQueries({ queryKey: ARCHITECT_KEYS.sessions });
       setActiveSessionId(session.id);
     },
   });

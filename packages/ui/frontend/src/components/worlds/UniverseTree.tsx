@@ -30,6 +30,7 @@ import type {
   StoryThread,
   Universe,
 } from "@/lib/types";
+import { STORY_KEYS, UNIVERSE_KEYS } from "@/lib/query-keys";
 import { cn, formatRelativeTime, truncate } from "@/lib/utils";
 
 // ─────────────────────────────────────────────────────────────
@@ -74,7 +75,7 @@ function SceneRows({
   onSelect: (sel: TreeSelection) => void;
 }) {
   const { data: scenes = [], isLoading } = useQuery({
-    queryKey: ["story-scenes", story.id],
+    queryKey: STORY_KEYS.scenes(story.id),
     queryFn: () => storiesApi.listScenes(story.id),
     staleTime: 15_000,
   });
@@ -126,7 +127,7 @@ function StoryRows({
 }) {
   const [openStories, setOpenStories] = useState<Set<string>>(new Set());
   const { data, isLoading } = useQuery({
-    queryKey: ["universe-stories", universe.id],
+    queryKey: STORY_KEYS.stories(universe.id),
     queryFn: () => storiesApi.listStories({ universe_id: universe.id, limit: 100 }),
     staleTime: 15_000,
   });
@@ -199,7 +200,7 @@ function UniverseRows({
 }) {
   const [openUniverses, setOpenUniverses] = useState<Set<string>>(new Set());
   const { data: universes = [], isLoading } = useQuery({
-    queryKey: ["universes", multiverseId],
+    queryKey: UNIVERSE_KEYS.universes(multiverseId),
     queryFn: () => universesApi.listUniverses(multiverseId),
     staleTime: 15_000,
   });
@@ -270,7 +271,7 @@ function UniverseRows({
 function UniverseDetail({ universe, onDelete }: { universe: Universe; onDelete?: (id: string) => void }) {
   // Re-fetch for live counts (tree rows may hold a stale list entry)
   const { data: fresh } = useQuery({
-    queryKey: ["universe", universe.id],
+    queryKey: UNIVERSE_KEYS.universe(universe.id),
     queryFn: () => universesApi.getUniverse(universe.id),
     staleTime: 10_000,
   });
@@ -366,19 +367,19 @@ function StoryDetail({
   onSelectScene: (scene: SceneSummary) => void;
 }) {
   const { data: arc } = useQuery({
-    queryKey: ["story", story.id],
+    queryKey: STORY_KEYS.story(story.id),
     queryFn: () => storiesApi.getStory(story.id),
     staleTime: 15_000,
     retry: 1,
   });
   const { data: threads = [] } = useQuery({
-    queryKey: ["story-threads", story.id],
+    queryKey: STORY_KEYS.threads(story.id),
     queryFn: () => storiesApi.listThreads(story.id),
     staleTime: 30_000,
     retry: 1,
   });
   const { data: scenes = [] } = useQuery({
-    queryKey: ["story-scenes", story.id],
+    queryKey: STORY_KEYS.scenes(story.id),
     queryFn: () => storiesApi.listScenes(story.id),
     staleTime: 15_000,
   });
@@ -489,7 +490,7 @@ function StoryDetail({
 
 function SceneDetail({ scene, story }: { scene: SceneSummary; story: StorySummary }) {
   const { data: turns = [], isLoading } = useQuery({
-    queryKey: ["scene-turns", scene.id],
+    queryKey: STORY_KEYS.turns(scene.id),
     queryFn: () => storiesApi.getSceneTurns(scene.id, 30),
     staleTime: 10_000,
   });
@@ -571,7 +572,7 @@ export function UniverseTree({
 
   // Deep-link: find which multiverse owns ?universe= and expand it
   const { data: requestedUniverse } = useQuery({
-    queryKey: ["universe", requestedUniverseId],
+    queryKey: UNIVERSE_KEYS.universe(requestedUniverseId!),
     queryFn: () => universesApi.getUniverse(requestedUniverseId!),
     enabled: !!requestedUniverseId,
   });

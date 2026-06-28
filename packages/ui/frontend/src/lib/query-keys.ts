@@ -21,6 +21,7 @@ export const PLAY_KEYS = {
   state: (sessionId: string | null) => ["play-session-state", sessionId] as const,
   universes: (multiverseId?: string) => ["play-universes", multiverseId] as const,
   characters: (systemId?: string) => ["play-characters", systemId] as const,
+  recap: (sessionId: string) => ["session-recap", sessionId] as const,
 };
 
 export const SETTINGS_KEYS = {
@@ -34,6 +35,7 @@ export const SETTINGS_KEYS = {
 export const ENTITY_KEYS = {
   systems: ["systems"] as const,
   system: (id: string) => ["system", id] as const,
+  systemDetail: (id: string) => ["system-detail", id] as const,
   npcs: (params?: Record<string, unknown>) => ["npcs", params] as const,
   npc: (id: string) => ["npc", id] as const,
   characters: (systemId?: string) => ["play-characters", systemId] as const,
@@ -42,6 +44,7 @@ export const ENTITY_KEYS = {
   characterMemories: (id: string) => ["character-memories", id] as const,
   characterConversations: (id: string) => ["character-conversations", id] as const,
   characterVersions: (id: string) => ["character-versions", id] as const,
+  entities: (params?: Record<string, unknown>) => ["entities", params] as const,
 };
 
 export const WORLDS_KEYS = {
@@ -58,7 +61,9 @@ export const UNIVERSE_KEYS = {
 
 export const STORY_KEYS = {
   story: (id: string) => ["story", id] as const,
+  stories: (universeId: string) => ["universe-stories", universeId] as const,
   scenes: (id: string) => ["story-scenes", id] as const,
+  turns: (sceneId: string) => ["scene-turns", sceneId] as const,
   threads: (storyId: string) => ["story-threads", storyId] as const,
 };
 
@@ -83,4 +88,17 @@ export const CHANGE_LOG_KEYS = {
 export const CANON_KEYS = {
   queue: ["canon-queue"] as const,
   review: (id: string) => ["canon-review", id] as const,
+};
+
+export const ARCHITECT_KEYS = {
+  graph: (mvId?: string | null, uvId?: string | null) =>
+    ["architect-graph", mvId, uvId] as const,
+  sessions: ["architect-sessions"] as const,
+};
+
+export const BENCHMARK_KEYS = {
+  sessions: ["benchmark-sessions"] as const,
+  sessionState: (id?: string | null) => ["benchmark-session-state", id] as const,
+  sessionMessages: (id?: string | null) => ["benchmark-session-messages", id] as const,
+};
 };
