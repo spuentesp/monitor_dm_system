@@ -409,7 +409,6 @@ function ExistingWorldStep({
             "h-4 w-4 rounded border flex items-center justify-center shrink-0",
             autoCommitLlm ? "bg-accent-primary border-accent-primary" : "border-border",
           )}
-          onClick={() => setAutoCommitLlm(v => !v)}
         >
           {autoCommitLlm && <Check className="h-3 w-3 text-white" />}
         </div>
