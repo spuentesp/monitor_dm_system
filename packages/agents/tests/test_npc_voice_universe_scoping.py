@@ -12,15 +12,12 @@ The point: assert the *contract*, not the model output.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any, Dict, List
+from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 
-from monitor_agents import npc_voice as nv
 from monitor_agents.npc_voice import NPCDirectResponse, NPCVoice
 
 
@@ -542,7 +539,6 @@ class TestToolParamsWrapContract:
         # Pre-stage a character doc with a version entry so the universe_id
         # fallback in _write_npc_memory resolves via the character storage.
         # We mock character_storage's get_collection via patching mongodb client.
-        from unittest.mock import MagicMock, patch
 
         fake_collection = MagicMock()
         fake_collection.find_one.return_value = {

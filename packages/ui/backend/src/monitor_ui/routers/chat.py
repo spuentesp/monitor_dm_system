@@ -81,6 +81,7 @@ from .chat_loops import (  # noqa: F401 — re-export for delete_session
     _CHAR_CREATION_LOOPS,
     pop_character_creation_loop as _pop_char_creation_loop,
     pop_conversation_loop as _pop_conversation_loop,
+    pop_session_zero_loop as _pop_session_zero_loop,
 )
 
 logger = logging.getLogger(__name__)
@@ -684,7 +685,7 @@ async def send_message(session_id: str, body: MessageSend) -> Message:
             db_save_session=_db_save_session,
             db_load_messages=_db_load_messages,
         )
-    elif session.get("phase") in ("awaiting_character", "char_creation"):
+    elif session.get("phase") in ("awaiting_character", "char_creation", "session_zero"):
         narrative, meta = await _run_preplay_turn(
             session_id,
             body.content,
@@ -762,6 +763,7 @@ async def delete_session(session_id: str) -> None:
     _MESSAGES.pop(session_id, None)
     _pop_scene_loop(session_id)
     _pop_char_creation_loop(session_id)
+    _pop_session_zero_loop(session_id)
     _pop_conversation_loop(session_id)
     try:
         from monitor_data.db.mongodb import get_mongodb_client
@@ -1071,7 +1073,11 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                         db_save_session=_db_save_session,
                         db_load_messages=_db_load_messages,
                     )
-                elif session.get("phase") in ("awaiting_character", "char_creation"):
+                elif session.get("phase") in (
+                    "awaiting_character",
+                    "char_creation",
+                    "session_zero",
+                ):
                     narrative, meta = await _run_preplay_turn(
                         session_id,
                         content,

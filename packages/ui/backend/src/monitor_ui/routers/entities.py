@@ -1181,7 +1181,6 @@ async def get_character_profile(character_id: str) -> dict:
     debug tools that need to verify per-universe partitions are populated.
     """
     from monitor_data.tools.mongodb_tools import mongodb_get_npc_profile
-    from . import character_conversation as cc
 
     if not _get_character_doc(character_id):
         raise HTTPException(status_code=404, detail="Character not found")
@@ -1194,7 +1193,7 @@ async def get_character_profile(character_id: str) -> dict:
             detail="Character has no incarnation yet (light card not expanded).",
         )
     try:
-        profile = mongodb_get_npc_profile(uuid.UUID(entity_id))
+        profile = mongodb_get_npc_profile(UUID(entity_id))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Mongo read failed: {exc}")
     if profile is None:

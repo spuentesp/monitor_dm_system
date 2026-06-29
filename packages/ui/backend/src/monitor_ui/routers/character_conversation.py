@@ -34,10 +34,8 @@ from .character_storage import (
     delete_version,
     get_character,
     get_version,
-    get_version_summary,
     list_versions,
     touch_version,
-    update_character,
 )
 
 log = structlog.get_logger()

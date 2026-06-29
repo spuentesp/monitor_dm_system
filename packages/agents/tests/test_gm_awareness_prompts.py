@@ -278,7 +278,6 @@ class _FakeLM:
 
         Returns a list-of-choices structure that dspy.Predict parses.
         """
-        import dspy
 
         # dspy expects each LM to return something compatible with litellm's
         # response. The simplest path is to return a list of dicts with .choices.
@@ -367,7 +366,6 @@ def test_golden_routing(golden_input: Dict[str, Any], fake_lm_factory):
     the expected field values. This catches regressions where the parser
     loses information or the routing layer reads the wrong field.
     """
-    import dspy
 
     expected_user_input = golden_input["user_input"]
     expected_response = {
@@ -406,19 +404,13 @@ def test_golden_routing(golden_input: Dict[str, Any], fake_lm_factory):
         "reasoning": "test routing",
     }
 
-    fake = _FakeLM({expected_user_input: expected_response})
+    _FakeLM({expected_user_input: expected_response})
 
     # The signature verification doesn't need a live LM; we test the parser
     # path: feed a Prediction in the expected format and verify the
     # GMAwareness verdict round-trips correctly.
     from monitor_agents.gm_awareness import (
         prediction_to_verdict,
-        GMAwareness,
-        IntentType,
-        ActionType,
-        RollNecessity,
-        Severity,
-        CausalityAction,
     )
 
     class _StubPred:
@@ -643,7 +635,6 @@ class TestSignatureStructure:
     def test_signature_has_static_prefix_fields(self):
         """Static prefix (cacheable) should come first."""
         from monitor_agents.gm_awareness import GMAwarenessSignature
-        import dspy
 
         fields = list(GMAwarenessSignature.model_fields.keys())
         # First 4 input fields should be the static prefix

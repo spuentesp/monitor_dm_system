@@ -641,7 +641,6 @@ class TestExtractFactsNode:
     async def test_extract_facts_returns_facts_list(self):
         """extract_facts must return a dict with 'established_facts' key."""
         (SceneState, *_) = _import_scene_loop()
-        from monitor_agents.loops.scene_loop import extract_facts
 
         state = SceneState(
             scene_id=uuid4(),
@@ -742,7 +741,6 @@ class TestConsistencyGuard:
         """When the narrator changes a named entity's name, check_consistency
         must flag it as a violation."""
         (SceneState, *_) = _import_scene_loop()
-        from monitor_agents.loops.scene_loop import check_consistency
 
         state = SceneState(
             scene_id=uuid4(),
@@ -866,7 +864,7 @@ class TestPendingRollState:
                 user_input="The creature lies motionless at my feet",
                 pending_roll=pending_roll,
             )
-            result = await resolve_action(state)
+            await resolve_action(state)
 
         # The resolver must have been called with the pending_roll context
         call_kwargs = mock_resolve.call_args

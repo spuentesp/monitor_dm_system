@@ -14,6 +14,7 @@ This directory details the technical architecture of MONITOR, primarily organize
 - **[Layer 1: Data](./layer1_data.md)**: Database clients, Pydantic schemas, and MCP tools.
 - **[Layer 2: Agents](./layer2_agents.md)**: LangGraph loops, BaseAgent, and DSPy modules.
 - **[Layer 3: Interface](./layer3_interface.md)**: CLI and Web interfaces.
+- **[Data Model & Workflow](./data_model_workflow.md)**: Explains the 5 databases (Neo4j, MongoDB, Qdrant, MinIO, Postgres) and how they interact.
 - **[MCP Transport](./mcp_transport.md)**: How agents interact with Layer 1 via Model Context Protocol.
 
 ## The Proposed Change Pattern

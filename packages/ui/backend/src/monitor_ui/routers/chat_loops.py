@@ -56,6 +56,13 @@ except Exception:  # noqa: BLE001
     _CHAR_CREATION_AVAILABLE = False
 
 try:
+    from monitor_agents.loops.session_zero_loop import SessionZeroLoop
+
+    _SESSION_ZERO_AVAILABLE = True
+except Exception:  # noqa: BLE001
+    _SESSION_ZERO_AVAILABLE = False
+
+try:
     from monitor_agents.loops.conversation_loop import (
         ConversationLoop,
         ConversationMode,
@@ -106,6 +113,8 @@ _SCENE_LOOPS_MAX = 32
 _SCENE_LOOPS: OrderedDict[str, tuple[tuple[Any, ...], Any]] = OrderedDict()
 _CHAR_CREATION_LOOPS_MAX = 16
 _CHAR_CREATION_LOOPS: OrderedDict[str, CharacterCreationLoop | None] = OrderedDict()
+_SESSION_ZERO_LOOPS_MAX = 16
+_SESSION_ZERO_LOOPS: OrderedDict[str, SessionZeroLoop | None] = OrderedDict()
 
 # Cache for story states (Gap 4)
 _STORY_STATES: dict[str, dict[str, Any]] = {}
@@ -223,6 +232,44 @@ def get_character_creation_loop(
 def pop_character_creation_loop(session_id: str) -> None:
     """Remove a cached character creation loop."""
     _CHAR_CREATION_LOOPS.pop(session_id, None)
+
+
+def get_session_zero_loop(
+    session_id: str,
+    session: dict[str, Any],
+    world_lore: list[str] | None = None,
+    system_context: str = "",
+) -> SessionZeroLoop | None:
+    """Get or create a SessionZeroLoop for this session."""
+    if not _SESSION_ZERO_AVAILABLE:
+        return None
+
+    cached = _SESSION_ZERO_LOOPS.get(session_id)
+    if cached is not None:
+        _SESSION_ZERO_LOOPS.move_to_end(session_id)
+        return cached
+
+    try:
+        loop = SessionZeroLoop(
+            tone=session.get("tone", "dramatic"),
+            system_name=session.get("system_label") or "Unknown System",
+            world_lore=world_lore or [],
+            system_context=system_context,
+            max_questions=7,
+        )
+        _SESSION_ZERO_LOOPS[session_id] = loop
+        _SESSION_ZERO_LOOPS.move_to_end(session_id)
+        while len(_SESSION_ZERO_LOOPS) > _SESSION_ZERO_LOOPS_MAX:
+            _SESSION_ZERO_LOOPS.popitem(last=False)
+        return loop
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("SessionZeroLoop creation failed: %s", exc)
+        return None
+
+
+def pop_session_zero_loop(session_id: str) -> None:
+    """Remove a cached session zero loop."""
+    _SESSION_ZERO_LOOPS.pop(session_id, None)
 
 
 def pop_scene_loop(session_id: str) -> None:
@@ -430,6 +477,43 @@ async def answer_ooc_question(
 # ---------------------------------------------------------------------------
 
 
+async def _generate_prologue(session: dict[str, Any], summary_text: str) -> str:
+    """Generate a prologue opening that incorporates the character's backstory.
+
+    Called after Session Zero completes and the player chooses narrative-only
+    mode (no mechanical character creation). Uses the Narrator to weave the
+    character's backstory into an opening scene.
+    """
+    if _AGENTS_AVAILABLE:
+        try:
+            from monitor_agents.narrator import Narrator
+
+            narrator = Narrator()
+            summary = session.get("session_zero_summary") or {}
+            concept = summary.get("concept", "") if isinstance(summary, dict) else ""
+            backstory = summary.get("backstory", "") if isinstance(summary, dict) else ""
+
+            prologue = await narrator.generate_opening(
+                user_input=(
+                    f"[Prologue — the character's backstory follows]\n"
+                    f"Concept: {concept}\nBackstory: {backstory}\n"
+                    f"Set the opening scene that incorporates this backstory."
+                ),
+                context={"entities": [], "memories": [], "turns": []},
+                game_context=None,
+                session_tone=session.get("tone", "dramatic"),
+            )
+            if prologue and len(prologue) > 40:
+                return prologue
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("_generate_prologue LLM call failed: %s", exc)
+
+    # Fallback: use the summary text directly
+    if summary_text:
+        return summary_text + "\n\nThe story begins. What do you do?"
+    return "Your character is ready. The story begins — what do you do?"
+
+
 async def run_preplay_turn(
     session_id: str,
     user_content: str,
@@ -462,8 +546,107 @@ async def run_preplay_turn(
         )
         return answer, {"type": "ooc_answer", "phase": phase}
 
-    if phase in {"awaiting_character", "char_creation"}:
+    if phase in {"awaiting_character", "char_creation", "session_zero"}:
         session["pending_character_concept"] = user_content
+
+    # --- Session Zero interview phase ---
+    if phase == "session_zero" and _SESSION_ZERO_AVAILABLE:
+        world_lore = []
+        system_context = ""
+        if session_id not in _SESSION_ZERO_LOOPS:
+            try:
+                from .chat_opening import fetch_opening_hook
+                lore_data = await fetch_opening_hook(session)
+                world_lore = lore_data.get("axioms", []) + lore_data.get("facts", [])
+            except Exception as exc:
+                logger.debug("Failed to fetch opening hook for session zero: %s", exc)
+                
+            try:
+                system_doc = session_game_system_doc(session)
+                if system_doc and isinstance(system_doc, dict):
+                    context_parts = []
+                    cc = system_doc.get("character_creation")
+                    if cc:
+                        bgs = [bg.get("name") for bg in cc.get("backgrounds", []) if bg.get("name")]
+                        if bgs:
+                            context_parts.append("Backgrounds/Origins: " + ", ".join(bgs))
+                        steps = [step.get("title") for step in cc.get("steps", []) if step.get("title")]
+                        if steps:
+                            context_parts.append("Creation Steps: " + ", ".join(steps))
+                        prompts = [logic.get("prompt_template") for logic in cc.get("logic", []) if logic.get("prompt_template")]
+                        if prompts:
+                            context_parts.append("Themes: " + " | ".join(prompts))
+                    system_context = "\n".join(context_parts)
+            except Exception as exc:
+                logger.debug("Failed to build system context for session zero: %s", exc)
+
+        sz_loop = get_session_zero_loop(session_id, session, world_lore, system_context)
+        if sz_loop:
+            try:
+                result = await sz_loop.process_player_input(user_content)
+                if result.get("complete"):
+                    summary = result.get("summary")
+                    # Store the summary for the character creation handoff
+                    if summary:
+                        session["session_zero_summary"] = (
+                            summary.model_dump() if hasattr(summary, "model_dump") else summary
+                        )
+                        if summary.character_name:
+                            session["speaker_label"] = summary.character_name
+                        session["pending_character_concept"] = summary.concept or user_content
+
+                    session["phase"] = "char_creation"
+                    db_save_session(session)
+
+                    # If a game system is available, start the CharacterCreationLoop
+                    system_doc = session_game_system_doc(session)
+                    if system_doc and gsr_available and _CHAR_CREATION_AVAILABLE:
+                        cc_loop = get_character_creation_loop(
+                            session_id,
+                            session,
+                            session_game_system_doc=session_game_system_doc,
+                        )
+                        if cc_loop:
+                            try:
+                                start_result = await cc_loop.start()
+                                gm_msg = start_result.get(
+                                    "gm_message", "Let's build your character."
+                                )
+                                response = (
+                                    result.get("gm_message", "")
+                                    + "\n\n---\n\n"
+                                    + gm_msg
+                                )
+                                return response, {
+                                    "type": "session_zero_complete",
+                                    "phase": "char_creation",
+                                    "summary": summary.model_dump() if summary else None,
+                                    "total_steps": start_result.get("total_steps", 0),
+                                }
+                            except Exception as exc:  # noqa: BLE001
+                                logger.debug("post-session-zero char creation start failed: %s", exc)
+
+                    # No mechanics: go straight to active_play with prologue
+                    session["phase"] = "active_play"
+                    db_save_session(session)
+                    prologue = await _generate_prologue(session, result.get("gm_message", ""))
+                    return prologue, {
+                        "type": "session_zero_complete",
+                        "phase": "active_play",
+                        "summary": summary.model_dump() if summary else None,
+                    }
+                else:
+                    gm_msg = result.get("gm_message", "Tell me more.")
+                    return gm_msg, {
+                        "type": "session_zero_question",
+                        "phase": "session_zero",
+                        "question_number": result.get("question_number", 0),
+                        "total_questions": result.get("total_questions", 7),
+                        "category": result.get("category", "custom"),
+                    }
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("run_preplay_turn session zero loop failed: %s", exc)
+                # Fall through to char_creation on error
 
     # --- Conversational character creation via CharacterCreationLoop ---
     if phase == "char_creation" and _CHAR_CREATION_AVAILABLE:
@@ -689,7 +872,28 @@ async def run_preplay_turn(
     if not acknowledgement:
         acknowledgement = "Understood. That's who you are."
 
-    # Transition phase to char_creation if a game system is available
+    # --- Start Session Zero interview (guided character development) ---
+    if _SESSION_ZERO_AVAILABLE:
+        sz_loop = get_session_zero_loop(session_id, session)
+        if sz_loop:
+            try:
+                start_result = await sz_loop.start()
+                session["phase"] = "session_zero"
+                db_save_session(session)
+                gm_msg = start_result.get("gm_message", "Tell me more about your character.")
+                response = acknowledgement + "\n\n" + gm_msg
+                return response, {
+                    "type": "session_zero_start",
+                    "phase": "session_zero",
+                    "question_number": start_result.get("question_number", 1),
+                    "total_questions": start_result.get("total_questions", 7),
+                    "category": start_result.get("category", "custom"),
+                    "saved_character": None,
+                }
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("run_preplay_turn session zero start failed: %s", exc)
+
+    # --- Fallback: Transition to char_creation if a game system is available ---
     saved = None
     if system_doc and gsr_available:
         # Try conversational character creation first

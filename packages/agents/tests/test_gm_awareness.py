@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from typing import Any, Dict
 from unittest.mock import AsyncMock, patch
-from uuid import uuid4
 
 import pytest
 
@@ -42,7 +41,6 @@ from _gm_helpers import (
     forced_narrative_accept,
     forced_narrative_pushback,
     make_verdict,
-    ooc_marker,
     propose_persuasion,
     propose_stealth,
     query_intent,

@@ -15,13 +15,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 
-from monitor_agents import npc_voice as nv
 from monitor_agents.npc_voice import NPCDirectResponse, NPCVoice
 
 

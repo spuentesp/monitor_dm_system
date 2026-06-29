@@ -9,7 +9,6 @@ fire on the registered callback.
 from __future__ import annotations
 
 import asyncio
-import contextvars
 from typing import Any
 
 import pytest

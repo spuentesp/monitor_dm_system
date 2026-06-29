@@ -8,7 +8,7 @@ MONITOR no nació como un sistema de agentes con cuatro bases de datos y un pipe
 
 ---
 
-## Fase 1: el modelo ontológico
+## el modelo ontológico
 
 El primer artefacto fue conceptual: un modelo que describía cómo se estructuran los elementos de una narración.
 
@@ -16,15 +16,12 @@ Personajes, lugares, facciones, objetos, conceptos. Relaciones entre ellos: qui�
 
 Nada de código todavía. Solo la pregunta: ¿cómo se ve un mundo si lo tratas como un grafo?
 
-<!-- [VOZ PROPIA]: ¿Cómo fue ese proceso? ¿Fue en papel, en un documento, en un whiteboard? ¿Cuánto tardó en tomar forma? -->
 
----
-
-## Fase 2: Neo4j
+## Neo4j
 
 El modelo conceptual necesitaba una implementación. La elección natural fue Neo4j — una base de datos de grafos donde los nodos son entidades y los bordes son relaciones.
 
-Neo4j habla Cypher, un lenguaje de consulta diseñado para grafos. Una query como "dame todos los personajes aliados con esta facción que están actualmente en esta ciudad" se escribe en Cypher de forma mucho más directa que en SQL. Para un modelo de mundo con relaciones complejas, eso importa.
+Neo4j habla Cypher, un lenguaje de consulta diseñado para grafos. Una query como "dame todos los personajes aliados con esta facción que están actualmente en esta ciudad" se escribe en Cypher de forma mucho más directa que en SQL. Para un modelo de mundo con relaciones complejas, eso es bastante bueno.
 
 ```cypher
 MATCH (c:Character)-[:ALLY_OF]->(f:Faction {name: "Silver Hand"})
@@ -38,6 +35,209 @@ Acá apareció la primera distinción importante del modelo: **EntityArchetype v
 - Una **Instancia** es algo concreto que existe en el mundo: "Gandalf el Gris", "El Pony Pisador", "La Fuerza tal como la usa Luke"
 
 Un personaje jugador siempre es una Instancia. Una clase de personaje es un Arquetipo. La distinción parece obvia dicha así, pero modelarla correctamente evita una cantidad enorme de ambigüedades más adelante.
+
+Así es como se ve el modelo ontológico completo (la capa canónica mapeada en Neo4j):
+
+```mermaid
+erDiagram
+    OMNIVERSE {
+        uuid id PK
+        string name
+        string description
+        timestamp created_at
+    }
+
+    MULTIVERSE {
+        uuid id PK
+        uuid omniverse_id FK
+        string name
+        string system_name
+        string description
+        timestamp created_at
+    }
+
+    UNIVERSE {
+        uuid id PK
+        uuid multiverse_id FK
+        string name
+        string description
+        string genre
+        string tone
+        string tech_level
+        enum canon_level
+        timestamp created_at
+    }
+
+    SOURCE {
+        uuid id PK
+        uuid universe_id FK
+        string doc_id
+        string title
+        string edition
+        string provenance
+        enum source_type
+        enum canon_level
+        timestamp created_at
+    }
+
+    AXIOM {
+        uuid id PK
+        uuid universe_id FK
+        string statement
+        string domain
+        float confidence
+        enum canon_level
+        enum authority
+        timestamp created_at
+    }
+
+    AGENDA {
+        uuid id PK
+        uuid universe_id FK
+        uuid owner_id FK
+        string title
+        string description
+        enum agenda_type
+        enum status
+        int total_segments
+        int current_segments
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    ENTITY_AXIOMATICA {
+        uuid id PK
+        uuid universe_id FK
+        string name
+        enum entity_type
+        string description
+        map properties
+        enum canon_level
+        float confidence
+        timestamp created_at
+    }
+
+    ENTITY_CONCRETA {
+        uuid id PK
+        uuid universe_id FK
+        string name
+        enum entity_type
+        string description
+        map properties
+        list state_tags
+        enum canon_level
+        float confidence
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    STORY {
+        uuid id PK
+        uuid universe_id FK
+        string title
+        enum story_type
+        string theme
+        string premise
+        enum status
+        timestamp start_time_ref
+        timestamp end_time_ref
+        timestamp created_at
+        timestamp completed_at
+    }
+
+    SCENE {
+        uuid id PK
+        uuid story_id FK
+        string title
+        string purpose
+        int order
+        timestamp time_ref
+        timestamp created_at
+    }
+
+    FACT {
+        uuid id PK
+        uuid universe_id FK
+        string statement
+        timestamp time_ref
+        int duration
+        float confidence
+        enum canon_level
+        enum authority
+        uuid replaces FK
+        timestamp created_at
+    }
+
+    EVENT {
+        uuid id PK
+        uuid scene_id FK
+        string title
+        string description
+        timestamp time_ref
+        int severity
+        float confidence
+        enum canon_level
+        enum authority
+        timestamp created_at
+    }
+
+    PLOTTHREAD {
+        uuid id PK
+        uuid story_id FK
+        string title
+        enum thread_type
+        enum status
+        timestamp created_at
+    }
+
+    %% Containment hierarchy
+    OMNIVERSE ||--o{ MULTIVERSE : CONTAINS
+    MULTIVERSE ||--o{ UNIVERSE : CONTAINS
+    UNIVERSE ||--o{ SOURCE : HAS_SOURCE
+    UNIVERSE ||--o{ AXIOM : HAS_AXIOM
+    UNIVERSE ||--o{ ENTITY_AXIOMATICA : HAS_ENTITY
+    UNIVERSE ||--o{ ENTITY_CONCRETA : HAS_ENTITY
+    UNIVERSE ||--o{ STORY : HAS_STORY
+
+    %% Story structure
+    STORY ||--o{ STORY : PARENT_STORY
+    STORY ||--o{ SCENE : HAS_SCENE
+    STORY ||--o{ PLOTTHREAD : HAS_THREAD
+    SCENE ||--o{ SCENE : NEXT
+
+    %% Events
+    SCENE ||--o{ EVENT : HAS_EVENT
+    EVENT }o--o{ EVENT : CAUSES
+
+    %% Entity derivation
+    ENTITY_CONCRETA }o--o| ENTITY_AXIOMATICA : DERIVES_FROM
+
+    %% Entity relationships
+    ENTITY_CONCRETA }o--o{ ENTITY_CONCRETA : LOCATED_IN
+    ENTITY_CONCRETA }o--o{ ENTITY_CONCRETA : MEMBER_OF
+    ENTITY_CONCRETA }o--o{ ENTITY_CONCRETA : ALLY_OF
+    ENTITY_CONCRETA }o--o{ ENTITY_CONCRETA : ENEMY_OF
+    ENTITY_CONCRETA }o--o{ ENTITY_CONCRETA : OWNS
+
+    %% Participation
+    ENTITY_CONCRETA }o--o{ SCENE : PARTICIPATED_IN
+    ENTITY_CONCRETA }o--o{ EVENT : INVOLVED_IN
+    ENTITY_CONCRETA }o--o{ FACT : INVOLVED_IN
+
+    %% Plot threads
+    PLOTTHREAD }o--o{ SCENE : ADVANCED_BY
+    PLOTTHREAD }o--o{ ENTITY_CONCRETA : INVOLVES
+
+    %% Provenance (evidence)
+    FACT }o--o{ SOURCE : SUPPORTED_BY
+    FACT }o--o{ SCENE : SUPPORTED_BY
+    EVENT }o--o{ SOURCE : SUPPORTED_BY
+    EVENT }o--o{ SCENE : SUPPORTED_BY
+    AXIOM }o--o{ SOURCE : SUPPORTED_BY
+
+    %% Retcon
+    FACT }o--o| FACT : REPLACES
+```
 
 ---
 
@@ -56,9 +256,7 @@ Acá el modelo empezó a ganar estructura real. Cada entidad tiene un `canon_lev
 
 Esto permite que el mundo contenga rumores, mentiras y creencias subjetivas sin que contaminen la verdad objetiva del grafo.
 
-<!-- [VOZ PROPIA]: ¿Hubo alguna decisión de diseño acá que fue difícil o no obvia? ¿Algo que cambiaste varias veces? -->
 
----
 
 ## El problema: las narrativas que colapsaban
 
@@ -69,8 +267,6 @@ El primer intento fue el más simple: pasarle todo el contexto relevante a un LL
 El problema llegaba cuando la sesión se extendía. El LLM empezaba a inventar detalles que contradecían lo establecido. Un personaje que había muerto en la escena tres aparecía vivo en la siete. Un lugar que estaba al norte de la ciudad de repente quedaba al sur. Hechos que el jugador había establecido explícitamente desaparecían del relato.
 
 Las narrativas colapsaban. Las historias quedaban a medias. Era frustrante — y no era un problema de los modelos. Era un problema de arquitectura.
-
-<!-- [VOZ PROPIA]: ¿Hubo una sesión específica donde esto fue especialmente frustrante? ¿Algún ejemplo concreto de algo que el LLM rompió? -->
 
 El LLM no tenía forma de saber qué era verdad canónica y qué estaba inventando. Necesitaba una barrera.
 
@@ -88,17 +284,22 @@ El flujo funciona así:
 4. Verifica que no contradigan hechos canónicos existentes
 5. Acepta las válidas y las escribe a Neo4j. Rechaza las que rompen consistencia
 
-```
-Narrador detecta cambio
-        ↓
-  ProposedChange → MongoDB
-        ↓
-  (fin de escena)
-        ↓
-  CanonKeeper evalúa
-        ↓
-  ¿Consistente? → Neo4j
-  ¿Contradicción? → rechazado
+```mermaid
+sequenceDiagram
+    participant Agente as Agente (Narrador/Resolver)
+    participant MongoDB as MongoDB (Estado Pendiente)
+    participant CanonKeeper as CanonKeeper
+    participant Neo4j as Neo4j (Grafo Canónico)
+
+    Agente->>MongoDB: Registra `ProposedChange`
+    Note over Agente, Neo4j: Termina la escena
+    CanonKeeper->>MongoDB: Lee propuestas acumuladas
+    CanonKeeper->>CanonKeeper: Evalúa consistencia
+    alt Es Consistente
+        CanonKeeper->>Neo4j: Escribe al Canon
+    else Contradicción
+        CanonKeeper->>MongoDB: Marca como Rechazado
+    end
 ```
 
 El LLM puede generar lo que quiera durante la narración. Nada de eso toca el canon hasta que pasa por el CanonKeeper. La barrera existe.
@@ -113,13 +314,58 @@ D&D 5e tiene Fuerza, Destreza, Constitución, y tira 1d20 contra una Clase de Di
 
 Cada sistema tiene su propia lógica para resolver acciones. Programar esa lógica manualmente para cada juego que quisiera soportar era inviable — y cerrado. Quería que el sistema pudiera aprender sistemas nuevos sin que yo tuviera que reescribir código.
 
-La solución fue la **ingesta de documentos**.
+La solución fue la **ingesta de documentos**, pero con un enfoque distinto al estándar de RAG.
 
-En lugar de codificar las reglas, el sistema lee los PDFs o textos de los manuales, extrae las mecánicas relevantes, y las almacena como conocimiento consultable. Cuando necesita resolver una acción bajo un sistema determinado, recupera las reglas pertinentes del índice vectorial y las aplica.
+Al principio intentamos lo básico: *naive chunking* (partir los PDFs en bloques de texto crudo y meterlos en la base vectorial). Eso fue un desastre. Un manual de rol no es una novela plana, es una estructura técnica. Tuvimos que descartar el chunking ingenuo y dedicarnos a entender la estructura del libro, etiquetar los elementos por tipo (esto es una regla, esto es lore, esto es una tabla de botín) y luego hacer la ingesta semántica.
 
-Eso también significa que puedes crear un sistema completamente nuevo — inventado, propio — escribirlo como texto, y el sistema lo aprende. No hay límite en los juegos que puede soportar.
+Fue ahí donde me di cuenta de que este proceso no solo servía para extraer el "mundo" (lo que el texto describe como realidad de la ficción), sino el **sistema**. El pipeline podía sintetizar un sistema de dados, sus mecánicas de dificultad y sus tablas, y extraer esa lógica para que el agente Resolver la aplicara. 
 
-<!-- [VOZ PROPIA]: ¿Hubo algún sistema que fue especialmente difícil de ingestar? ¿Alguna mecánica que el sistema no entendió bien al principio? -->
+Con eso logramos crear sistemas de juego 100% configurables expresables como esquemas de datos puros. (Si bien en la práctica usamos JSON vía los esquemas de Pydantic para guardarlos en MongoDB, la experiencia es tan declarativa como un archivo YAML). No hay límite en los juegos que el sistema puede soportar, porque no hay código duro para las reglas, solo esquemas descriptivos.
+
+Para lograr esto, construimos un loop de ingestión multimodal usando LangGraph. El sistema no asume que todo es texto plano; en su lugar, detecta el formato y rutea el contenido a agentes especializados en extraer lo que realmente importa (reglas vs. lore vs. coordenadas):
+
+```mermaid
+stateDiagram-v2
+    direction TB
+    [*] --> DetectModality: Archivo / Documento
+    
+    DetectModality --> ProcessText : PDFs y Textos
+    DetectModality --> ProcessVision : Mapas e Imágenes
+    DetectModality --> ProcessSession : Transcripciones
+    
+    state ProcessText {
+        Indexer --> Analyzer
+        note right of Analyzer
+            Separa mecánicas de juego,
+            lore y tablas.
+        end note
+    }
+    
+    state ProcessVision {
+        MapExtractor(DSPy) --> SpatialEntities
+        note right of SpatialEntities
+            Extrae relaciones LOCATED_IN
+            y coordenadas.
+        end note
+    }
+    
+    state ProcessSession {
+        SessionListener(DSPy) --> EventsAndFacts
+    }
+    
+    ProcessText --> TemporalValidation
+    ProcessVision --> TemporalValidation
+    ProcessSession --> TemporalValidation
+    
+    TemporalValidation --> CompileKnowledgePack
+    note right of CompileKnowledgePack
+        Paquete de Conocimiento
+        listo para ser aplicado al Canon.
+    end note
+    CompileKnowledgePack --> [*]
+```
+
+En general fue sorprendente que los sistemas sin dados fueron mucho mas faciles de absorber de lo esperado... pero, los sistemas que tuvieron mas problemas son los sistemas con puntos -por ejemplo, Vampiro la mascarada-. El gasto de puntos es un tema que todavia tiene ciertos detalles sobretodo con meritos y defectos, una mecanica que gasta puntos de creacion para crear condiciones especiales.
 
 ---
 

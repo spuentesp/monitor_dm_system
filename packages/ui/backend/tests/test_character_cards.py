@@ -14,7 +14,6 @@ import base64
 import json
 import struct
 import zlib
-from io import BytesIO
 
 import pytest
 

@@ -171,6 +171,7 @@ _NODE_DEFAULT_ROLES: dict[str, ModelRole] = {
     "turn_intent": ModelRole.LIGHT,
     "indexer": ModelRole.LIGHT,
     "resolver": ModelRole.LIGHT,
+    "session_zero": ModelRole.LIGHT,
 }
 
 

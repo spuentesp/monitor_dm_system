@@ -718,57 +718,6 @@ async def check_gm_awareness(
     if roll_mode == "auto":
         return _auto_roll_verdict()
 
-    # ------------------------------------------------------------------
-    # Build the LLM prompt with full context
-    # ------------------------------------------------------------------
-    facts_text = "\n".join(f"- {f}" for f in established_facts[-20:])
-    entities_text = "\n".join(
-        f"- {e.get('name', '?')} ({e.get('entity_type', '?')})"
-        for e in scene_context.get("entities", [])
-    )
-    prior_turns_text = ""
-    for turn in scene_context.get("turns", [])[-3:]:
-        prior_turns_text += f"- {turn.get('speaker', '?')}: {turn.get('text', '')[:200]}\n"
-
-    character_name = scene_context.get("character_name", "the player character")
-    character_role = scene_context.get("character_role", "adventurer")
-
-    user_message = f"""Read this player action and return a structured GMAwareness verdict.
-
-PLAYER ACTION:
-{user_input}
-
-CHARACTER:
-{character_name} ({character_role})
-
-ESTABLISHED FACTS (from earlier in the session):
-{facts_text or "(none yet)"}
-
-SCENE ENTITIES:
-{entities_text or "(none)"}
-
-RECENT TURNS:
-{prior_turns_text or "(none)"}
-
-PLAY MODE: {play_mode}
-ROLL MODE: {roll_mode}
-
-Return a GMAwareness with:
-- intent_type: meta / ooc / query / dialogue / action
-- action_type: none / dialogue / combat / stealth / exploration / movement
-- roll_necessity: trivial / propose_roll / contested
-- target: the noun the action is directed at (or None)
-- declares_outcome: did the player assert something already happened?
-- violates_causality: does this break established facts?
-- severity: none / minor / major / deus_ex_machina
-- reasons: list of specific reasons (empty if no violation)
-- action: ACCEPT / PUSH_BACK / REQUEST_CLARIFICATION / NARRATIVE_OVERRIDE
-- suggested_stat: STR/DEX/CHA/etc. if pushing back
-- suggested_dc: 10/12/15/18 if pushing back
-- pushback_prompt: concrete message for the player (if pushing back)
-- reasoning: free-form reasoning
-"""
-
     try:
         return await _run_dspy_predict(
             user_input=user_input,
