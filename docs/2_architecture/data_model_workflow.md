@@ -65,3 +65,50 @@ Imagina que un jugador dice: *"Reviso el cofre y saco la Gema del Alma, recordan
 3. **MongoDB (Escritura)**: El agente de extracción crea un `ProposedChange` en **MongoDB**: *"El jugador ahora tiene la Gema del Alma"*.
 4. **Qdrant (Escritura)**: Se guarda un recuerdo en **Qdrant**: *"El jugador encontró la gema"*, para que los PNJs puedan buscarlo después (`qdrant_embed_memory`).
 5. **CanonKeeper**: Al final del turno/escena, evalúa el `ProposedChange` en **MongoDB**. Si es válido, lo oficializa creando el nodo/relación definitiva en **Neo4j** y actualizando MongoDB.
+
+---
+
+## 6. Entity Promotion Gate (DL-2)
+
+La promoción de entidades transitorias (PNJs, objetos mencionados durante la narración) al grafo canónico de Neo4j ya **no** depende de heurísticas lore-específicas ("Prince", "Fixer", títulos reconocibles). En su lugar, el sistema aplica una **puerta de promoción** determinista, generalizable a cualquier sistema de juego:
+
+### 6.1 Tipos de Intención (`promotion_intent`)
+
+El Narrador etiqueta cada nueva entidad con una de dos sintaxis obligatorias al introducirla:
+
+* `[Name](entity:anchor)` — entidad con autoridad estructural, ficha de stats, o representación de facción. Será promovida a nodo permanente de Neo4j.
+* `[Name](entity:flavor)` — ambientación o extra descartable (camarero genérico, transeúnte anónimo). Será evaluada por umbral al cierre de la escena.
+
+Si el LLM no etiqueta la entidad, el parser la ignora y nunca entra a MongoDB.
+
+### 6.2 Reglas de Promoción (CanonKeeper)
+
+Al evaluar propuestas (`CanonKeeper.evaluate_proposals`), el CanonKeeper ejecuta un pase previo al LLM que aplica estas leyes en orden:
+
+| # | Regla | Veredicto |
+|---|-------|-----------|
+| 1 | **Topológica** — la entidad aparece como origen/destino de una propuesta `RELATIONSHIP` en el mismo lote | `ACCEPTED` ("Auto-promoted to satisfy graph integrity laws") |
+| 2 | **State-Gated** — la entidad aparece en una propuesta `STATE_CHANGE` / `EVENT` | `ACCEPTED` ("mechanically bound") |
+| 3 | **Intent: anchor** | `ACCEPTED` |
+| 4 | **Intent: flavor** con `interaction_count > 3` | `ACCEPTED` (graduada a anchor por uso) |
+| 5 | **Intent: flavor** con `interaction_count ≤ 3` (y no mecánicamente ligada) | `REJECTED` (garbage-collected) |
+
+`interaction_count` se incrementa cada turno en que la etiqueta `[Name]` reaparece en la narración (parser en `monitor_agents.loops.entity_promotion`). `is_mechanically_bound = True` se activa automáticamente cuando el nombre de la entidad aparece en cualquier payload mecánico (combate, `state_change`, inventario).
+
+### 6.3 Campos del Esquema
+
+`ProposedChangeCreate` / `ProposedChangeResponse` exponen:
+
+```python
+promotion_intent: Optional[PromotionIntent]  # "anchor" | "flavor"
+interaction_count: int                        # default 1
+is_mechanically_bound: bool                   # default False
+```
+
+Estos campos son opcionales para propuestas que no sean entidades (`FACT`, `RELATIONSHIP`, etc.), donde simplemente quedan en sus defaults.
+
+### 6.4 Por qué importa
+
+Antes: cambiar de *Vampire* a *Cyberpunk RED* requería reescribir heurísticas de reconocimiento de títulos.
+
+Ahora: el LLM **declara** la intención al introducir la entidad, y el sistema **verifica** topológicamente (¿alguien se relaciona con ella?), mecánicamente (¿alguien la usa en combate / inventario?), y por umbral (¿volvió a aparecer?). Las mismas reglas funcionan para cualquier ambientación.

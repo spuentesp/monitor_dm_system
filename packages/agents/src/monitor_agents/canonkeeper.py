@@ -374,16 +374,44 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         if not proposals:
             return verdicts
 
+        # ------------------------------------------------------------------
+        # Entity promotion gate (DL-2 generalized promotion)
+        # ------------------------------------------------------------------
+        # Runs BEFORE the per-proposal LLM pipeline. Decides entity
+        # promotions deterministically using:
+        #   - topology  : any entity named in a RELATIONSHIP proposal
+        #                 must exist as a permanent node (graph integrity)
+        #   - state     : any entity named in a STATE_CHANGE / EVENT
+        #                 proposal is mechanically bound (state-gated)
+        #   - intent    : (anchor|flavor) tag from narrator prompt
+        #   - threshold : flavor entities with interaction_count > 3
+        #                 graduate to anchor; otherwise they are garbage
+        #                 collected at scene end
+        auto_verdicts = self._apply_entity_promotion_rules(proposals)
+        auto_proposal_ids = {str(v.proposal_id) for v in auto_verdicts}
+
         # Fetch context once (shared across all proposals in this batch)
         world_rules = await self._fetch_world_rules(scene_id)
         protected_entities = await self._fetch_protected_entities(scene_id)
 
         for proposal in proposals:
-            verdict = await self._evaluate_single(
-                proposal=proposal,
-                world_rules=world_rules,
-                protected_entities=protected_entities,
+            # Skip LLM evaluation if the promotion gate already issued a verdict
+            auto = next(
+                (
+                    v
+                    for v in auto_verdicts
+                    if str(v.proposal_id) == str(proposal.get("proposal_id", ""))
+                ),
+                None,
             )
+            if auto is not None:
+                verdict = auto
+            else:
+                verdict = await self._evaluate_single(
+                    proposal=proposal,
+                    world_rules=world_rules,
+                    protected_entities=protected_entities,
+                )
             verdicts.append(verdict)
 
             # Commit immediately on ACCEPT so partial batches are durable
@@ -1229,6 +1257,228 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
     # ------------------------------------------------------------------
     # Private evaluation pipeline
     # ------------------------------------------------------------------
+
+    # Threshold for flavor→anchor graduation at scene end.
+    # A flavor entity that participates in more than this many turns earns
+    # permanent status; otherwise it is garbage collected.
+    _FLAVOR_INTERACTION_THRESHOLD = 3
+
+    @staticmethod
+    def _collect_entity_ids_from_proposal(proposal: Dict[str, Any]) -> List[str]:
+        """Extract referenced entity names from a proposal payload.
+
+        Pulls names from common fields (``from_entity``, ``to_entity``,
+        ``entity_id``/``target_entity_id``/``actor_id`` when they are
+        bare-name strings, ``target_name``, ``actor_name``, nested
+        ``content.entity_names``).
+        """
+        names: List[str] = []
+        payload = proposal.get("payload") or proposal.get("content") or {}
+        if not isinstance(payload, dict):
+            return names
+        for key in (
+            "from_entity",
+            "to_entity",
+            "target_name",
+            "actor_name",
+            "entity_name",
+            "name",
+        ):
+            v = payload.get(key)
+            if isinstance(v, str) and v.strip():
+                names.append(v.strip())
+        # Some payloads carry UUIDs in entity_id — accept those too so
+        # relationship lookups still mark the right endpoint.
+        for key in ("entity_id", "target_entity_id", "actor_id"):
+            v = payload.get(key)
+            if isinstance(v, str) and v.strip():
+                names.append(v.strip())
+        entity_names = payload.get("entity_names")
+        if isinstance(entity_names, list):
+            for n in entity_names:
+                if isinstance(n, str) and n.strip():
+                    names.append(n.strip())
+        return names
+
+    def _apply_entity_promotion_rules(
+        self,
+        proposals: List[Dict[str, Any]],
+    ) -> List[CanonKeeperVerdict]:
+        """
+        Pre-LLM deterministic promotion pass for ENTITY proposals.
+
+        Implements the generalized entity promotion gate (DL-2):
+          1. Topological promotion — any entity named by a RELATIONSHIP
+             proposal in this batch must exist as a Neo4j node, so the
+             matching pending ENTITY proposal is auto-ACCEPTed.
+          2. State-gated promotion — entities named by STATE_CHANGE /
+             EVENT proposals are mechanically bound; if their pending
+             ENTITY proposal exists, it is promoted; if not, we still
+             flag them as mechanically bound for downstream processing.
+          3. Intent-gated promotion — proposals with
+             ``promotion_intent == 'anchor'`` are auto-ACCEPTed.
+          4. Threshold-flush — proposals with
+             ``promotion_intent == 'flavor'`` are REJECTed unless they
+             exceed the interaction threshold OR are mechanically bound.
+        """
+        verdicts: List[CanonKeeperVerdict] = []
+
+        # Pre-compute the set of entity names that are referenced by
+        # non-ENTITY proposals in this batch.
+        topology_referenced: set[str] = set()
+        state_bound: set[str] = set()
+
+        for proposal in proposals:
+            change_type = str(
+                proposal.get("change_type")
+                or proposal.get("proposal_type")
+                or ""
+            ).lower()
+            names = [n.lower() for n in self._collect_entity_ids_from_proposal(proposal)]
+            if change_type in {"relationship", "relation", "entity_relationship"}:
+                topology_referenced.update(names)
+            elif change_type in {"state_change", "event", "mechanic"}:
+                state_bound.update(names)
+
+        for proposal in proposals:
+            change_type = str(
+                proposal.get("change_type")
+                or proposal.get("proposal_type")
+                or ""
+            ).lower()
+            if change_type != "entity":
+                continue
+
+            payload = proposal.get("payload") or proposal.get("content") or {}
+            entity_name = str(payload.get("name") or "").strip()
+            proposal_id = proposal.get("proposal_id")
+            if not proposal_id:
+                continue
+
+            intent = proposal.get("promotion_intent") or payload.get("promotion_intent")
+            intent = str(intent).strip().lower() if intent else ""
+            interaction_count = int(
+                proposal.get("interaction_count")
+                or payload.get("interaction_count")
+                or 1
+            )
+            is_mech = bool(
+                proposal.get("is_mechanically_bound")
+                or payload.get("is_mechanically_bound")
+            )
+            # Mechanical binding is implicitly true if the entity shows
+            # up in any state_change / event payload in the same batch.
+            if entity_name.lower() in state_bound:
+                is_mech = True
+
+            # 1+2. Topological + state-gated promotion
+            if entity_name and entity_name.lower() in topology_referenced:
+                verdicts.append(
+                    self._auto_verdict(
+                        proposal_id,
+                        CanonKeeperDecision.ACCEPTED,
+                        "Auto-promoted to satisfy graph integrity laws.",
+                        canon_node_type="entity",
+                        canon_properties=payload,
+                    )
+                )
+                continue
+            if is_mech and entity_name and entity_name.lower() in state_bound:
+                verdicts.append(
+                    self._auto_verdict(
+                        proposal_id,
+                        CanonKeeperDecision.ACCEPTED,
+                        "Auto-promoted: entity is mechanically bound to a state change.",
+                        canon_node_type="entity",
+                        canon_properties=payload,
+                    )
+                )
+                continue
+
+            # 3. Intent-gated promotion
+            if intent == "anchor":
+                verdicts.append(
+                    self._auto_verdict(
+                        proposal_id,
+                        CanonKeeperDecision.ACCEPTED,
+                        "Auto-promoted: anchor intent.",
+                        canon_node_type="entity",
+                        canon_properties=payload,
+                    )
+                )
+                continue
+
+            # 4. Threshold-flush for flavor entities
+            if intent == "flavor":
+                if interaction_count > self._FLAVOR_INTERACTION_THRESHOLD:
+                    verdicts.append(
+                        self._auto_verdict(
+                            proposal_id,
+                            CanonKeeperDecision.ACCEPTED,
+                            (
+                                f"Auto-promoted: flavor entity exceeded "
+                                f"interaction threshold "
+                                f"({interaction_count} > "
+                                f"{self._FLAVOR_INTERACTION_THRESHOLD})."
+                            ),
+                            canon_node_type="entity",
+                            canon_properties=payload,
+                        )
+                    )
+                else:
+                    verdicts.append(
+                        self._auto_verdict(
+                            proposal_id,
+                            CanonKeeperDecision.REJECTED,
+                            (
+                                f"Flavor entity discarded at scene end "
+                                f"(interaction_count={interaction_count} <= "
+                                f"{self._FLAVOR_INTERACTION_THRESHOLD})."
+                            ),
+                            canon_node_type="entity",
+                            canon_properties={},
+                        )
+                    )
+                continue
+
+            # No rule matched: fall through to LLM evaluation.
+
+        if verdicts:
+            logger.info(
+                "Entity promotion gate: %d auto-decisions for %d proposals "
+                "(anchor=%d, flavor_promoted=%d, flavor_discarded=%d, "
+                "topology=%d)",
+                len(verdicts),
+                sum(1 for p in proposals if str(p.get("change_type", "")).lower() == "entity"),
+                sum(1 for v in verdicts if v.decision == CanonKeeperDecision.ACCEPTED
+                    and "anchor intent" in v.reasoning),
+                sum(1 for v in verdicts if v.decision == CanonKeeperDecision.ACCEPTED
+                    and "interaction threshold" in v.reasoning),
+                sum(1 for v in verdicts if v.decision == CanonKeeperDecision.REJECTED
+                    and "Flavor entity discarded" in v.reasoning),
+                sum(1 for v in verdicts if v.decision == CanonKeeperDecision.ACCEPTED
+                    and "graph integrity" in v.reasoning),
+            )
+        return verdicts
+
+    def _auto_verdict(
+        self,
+        proposal_id: Any,
+        decision: "CanonKeeperDecision",
+        reasoning: str,
+        *,
+        canon_node_type: str = "entity",
+        canon_properties: Optional[Dict[str, Any]] = None,
+    ) -> CanonKeeperVerdict:
+        """Build a CanonKeeperVerdict for a deterministic promotion decision."""
+        return CanonKeeperVerdict(
+            proposal_id=proposal_id if isinstance(proposal_id, UUID) else proposal_id,
+            decision=decision,
+            reasoning=reasoning,
+            canon_node_type=canon_node_type,
+            canon_properties=canon_properties or {},
+            decided_at=datetime.now(timezone.utc),
+        )
 
     async def _evaluate_single(
         self,

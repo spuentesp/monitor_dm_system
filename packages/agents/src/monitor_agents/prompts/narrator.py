@@ -118,7 +118,26 @@ class NarratorSignature(dspy.Signature):
             "Length: 1-2 sentences for trivial/reaction beats; 1-2 short paragraphs for "
             "standard turns; 2-3 paragraphs for dramatic turning points. "
             "Never tell the player what their character thinks/feels — describe what they "
-            "perceive and what the world does next."
+            "perceive and what the world does next.\n\n"
+            "ENTITY INTENT TAGGING (mandatory): When introducing a new entity for the "
+            "first time, you MUST explicitly type it using one of these two syntaxes "
+            "(the engine uses this to decide whether to persist it permanently):\n"
+            "  [Name](entity:anchor)  — entities with structural authority, named stat "
+            "blocks, faction representation, or that will participate mechanically "
+            "in future turns (named NPCs with intent, lieutenants, recurring rivals, "
+            "named items with mechanical effect).\n"
+            "  [Name](entity:flavor)  — environmental set dressing and disposable "
+            "extras (a bartender pouring drinks, a passing clerk, a generic guard, "
+            "anonymous crowd members, untagged scenery objects).\n"
+            "Prohibited: do NOT introduce a new named entity without one of these tags. "
+            "Generic untyped names cause the parser to silently ignore them.\n\n"
+            "Few-shot examples:\n"
+            '  Anchor:  "[Kira](entity:anchor) leans against the doorframe, her '
+            'left-hand dagger still sheathed — for now. \'You\'re late,\' she says."\n'
+            '  Flavor:  "[a bartender](entity:flavor) wipes the counter without looking up '
+            'as a [tired clerk](entity:flavor) shuffles past with a stack of ledgers."\n'
+            '  Mixed:   "The [Fixer](entity:anchor) at the corner booth nods to '
+            '[a street kid](entity:flavor) lurking by the rain barrel."'
         )
     )
     proposed_changes: str = dspy.OutputField(

@@ -13,6 +13,7 @@ USE CASE: DL-5
 """
 
 from datetime import datetime
+from enum import Enum
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
@@ -61,6 +62,19 @@ class DecisionMetadata(BaseModel):
 # =============================================================================
 
 
+class PromotionIntent(str, Enum):
+    """Author-supplied hint for whether a transient entity deserves canonisation.
+
+    Populated by the entity parser when the narrator tags a new entity with
+    ``[Name](entity:anchor)`` or ``[Name](entity:flavor)``. CanonKeeper reads
+    this field at scene-end to apply the anchor / flavor promotion rules
+    (see CanonKeeper.evaluate_proposals).
+    """
+
+    ANCHOR = "anchor"
+    FLAVOR = "flavor"
+
+
 class ProposedChangeCreate(BaseModel):
     """Request to create a ProposedChange."""
 
@@ -82,6 +96,32 @@ class ProposedChangeCreate(BaseModel):
     )
     authority: Authority = Field(default=Authority.SYSTEM, description="Who asserted this change")
     proposer: str = Field(default="Unknown", description="Agent or user who created this proposal")
+    # Entity-promotion metadata (DL-2 promotion gate)
+    promotion_intent: Optional[PromotionIntent] = Field(
+        None,
+        description=(
+            "Entity promotion intent. 'anchor' means the LLM tagged this entity "
+            "as structurally important; 'flavor' means it was environmental "
+            "set-dressing. None if not applicable to this change_type."
+        ),
+    )
+    interaction_count: int = Field(
+        default=1,
+        ge=0,
+        description=(
+            "How many turns this entity has been referenced in. Incremented by "
+            "the scene-loop entity parser each turn the [Name] tag appears. "
+            "Defaults to 1 for newly proposed entities."
+        ),
+    )
+    is_mechanically_bound: bool = Field(
+        default=False,
+        description=(
+            "True if the entity was referenced by a mechanical payload "
+            "(combat, inventory, state_change) at least once. Promotes flavor "
+            "entities to anchor regardless of interaction count."
+        ),
+    )
 
     @field_validator("scene_id", "story_id")
     @classmethod
@@ -145,6 +185,10 @@ class ProposedChangeResponse(BaseModel):
     proposer: str
     status: ProposalStatus
     decision_metadata: Optional[DecisionMetadata] = None
+    # Entity-promotion metadata
+    promotion_intent: Optional[PromotionIntent] = None
+    interaction_count: int = 1
+    is_mechanically_bound: bool = False
     created_at: datetime
     updated_at: datetime
 

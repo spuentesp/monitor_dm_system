@@ -501,6 +501,19 @@ async def extract_new_entities(state: SceneState) -> Dict[str, Any]:
             proposals[-1]["content"]["universe_id"] = str(state.universe_id)
 
     if not proposals:
+        proposals = []
+
+    # Apply the entity promotion gate annotations:
+    #   - parse [Name](entity:anchor|flavor) tags from narrative_text
+    #   - merge tag intent onto matching proposals
+    #   - bump interaction_count for reappearing names
+    # Mechanical binding (combat / state_change references) is applied
+    # later by persist_turn_artifacts where mechanical payloads exist.
+    from monitor_agents.loops.entity_promotion import annotate_proposals
+
+    proposals = annotate_proposals(proposals, state.narrative_text)
+
+    if not proposals:
         return {}
 
     logger.info(
@@ -761,8 +774,28 @@ async def persist_turn_artifacts(state: SceneState) -> Dict[str, Any]:
         )
 
     new_state_proposals = list(persistence_payload.get("pending_proposals", []))
+    merged_proposals = state.pending_proposals + new_state_proposals
+
+    # Mechanical binding pass: any entity proposal whose name appears in a
+    # mechanical payload (resolution effects, resource_deltas from combat,
+    # inventory deltas) gets is_mechanically_bound = True so the promotion
+    # gate promotes it even if it was tagged flavor and never reused.
+    from monitor_agents.loops.entity_promotion import detect_mechanically_bound
+
+    mechanical_payloads: List[Dict[str, Any]] = []
+    if state.resolution:
+        mechanical_payloads.append(state.resolution)
+    for delta in state.resource_deltas or []:
+        if isinstance(delta, dict):
+            mechanical_payloads.append(delta)
+    for delta in persistence_payload.get("resource_deltas", []) or []:
+        if isinstance(delta, dict):
+            mechanical_payloads.append(delta)
+    if mechanical_payloads:
+        merged_proposals = detect_mechanically_bound(merged_proposals, mechanical_payloads)
+
     merged_payload = dict(persistence_payload)
-    merged_payload["pending_proposals"] = state.pending_proposals + new_state_proposals
+    merged_payload["pending_proposals"] = merged_proposals
     return {
         "resolution_id": resolution_id,
         **merged_payload,
