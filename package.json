@@ -1,0 +1,12 @@
+{
+  "scripts": {
+    "test": "cd packages/ui/frontend && npm run test",
+    "test:e2e": "cd packages/ui/frontend && npx playwright test",
+    "build:frontend": "cd packages/ui/frontend && npm run build",
+    "type-check:frontend": "cd packages/ui/frontend && npx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "happy-dom": "^20.10.6"
+  }
+}

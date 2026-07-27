@@ -1,0 +1,86 @@
+# =============================================================================
+# Publish MONITOR images to GitHub Container Registry (ghcr.io)
+# =============================================================================
+# Trigger: tag push of v* (e.g. v0.1.0). Each image is built from packages/
+# as build context so the per-package Dockerfiles can COPY their siblings.
+#
+# Image matrix:
+#   monitor-data-layer   → packages/data-layer/Dockerfile
+#   monitor-agents       → packages/agents/Dockerfile
+#   monitor-cli          → packages/cli/Dockerfile
+#   monitor-ui-backend   → packages/ui/backend/Dockerfile (existing)
+#   monitor-ui-frontend  → packages/ui/frontend/Dockerfile (existing)
+#
+# Tags applied: <image>:v<tag> + <image>:latest (for the most recent tag).
+# Caching: GHA layer cache (cache-from/cache-to type=gha) keeps builds fast.
+# =============================================================================
+
+name: publish-images
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ${{ github.repository_owner }}
+
+jobs:
+  build:
+    name: build & push
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: monitor-data-layer
+            context: packages
+            dockerfile: packages/data-layer/Dockerfile
+          - name: monitor-agents
+            context: packages
+            dockerfile: packages/agents/Dockerfile
+          - name: monitor-cli
+            context: packages
+            dockerfile: packages/cli/Dockerfile
+          - name: monitor-ui-backend
+            context: packages
+            dockerfile: packages/ui/backend/Dockerfile
+          - name: monitor-ui-frontend
+            context: packages
+            dockerfile: packages/ui/frontend/Dockerfile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version
+        id: version
+        run: echo "TAG=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.name }}:${{ steps.version.outputs.TAG }}
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.name }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false

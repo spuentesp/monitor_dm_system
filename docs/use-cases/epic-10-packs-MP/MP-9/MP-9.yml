@@ -1,0 +1,39 @@
+id: "MP-9"
+title: "Delete / Archive Pack"
+category: "packs"
+epic: 10
+priority: "low"
+status: "in-progress"
+
+summary: |
+  Remove or soft-archive a pack from the Pack Library. Packs that are
+  referenced in another pack's parent_pack_ids can only be archived (soft
+  delete), not hard deleted, to preserve lineage integrity. Packs with no
+  dependents can be hard deleted.
+
+acceptance_criteria:
+  - "Hard delete: pack document permanently removed from MongoDB"
+  - "Soft archive: pack.status set to 'archived'; pack hidden from default library view"
+  - "Hard delete blocked if any other pack references this pack in parent_pack_ids"
+  - "UI shows 'Archive' vs 'Delete' based on whether dependents exist"
+  - "Archived packs visible in 'Archived' filter in Pack Library"
+  - "Unit tests cover: delete with no dependents, delete blocked by dependents, archive"
+
+depends_on:
+  - "MP-1"
+
+blocks: []
+
+implementation:
+  layer: 1
+
+  files:
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/pack_tools.py"
+      - "packages/ui/backend/src/"
+      - "packages/ui/frontend/src/app/forge/packs/page.tsx"
+
+  notes: |
+    Check for dependents: query MongoDB for any pack with parent_pack_ids containing
+    the target pack ID before allowing hard delete.
+    Archive flag: KnowledgePack.status = "archived" (extend existing status enum).

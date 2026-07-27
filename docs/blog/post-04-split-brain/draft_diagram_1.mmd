@@ -1,0 +1,23 @@
+flowchart TD
+    PlayerInput["Input del Jugador"] -->|Intención| ParseIntent
+    
+    subgraph GMAgent ["GMAgent (narrate)"]
+        direction TB
+        ParseIntent["Parsear Intención"]
+        GenerateProse["Generar Prosa"]
+    end
+    
+    subgraph Resolver ["Resolver (resolve)"]
+        direction TB
+        FetchRules["Consultar Reglas Neo4j/Mongo"]
+        ApplyModifiers["Aplicar Modificadores"]
+        RollDice["Tirar Dados en Python"]
+        DetermineOutcome["Determinar Resultado"]
+    end
+    
+    ParseIntent -->|Llama a Herramienta| FetchRules
+    FetchRules --> ApplyModifiers
+    ApplyModifiers --> RollDice
+    RollDice --> DetermineOutcome
+    DetermineOutcome -->|Devuelve Resultado Mecánico| GenerateProse
+    GenerateProse --> Output["Prosa Narrativa Final"]

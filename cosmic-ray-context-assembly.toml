@@ -1,0 +1,21 @@
+[cosmic-ray]
+module-path = "packages/agents/src/monitor_agents/context_assembly/agent.py"
+python-version = ""
+timeout = 20
+excluded-modules = []
+test-command = "python -m pytest packages/agents/tests/test_context_assembly.py -x -q"
+
+[cosmic-ray.distributor]
+name = "local"
+
+[cosmic-ray.operators]
+# Context assembly has branching for context selection and string logic.
+enabled = [
+    "core/Boolean",
+    "core/Break",
+    "core/Continue",
+    "core/Deletion",
+    "core/Number",
+    "core/String",
+    "core/Variable",
+]

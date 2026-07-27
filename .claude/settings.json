@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "lain": {
+      "command": "/Users/spuentesp/.lain/bin/lain",
+      "args": ["--workspace", "/Users/spuentesp/personal/monitor_dm_system", "--embedding-model", "/Users/spuentesp/personal/monitor_dm_system/.lain/models/model.onnx", "--transport", "stdio"]
+    }
+  },
+  "worktree": {
+    "bgIsolation": "none"
+  }
+}

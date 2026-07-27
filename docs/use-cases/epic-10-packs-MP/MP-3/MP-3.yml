@@ -1,0 +1,39 @@
+id: "MP-3"
+title: "Export Pack to File"
+category: "packs"
+epic: 10
+priority: "medium"
+status: "in-progress"
+
+summary: |
+  Serialise a KnowledgePack from the library as a .monitorpack file and
+  download it. PDFs and binary assets are excluded; source_ids references are
+  included so the consumer knows what sources informed the pack. The format is
+  a portable JSON envelope.
+
+acceptance_criteria:
+  - "Exported file matches schema: {schema_version, exported_at, pack}"
+  - "All structured content is included: entities, axioms, lore, game_system_id, tags, etc."
+  - "Binary blobs are excluded; source_ids list is preserved"
+  - "File download works from the Pack Library UI"
+  - "Exported file round-trips cleanly through MP-2 import"
+
+depends_on:
+  - "MP-1"  # Pack must exist
+
+blocks:
+  - "MP-2"  # Import depends on format this spec defines
+
+implementation:
+  layer: 1
+
+  files:
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/pack_tools.py"
+      - "packages/ui/backend/src/"
+      - "packages/ui/frontend/src/app/forge/packs/page.tsx"
+
+  notes: |
+    schema_version starts at "1.0".
+    downloaded filename: <pack-name>.monitorpack
+    exported_at: UTC ISO-8601 at time of export.

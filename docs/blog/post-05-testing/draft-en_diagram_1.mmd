@@ -1,0 +1,16 @@
+sequenceDiagram
+    participant TestRunner as Test Runner (pytest)
+    participant PlayerLLM as Player (LLM)
+    participant GMAgent as MONITOR (GMAgent)
+    participant CanonKeeper as CanonKeeper
+    participant DB as Neo4j / MongoDB
+
+    TestRunner->>PlayerLLM: Start Session (Base Prompt)
+    loop For 15 Turns
+        PlayerLLM->>GMAgent: Declare Chaotic Action
+        GMAgent->>GMAgent: Resolve Intent & Mechanics
+        GMAgent->>CanonKeeper: Propose World Changes
+        CanonKeeper->>DB: Write Safe Changes
+        GMAgent->>PlayerLLM: Return Prose
+    end
+    TestRunner->>DB: Verify Graph Integrity

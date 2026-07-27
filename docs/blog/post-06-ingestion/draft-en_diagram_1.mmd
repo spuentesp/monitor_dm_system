@@ -1,0 +1,9 @@
+flowchart TD
+    RawPDF[Rulebook PDF] --> Classifier[Modality Classifier]
+    Classifier -->|Lore and Story| LoreExtractor[Ontological Extractor]
+    Classifier -->|Game Rules| MechanicExtractor[JSON / Pydantic Translator]
+    Classifier -->|Item Tables| TableParser[Structured Converter]
+
+    LoreExtractor --> Neo4j[(Neo4j - Entity Nodes)]
+    MechanicExtractor --> MongoDB[(MongoDB - Strict Rules)]
+    TableParser --> MongoDB

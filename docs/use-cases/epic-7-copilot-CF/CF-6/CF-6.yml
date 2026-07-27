@@ -1,0 +1,25 @@
+# CF-6: Generate Player Handouts
+# ==============================
+
+id: "CF-6"
+title: "Generate Player Handouts"
+category: "cf"
+epic: 7
+priority: "medium"
+status: "done"
+
+summary: |
+  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+
+acceptance_criteria:
+  - "TBD"
+
+depends_on: []
+blocks: []
+
+implementation:
+  layer: 2
+  files:
+    create: []
+    modify: []
+  patterns: []

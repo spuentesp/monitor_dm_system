@@ -1,0 +1,19 @@
+flowchart TD
+    subgraph Layer3["LAYER 3: INTERFACE"]
+        UI["Web UI (Next.js + FastAPI)"]
+        CLI["CLI (monitor play, manage, etc.)"]
+    end
+    
+    subgraph Layer2["LAYER 2: AGENTS"]
+        Agents["Narrator · Resolver · CanonKeeper<br>ContextAssembly · LangGraph Loops"]
+    end
+    
+    subgraph Layer1["LAYER 1: DATA"]
+        Data["MCP Tools · DB Clients · Schemas"]
+    end
+    
+    DBs[("Neo4j · MongoDB · Qdrant<br>PostgreSQL · MinIO")]
+    
+    Layer3 -->|imports from| Layer2
+    Layer2 -->|imports from| Layer1
+    Layer1 --> DBs

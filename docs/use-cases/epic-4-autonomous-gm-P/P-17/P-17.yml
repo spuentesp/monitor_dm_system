@@ -1,0 +1,132 @@
+# P-17: Direct NPC Conversation Loop
+# ====================================
+
+id: "P-17"
+title: "Direct NPC Conversation Loop"
+category: "play"
+epic: 4
+priority: "high"
+status: "in-progress"
+
+summary: |
+  Enter a real-time direct conversation sub-loop with one or more NPCs
+  inside an active scene. The player speaks TO the NPC directly; NPCVoice
+  responds AS the NPC (not mediated by GM narration). Faster and more
+  conversational than the scene-narrated P-5 flow. Uses a LIGHT LLM model
+  for responsive, cheap NPC speech.
+
+  At session end, accumulated relationship changes and emotional state
+  updates are staged as ProposedChanges for CanonKeeper.
+
+actor: "User (Player)"
+trigger: "Player enters a direct dialogue with an NPC inside an active scene"
+
+flow:
+  - "Player initiates: 'speak with <NPC name>'"
+  - "Orchestrator opens ConversationSession (mode=DIRECT) in MongoDB"
+  - "ConversationLoop.start(): pre-load NPC profile, memories, facts"
+  - "LOOP (until player exits):"
+  - "  1. Display NPC name prompt"
+  - "  2. Player types their message"
+  - "  3. NPCVoice.respond_direct() called:"
+  - "     a. Check behavioral triggers against player input"
+  - "     b. DSPy NPCDirectVoiceModule generates NPC response (LIGHT model)"
+  - "     c. NPC turn persisted to ConversationSession in MongoDB"
+  - "     d. NPC memory written to MongoDB + embedded in Qdrant"
+  - "  4. Display NPC response to player"
+  - "  5. Repeat"
+  - "  EXIT: player types '/done', '/leave', '/exit'"
+  - "ConversationLoop.finish():"
+  - "  a. Mark ConversationSession COMPLETED"
+  - "  b. Stage pending proposals (relationship deltas, emotional state) to MongoDB"
+  - "Return to P-3 Turn Loop"
+
+acceptance_criteria:
+  - "ConversationSession document created in MongoDB at start"
+  - "NPC profile (personality, traits, speech style) loaded before first response"
+  - "NPC behavioral triggers evaluated per turn"
+  - "NPC responses reflect personality, known facts, memories, and active triggers"
+  - "NPC emotional state tracked and updated across turns"
+  - "All turns (player + NPC) persisted to ConversationSession"
+  - "NPC memory created per exchange (MemoryCreate + Qdrant embedding)"
+  - "Relationship delta proposals staged at session end"
+  - "Session marked COMPLETED when player exits"
+  - "Multi-NPC sessions: each NPC responds in sequence per turn"
+  - "Exits cleanly on meta-commands without breaking scene state"
+  - "LLM used: ModelRole.LIGHT (fast/cheap — Haiku/Flash class)"
+
+depends_on:
+  - "DL-2"   # Entity data
+  - "DL-7"   # Memories
+  - "DL-10"  # Vector search
+  - "DL-20"  # ConversationSession CRUD
+  - "P-3"    # Turn Loop (conversation is a sub-loop within it)
+  - "P-5"    # Base dialogue handling
+
+blocks: []
+
+implementation:
+  layer: 2  # Agents layer
+
+  files:
+    create:
+      - "packages/agents/src/monitor_agents/npc_voice.py"
+      - "packages/agents/src/monitor_agents/loops/conversation_loop.py"
+      - "packages/agents/src/monitor_agents/npc_voice/npc_voice.py"
+      - "packages/data-layer/src/monitor_data/schemas/conversations.py"
+    modify:
+      - "packages/agents/src/monitor_agents/__init__.py"
+      - "packages/agents/src/monitor_agents/loops/__init__.py"
+      - "packages/agents/src/monitor_agents/world_architect/__init__.py"
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+      - "packages/data-layer/src/monitor_data/schemas/__init__.py"
+
+  database_operations:
+    neo4j:
+      - name: "neo4j_get_entity"
+        authority: ["*"]
+        purpose: "Load NPC entity data"
+      - name: "neo4j_list_facts"
+        authority: ["*"]
+        purpose: "NPC known facts (knowledge boundary)"
+    mongodb:
+      - name: "mongodb_create_conversation"
+        authority: ["NPCVoice", "Narrator", "Orchestrator"]
+        purpose: "Open ConversationSession"
+      - name: "mongodb_append_conversation_turn"
+        authority: ["NPCVoice", "Narrator"]
+        purpose: "Persist each turn"
+      - name: "mongodb_update_conversation"
+        authority: ["NPCVoice", "Orchestrator"]
+        purpose: "Close session"
+      - name: "mongodb_get_npc_profile"
+        authority: ["*"]
+        purpose: "Load personality profile"
+      - name: "mongodb_create_memory"
+        authority: ["*"]
+        purpose: "NPC memory of exchange"
+      - name: "mongodb_create_proposed_change"
+        authority: ["*"]
+        purpose: "Stage relationship/emotional proposals"
+    qdrant:
+      - name: "qdrant_search_memories"
+        authority: ["*"]
+        purpose: "Semantic recall of NPC memories"
+
+  llm_routing:
+    node: "npc_voice"
+    role: "LIGHT"
+    rationale: |
+      NPC dialogue context is small (profile + last N turns only).
+      Latency matters — live conversation should feel responsive.
+      LIGHT models (Haiku 3.5, Gemini 2.0 Flash, GPT-4o-mini) are
+      sufficient and ~10x cheaper than HEAVY models.
+
+  key_types:
+    ConversationSession: "MongoDB document tracking a full dialogue session"
+    ConversationTurn: "Single exchange within a session (player or NPC)"
+    ConversationMode: "DIRECT | ACTOR | SCENE"
+    NPCVoice: "Agent that speaks as NPC (L2)"
+    ConversationLoop: "LangGraph StateGraph for conversation lifecycle"
+    NPCDirectVoiceModule: "DSPy Predict module (LIGHT model)"

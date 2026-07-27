@@ -1,0 +1,40 @@
+# P-20: Forced Narrative Pushback
+# ===============================
+
+id: "P-20"
+title: "Forced Narrative Pushback"
+category: "play"
+epic: 1
+priority: "medium"
+status: "in-progress"
+
+summary: |
+  Provides GM authority in single-player mode by pushing back against player abuse
+  of forced narrative declarations (e.g., "I instantly kill the boss"). When the
+  Resolver detects a forced narrative (ResolutionType.FORCED_NARRATIVE) that involves
+  a contested or high-stakes action, the Orchestrator pauses the turn and asks the
+  player to confirm a roll or modifies the action into an attempt, ensuring stakes
+  are preserved.
+
+acceptance_criteria:
+  - "Resolver evaluates forced narrative declarations against current stakes."
+  - "If stakes are high (e.g., combat or major plot), system pauses and prompts for a roll."
+  - "Player can accept the pushback (converting to a dice roll) or override with explicit GM mode command."
+  - "Prevents trivialization of combat loops via prose."
+
+depends_on:
+  - "P-4"    # Resolve Action
+  - "P-3"    # Turn Loop
+
+blocks: []
+
+implementation:
+  layer: 2
+  files:
+    modify:
+      - "packages/agents/src/monitor_agents/resolver.py"
+      - "packages/agents/src/monitor_agents/loops/scene_loop.py"
+
+  patterns:
+    - "Add 'pushback_prompt' field to Resolution outcome."
+    - "SceneLoop detects pushback and routes to an await_confirmation state."

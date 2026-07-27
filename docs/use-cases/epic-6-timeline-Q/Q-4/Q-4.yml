@@ -1,0 +1,25 @@
+# Q-4: Explore Facts
+# ==================
+
+id: "Q-4"
+title: "Explore Facts"
+category: "q"
+epic: 6
+priority: "medium"
+status: "in-progress"
+
+summary: |
+  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+
+acceptance_criteria:
+  - "TBD"
+
+depends_on: []
+blocks: []
+
+implementation:
+  layer: 2
+  files:
+    create: []
+    modify: []
+  patterns: []

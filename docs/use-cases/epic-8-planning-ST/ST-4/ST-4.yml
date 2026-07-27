@@ -1,0 +1,25 @@
+# ST-4: Design Mystery Structure
+# ==============================
+
+id: "ST-4"
+title: "Design Mystery Structure"
+category: "st"
+epic: 8
+priority: "medium"
+status: "in-progress"
+
+summary: |
+  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+
+acceptance_criteria:
+  - "TBD"
+
+depends_on: []
+blocks: []
+
+implementation:
+  layer: 2
+  files:
+    create: []
+    modify: []
+  patterns: []

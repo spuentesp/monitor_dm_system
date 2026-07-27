@@ -1,0 +1,23 @@
+name: Behavior Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: behavior-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  behavior-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen || uv sync
+      - name: Behavior / choreography tests (agent loop integration)
+        run: uv run pytest tests/behavior -q --tb=short -p no:cacheprovider

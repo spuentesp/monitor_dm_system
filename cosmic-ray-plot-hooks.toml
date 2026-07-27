@@ -1,0 +1,9 @@
+[cosmic-ray]
+module-path = "packages/agents/src/monitor_agents/plot_hooks.py"
+python-version = ""
+timeout = 25
+excluded-modules = []
+test-command = "python -m pytest packages/agents/tests/test_plot_hooks.py tests/behavior/test_plot_hooks_choreography_behavior.py -x -q"
+
+[cosmic-ray.distributor]
+name = "local"

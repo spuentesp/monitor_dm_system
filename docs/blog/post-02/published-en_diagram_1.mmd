@@ -1,0 +1,181 @@
+erDiagram
+    OMNIVERSE {
+        uuid id PK
+        string name
+        string description
+        timestamp created_at
+    }
+
+    MULTIVERSE {
+        uuid id PK
+        uuid omniverse_id FK
+        string name
+        string system_name
+        string description
+        timestamp created_at
+    }
+
+    UNIVERSE {
+        uuid id PK
+        uuid multiverse_id FK
+        string name
+        string description
+        string genre
+        string tone
+        string tech_level
+        enum canon_level
+        timestamp created_at
+    }
+
+    SOURCE {
+        uuid id PK
+        uuid universe_id FK
+        string doc_id
+        string title
+        string edition
+        string provenance
+        enum source_type
+        enum canon_level
+        timestamp created_at
+    }
+
+    AXIOM {
+        uuid id PK
+        uuid universe_id FK
+        string statement
+        string domain
+        float confidence
+        enum canon_level
+        enum authority
+        timestamp created_at
+    }
+
+    AGENDA {
+        uuid id PK
+        uuid universe_id FK
+        uuid owner_id FK
+        string title
+        string description
+        enum agenda_type
+        enum status
+        int total_segments
+        int current_segments
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    ENTITY_AXIOMATICA {
+        uuid id PK
+        uuid universe_id FK
+        string name
+        enum entity_type
+        string description
+        map properties
+        enum canon_level
+        float confidence
+        timestamp created_at
+    }
+
+    ENTITY_CONCRETA {
+        uuid id PK
+        uuid universe_id FK
+        string name
+        enum entity_type
+        string description
+        map properties
+        list state_tags
+        enum canon_level
+        float confidence
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    STORY {
+        uuid id PK
+        uuid universe_id FK
+        string title
+        enum story_type
+        string theme
+        string premise
+        enum status
+        timestamp start_time_ref
+        timestamp end_time_ref
+        timestamp created_at
+        timestamp completed_at
+    }
+
+    SCENE {
+        uuid id PK
+        uuid story_id FK
+        string title
+        string purpose
+        int order
+        timestamp time_ref
+        timestamp created_at
+    }
+
+    FACT {
+        uuid id PK
+        uuid universe_id FK
+        string statement
+        timestamp time_ref
+        int duration
+        float confidence
+        enum canon_level
+        enum authority
+        uuid replaces FK
+        timestamp created_at
+    }
+
+    EVENT {
+        uuid id PK
+        uuid scene_id FK
+        string title
+        string description
+        timestamp time_ref
+        int severity
+        float confidence
+        enum canon_level
+        enum authority
+        timestamp created_at
+    }
+
+    PLOTTHREAD {
+        uuid id PK
+        uuid story_id FK
+        string title
+        enum thread_type
+        enum status
+        timestamp created_at
+    }
+
+    OMNIVERSE ||--o{ MULTIVERSE : "CONTAINS"
+    MULTIVERSE ||--o{ UNIVERSE : "CONTAINS"
+    UNIVERSE ||--o{ SOURCE : "HAS_SOURCE"
+    UNIVERSE ||--o{ AXIOM : "HAS_AXIOM"
+    UNIVERSE ||--o{ ENTITY_AXIOMATICA : "HAS_ENTITY"
+    UNIVERSE ||--o{ ENTITY_CONCRETA : "HAS_ENTITY"
+    UNIVERSE ||--o{ STORY : "HAS_STORY"
+    STORY ||--o{ STORY : "PARENT_STORY"
+    STORY ||--o{ SCENE : "HAS_SCENE"
+    STORY ||--o{ PLOTTHREAD : "HAS_THREAD"
+    SCENE ||--o{ SCENE : "NEXT"
+    SCENE ||--o{ EVENT : "HAS_EVENT"
+    EVENT }o--o{ EVENT : "CAUSES"
+    ENTITY_CONCRETA }o--o| ENTITY_AXIOMATICA : "DERIVES_FROM"
+    ENTITY_CONCRETA }o--o{ ENTITY_CONCRETA : "LOCATED_IN"
+    ENTITY_CONCRETA }o--o{ ENTITY_CONCRETA : "MEMBER_OF"
+    ENTITY_CONCRETA }o--o{ ENTITY_CONCRETA : "ALLY_OF"
+    ENTITY_CONCRETA }o--o{ ENTITY_CONCRETA : "ENEMY_OF"
+    ENTITY_CONCRETA }o--o{ ENTITY_CONCRETA : "OWNS"
+    ENTITY_CONCRETA }o--o{ SCENE : "PARTICIPATED_IN"
+    ENTITY_CONCRETA }o--o{ EVENT : "INVOLVED_IN"
+    ENTITY_CONCRETA }o--o{ FACT : "INVOLVED_IN"
+    PLOTTHREAD }o--o{ SCENE : "ADVANCED_BY"
+    PLOTTHREAD }o--o{ ENTITY_CONCRETA : "INVOLVES"
+    FACT }o--o{ SOURCE : "SUPPORTED_BY"
+    FACT }o--o{ SCENE : "SUPPORTED_BY"
+    EVENT }o--o{ SOURCE : "SUPPORTED_BY"
+    EVENT }o--o{ SCENE : "SUPPORTED_BY"
+    AXIOM }o--o{ SOURCE : "SUPPORTED_BY"
+    FACT }o--o| FACT : "REPLACES"

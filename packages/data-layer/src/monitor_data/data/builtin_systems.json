@@ -1,0 +1,2301 @@
+[
+  {
+    "name": "D&D 5e",
+    "description": "Fifth Edition Dungeons & Dragons - d20 System with ability scores, skills, and class-based progression",
+    "version": "5th Edition",
+    "core_mechanic": {
+      "type": "d20",
+      "formula": "1d20 + modifiers vs DC",
+      "success_type": "meet_or_beat",
+      "success_threshold": "Roll meets or beats target DC",
+      "critical_success": "Natural 20 on attack rolls",
+      "critical_failure": "Natural 1 on attack rolls"
+    },
+    "attributes": [
+      {
+        "name": "Strength",
+        "abbreviation": "STR",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Dexterity",
+        "abbreviation": "DEX",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Constitution",
+        "abbreviation": "CON",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Intelligence",
+        "abbreviation": "INT",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Wisdom",
+        "abbreviation": "WIS",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Charisma",
+        "abbreviation": "CHA",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      }
+    ],
+    "skills": [
+      {
+        "name": "Acrobatics",
+        "abbreviation": "Acr",
+        "linked_attribute": "Dexterity",
+        "description": "Balance, tumbling, aerial maneuvers"
+      },
+      {
+        "name": "Animal Handling",
+        "abbreviation": "AnH",
+        "linked_attribute": "Wisdom",
+        "description": "Calm or train animals"
+      },
+      {
+        "name": "Arcana",
+        "abbreviation": "Arc",
+        "linked_attribute": "Intelligence",
+        "description": "Recall lore about spells, magic items, symbols"
+      },
+      {
+        "name": "Athletics",
+        "abbreviation": "Ath",
+        "linked_attribute": "Strength",
+        "description": "Climbing, jumping, swimming"
+      },
+      {
+        "name": "Deception",
+        "abbreviation": "Dec",
+        "linked_attribute": "Charisma",
+        "description": "Hide the truth verbally or through actions"
+      },
+      {
+        "name": "History",
+        "abbreviation": "His",
+        "linked_attribute": "Intelligence",
+        "description": "Recall lore about historical events"
+      },
+      {
+        "name": "Insight",
+        "abbreviation": "Ins",
+        "linked_attribute": "Wisdom",
+        "description": "Determine true intentions of a creature"
+      },
+      {
+        "name": "Intimidation",
+        "abbreviation": "Itm",
+        "linked_attribute": "Charisma",
+        "description": "Influence through threats or hostile actions"
+      },
+      {
+        "name": "Investigation",
+        "abbreviation": "Inv",
+        "linked_attribute": "Intelligence",
+        "description": "Find clues and make deductions"
+      },
+      {
+        "name": "Medicine",
+        "abbreviation": "Med",
+        "linked_attribute": "Wisdom",
+        "description": "Stabilize or diagnose ailments"
+      },
+      {
+        "name": "Nature",
+        "abbreviation": "Nat",
+        "linked_attribute": "Intelligence",
+        "description": "Recall lore about terrain, plants, animals, weather"
+      },
+      {
+        "name": "Perception",
+        "abbreviation": "Per",
+        "linked_attribute": "Wisdom",
+        "description": "Spot, hear, or detect something"
+      },
+      {
+        "name": "Performance",
+        "abbreviation": "Prf",
+        "linked_attribute": "Charisma",
+        "description": "Delight an audience with music, dance, or acting"
+      },
+      {
+        "name": "Persuasion",
+        "abbreviation": "Prs",
+        "linked_attribute": "Charisma",
+        "description": "Influence with tact, grace, or good nature"
+      },
+      {
+        "name": "Religion",
+        "abbreviation": "Rel",
+        "linked_attribute": "Intelligence",
+        "description": "Recall lore about deities, rites, prayers"
+      },
+      {
+        "name": "Sleight of Hand",
+        "abbreviation": "SoH",
+        "linked_attribute": "Dexterity",
+        "description": "Pickpocketing, concealing objects"
+      },
+      {
+        "name": "Stealth",
+        "abbreviation": "Ste",
+        "linked_attribute": "Dexterity",
+        "description": "Conceal yourself from enemies"
+      },
+      {
+        "name": "Survival",
+        "abbreviation": "Sur",
+        "linked_attribute": "Wisdom",
+        "description": "Track, hunt, navigate wilderness"
+      }
+    ],
+    "resources": [
+      {
+        "name": "Hit Points",
+        "abbreviation": "HP",
+        "calculation": "class_hit_die + CON_modifier",
+        "min_value": 0,
+        "recovers_on": "long rest"
+      },
+      {
+        "name": "Armor Class",
+        "abbreviation": "AC",
+        "calculation": "10 + DEX_modifier + armor_bonus",
+        "min_value": 1,
+        "recovers_on": null
+      }
+    ],
+    "custom_dice": {},
+    "tracks": [],
+    "tiered_ability_systems": [],
+    "advantages": [
+      {
+        "name": "Alert",
+        "cost": 0,
+        "category": "feat",
+        "effect": "You gain a +5 bonus to initiative. You can't be surprised while conscious.",
+        "prerequisites": [],
+        "tags": [
+          "feat",
+          "general"
+        ]
+      },
+      {
+        "name": "Great Weapon Master",
+        "cost": 0,
+        "category": "feat",
+        "effect": "On crit or reducing a creature to 0 HP with a melee weapon, make one extra melee attack as a bonus action. You can choose to take a -5 penalty to attack roll to add +10 to damage.",
+        "prerequisites": [],
+        "tags": [
+          "feat",
+          "combat"
+        ]
+      }
+    ],
+    "damage_model": {
+      "damage_types": [
+        {
+          "name": "Hit Point Damage",
+          "healing_rate": "varies",
+          "healing_requires": "magic or rest",
+          "resisted_by": null,
+          "lethality": "normal",
+          "bypasses": []
+        }
+      ],
+      "damage_track": "HP",
+      "incapacitated_at": "0",
+      "death_condition": "fails 3 death saves"
+    },
+    "conditions": [
+      {
+        "name": "Blinded",
+        "trigger": "affected by blinding effect",
+        "mechanical_effects": [
+          "Auto-fail sight checks.",
+          "Attacks have disadvantage; attacks against you have advantage."
+        ],
+        "ends_when": "effect expires or is removed",
+        "stackable": false
+      },
+      {
+        "name": "Charmed",
+        "trigger": "affected by charm effect",
+        "mechanical_effects": [
+          "Can't attack the charmer.",
+          "Charmer has advantage on social checks against you."
+        ],
+        "ends_when": "effect expires or charmer harms you",
+        "stackable": false
+      },
+      {
+        "name": "Frightened",
+        "trigger": "affected by fear effect",
+        "mechanical_effects": [
+          "Disadvantage on checks and attacks while you can see the source of fear.",
+          "Can't willingly move closer."
+        ],
+        "ends_when": "effect expires or you can't see the source",
+        "stackable": false
+      },
+      {
+        "name": "Grappled",
+        "trigger": "grappled by a creature",
+        "mechanical_effects": [
+          "Speed becomes 0.",
+          "Ends if grappler is incapacitated or effect removes you."
+        ],
+        "ends_when": "grappler releases or is incapacitated",
+        "stackable": false
+      },
+      {
+        "name": "Incapacitated",
+        "trigger": "HP drops to 0 or specific effect",
+        "mechanical_effects": [
+          "Can't take actions or reactions."
+        ],
+        "ends_when": "HP restored above 0 or effect ends",
+        "stackable": false
+      },
+      {
+        "name": "Poisoned",
+        "trigger": "affected by poison",
+        "mechanical_effects": [
+          "Disadvantage on attack rolls and ability checks."
+        ],
+        "ends_when": "poison duration expires or is cured",
+        "stackable": false
+      },
+      {
+        "name": "Prone",
+        "trigger": "knocked down or drop to 0 HP",
+        "mechanical_effects": [
+          "Disadvantage on attacks.",
+          "Melee attacks against you have advantage; ranged attacks have disadvantage."
+        ],
+        "ends_when": "spend half movement to stand up",
+        "stackable": false
+      },
+      {
+        "name": "Stunned",
+        "trigger": "affected by stun effect",
+        "mechanical_effects": [
+          "Incapacitated, can't move, speak falteringly.",
+          "Auto-fail STR and DEX saves.",
+          "Attacks against you have advantage."
+        ],
+        "ends_when": "effect expires",
+        "stackable": false
+      },
+      {
+        "name": "Unconscious",
+        "trigger": "HP drops to 0",
+        "mechanical_effects": [
+          "Incapacitated, can't move or speak.",
+          "Auto-fail STR and DEX saves.",
+          "Attacks within 5ft are auto-crit.",
+          "Drop prone."
+        ],
+        "ends_when": "HP restored or stabilized",
+        "stackable": false
+      }
+    ],
+    "action_economy": {
+      "action_types": [
+        {
+          "name": "Action",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "attack",
+            "cast spell",
+            "dash",
+            "disengage",
+            "dodge",
+            "help",
+            "hide",
+            "ready",
+            "search",
+            "use object"
+          ],
+          "triggers_on": "your turn"
+        },
+        {
+          "name": "Bonus Action",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "class feature",
+            "spell (bonus action casting time)",
+            "two-weapon fighting"
+          ],
+          "triggers_on": "your turn"
+        },
+        {
+          "name": "Reaction",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "attack of opportunity",
+            "spell (reaction casting time)",
+            "class feature"
+          ],
+          "triggers_on": "trigger condition met"
+        },
+        {
+          "name": "Movement",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "walk",
+            "climb",
+            "swim",
+            "fly"
+          ],
+          "triggers_on": "your turn"
+        }
+      ],
+      "turn_structure": "Each creature takes one turn per round in initiative order.",
+      "initiative_model": "1d20 + DEX modifier, highest goes first",
+      "surprise_rules": "Creatures that fail to notice enemies are surprised and can't act or react on first turn."
+    },
+    "resolution_mechanics": [
+      {
+        "dice_formula": "1d20 + proficiency + ability modifier",
+        "mechanic_type": "d20",
+        "difficulty_model": "DC set by GM or table",
+        "difficulty_range": "trivial: 5, easy: 10, medium: 15, hard: 20, very_hard: 25, nearly_impossible: 30",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "failure",
+            "effect": "Action fails"
+          },
+          {
+            "threshold": "1",
+            "label": "success",
+            "effect": "Action succeeds"
+          }
+        ],
+        "success_type": "meet_or_beat",
+        "critical_success": "Natural 20 is not an automatic success on ability checks (only on attacks), but many tables play it that way.",
+        "critical_failure": "Natural 1 is not an automatic failure on ability checks, but many tables play it that way."
+      },
+      {
+        "dice_formula": "1d20 + proficiency + ability modifier vs AC",
+        "mechanic_type": "d20",
+        "difficulty_model": "target Armor Class",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "miss",
+            "effect": "No damage"
+          },
+          {
+            "threshold": "1",
+            "label": "hit",
+            "effect": "Roll damage"
+          },
+          {
+            "threshold": "20",
+            "label": "critical",
+            "effect": "Double damage dice"
+          }
+        ],
+        "success_type": "meet_or_beat",
+        "critical_success": "Natural 20 always hits and doubles damage dice.",
+        "critical_failure": "Natural 1 always misses."
+      },
+      {
+        "dice_formula": "1d20 + proficiency + ability modifier vs DC",
+        "mechanic_type": "d20",
+        "difficulty_model": "DC set by effect",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "fail",
+            "effect": "Full effect"
+          },
+          {
+            "threshold": "1",
+            "label": "success",
+            "effect": "Reduced or no effect"
+          }
+        ],
+        "success_type": "meet_or_beat"
+      }
+    ],
+    "advancement_model": {
+      "currencies": [
+        {
+          "name": "Experience Points",
+          "earn_conditions": [
+            "defeating monsters",
+            "completing objectives",
+            "GM award"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "target_type": "level",
+          "target_name": "Character Level",
+          "cost_formula": "XP threshold per level",
+          "prerequisites": [],
+          "max_purchases": 20
+        }
+      ],
+      "uses_levels": true,
+      "max_level": 20,
+      "progression_table": [
+        {
+          "level": 1,
+          "xp_required": 0,
+          "proficiency_bonus": 2
+        },
+        {
+          "level": 2,
+          "xp_required": 300,
+          "proficiency_bonus": 2
+        },
+        {
+          "level": 3,
+          "xp_required": 900,
+          "proficiency_bonus": 2
+        },
+        {
+          "level": 4,
+          "xp_required": 2700,
+          "proficiency_bonus": 2
+        },
+        {
+          "level": 5,
+          "xp_required": 6500,
+          "proficiency_bonus": 3
+        },
+        {
+          "level": 6,
+          "xp_required": 14000,
+          "proficiency_bonus": 3
+        },
+        {
+          "level": 7,
+          "xp_required": 23000,
+          "proficiency_bonus": 3
+        },
+        {
+          "level": 8,
+          "xp_required": 34000,
+          "proficiency_bonus": 3
+        },
+        {
+          "level": 9,
+          "xp_required": 48000,
+          "proficiency_bonus": 4
+        },
+        {
+          "level": 10,
+          "xp_required": 64000,
+          "proficiency_bonus": 4
+        },
+        {
+          "level": 11,
+          "xp_required": 85000,
+          "proficiency_bonus": 4
+        },
+        {
+          "level": 12,
+          "xp_required": 100000,
+          "proficiency_bonus": 4
+        },
+        {
+          "level": 13,
+          "xp_required": 120000,
+          "proficiency_bonus": 5
+        },
+        {
+          "level": 14,
+          "xp_required": 140000,
+          "proficiency_bonus": 5
+        },
+        {
+          "level": 15,
+          "xp_required": 165000,
+          "proficiency_bonus": 5
+        },
+        {
+          "level": 16,
+          "xp_required": 195000,
+          "proficiency_bonus": 5
+        },
+        {
+          "level": 17,
+          "xp_required": 225000,
+          "proficiency_bonus": 6
+        },
+        {
+          "level": 18,
+          "xp_required": 265000,
+          "proficiency_bonus": 6
+        },
+        {
+          "level": 19,
+          "xp_required": 305000,
+          "proficiency_bonus": 6
+        },
+        {
+          "level": 20,
+          "xp_required": 355000,
+          "proficiency_bonus": 6
+        }
+      ]
+    },
+    "recovery_model": {
+      "events": [
+        {
+          "name": "Long Rest",
+          "duration": "8 hours",
+          "restores": [
+            "Hit Points: full",
+            "Hit Dice: half_max"
+          ],
+          "requires": "safe environment, no strenuous activity",
+          "available_when": "once per 24 hours"
+        },
+        {
+          "name": "Short Rest",
+          "duration": "1 hour",
+          "restores": [
+            "Hit Points: hit_dice_spent"
+          ],
+          "requires": "restful activity",
+          "available_when": "any time"
+        },
+        {
+          "name": "Hit Dice Recovery",
+          "duration": "long rest",
+          "restores": [
+            "Hit Dice: half_max"
+          ],
+          "requires": "long rest",
+          "available_when": "long rest"
+        }
+      ]
+    },
+    "character_creation": {
+      "steps": [
+        {
+          "step_number": 1,
+          "step_type": "choose_species",
+          "title": "Choose Race/Species",
+          "instructions": "Pick a race (Human, Elf, Dwarf, Halfling, etc.) which determines your base attributes, speed, and racial traits.",
+          "is_optional": false,
+          "options": [
+            "Human",
+            "Elf",
+            "Dwarf",
+            "Halfling",
+            "Gnome",
+            "Half-Orc",
+            "Half-Elf",
+            "Tiefling",
+            "Dragonborn"
+          ],
+          "derived_stats": [
+            "speed",
+            "racial_traits"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 2,
+          "step_type": "choose_class",
+          "title": "Choose Class",
+          "instructions": "Pick a class (Fighter, Wizard, Rogue, Cleric, etc.) which determines your hit die, proficiencies, and class features.",
+          "is_optional": false,
+          "options": [
+            "Barbarian",
+            "Bard",
+            "Cleric",
+            "Druid",
+            "Fighter",
+            "Monk",
+            "Paladin",
+            "Ranger",
+            "Rogue",
+            "Sorcerer",
+            "Warlock",
+            "Wizard"
+          ],
+          "derived_stats": [
+            "hit_die",
+            "saving_throws",
+            "proficiencies"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 3,
+          "step_type": "generate_attributes",
+          "title": "Generate Ability Scores",
+          "instructions": "Roll 4d6 and keep the highest 3 for each ability, then assign to STR, DEX, CON, INT, WIS, CHA.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {
+            "roll": "4d6kh3"
+          }
+        },
+        {
+          "step_number": 4,
+          "step_type": "choose_background",
+          "title": "Choose Background",
+          "instructions": "Pick a background (Soldier, Sage, Criminal, etc.) for additional skill proficiencies and a feature.",
+          "is_optional": false,
+          "options": [
+            "Acolyte",
+            "Charlatan",
+            "Criminal",
+            "Entertainer",
+            "Folk Hero",
+            "Guild Artisan",
+            "Hermit",
+            "Noble",
+            "Outlander",
+            "Sage",
+            "Sailor",
+            "Soldier",
+            "Urchin"
+          ],
+          "derived_stats": [
+            "skill_proficiencies",
+            "languages",
+            "equipment"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 5,
+          "step_type": "choose_skills",
+          "title": "Choose Skill Proficiencies",
+          "instructions": "Pick skills from your class and background lists. You gain proficiency in a number of skills determined by your class.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "skill_proficiencies"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 6,
+          "step_type": "choose_equipment",
+          "title": "Choose Equipment",
+          "instructions": "Select starting equipment from your class and background packages.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "equipment",
+            "gold"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 7,
+          "step_type": "calculate_derived",
+          "title": "Calculate Derived Stats",
+          "instructions": "Calculate HP = hit_die + CON modifier. AC = 10 + DEX modifier + armor. Initiative = DEX modifier.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "HP",
+            "AC",
+            "initiative",
+            "proficiency_bonus"
+          ],
+          "formula_hints": {
+            "HP": "hit_die + CON_mod",
+            "AC": "10 + DEX_mod + armor",
+            "proficiency_bonus": "2"
+          }
+        },
+        {
+          "step_number": 8,
+          "step_type": "write_backstory",
+          "title": "Write Backstory",
+          "instructions": "Describe your character's personality, ideals, bonds, and flaws.",
+          "is_optional": true,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        }
+      ],
+      "ability_score_generation": {
+        "method": "random_roll",
+        "roll_formula": "4d6kh3",
+        "roll_count": 6,
+        "reroll_ones": false,
+        "min_score": 3,
+        "max_score": 20
+      },
+      "starting_packages": [
+        {
+          "class_or_archetype": "Fighter",
+          "items": [
+            "Chain Mail",
+            "Shield",
+            "Longsword",
+            "Handaxe",
+            "Light Crossbow"
+          ],
+          "gold": 5,
+          "resources": {
+            "HP_die": 0
+          },
+          "name": "Fighter Starting Package"
+        },
+        {
+          "class_or_archetype": "Wizard",
+          "items": [
+            "Quarterstaff",
+            "Arcane Focus",
+            "Spellbook"
+          ],
+          "gold": 10,
+          "resources": {
+            "HP_die": 0
+          },
+          "name": "Wizard Starting Package"
+        },
+        {
+          "class_or_archetype": "Rogue",
+          "items": [
+            "Leather Armor",
+            "Shortsword",
+            "Shortbow",
+            "Thieves' Tools"
+          ],
+          "gold": 10,
+          "resources": {
+            "HP_die": 0
+          },
+          "name": "Rogue Starting Package"
+        },
+        {
+          "class_or_archetype": "Cleric",
+          "items": [
+            "Chain Mail",
+            "Shield",
+            "Mace",
+            "Holy Symbol"
+          ],
+          "gold": 5,
+          "resources": {
+            "HP_die": 0
+          },
+          "name": "Cleric Starting Package"
+        }
+      ],
+      "backgrounds": [
+        {
+          "name": "Soldier",
+          "description": "You served in an army.",
+          "skill_proficiencies": [
+            "Athletics",
+            "Intimidation"
+          ],
+          "tool_proficiencies": [
+            "Land Vehicles"
+          ],
+          "languages": 1,
+          "equipment": [
+            "Insignia",
+            "trophy",
+            "deck of cards",
+            "common clothes",
+            "pouch with 10gp"
+          ],
+          "feature_name": "Military Rank",
+          "feature_description": "You still have rank from your military service."
+        },
+        {
+          "name": "Sage",
+          "description": "You spent years learning from scholars.",
+          "skill_proficiencies": [
+            "Arcana",
+            "History"
+          ],
+          "tool_proficiencies": [],
+          "languages": 1,
+          "equipment": [
+            "Bottle of ink",
+            "quill",
+            "small knife",
+            "letter from dead colleague",
+            "common clothes",
+            "pouch with 10gp"
+          ],
+          "feature_name": "Researcher",
+          "feature_description": "You know where to find information."
+        },
+        {
+          "name": "Criminal",
+          "description": "You have a criminal past.",
+          "skill_proficiencies": [
+            "Deception",
+            "Stealth"
+          ],
+          "tool_proficiencies": [
+            "Thieves' Tools",
+            "one gaming set"
+          ],
+          "languages": 1,
+          "equipment": [
+            "Crowbar",
+            "dark common clothes with hood",
+            "pouch with 15gp"
+          ],
+          "feature_name": "Criminal Contact",
+          "feature_description": "You have a contact who can smuggle items or information."
+        }
+      ],
+      "advancement": {
+        "method": "xp",
+        "max_level": 20,
+        "xp_per_session": 0,
+        "milestone_description": "GM may award level ups at story milestones"
+      }
+    },
+    "is_builtin": true
+  },
+  {
+    "name": "Fate Core",
+    "description": "Fate Core System - narrative-focused with aspects, fate points, and Fudge dice",
+    "version": "Core",
+    "core_mechanic": {
+      "type": "dice_pool",
+      "formula": "4dF + skill vs difficulty",
+      "success_type": "meet_or_beat",
+      "success_threshold": "Roll meets or beats difficulty (0-8 ladder)",
+      "critical_success": "Succeed with style (3+ shifts)",
+      "critical_failure": null
+    },
+    "attributes": [
+      {
+        "name": "Careful",
+        "abbreviation": "CAR",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Clever",
+        "abbreviation": "CLV",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Flashy",
+        "abbreviation": "FLS",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Forceful",
+        "abbreviation": "FOR",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Quick",
+        "abbreviation": "QCK",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Sneaky",
+        "abbreviation": "SNK",
+        "min_value": 0,
+        "max_value": 8,
+        "default_value": 0,
+        "modifier_formula": null
+      }
+    ],
+    "skills": [],
+    "resources": [
+      {
+        "name": "Fate Points",
+        "abbreviation": "FP",
+        "calculation": "refresh_rate",
+        "min_value": 0,
+        "recovers_on": "session start"
+      },
+      {
+        "name": "Stress",
+        "abbreviation": "STR",
+        "calculation": "varies by approach",
+        "min_value": 0,
+        "recovers_on": "scene end"
+      }
+    ],
+    "custom_dice": {
+      "fudge_die": {
+        "sides": 3,
+        "values": [
+          -1,
+          0,
+          1
+        ],
+        "notation": "dF"
+      }
+    },
+    "is_builtin": true
+  },
+  {
+    "name": "Powered by the Apocalypse",
+    "description": "PbtA framework - 2d6+stat with partial success mechanics and fictional positioning",
+    "version": "Generic",
+    "core_mechanic": {
+      "type": "dice_pool",
+      "formula": "2d6 + stat",
+      "success_type": "meet_or_beat",
+      "success_threshold": "10+ full success, 7-9 partial success, 6- failure",
+      "critical_success": "12+ is often a critical/special success",
+      "critical_failure": null
+    },
+    "attributes": [
+      {
+        "name": "Cool",
+        "abbreviation": "CL",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Hard",
+        "abbreviation": "HD",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Hot",
+        "abbreviation": "HT",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Sharp",
+        "abbreviation": "SH",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Weird",
+        "abbreviation": "WD",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      }
+    ],
+    "skills": [],
+    "resources": [
+      {
+        "name": "Harm",
+        "abbreviation": "HRM",
+        "calculation": "static",
+        "min_value": 0,
+        "recovers_on": "downtime/medical attention"
+      },
+      {
+        "name": "Experience",
+        "abbreviation": "XP",
+        "calculation": "static",
+        "min_value": 0,
+        "recovers_on": null
+      }
+    ],
+    "custom_dice": {},
+    "is_builtin": true
+  },
+  {
+    "name": "Narrative Pure",
+    "description": "Pure fiction-first play. Players describe intent, the GM answers with consequences, and the story moves without dice unless the table explicitly wants an oracle.",
+    "version": "1.0",
+    "core_mechanic": {
+      "type": "narrative",
+      "formula": "No roll \u2014 resolve by fiction, stakes, and consequences",
+      "success_type": "highest_wins",
+      "success_threshold": "If the action fits the fiction, it happens; if it is risky, the GM answers with a cost, complication, or hard choice",
+      "critical_success": "A particularly strong fictional setup earns extra momentum or a clean advantage",
+      "critical_failure": null
+    },
+    "attributes": [],
+    "skills": [],
+    "resources": [
+      {
+        "name": "Resolve",
+        "abbreviation": "RES",
+        "calculation": "3",
+        "min_value": 0,
+        "recovers_on": "scene end"
+      },
+      {
+        "name": "Momentum",
+        "abbreviation": "MOM",
+        "calculation": "2",
+        "min_value": 0,
+        "recovers_on": "session start"
+      }
+    ],
+    "custom_dice": {
+      "oracle": {
+        "description": "Optional yes/no oracle if the table wants outside pressure",
+        "outcomes": {
+          "yes_and": "Yes, and the fiction tilts strongly in the player's favor",
+          "yes": "Yes, as expected",
+          "yes_but": "Yes, but a cost or complication follows",
+          "no_but": "No, but there is an opening or consolation",
+          "no": "No, the obstacle stands",
+          "no_and": "No, and the situation worsens"
+        }
+      }
+    },
+    "rules": [
+      {
+        "name": "Fiction First",
+        "rule_type": "mechanic",
+        "description": "Players state what they do in the fiction. If nothing meaningfully opposes them, it simply happens. If there is danger, uncertainty, or cost, the GM responds with a consequence instead of asking for a roll.",
+        "formula": null,
+        "applies_to_subject": "character",
+        "tags": [
+          "narrative",
+          "fiction-first"
+        ]
+      },
+      {
+        "name": "Consequences Drive Play",
+        "rule_type": "mechanic",
+        "description": "Failure is not a dead stop. The GM advances the fiction with harm, exposure, delay, lost resources, or a worse bargain.",
+        "formula": null,
+        "applies_to_subject": "any",
+        "tags": [
+          "consequence",
+          "pacing"
+        ]
+      }
+    ],
+    "character_creation": {
+      "steps": [
+        {
+          "step_number": 1,
+          "step_type": "custom",
+          "title": "Name your concept",
+          "instructions": "Describe who you are, what you want, and what usually gets you into trouble.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 2,
+          "step_type": "write_backstory",
+          "title": "Anchor the character",
+          "instructions": "Choose one relationship, one burden, and one promise that the GM can bring into play.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        }
+      ],
+      "notes": "No stat rolling is required. Character identity comes from concept, relationships, and fictional positioning."
+    },
+    "is_builtin": true
+  },
+  {
+    "name": "Narrative Weighted",
+    "description": "Fiction-first play with a light d20-under check. Start from difficulty 10, then add or subtract narrative modifiers for preparation, pressure, positioning, help, and surprise.",
+    "version": "1.0",
+    "core_mechanic": {
+      "type": "d20",
+      "formula": "1d20 <= 10 + relevant approach + situational modifiers",
+      "success_type": "meet_or_beat",
+      "success_threshold": "Base target 10; roll under or equal to the final target after narrative modifiers are applied",
+      "critical_success": "1 is a strong success with extra momentum or control",
+      "critical_failure": "20 is a hard complication or reversal"
+    },
+    "attributes": [
+      {
+        "name": "Force",
+        "abbreviation": "FOR",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Finesse",
+        "abbreviation": "FIN",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Insight",
+        "abbreviation": "INS",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      },
+      {
+        "name": "Presence",
+        "abbreviation": "PRE",
+        "min_value": -3,
+        "max_value": 3,
+        "default_value": 0,
+        "modifier_formula": null
+      }
+    ],
+    "skills": [
+      {
+        "name": "Skirmish",
+        "abbreviation": "SKM",
+        "linked_attribute": "Force",
+        "description": "Fight, shove through danger, rush someone, or shoot under pressure"
+      },
+      {
+        "name": "Finesse",
+        "abbreviation": "FSN",
+        "linked_attribute": "Finesse",
+        "description": "Aim carefully, sneak, pick locks, evade, or act with precision"
+      },
+      {
+        "name": "Read",
+        "abbreviation": "RED",
+        "linked_attribute": "Insight",
+        "description": "Notice details, investigate, assess risk, sense danger, or understand a person"
+      },
+      {
+        "name": "Sway",
+        "abbreviation": "SWY",
+        "linked_attribute": "Presence",
+        "description": "Convince, charm, threaten, negotiate, mislead, or command attention"
+      }
+    ],
+    "resources": [
+      {
+        "name": "Stress",
+        "abbreviation": "STR",
+        "calculation": "3",
+        "min_value": 0,
+        "recovers_on": "breather or scene end"
+      },
+      {
+        "name": "Momentum",
+        "abbreviation": "MOM",
+        "calculation": "1",
+        "min_value": 0,
+        "recovers_on": "session start"
+      }
+    ],
+    "custom_dice": {
+      "modifier_ladder": {
+        "minor_edge": 1,
+        "strong_edge": 2,
+        "overwhelming_edge": 3,
+        "minor_setback": -1,
+        "strong_setback": -2,
+        "overwhelming_setback": -3
+      }
+    },
+    "rules": [
+      {
+        "name": "Base Difficulty 10",
+        "rule_type": "mechanic",
+        "description": "Start every risky action at difficulty 10. Add the most relevant approach rating, then apply narrative modifiers for help, preparation, tools, leverage, surprise, exposure, harm, or bad footing.",
+        "formula": "target = 10 + approach + situational modifiers",
+        "applies_to_subject": "character",
+        "tags": [
+          "d20",
+          "roll-under",
+          "narrative"
+        ]
+      },
+      {
+        "name": "Narrative Modifiers",
+        "rule_type": "mechanic",
+        "description": "Use +1/-1 for a minor edge or setback, +2/-2 for a strong one, and +3/-3 for overwhelming fictional leverage. Stack only what the fiction clearly supports.",
+        "formula": null,
+        "applies_to_subject": "any",
+        "tags": [
+          "modifiers",
+          "fictional-positioning"
+        ]
+      }
+    ],
+    "character_creation": {
+      "steps": [
+        {
+          "step_number": 1,
+          "step_type": "generate_attributes",
+          "title": "Assign approaches",
+          "instructions": "Assign +2, +1, 0, and 0 across Force, Finesse, Insight, and Presence to reflect how your character tackles problems.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 2,
+          "step_type": "write_backstory",
+          "title": "Define leverage",
+          "instructions": "Write down one edge, one flaw, and one contact the GM can turn into narrative modifiers during play.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        }
+      ],
+      "ability_score_generation": {
+        "method": "free_assign",
+        "standard_array": [
+          2,
+          1,
+          0,
+          0
+        ],
+        "min_score": -3,
+        "max_score": 3
+      },
+      "notes": "Roll only when the outcome is uncertain and the fiction is under pressure. Otherwise, let the story move."
+    },
+    "is_builtin": true,
+    "conditions": [
+      {
+        "name": "wounded",
+        "trigger": "taking damage",
+        "mechanical_effects": [
+          "cond_modifier -= 1"
+        ],
+        "roll_modifier": -1
+      },
+      {
+        "name": "exhausted",
+        "trigger": "pushing too hard",
+        "mechanical_effects": [
+          "cond_modifier -= 1"
+        ],
+        "roll_modifier": -1
+      },
+      {
+        "name": "blinded",
+        "trigger": "losing sight",
+        "mechanical_effects": [
+          "disadvantage"
+        ],
+        "roll_mode_override": "disadvantage"
+      },
+      {
+        "name": "poisoned",
+        "trigger": "toxic exposure",
+        "mechanical_effects": [
+          "cond_modifier -= 2"
+        ],
+        "roll_modifier": -2
+      },
+      {
+        "name": "hasted",
+        "trigger": "magical speed",
+        "mechanical_effects": [
+          "advantage"
+        ],
+        "roll_mode_override": "advantage"
+      },
+      {
+        "name": "blessed",
+        "trigger": "divine favor",
+        "mechanical_effects": [
+          "cond_modifier += 1"
+        ],
+        "roll_modifier": 1
+      }
+    ],
+    "scenery_rules": [
+      {
+        "keyword": "dark",
+        "trigger_verbs": [
+          "look",
+          "search",
+          "see",
+          "spot",
+          "shoot",
+          "aim",
+          "read"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "darkness obscures vision"
+      },
+      {
+        "keyword": "pitch black",
+        "trigger_verbs": [
+          "look",
+          "search",
+          "see",
+          "spot",
+          "shoot",
+          "aim",
+          "read"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "darkness obscures vision"
+      },
+      {
+        "keyword": "dim",
+        "trigger_verbs": [
+          "look",
+          "search",
+          "see",
+          "spot",
+          "shoot",
+          "aim",
+          "read"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "darkness obscures vision"
+      },
+      {
+        "keyword": "unlit",
+        "trigger_verbs": [
+          "look",
+          "search",
+          "see",
+          "spot",
+          "shoot",
+          "aim",
+          "read"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "darkness obscures vision"
+      },
+      {
+        "keyword": "shadows",
+        "trigger_verbs": [
+          "look",
+          "search",
+          "see",
+          "spot",
+          "shoot",
+          "aim",
+          "read"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "darkness obscures vision"
+      },
+      {
+        "keyword": "slippery",
+        "trigger_verbs": [
+          "run",
+          "jump",
+          "climb",
+          "dodge",
+          "walk",
+          "flee"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "footing is treacherous"
+      },
+      {
+        "keyword": "wet",
+        "trigger_verbs": [
+          "run",
+          "jump",
+          "climb",
+          "dodge",
+          "walk",
+          "flee"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "footing is treacherous"
+      },
+      {
+        "keyword": "icy",
+        "trigger_verbs": [
+          "run",
+          "jump",
+          "climb",
+          "dodge",
+          "walk",
+          "flee"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "footing is treacherous"
+      },
+      {
+        "keyword": "muddy",
+        "trigger_verbs": [
+          "run",
+          "jump",
+          "climb",
+          "dodge",
+          "walk",
+          "flee"
+        ],
+        "roll_mode_override": "disadvantage",
+        "reason_text": "footing is treacherous"
+      },
+      {
+        "keyword": "high ground",
+        "trigger_verbs": [
+          "shoot",
+          "attack",
+          "aim",
+          "throw",
+          "fire"
+        ],
+        "roll_modifier": 2,
+        "reason_text": "superior elevation"
+      },
+      {
+        "keyword": "elevated",
+        "trigger_verbs": [
+          "shoot",
+          "attack",
+          "aim",
+          "throw",
+          "fire"
+        ],
+        "roll_modifier": 2,
+        "reason_text": "superior elevation"
+      },
+      {
+        "keyword": "cramped",
+        "trigger_verbs": [
+          "swing",
+          "attack",
+          "dodge",
+          "fight",
+          "slash"
+        ],
+        "roll_modifier": -2,
+        "reason_text": "tight space restricts movement"
+      },
+      {
+        "keyword": "narrow",
+        "trigger_verbs": [
+          "swing",
+          "attack",
+          "dodge",
+          "fight",
+          "slash"
+        ],
+        "roll_modifier": -2,
+        "reason_text": "tight space restricts movement"
+      }
+    ]
+  },
+  {
+    "name": "Death in Space",
+    "description": "Sci-fi RPG about desperate freelancers in the cold void of space. TTRPG system featuring d20 roll-under, Stress & Debt mechanics, ship-to-ship combat, and mortal danger around every airlock.",
+    "version": "Core Rules",
+    "edition": "1st",
+    "core_mechanic": {
+      "success_type": "meet_or_beat",
+      "formula": "1d20",
+      "type": "d20"
+    },
+    "attributes": [
+      {
+        "name": "Body",
+        "abbreviation": "BDY",
+        "description": "Physical strength, endurance, and resilience.",
+        "min_value": 3,
+        "max_value": 18,
+        "default_value": 10
+      },
+      {
+        "name": "Dexterity",
+        "abbreviation": "DEX",
+        "description": "Agility, reflexes, and precision.",
+        "min_value": 3,
+        "max_value": 18,
+        "default_value": 10
+      },
+      {
+        "name": "Insight",
+        "abbreviation": "INS",
+        "description": "Perception, reasoning, and technical know-how.",
+        "min_value": 3,
+        "max_value": 18,
+        "default_value": 10
+      },
+      {
+        "name": "Bravery",
+        "abbreviation": "BRV",
+        "description": "Willpower, courage, and staying calm under fire.",
+        "min_value": 3,
+        "max_value": 18,
+        "default_value": 10
+      },
+      {
+        "name": "Charisma",
+        "abbreviation": "CHA",
+        "description": "Social influence, leadership, and deception.",
+        "min_value": 3,
+        "max_value": 18,
+        "default_value": 10
+      }
+    ],
+    "skills": [
+      {
+        "name": "Athletics",
+        "attribute": "BDY",
+        "description": "Running, climbing, swimming, jumping in zero-G."
+      },
+      {
+        "name": "Melee",
+        "attribute": "BDY",
+        "description": "Fighting with blades, pipes, or fists."
+      },
+      {
+        "name": "Ranged",
+        "attribute": "DEX",
+        "description": "Shooting firearms and energy weapons."
+      },
+      {
+        "name": "Stealth",
+        "attribute": "DEX",
+        "description": "Moving silently, hiding, pickpocketing."
+      },
+      {
+        "name": "Engineering",
+        "attribute": "INS",
+        "description": "Fixing, building, and sabotaging technology."
+      },
+      {
+        "name": "Medicine",
+        "attribute": "INS",
+        "description": "First aid, surgery, and treating conditions."
+      },
+      {
+        "name": "Navigation",
+        "attribute": "INS",
+        "description": "Plotting courses, reading star charts, piloting."
+      },
+      {
+        "name": "Perception",
+        "attribute": "INS",
+        "description": "Noticing dangers, spotting lies, scanning."
+      },
+      {
+        "name": "Courage",
+        "attribute": "BRV",
+        "description": "Resisting fear, maintaining composure under fire."
+      },
+      {
+        "name": "Leadership",
+        "attribute": "CHA",
+        "description": "Commanding crew, inspiring allies, negotiation."
+      },
+      {
+        "name": "Deception",
+        "attribute": "CHA",
+        "description": "Lying, bluffing, disguises."
+      },
+      {
+        "name": "Streetwise",
+        "attribute": "CHA",
+        "description": "Black markets, criminal contacts, underworld knowledge."
+      }
+    ],
+    "resources": [
+      {
+        "name": "Stress",
+        "abbreviation": "STR",
+        "calculation": "3",
+        "min_value": 0,
+        "recovers_on": "breather"
+      },
+      {
+        "name": "Momentum",
+        "abbreviation": "MOM",
+        "calculation": "1",
+        "min_value": 0,
+        "recovers_on": "session start"
+      },
+      {
+        "name": "Oxygen",
+        "abbreviation": "O2",
+        "calculation": "varies by situation",
+        "min_value": 0,
+        "recovers_on": "return to ship or station"
+      }
+    ],
+    "tracks": [
+      {
+        "name": "HP",
+        "track_type": "resource",
+        "min_value": 0,
+        "max_formula": "BDY",
+        "default_value": 0,
+        "threshold_effects": [
+          {
+            "value": 1,
+            "direction": "at_or_below",
+            "effect": "Disadvantage on physical actions until healed."
+          },
+          {
+            "value": 0,
+            "direction": "at_or_below",
+            "effect": "You are incapacitated and will die in 3 rounds without stabilization."
+          }
+        ]
+      },
+      {
+        "name": "Stress",
+        "track_type": "stress",
+        "min_value": 0,
+        "max_value": 5,
+        "default_value": 0,
+        "threshold_effects": [
+          {
+            "value": 2,
+            "direction": "at_or_below",
+            "effect": "You are on edge. -1 to all checks."
+          },
+          {
+            "value": 4,
+            "direction": "at_or_below",
+            "effect": "You are barely holding it together. -2 to all checks."
+          },
+          {
+            "value": 5,
+            "direction": "at_or_below",
+            "effect": "You must flee, freeze, or act irrationally."
+          }
+        ]
+      },
+      {
+        "name": "Debt",
+        "track_type": "degradation",
+        "min_value": 0,
+        "max_value": 10,
+        "default_value": 0,
+        "threshold_effects": [
+          {
+            "value": 3,
+            "direction": "at_or_below",
+            "effect": "Creditors start sending collectors."
+          },
+          {
+            "value": 6,
+            "direction": "at_or_below",
+            "effect": "Your assets are frozen. No legitimate work available."
+          },
+          {
+            "value": 9,
+            "direction": "at_or_below",
+            "effect": "Bounty hunters are actively pursuing you."
+          }
+        ]
+      },
+      {
+        "name": "Ship Hull",
+        "track_type": "resource",
+        "min_value": 0,
+        "max_value": 10,
+        "default_value": 10,
+        "threshold_effects": [
+          {
+            "value": 3,
+            "direction": "at_or_below",
+            "effect": "Systems failing. Life support compromised."
+          },
+          {
+            "value": 5,
+            "direction": "at_or_below",
+            "effect": "Hull breaches. Some systems offline."
+          }
+        ]
+      }
+    ],
+    "damage_model": {
+      "damage_types": [
+        {
+          "name": "Physical",
+          "healing_rate": "slow",
+          "healing_requires": "medicine or rest",
+          "resisted_by": "armor",
+          "lethality": "normal",
+          "bypasses": []
+        },
+        {
+          "name": "Stress",
+          "healing_rate": "moderate",
+          "healing_requires": "breather",
+          "resisted_by": "Bravery",
+          "lethality": "non-lethal",
+          "bypasses": []
+        },
+        {
+          "name": "Environmental",
+          "healing_rate": "immediate on removal",
+          "healing_requires": "remove source",
+          "resisted_by": "BDY save",
+          "lethality": "normal",
+          "bypasses": [
+            "armor"
+          ]
+        }
+      ],
+      "damage_track": "HP",
+      "incapacitated_at": "0",
+      "death_condition": "3 rounds without stabilization"
+    },
+    "conditions": [
+      {
+        "name": "Wounded",
+        "trigger": "HP drops to 1 or below",
+        "mechanical_effects": [
+          "Disadvantage on physical actions until healed."
+        ],
+        "ends_when": "HP restored above 1",
+        "stackable": false
+      },
+      {
+        "name": "Dying",
+        "trigger": "HP drops to 0",
+        "mechanical_effects": [
+          "Incapacitated.",
+          "Die in 3 rounds without stabilization."
+        ],
+        "ends_when": "stabilized by another character",
+        "stackable": false
+      },
+      {
+        "name": "Stressed",
+        "trigger": "Stress reaches 2+",
+        "mechanical_effects": [
+          "Cumulative -1 to all checks per threshold reached."
+        ],
+        "ends_when": "Stress reduced below threshold",
+        "stackable": false
+      },
+      {
+        "name": "Breaking Down",
+        "trigger": "Stress reaches max",
+        "mechanical_effects": [
+          "Must flee, freeze, or act irrationally for the scene."
+        ],
+        "ends_when": "scene ends or Stress reduced",
+        "stackable": false
+      },
+      {
+        "name": "Low Oxygen",
+        "trigger": "Oxygen runs out or environment is vacuum",
+        "mechanical_effects": [
+          "Take 1 damage per round.",
+          "Can't hold breath more than BDY rounds."
+        ],
+        "ends_when": "oxygen restored",
+        "stackable": false
+      },
+      {
+        "name": "In Debt",
+        "trigger": "Debt reaches 3+",
+        "mechanical_effects": [
+          "Creditors send collectors.",
+          "Limited legitimate work."
+        ],
+        "ends_when": "Debt reduced below 3",
+        "stackable": false
+      }
+    ],
+    "action_economy": {
+      "action_types": [
+        {
+          "name": "Action",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "attack",
+            "skill check",
+            "use item",
+            "interact"
+          ],
+          "triggers_on": "your turn"
+        },
+        {
+          "name": "Move",
+          "count_per_turn": 1,
+          "can_be_used_for": [
+            "move",
+            "take cover",
+            "enter/exit vehicle"
+          ],
+          "triggers_on": "your turn"
+        },
+        {
+          "name": "Free Action",
+          "count_per_turn": 99,
+          "can_be_used_for": [
+            "talk",
+            "drop item",
+            "look around"
+          ],
+          "triggers_on": "anytime"
+        }
+      ],
+      "turn_structure": "GM calls for actions when the fiction demands it. No strict initiative order \u2014 GM decides who acts based on narrative positioning.",
+      "initiative_model": "GM discretion based on fiction and positioning"
+    },
+    "resolution_mechanics": [
+      {
+        "dice_formula": "1d20 \u2264 attribute_score",
+        "mechanic_type": "d20",
+        "difficulty_model": "attribute score is the target",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "failure",
+            "effect": "Action fails, consequences occur"
+          },
+          {
+            "threshold": "1",
+            "label": "success",
+            "effect": "Action succeeds"
+          }
+        ],
+        "success_type": "meet_or_beat",
+        "critical_success": "Natural 1: exceptional success with bonus effect.",
+        "critical_failure": "Natural 20: fumble with extra consequence."
+      },
+      {
+        "dice_formula": "1d20 \u2264 attribute + modifiers",
+        "mechanic_type": "d20",
+        "difficulty_model": "target attribute or armor",
+        "success_degrees": [
+          {
+            "threshold": "0",
+            "label": "miss",
+            "effect": "miss"
+          },
+          {
+            "threshold": "1",
+            "label": "hit",
+            "effect": "hit"
+          }
+        ],
+        "success_type": "meet_or_beat",
+        "critical_success": "Natural 1: critical hit \u2014 double damage or called shot.",
+        "critical_failure": "Natural 20: weapon jams, friendly fire, or worse."
+      }
+    ],
+    "tiered_ability_systems": [
+      {
+        "name": "Crew Roles",
+        "description": "Specialized training for shipboard operations.",
+        "parent_category": "profession",
+        "acquisition_rule": "Choose one primary role at creation.",
+        "max_tier": 3,
+        "access_restriction": "",
+        "tiers": [
+          {
+            "tier": 1,
+            "name": "Greenhorn",
+            "description": "Basic training in the role.",
+            "effect": "+1 to role-related checks",
+            "cost": "0",
+            "prerequisites": []
+          },
+          {
+            "tier": 2,
+            "name": "Veteran",
+            "description": "Seasoned experience.",
+            "effect": "+2 to role-related checks, unlock special maneuver",
+            "cost": "2",
+            "prerequisites": [
+              "Greenhorn"
+            ]
+          },
+          {
+            "tier": 3,
+            "name": "Ace",
+            "description": "Legendary skill.",
+            "effect": "+3 to role-related checks, signature move",
+            "cost": "4",
+            "prerequisites": [
+              "Veteran"
+            ]
+          }
+        ]
+      }
+    ],
+    "recovery_model": {
+      "events": [
+        {
+          "name": "Breather",
+          "duration": "a few minutes",
+          "restores": [
+            "HP: 1",
+            "Stress: 2"
+          ],
+          "requires": "safe moment in fiction",
+          "available_when": "when GM allows"
+        },
+        {
+          "name": "Full Rest",
+          "duration": "overnight",
+          "restores": [
+            "HP: full",
+            "Stress: 0"
+          ],
+          "requires": "safe shelter",
+          "available_when": "between jobs"
+        }
+      ]
+    },
+    "advancement_model": {
+      "currencies": [
+        {
+          "name": "XP",
+          "earn_conditions": [
+            "completing jobs",
+            "surviving missions",
+            "creative problem solving"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "target_type": "skill",
+          "target_name": "Skill Rank",
+          "cost_formula": "current_rank + 1",
+          "prerequisites": [],
+          "max_purchases": 3
+        }
+      ],
+      "uses_levels": false,
+      "max_level": null
+    },
+    "rules": [
+      {
+        "name": "Roll Under Attributes",
+        "rule_type": "mechanic",
+        "description": "To attempt something risky, roll 1d20 and try to get at or below the relevant attribute score. Lower is better.",
+        "formula": "1d20 \u2264 attribute",
+        "applies_to_subject": "character",
+        "tags": [
+          "core",
+          "roll-under",
+          "d20"
+        ]
+      },
+      {
+        "name": "Stress & Consequences",
+        "rule_type": "mechanic",
+        "description": "When you fail a check or face horrors, gain 1 Stress. At certain thresholds, penalties apply. At max Stress, you break down.",
+        "formula": null,
+        "applies_to_subject": "character",
+        "tags": [
+          "stress",
+          "mental",
+          "consequence"
+        ]
+      },
+      {
+        "name": "Debt Mechanic",
+        "rule_type": "mechanic",
+        "description": "Taking a loan or owing a favor increases Debt. Higher Debt means more dangerous creditors. Complete jobs to pay it off.",
+        "formula": null,
+        "applies_to_subject": "character",
+        "tags": [
+          "debt",
+          "economy",
+          "fiction"
+        ]
+      },
+      {
+        "name": "Ship Combat",
+        "rule_type": "mechanic",
+        "description": "Ship combat uses the same roll-under system but against the ship's stats. Hull damage reduces Ship Hull track. At 0, the ship is destroyed.",
+        "formula": "1d20 \u2264 crew_skill vs opposing ship",
+        "applies_to_subject": "ship",
+        "tags": [
+          "vehicle",
+          "combat",
+          "space"
+        ]
+      }
+    ],
+    "character_creation": {
+      "steps": [
+        {
+          "step_number": 1,
+          "step_type": "generate_attributes",
+          "title": "Roll Attributes",
+          "instructions": "Roll 3d6 in order for BDY, DEX, INS, BRV, CHA. These are your attribute scores AND your roll-under targets.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {
+            "roll": "3d6",
+            "count": "5"
+          }
+        },
+        {
+          "step_number": 2,
+          "step_type": "choose_class",
+          "title": "Choose Background",
+          "instructions": "Pick a background (Military, Corporate, Scavenger, Medical, Criminal, Academic) for skill bonuses.",
+          "is_optional": false,
+          "options": [
+            "Military",
+            "Corporate",
+            "Scavenger",
+            "Medical",
+            "Criminal",
+            "Academic"
+          ],
+          "derived_stats": [
+            "skill_bonus"
+          ],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 3,
+          "step_type": "choose_skills",
+          "title": "Choose Skills",
+          "instructions": "Pick 3 skills from your background list and 2 from any list. Each trained skill adds +2 to the attribute for rolls.",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        },
+        {
+          "step_number": 4,
+          "step_type": "calculate_derived",
+          "title": "Calculate Derived Stats",
+          "instructions": "HP = BDY score. Stress starts at 0 (max 5). Debt starts at 0 (or choose to start in debt for bonus skills).",
+          "is_optional": false,
+          "options": [],
+          "derived_stats": [
+            "HP",
+            "Stress",
+            "Debt"
+          ],
+          "formula_hints": {
+            "HP": "BDY"
+          }
+        },
+        {
+          "step_number": 5,
+          "step_type": "write_backstory",
+          "title": "Define Why You're Here",
+          "instructions": "Write a sentence about why you're in deep space and what you owe or need.",
+          "is_optional": true,
+          "options": [],
+          "derived_stats": [],
+          "formula_hints": {}
+        }
+      ],
+      "ability_score_generation": {
+        "method": "random_roll",
+        "roll_formula": "3d6",
+        "roll_count": 5,
+        "reroll_ones": false,
+        "min_score": 3,
+        "max_score": 18
+      },
+      "starting_packages": [
+        {
+          "class_or_archetype": "Military",
+          "items": [
+            "Sidearm",
+            "Flak Vest",
+            "Comms Unit",
+            "Rations"
+          ],
+          "gold": 50,
+          "resources": {
+            "HP": 0
+          },
+          "name": "Military Starting Package"
+        },
+        {
+          "class_or_archetype": "Scavenger",
+          "items": [
+            "Multi-tool",
+            "Vacuum Suit",
+            "Cutting Torch",
+            "Rations"
+          ],
+          "gold": 20,
+          "resources": {
+            "HP": 0
+          },
+          "name": "Scavenger Starting Package"
+        },
+        {
+          "class_or_archetype": "Medical",
+          "items": [
+            "Med Kit",
+            "Diagnostic Scanner",
+            "Sidearm",
+            "Rations"
+          ],
+          "gold": 30,
+          "resources": {
+            "HP": 0
+          },
+          "name": "Medical Starting Package"
+        }
+      ]
+    },
+    "is_builtin": true
+  },
+  {
+    "name": "Mistlands Core",
+    "description": "Modular condition-weighted RPG system for the Mistlands setting.",
+    "version": "1.0.0",
+    "core_mechanic": {
+      "type": "d20",
+      "formula": "1d20 + modifiers vs DC",
+      "success_type": "meet_or_beat",
+      "success_threshold": "Roll meets or beats target DC"
+    },
+    "attributes": [
+      {
+        "name": "Grit",
+        "abbreviation": "GRIT",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Wits",
+        "abbreviation": "WITS",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      },
+      {
+        "name": "Resolve",
+        "abbreviation": "RESOLVE",
+        "min_value": 1,
+        "max_value": 30,
+        "default_value": 10,
+        "modifier_formula": "(VALUE - 10) / 2"
+      }
+    ],
+    "skills": [
+      {
+        "name": "Notice",
+        "abbreviation": "Not",
+        "linked_attribute": "Wits",
+        "description": "Sense or observe environmental clues."
+      },
+      {
+        "name": "Fight",
+        "abbreviation": "Fig",
+        "linked_attribute": "Grit",
+        "description": "Physical combat or resistance."
+      },
+      {
+        "name": "Stealth",
+        "abbreviation": "Ste",
+        "linked_attribute": "Wits",
+        "description": "Sneak or hide."
+      },
+      {
+        "name": "Focus",
+        "abbreviation": "Foc",
+        "linked_attribute": "Resolve",
+        "description": "Concentrate or resist psychological stress."
+      }
+    ],
+    "resources": [
+      {
+        "name": "Health",
+        "abbreviation": "HP",
+        "calculation": "10 + Grit_modifier",
+        "min_value": 0,
+        "recovers_on": "rest"
+      },
+      {
+        "name": "Nerve",
+        "abbreviation": "NV",
+        "calculation": "6 + Resolve_modifier",
+        "min_value": 0,
+        "recovers_on": "rest"
+      }
+    ],
+    "custom_dice": {},
+    "tracks": [
+      {
+        "name": "Health",
+        "abbreviation": "HP",
+        "min_value": 0,
+        "max_value": 10,
+        "default_value": 10,
+        "track_type": "hp",
+        "depleted_effect": "Unconscious",
+        "threshold_effects": [
+          {
+            "value": 5,
+            "direction": "at_or_below",
+            "effect": "Wounded"
+          }
+        ]
+      },
+      {
+        "name": "Nerve",
+        "abbreviation": "NV",
+        "min_value": 0,
+        "max_value": 6,
+        "default_value": 6,
+        "track_type": "stress"
+      }
+    ],
+    "tiered_ability_systems": [],
+    "advantages": [],
+    "conditions": [],
+    "rules": [],
+    "is_builtin": true
+  }
+]

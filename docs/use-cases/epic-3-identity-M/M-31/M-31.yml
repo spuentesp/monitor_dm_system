@@ -1,0 +1,89 @@
+# M-31: NPC Actor Mode (Off-Duty Reflection)
+# ============================================
+
+id: "M-31"
+title: "NPC Actor Mode (Off-Duty Reflection)"
+category: "manage"
+epic: 3
+priority: "medium"
+status: "done"
+
+summary: |
+  A GM-facing tool that lets the world-builder have an out-of-character
+  conversation with an NPC as if it were an actor analysing their role.
+  The fourth wall is intentionally broken. The NPC speaks knowingly about
+  their own character — motivations, secrets, hypothetical reactions —
+  helping the GM understand the character more deeply and surface insights
+  that can update the canonical profile.
+
+  This is an ACTOR mode ConversationSession (mode=ACTOR) and is distinct
+  from in-scene dialogue (P-5, P-17). No scene required.
+
+actor: "User (GM / World-Builder)"
+trigger: "GM opens 'actor session' for an NPC from the manage console"
+
+flow:
+  - "GM selects NPC from manage console"
+  - "GM starts actor session: 'monitor manage npc <name> actor'"
+  - "Orchestrator opens ConversationSession (mode=ACTOR, no scene_id)"
+  - "ConversationLoop.start(): pre-load full profile INCLUDING secrets + gm_notes"
+  - "LOOP (until GM exits):"
+  - "  1. GM types a question or prompt"
+  - "  2. NPCVoice.respond_actor() called:"
+  - "     a. DSPy NPCActorModule generates actor-mode reflection (LIGHT model, CoT)"
+  - "     b. canon_insight field parsed for profile/fact update hints"
+  - "     c. Actor turn persisted to ConversationSession"
+  - "  3. Display actor response"
+  - "  4. If canon_insight is not 'none': ask GM to confirm update"
+  - "     - Confirmed → create ProposedChange → CanonKeeper evaluates"
+  - "     - Declined → discard insight"
+  - "  5. Repeat"
+  - "  EXIT: GM types '/done', '/exit'"
+  - "ConversationLoop.finish():"
+  - "  a. Mark session COMPLETED"
+  - "  b. Stage confirmed proposals to MongoDB for CanonKeeper"
+  - "Return to manage console"
+
+acceptance_criteria:
+  - "Actor mode opens without requiring an active scene"
+  - "Full NPC profile (including secrets and gm_notes) loaded for actor context"
+  - "NPC responds analytically and in actor voice (references 'as <name>, I...')"
+  - "canon_insight correctly parsed: 'update_profile:', 'new_fact:', or 'none'"
+  - "GM confirmation step: insight staging only on explicit GM confirm"
+  - "Proposals (profile update / new fact) created in MongoDB when confirmed"
+  - "All actor turns persisted in ConversationSession (mode=ACTOR)"
+  - "Session status set COMPLETED on exit"
+  - "LLM used: ModelRole.LIGHT with ChainOfThought for reflection"
+
+depends_on:
+  - "DL-2"   # Entity data
+  - "DL-5"   # Proposed changes
+  - "DL-20"  # ConversationSession CRUD
+  - "P-17"   # Direct conversation (shared infrastructure)
+
+blocks: []
+
+implementation:
+  layer: 2  # Agents layer (NPCVoice) + Layer 3 (CLI manage command)
+
+  files:
+    modify:
+      - "packages/agents/src/monitor_agents/npc_voice.py"
+      - "packages/cli/src/monitor_cli/commands/manage/npc.py"  # new sub-command
+
+  llm_routing:
+    node: "npc_actor"
+    role: "LIGHT"
+    rationale: |
+      Actor mode has small context (full NPC profile + conversation history).
+      ChainOfThought is used for reflective quality, but LIGHT model is
+      sufficient — no creative prose, just analytical character reasoning.
+
+  key_types:
+    ConversationMode.ACTOR: "The mode flag for actor sessions"
+    NPCActorModule: "DSPy ChainOfThought module for actor reflection"
+    canon_insight: |
+      Structured hint from actor response:
+        'update_profile:<field>=<value>' — propose an NPCProfile field update
+        'new_fact:<statement>'           — propose a new canonical Fact
+        'none'                           — no update implied

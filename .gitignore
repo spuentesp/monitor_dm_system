@@ -1,0 +1,90 @@
+# Runtime state (dev.sh pids + logs)
+.run/
+
+# Environment and secrets
+.env
+.env.tokens
+infra/.env
+
+# Bytecode and cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+
+# Test coverage
+htmlcov/
+.coverage
+.pytest_cache/
+
+# MCP plugin workspace
+.serena/
+
+# Lain MCP (self-contained binary + graph + models)
+.lain/
+
+# Package lock files
+
+# Local fallback storage (MinIO overflow)
+.local_storage/
+
+# Infrastructure data
+infra/mongodb/data
+infra/mongodb/configdb
+infra/mongodb/init
+infra/neo4j/data
+infra/neo4j/logs
+infra/neo4j/import
+infra/neo4j/plugins
+infra/qdrant/storage
+infra/minio/data
+infra/opensearch/data
+infra/postgres/data
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+.agent/
+
+# OS files
+.DS_Store
+Thumbs.db
+coverage.json
+minimax-vscode/
+
+# Neo4j data directories (bind mounts / backups) must never be tracked
+infra/neo4j/data*/
+infra/neo4j/logs/
+
+# Local dev SQLite scratch
+*.sqlite
+.continue/
+test_logs/
+*.xls
+llm_calls.log
+
+# Garbage / Logs
+coverage_full.json
+jobs.json
+lint.log
+mutation-score.json
+mutation_log.txt
+
+# Test logs
+docs/testing/live_gm_vs_player/
+tests/e2e/logs/

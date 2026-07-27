@@ -1,0 +1,42 @@
+id: "MP-1"
+title: "Create Pack Manually"
+category: "packs"
+epic: 10
+priority: "medium"
+status: "in-progress"
+
+summary: |
+  Author a new pack from scratch without a PDF source. The user names the pack,
+  optionally links a game system and source documents, and populates it via the
+  Pack Editor (MP-4). Packs are the single portable unit for settings, rules,
+  and knowledge in MONITOR.
+
+acceptance_criteria:
+  - "POST /packs creates a KnowledgePack document in MongoDB"
+  - "Pack is created with status 'ready' and empty entity/axiom/lore arrays"
+  - "name is required; description, game_system_id, tags, source_ids are optional"
+  - "Pack appears in pack library immediately after creation"
+  - "Unit tests cover creation with and without optional fields"
+
+depends_on: []
+
+blocks:
+  - "MP-4"  # Pack Editor needs packs to exist
+
+implementation:
+  layer: 1
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/pack.py"
+      - "packages/data-layer/tests/test_tools/test_pack_tools.py"
+    modify:
+      - "packages/ui/backend/src/"
+      - "packages/ui/frontend/src/app/forge/packs/page.tsx"
+
+  notes: |
+    KnowledgePack schema additions needed:
+      - parent_pack_ids: list[str] = []
+      - source_ids: list[str] = []
+      - apply_history: list[ApplyRecord] = []
+    Remove: applied_to (replaced by apply_history)

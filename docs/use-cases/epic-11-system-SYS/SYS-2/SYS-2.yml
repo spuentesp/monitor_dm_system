@@ -1,0 +1,25 @@
+# SYS-2: Main Menu
+# ================
+
+id: "SYS-2"
+title: "Main Menu"
+category: "sys"
+epic: 11
+priority: "medium"
+status: "done"
+
+summary: |
+  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+
+acceptance_criteria:
+  - "TBD"
+
+depends_on: []
+blocks: []
+
+implementation:
+  layer: 2
+  files:
+    create: []
+    modify: []
+  patterns: []

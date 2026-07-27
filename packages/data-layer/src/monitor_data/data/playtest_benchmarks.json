@@ -1,0 +1,274 @@
+[
+  {
+    "benchmark_id": "death_in_space_onboarding_probe",
+    "name": "Death in Space \u2014 Clarify Then Commit",
+    "description": "A realistic onboarding benchmark where the player behaves like a cautious first-time player: they ask what character types are available, probe differences between roles, and only then commit to a concept and enter play.",
+    "comparison_group": "onboarding_and_setup",
+    "mode": "autonomous_gm",
+    "tone": "grim",
+    "play_mode": "dice_game_system",
+    "system_name": "Death in Space",
+    "session_title": "Benchmark: Death in Space Onboarding",
+    "tags": [
+      "benchmark",
+      "death-in-space",
+      "ooc",
+      "character-creation",
+      "clarification",
+      "ui-testing"
+    ],
+    "focus_areas": [
+      "Rule-aware OOC clarification",
+      "Character type explanation quality",
+      "Pre-play to active-play transition",
+      "System-specific onboarding for Death in Space"
+    ],
+    "expected_signals": [
+      "The GM should answer what can be played without hand-waving",
+      "Different character types should feel distinct and grounded",
+      "The session should not stall during pre-play"
+    ],
+    "comparison_metrics": [
+      "phase_sequence",
+      "clarification_question_count",
+      "fallback_count",
+      "avg_gm_reply_chars",
+      "question_marks_from_gm"
+    ],
+    "starter_questions": [
+      "What kind of characters can I actually play here?",
+      "What's the difference between a drifter, a patcher, and someone more dangerous?",
+      "If I want to survive derelict ships, what kind of character makes sense?"
+    ],
+    "adversarial_goals": [
+      "Ask follow-up questions until the GM gives useful, system-grounded distinctions",
+      "Push for concrete options instead of vague flavor",
+      "Check whether the GM can move from OOC clarification into actual play cleanly"
+    ],
+    "player_persona": "A skeptical but interested new player who wants help making a viable Death in Space character for a salvage scenario.",
+    "llm_player_brief": "Act like a real player who does not know the setting yet. Ask for clarification about available character types, what they are good at, and what kind of starter fits dangerous derelict salvage. If the GM is vague, politely press for specifics before committing.",
+    "ui_notes": "This is the best benchmark for spotting onboarding gaps in the GM loop and the setup UI.",
+    "scripted_turns": [
+      "Before we begin, what kind of characters can I play in Death in Space? I don't know the options yet.",
+      "If I want someone practical and ship-savvy, what's the difference between a drifter and a patcher in this setup?",
+      "Alright, let's go with a patcher \u2014 Kael Draven, a void-born engineer who's more comfortable in dead hulls than crowded stations.",
+      "Yes, let's do character creation and whatever starting stats or choices matter here.",
+      "I take the salvage contract, seal my suit, and ask what my first impression is as I approach the wreck.",
+      "I pause at the airlock and listen before opening it. If there's something I should know about the risk, tell me."
+    ]
+  },
+  {
+    "benchmark_id": "narrative_pure_derelict",
+    "name": "Narrative Pure \u2014 Derelict Salvage",
+    "description": "Fiction-first baseline for comparing the live GM loop without mechanical overhead. The player still asks for framing and clarifies stakes like a real table would.",
+    "comparison_group": "derelict_salvage_baselines",
+    "mode": "autonomous_gm",
+    "tone": "grim",
+    "play_mode": "dice_game_system",
+    "system_name": "Narrative Pure",
+    "session_title": "Benchmark: Narrative Pure Salvage",
+    "tags": [
+      "benchmark",
+      "baseline",
+      "narrative",
+      "no-roll",
+      "ui-testing"
+    ],
+    "focus_areas": [
+      "Opening hook quality",
+      "Fiction-first consequence handling",
+      "No-roll system adherence",
+      "Atmosphere and continuity"
+    ],
+    "expected_signals": [
+      "`roll_breakdown` should say `narrative system \u2014 no roll`",
+      "No fallback narration markers",
+      "The GM should keep stakes moving without mechanical prompts"
+    ],
+    "comparison_metrics": [
+      "fallback_count",
+      "avg_gm_reply_chars",
+      "phase_sequence",
+      "success_levels",
+      "roll_breakdowns"
+    ],
+    "starter_questions": [
+      "Before I step in, what makes this wreck feel wrong?",
+      "Do I have enough context to know what I'm risking?"
+    ],
+    "adversarial_goals": [
+      "See if the GM can keep pressure high with no dice support",
+      "Probe whether consequences remain concrete instead of vague"
+    ],
+    "player_persona": "A competent scavenger who asks sensible clarifying questions, but prefers to stay in-fiction.",
+    "llm_player_brief": "Play like a genre-savvy salvage operator. Ask for clarification when the risk or environment is unclear, but stay mostly in-fiction and keep the scene moving.",
+    "ui_notes": "Use this when tuning pure conversational pacing or comparing prompt variants without dice noise.",
+    "scripted_turns": [
+      "I'm Kael Draven, a void-born engineer from Terminus-9. I survived the loss of my salvage crew when the Penitent Star split open in the black. Since then I take repair work, keep my head down, and try not to think about the sounds the hull made when the air left.",
+      "Before I board, what looks off about this wreck besides the obvious damage?",
+      "I take the derelict recovery job, suit up, and dock with the wreck. I pause at the airlock and listen before cycling it open.",
+      "I sweep the corridor with my lamp and scan for power, motion, or signs that anyone else got here first.",
+      "The cargo bay door is damaged. I pull the panel and try to hotwire it open without frying the lock.",
+      "I step into the bay and call out for survivors, staying low and watching for movement among the containers."
+    ]
+  },
+  {
+    "benchmark_id": "narrative_weighted_derelict",
+    "name": "Narrative Weighted \u2014 Derelict Salvage",
+    "description": "Light-mechanics baseline that keeps the same scene but adds the configured d20-under weighted check. The player mixes cautious questions with decisive action.",
+    "comparison_group": "derelict_salvage_baselines",
+    "mode": "autonomous_gm",
+    "tone": "grim",
+    "play_mode": "dice_game_system",
+    "system_name": "Narrative Weighted",
+    "session_title": "Benchmark: Narrative Weighted Salvage",
+    "tags": [
+      "benchmark",
+      "baseline",
+      "narrative",
+      "weighted",
+      "dice",
+      "ui-testing"
+    ],
+    "focus_areas": [
+      "Roll-under formatting",
+      "Success/failure metadata",
+      "System-specific mechanical adherence",
+      "Narrative follow-through after a roll"
+    ],
+    "expected_signals": [
+      "`roll_breakdown` should use the `1d20 <= 10 + ...` format",
+      "Success levels should appear in metadata",
+      "No fallback narration markers"
+    ],
+    "comparison_metrics": [
+      "fallback_count",
+      "avg_gm_reply_chars",
+      "success_levels",
+      "roll_breakdowns",
+      "effects_seen"
+    ],
+    "starter_questions": [
+      "What seems most dangerous about boarding this wreck?",
+      "What kind of approach would matter mechanically here?"
+    ],
+    "adversarial_goals": [
+      "Check whether the GM explains risks before asking for action",
+      "See whether roll results meaningfully change the narration"
+    ],
+    "player_persona": "A careful operator who wants to understand the stakes, then acts decisively.",
+    "llm_player_brief": "Act like a practical solo-RPG player. Ask about the immediate risk when needed, then commit to clear actions that should trigger mechanical resolution.",
+    "ui_notes": "Use this when comparing mechanical narration, prompt changes, or resolver behavior across models.",
+    "scripted_turns": [
+      "I'm Kael Draven, a void-born engineer from Terminus-9. I survived the loss of my salvage crew when the Penitent Star split open in the black. Since then I take repair work, keep my head down, and try not to think about the sounds the hull made when the air left.",
+      "Yes. Roll my stats.",
+      "What looks most dangerous about this salvage job before I commit to boarding?",
+      "I take the derelict recovery job, suit up, and dock with the wreck. I pause at the airlock and listen before cycling it open.",
+      "I sweep the corridor with my lamp and scan for power, motion, or signs that anyone else got here first.",
+      "The cargo bay door is damaged. I pull the panel and try to hotwire it open without frying the lock."
+    ]
+  },
+  {
+    "benchmark_id": "adversarial_llm_rule_probe",
+    "name": "Adversarial LLM \u2014 Rule Probe",
+    "description": "A comparison flow specifically meant for an LLM-as-player acting adversarially: it asks for clarification, checks consistency, and tries to expose weak hand-offs between explanation, resolution, and narration.",
+    "comparison_group": "adversarial_llm",
+    "mode": "autonomous_gm",
+    "tone": "mystery",
+    "play_mode": "dice_game_system",
+    "system_name": "Narrative Weighted",
+    "session_title": "Benchmark: Adversarial Rule Probe",
+    "tags": [
+      "benchmark",
+      "adversarial",
+      "llm-player",
+      "regression",
+      "ui-testing"
+    ],
+    "focus_areas": [
+      "Consistency under questioning",
+      "Clarification quality",
+      "Transition from OOC to action",
+      "Narrative coherence after repeated probes"
+    ],
+    "expected_signals": [
+      "The GM should stay coherent under repeated follow-up questions",
+      "The loop should not get stuck in meta chatter",
+      "Once the player commits, the scene should resume normally"
+    ],
+    "comparison_metrics": [
+      "clarification_question_count",
+      "phase_sequence",
+      "fallback_count",
+      "avg_gm_reply_chars",
+      "question_marks_from_gm"
+    ],
+    "starter_questions": [
+      "What can I do here that is actually supported by the game loop?",
+      "If I ask for clarification twice, will the GM stay coherent or drift?"
+    ],
+    "adversarial_goals": [
+      "Ask at least two clarification questions before taking action",
+      "Probe for contradictions between risk framing and later resolution",
+      "Try to force the GM to be specific about options and consequences"
+    ],
+    "player_persona": "A demanding playtester intentionally stress-testing the GM loop.",
+    "llm_player_brief": "You are an adversarial but fair playtester. Ask clarifying questions, request concrete options, and politely challenge vague answers. After probing the loop, commit to an action and see if the GM remains coherent.",
+    "ui_notes": "Use this with `adversarial_llm` player mode to surface loop weaknesses before shipping prompt or resolver changes.",
+    "scripted_turns": [
+      "Before I commit to anything, what exactly can I do in this opening scene?",
+      "That's broad. What feels actually dangerous right now, and what kind of move would matter most?",
+      "Fine. I ease the airlock open and scan the bridge for signs that someone got here before me.",
+      "If I see a clue, I follow it carefully and keep one hand on my cutter."
+    ]
+  },
+  {
+    "benchmark_id": "three_arc_epic",
+    "name": "Three-Arc Epic Story",
+    "description": "A 3-arc story testing information gathering, a dungeon puzzle, and a boss fight with consequences.",
+    "comparison_group": "long_form",
+    "mode": "autonomous_gm",
+    "tone": "epic fantasy",
+    "play_mode": "dice_game_system",
+    "system_name": "Narrative Weighted",
+    "session_title": "Benchmark: 3-Arc Epic",
+    "tags": [
+      "benchmark",
+      "3-arc",
+      "long-form"
+    ],
+    "focus_areas": [
+      "NPC generation and retention",
+      "Puzzle resolution logic",
+      "Boss combat tracking",
+      "Consequence narration"
+    ],
+    "expected_signals": [
+      "GM creates NPCs with names and traits",
+      "Puzzle clues are given clearly",
+      "Combat rolls result in damage/consequences"
+    ],
+    "comparison_metrics": [
+      "fallback_count",
+      "avg_gm_reply_chars"
+    ],
+    "starter_questions": [
+      "How well does the GM handle a multi-scene transition?"
+    ],
+    "adversarial_goals": [
+      "Complete 3 distinct arcs in one session"
+    ],
+    "player_persona": "An adventurous hero seeking out a legendary artifact.",
+    "llm_player_brief": "Act like a roleplayer going through a 3-act story. Act 1: Gather info from NPCs. Act 2: Enter a dungeon and solve a puzzle. Act 3: Fight the boss and deal with the aftermath. Ask questions when appropriate, but push the story forward.",
+    "scripted_turns": [
+      "I am Elara, a knight of the Silver Hand. I arrive at the tavern in Oakhaven, looking for rumors about the ruined keep in the mountains.",
+      "I approach the bartender and ask, \"What can you tell me about the shadow haunting the old keep? Any specific traps or guardians?\"",
+      "I thank them, buy some supplies from a local merchant, and head up the mountain path towards the keep.",
+      "I enter the dark ruins. If I see a door with strange symbols, I examine it closely to figure out the puzzle.",
+      "I attempt to solve the puzzle by aligning the symbols according to the clues I found.",
+      "The door opens. I draw my sword and step into the main hall, ready to face the boss.",
+      "I charge at the shadow creature, swinging my sword with all my might!",
+      "I try to finish it off or mitigate the damage. What are the consequences of this fight for the surrounding area?"
+    ]
+  }
+]

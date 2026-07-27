@@ -1,0 +1,20 @@
+graph TD
+    subgraph Neo4jDatabase ["Neo4j Database"]
+        TavernKeeper["Tavern Keeper (NPC)"]
+        Player["Kael Draven (PC)"]
+        VampireFact["Is a Vampire"]
+        RumorFact["Suffers from Insomnia"]
+
+        TavernKeeper -->|IS_A - canon_level canon| VampireFact
+        Player -->|BELIEVES - canon_level rumor| RumorFact
+    end
+
+    subgraph ContextWindow ["Context Window"]
+        PlayerContext["What the LLM sees"]
+    end
+
+    RumorFact -.->|Allowed - Public Rumor| PlayerContext
+    VampireFact -.->|Blocked - Player lacks KNOWS| PlayerContext
+    
+    style VampireFact fill:#e74c3c,color:#fff
+    style RumorFact fill:#f1c40f,color:#000

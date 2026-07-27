@@ -1,0 +1,15 @@
+flowchart TD
+    Start(("Inicio de Turno")) --> load_context
+    load_context["load_context<br/>(ContextAssembly reúne entidades, hechos, reglas)"]
+    load_context --> gm_verdict
+    gm_verdict["gm_verdict<br/>(GMAgent decide la intención y necesidad mecánica)"]
+    gm_verdict --> resolve
+    resolve["resolve<br/>(Resolver ejecuta la mecánica y emite ProposedChanges)"]
+    resolve --> narrate
+    narrate["narrate<br/>(Narrator genera la prosa del GM)"]
+    narrate --> persist_turn
+    persist_turn["persist_turn<br/>(guarda el turno en MongoDB)"]
+    persist_turn --> Decision{"¿Fin de escena?"}
+    Decision -->|Sí| canonize["canonize<br/>(CanonKeeper evalúa y escribe a Neo4j)"]
+    canonize --> End(("Fin"))
+    Decision -->|No, Turno siguiente| load_context

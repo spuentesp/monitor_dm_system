@@ -1,0 +1,18 @@
+graph TD
+    PC["Kael Draven\n(Personaje — PC)"]
+    NPC["Bartender\n(Personaje — NPC)"]
+    LOC["The Rust Nail\n(Lugar)"]
+    FACTION["Tripulación perdida\n(Facción)"]
+    OBJ["Baliza del Rust Nail\n(Objeto)"]
+
+    PC -->|UBICADO_EN| LOC
+    NPC -->|UBICADO_EN| LOC
+    NPC -->|CONOCE| FACTION
+    FACTION -->|POSEÍA| OBJ
+    PC -->|INTERACTÚA_CON| NPC
+
+    style PC fill:#4a90d9,color:#fff
+    style NPC fill:#7b68ee,color:#fff
+    style LOC fill:#2ecc71,color:#fff
+    style FACTION fill:#e67e22,color:#fff
+    style OBJ fill:#e74c3c,color:#fff

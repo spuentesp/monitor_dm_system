@@ -1,0 +1,354 @@
+services:
+  # Neo4j - Canonical Graph Database
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: monitor-neo4j
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      # Password comes from .env so app containers and the DB always agree
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-monitor_dev_pass}
+      # Jars are pre-downloaded in ./neo4j/plugins — no internet fetch on startup
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
+      # Neo4j 5.x setting names (dbms.memory.* is deprecated)
+      - NEO4J_server_memory_heap_initial__size=${NEO4J_HEAP_INITIAL:-512m}
+      - NEO4J_server_memory_heap_max__size=${NEO4J_HEAP_MAX:-2G}
+      - NEO4J_server_memory_pagecache_size=${NEO4J_PAGECACHE:-1G}
+    volumes:
+      - ./neo4j/data:/data
+      - ./neo4j/logs:/logs
+      - ./neo4j/import:/var/lib/neo4j/import
+      - ./neo4j/plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD:-monitor_dev_pass} 'RETURN 1' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # MongoDB - Narrative & Proposals Database
+  mongodb:
+    image: mongo:7.0
+    container_name: monitor-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=monitor
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD}
+      - MONGO_INITDB_DATABASE=monitor
+    volumes:
+      - ./mongodb/data:/data/db
+      - ./mongodb/configdb:/data/configdb
+      - ./mongodb/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # Qdrant - Vector Database for Semantic Search
+  qdrant:
+    # Must stay within compatibility range of the python qdrant-client
+    # (1.18.x): the 1.18 client serializes vectors in a gRPC field that
+    # pre-1.8 servers ignore — every upsert then fails with
+    # "expected dim 1536, got 0" and ingestion dies at the embed stage.
+    image: qdrant/qdrant:v1.18.0
+    container_name: monitor-qdrant
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    volumes:
+      - ./qdrant/storage:/qdrant/storage
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # MinIO - Binary Storage (PDFs, images, etc.)
+  minio:
+    image: minio/minio:latest
+    container_name: monitor-minio
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    environment:
+      - MINIO_ROOT_USER=monitor
+      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
+    volumes:
+      - ./minio/data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # Redis - optional hot-path runtime cache / queue coordination
+  redis:
+    image: redis:7-alpine
+    container_name: monitor-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warning --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # OpenSearch - Optional full-text search (alternative to Qdrant for text search)
+  opensearch:
+    image: opensearchproject/opensearch:2.11.1
+    container_name: monitor-opensearch
+    ports:
+      - "9200:9200"  # REST API
+      - "9600:9600"  # Performance Analyzer
+    environment:
+      - discovery.type=single-node
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD}
+      - plugins.security.disabled=true
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # OpenSearch Dashboards - Optional UI for OpenSearch (use --profile admin)
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.11.1
+    container_name: monitor-opensearch-dashboards
+    ports:
+      - "5601:5601"
+    environment:
+      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    depends_on:
+      - opensearch
+    networks:
+      - monitor-network
+    restart: unless-stopped
+    profiles:
+      - admin
+
+  # GLiNER - Named Entity Recognition (NER) service.
+  # OPT-IN: upstream image availability is unreliable; the default NLP backend
+  # is spaCy (NLP_BACKEND=spacy). Start with: docker compose --profile gliner up
+  gliner:
+    profiles: ["gliner"]
+    image: knowledgator/gliner-base:v0.2.1
+    container_name: monitor-gliner
+    ports:
+      - "${GLINER_PORT:-8082}:8000"
+    environment:
+      - MODEL_NAME=${GLINER_MODEL:-knowledgator/gliner-base-v0.1}
+      - MAX_LENGTH=${GLINER_MAX_LENGTH:-384}
+      - BATCH_SIZE=${GLINER_BATCH_SIZE:-8}
+    deploy:
+      resources:
+        limits:
+          cpus: '${GLINER_CPUS:-2.0}'
+          memory: ${GLINER_MEMORY:-4G}
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    networks:
+      - monitor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # PostgreSQL - Relational store for app configuration, LLM providers, settings
+  postgres:
+    image: postgres:16-alpine
+    container_name: monitor-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=monitor
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=monitor
+    volumes:
+      - ./postgres/data:/var/lib/postgresql/data
+    networks:
+      - monitor-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monitor -d monitor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # UI Backend — FastAPI server consumed by the Next.js frontend
+  ui-backend:
+    build:
+      context: ../packages   # scoped to packages/ — avoids infra/ permission issues
+      dockerfile: ui/backend/Dockerfile
+    container_name: monitor-ui-backend
+    ports:
+      - "8001:8001"
+    extra_hosts:
+      # Lets provider rows that target host-running services (ollama,
+      # LM Studio) work from inside the container — paired with
+      # MONITOR_LOCALHOST_REWRITE below.
+      - "host.docker.internal:host-gateway"
+    environment:
+      # --- Server ---
+      UI_HOST: "0.0.0.0"
+      UI_PORT: "8001"
+      UI_CORS_ORIGINS: "http://localhost:3000,http://ui-frontend:3000"
+      # Rewrite localhost provider base_urls to the host gateway (see
+      # extra_hosts) so e.g. ollama at http://localhost:11434/v1 resolves.
+      MONITOR_LOCALHOST_REWRITE: "host.docker.internal"
+      # --- Neo4j (internal service name) ---
+      NEO4J_URI: "bolt://neo4j:7687"
+      NEO4J_USER: "neo4j"
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD}"
+      # --- MongoDB (internal service name, no localhost) ---
+      MONGODB_URI: "mongodb://monitor:${MONGODB_PASSWORD}@mongodb:27017/monitor?authSource=admin"
+      MONGODB_DATABASE: "monitor"
+      # --- Qdrant ---
+      QDRANT_URI: "http://qdrant:6333"
+      QDRANT_URL: "http://qdrant:6333"
+      # --- PostgreSQL ---
+      POSTGRES_HOST: "postgres"
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: "monitor"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "monitor"
+      # --- MinIO ---
+      MINIO_ENDPOINT: "http://minio:9000"
+      MINIO_ACCESS_KEY: "monitor"
+      MINIO_SECRET_KEY: "${MINIO_PASSWORD}"
+      MINIO_SECURE: "false"
+      # --- OpenSearch ---
+      OPENSEARCH_URL: "http://opensearch:9200"
+      # --- Redis ---
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+      REDIS_ENABLED: "${REDIS_ENABLED:-true}"
+      REDIS_KEY_PREFIX: "${REDIS_KEY_PREFIX:-monitor}"
+      REDIS_CACHE_TTL_SECONDS: "${REDIS_CACHE_TTL_SECONDS:-30}"
+      REDIS_SOLO_PLAY_TTL_SECONDS: "${REDIS_SOLO_PLAY_TTL_SECONDS:-15}"
+      # --- Storage ---
+      STORAGE_BACKEND: "${STORAGE_BACKEND:-minio}"
+      # --- LLM (pass through from host .env) ---
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GITHUB_MODELS_TOKEN: "${GITHUB_MODELS_TOKEN:-}"
+      GITHUB_MODELS_BASE_URL: "${GITHUB_MODELS_BASE_URL:-https://models.github.ai/inference}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      MINIMAX_API_KEY: "${MINIMAX_API_KEY:-${MINIMAX_KEY:-}}"
+      MINIMAX_BASE_URL: "${MINIMAX_BASE_URL:-https://api.minimax.io/anthropic}"
+      # --- LLM logging ---
+      MONITOR_LLM_LOG: "${MONITOR_LLM_LOG:-0}"
+      # --- Observability (logfire / OTLP passthrough) ---
+      LOGFIRE_SEND_TO_LOGFIRE: "${LOGFIRE_SEND_TO_LOGFIRE:-false}"
+      LOGFIRE_TOKEN: "${LOGFIRE_TOKEN:-}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+      # --- NLP / GLiNER ---
+      NLP_ENABLED: "${NLP_ENABLED:-true}"
+      NLP_BACKEND: "${NLP_BACKEND:-gliner}"
+      GLINER_URL: "http://gliner:8000"
+      GLINER_MODEL: "${GLINER_MODEL:-knowledgator/gliner-base-v0.1}"
+      GLINER_MAX_LENGTH: "${GLINER_MAX_LENGTH:-384}"
+      GLINER_BATCH_SIZE: "${GLINER_BATCH_SIZE:-8}"
+      # --- NLP Entity Extraction ---
+      ENTITY_EXTRACTION_ENABLED: "${ENTITY_EXTRACTION_ENABLED:-true}"
+      ENTITY_TYPES: "${ENTITY_TYPES:-person,location,organization,product,event,work_of_art,law,language,date,time,percent,money,quantity,ordinal,cardinal}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+  # UI Frontend — Next.js app (standalone output)
+  ui-frontend:
+    build:
+      context: ../packages/ui/frontend   # scoped to frontend only
+      dockerfile: Dockerfile
+      args:
+        # Baked at build time for browser-side JS. The browser reaches the backend
+        # via the host-mapped port (8001) — NOT the internal Docker name.
+        NEXT_PUBLIC_API_URL: "http://localhost:8001"
+    container_name: monitor-ui-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      # Runtime-only override: Next.js server uses this internal name for its own
+      # server-side API proxy route (not accessible to the browser).
+      BACKEND_URL: "http://ui-backend:8001"
+    depends_on:
+      - ui-backend
+    networks:
+      - monitor-network
+    restart: unless-stopped
+
+
+  # mcp-server:
+  #   build:
+  #     context: ../services/mcp-server
+  #     dockerfile: Dockerfile
+  #   container_name: monitor-mcp-server
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     - NEO4J_URI=bolt://neo4j:7687
+  #     - NEO4J_USER=neo4j
+  #     - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+  #     - MONGODB_URI=mongodb://monitor:${MONGODB_PASSWORD}@mongodb:27017/monitor
+  #     - QDRANT_URI=http://qdrant:6333
+  #     - MINIO_ENDPOINT=minio:9000
+  #     - MINIO_ACCESS_KEY=monitor
+  #     - MINIO_SECRET_KEY=${MINIO_PASSWORD}
+  #     - OPENSEARCH_URI=https://opensearch:9200
+  #   depends_on:
+  #     - neo4j
+  #     - mongodb
+  #     - qdrant
+  #     - minio
+  #     - opensearch
+  #   networks:
+  #     - monitor-network
+  #   restart: unless-stopped
+
+networks:
+  monitor-network:
+    driver: bridge
+
+volumes:
+  neo4j-data:
+  neo4j-logs:
+  neo4j-import:
+  neo4j-plugins:
+  mongodb-data:
+  mongodb-configdb:
+  qdrant-storage:
+  minio-data:
+  opensearch-data:
+  postgres-data:
+  redis-data:

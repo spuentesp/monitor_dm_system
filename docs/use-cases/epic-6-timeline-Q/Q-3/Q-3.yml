@@ -1,0 +1,25 @@
+# Q-3: Browse Entities
+# ====================
+
+id: "Q-3"
+title: "Browse Entities"
+category: "q"
+epic: 6
+priority: "medium"
+status: "in-progress"
+
+summary: |
+  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+
+acceptance_criteria:
+  - "TBD"
+
+depends_on: []
+blocks: []
+
+implementation:
+  layer: 2
+  files:
+    create: []
+    modify: []
+  patterns: []

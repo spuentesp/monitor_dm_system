@@ -1,0 +1,74 @@
+id: "MP-8"
+title: "Apply Pack → Existing World"
+category: "packs"
+epic: 10
+priority: "high"
+status: "in-progress"
+
+summary: |
+  Apply a pack's contents to a world that already exists. Two modes:
+  Mode A (Selective) — user pre-selects items in the Pack Editor; no conflict
+  detection; selected items are written directly.
+  Mode B (Full) — full conflict detection per item; any item whose pack value
+  differs from the current world value is flagged as a conflict that must be
+  resolved before committing.
+
+  Conflict resolution strategies per item (any mix):
+    pack_wins     — overwrite world value with pack value
+    world_wins    — keep world value, discard pack value
+    llm_merged    — LLM synthesises a new value from both
+    human_picked  — user types or selects the resolved value
+
+  Auto-commit setting (user-level preference):
+    Review mode   — LLM suggestions shown in UI before commit
+    Auto-commit   — LLM applies automatically; user reviews a post-apply log
+
+acceptance_criteria:
+  - "Mode A: pre-selected items written without conflict detection"
+  - "Mode B: every item compared; conflicts listed with pack_value and world_value"
+  - "Per-item resolution strategy selectable independently"
+  - "LLM suggestions generated for llm_merged conflicts"
+  - "Auto-commit preference respected (Review vs Auto-commit mode)"
+  - "apply_history entry appended with full conflict log"
+  - "Re-apply = full conflict detection every time (no diffing against last apply)"
+  - "Unit tests cover: no conflicts, all-pack-wins, all-world-wins, llm_merged, human_picked"
+
+depends_on:
+  - "MP-4"   # Selective mode uses Pack Editor item selection
+  - "MP-7"   # Reuses PackApplySession and CanonKeeper apply infrastructure
+
+blocks: []
+
+implementation:
+  layer: 2
+
+  files:
+    modify:
+      - "packages/agents/src/monitor_agents/pack_apply.py"
+      - "packages/agents/src/monitor_agents/canonkeeper.py"
+      - "packages/data-layer/src/monitor_data/tools/pack_tools.py"
+      - "packages/ui/backend/src/"
+      - "packages/ui/frontend/src/app/forge/apply/page.tsx"
+
+  notes: |
+    PackConflict dataclass:
+      item_type:      str          # entity | axiom | lore | game_system
+      item_name:      str
+      pack_value:     Any
+      world_value:    Any
+      resolution:     str | None   # pack_wins | world_wins | llm_merged | human_picked
+      resolved_value: Any | None
+      llm_suggestion: str | None
+      resolved_by:    str | None   # "user" | "llm" | "auto"
+      auto_committed: bool
+
+    PackApplySession dataclass:
+      id:                 str
+      pack_id:            str
+      target_universe_id: str
+      mode:               str       # "selective" | "full"
+      auto_commit_llm:    bool
+      conflicts:          list[PackConflict]
+      status:             str       # pending | review | committed | abandoned
+      applied_at:         datetime | None
+      items_written:      int

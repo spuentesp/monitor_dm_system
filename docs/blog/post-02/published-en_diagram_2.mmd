@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant Agent as Agent (Narrator/Resolver)
+    participant MongoDB as MongoDB (Pending State)
+    participant CanonKeeper as CanonKeeper
+    participant Neo4j as Neo4j (Canonical Graph)
+
+    Agent->>MongoDB: Registers ProposedChange
+    Note over Agent,Neo4j: Scene ends
+    CanonKeeper->>MongoDB: Reads accumulated proposals
+    CanonKeeper->>CanonKeeper: Evaluates consistency
+    alt Is Consistent
+        CanonKeeper->>Neo4j: Writes to Canon
+    else Contradiction
+        CanonKeeper->>MongoDB: Marks as Rejected
+    end

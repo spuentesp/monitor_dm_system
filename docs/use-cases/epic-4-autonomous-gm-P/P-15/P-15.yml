@@ -1,0 +1,100 @@
+# P-15: Start Play Session
+# =========================
+#
+# RESOLUTION OF 2026-06-05 SPEC/CODE CONFLICT
+# ------------------------------------------
+# Three different definitions of P-15 existed in the project as of
+# 2026-06-05:
+#   1. P-15.yml (this file, pre-resolution) : "Autonomous PC Actions" (PC-Agent)
+#   2. P-15-specification.md                : "Start Play Session" (Play Home / PlaySession)
+#   3. docs/use-cases/rollout-plan.md       : "Autonomous PC Actions" (PC-Agent)
+#   4. Code (play_sessions.py)              : "Start Play Session" (PlaySession)
+#
+# Resolution: this YAML now describes what was actually built
+# (PlaySession — the data-layer + UI flow for starting a real-world game
+# night), matching the spec markdown. The original "Autonomous PC
+# Actions" intent is preserved in a deprecation note and deferred to
+# P-21 (to be created) — see below.
+#
+# Reviewers: see docs/CLOSING_THE_GAP.md §1.5 for the full audit.
+
+id: "P-15"
+title: "Start Play Session"
+category: "play"
+epic: 1
+priority: "high"
+status: "in-progress"
+
+deprecation:
+  note: |
+    Earlier revisions of this YAML described "Autonomous PC Actions"
+    (a PC-Agent that generates character actions for solo play). The
+    implementation that shipped is "Start Play Session" (PlaySession
+    schemas + UI bootstrap flow). To preserve the original intent, the
+    PC-Agent use case is deferred to a new ID (P-21, not yet created).
+  superseded_by: null
+  deferred_to: "P-21 (to be created)"
+
+summary: |
+  Provide a single entry flow for solo play that lets the user start or
+  resume a session without manually hopping between world, character, and
+  chat screens.
+
+  A PlaySession is a REAL-WORLD game night — a specific block of time
+  in which a player and the GM ran one or more scenes. It is distinct
+  from a Scene (in-universe narrative unit) and a Story (canonical story
+  arc). One campaign may have 40+ PlaySessions.
+
+actor: "User (Player)"
+trigger: "Open Play mode (`monitor play` or the web Play surface)"
+
+acceptance_criteria:
+  - "Play Home shows: New Session, Continue Story, Quick Start, Recent Recaps"
+  - "New Session lets user select setting / multiverse / universe / rules / tone / PCs"
+  - "Continue Story filters by multiverse/universe and shows last active scene"
+  - "Session bootstrap creates/updates the session record with current play context"
+  - "Bootstrap hands off to P-1 (new story) or P-12 (continue story)"
+  - "Ready-to-play session binds to one multiverse, universe, story/scene, and PCs"
+  - "PlaySession CRUD via mongodb_create_play_session / get / update / list"
+  - "PlaySession tracks started_at, ended_at, session_number, player_ids, scene_ids"
+  - "PlaySession status transitions: ACTIVE -> PAUSED -> COMPLETED -> ARCHIVED"
+  - "PlaySession recaps available for Q-3 (Show last-session recap)"
+
+depends_on:
+  - "P-1"   # Start Story
+  - "P-2"   # Start Scene
+  - "P-12"  # Continue Story
+  - "M-13"  # Character creation (for PC selection)
+  - "M-15"  # Party (for multi-PC sessions)
+  - "DL-26" # Character Working State (scene-scoped state)
+
+blocks:
+  - "Q-3"  # Show last-session recap
+
+implementation:
+  layer: 1
+  layer_name: "data-layer (with UI surface in layer 3)"
+
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/play_sessions.py"
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools/play_sessions.py"
+      - "packages/ui/backend/src/monitor_ui/routers/play_sessions.py"
+    modify: []
+
+  patterns:
+    - "Pydantic v2 schemas with base.BaseModel"
+    - "mongodb_tools CRUD pattern (mongodb_create_/get_/update_/list_)"
+    - "FastAPI router with Pydantic request/response models"
+    - "SessionStatus enum for lifecycle (ACTIVE/PAUSED/COMPLETED/ARCHIVED)"
+
+test_files:
+  unit:
+    - "tests/contracts/test_P_15_play_session_contracts.py"   # TODO: create
+  integration:
+    - "tests/e2e/test_play_session_lifecycle.py"               # TODO: create
+
+risks:
+  - "Existing references to P-15 as 'Autonomous PC' must be updated (see rollout-plan.md)"
+  - "play_sessions.py docstring must be kept in sync with this YAML"
+  - "P-21 (new ID for Autonomous PC) must be created before any work resumes on PC-Agent"

@@ -1,0 +1,53 @@
+id: "MP-4"
+title: "Pack Editor"
+category: "packs"
+epic: 10
+priority: "high"
+status: "in-progress"
+
+summary: |
+  Single editor surface for composing and modifying a local working copy of a
+  pack. Entry points: Clone (copy of one pack), Slice (subset of one pack),
+  Merge (combine two or more packs), Split (divide one pack into multiple).
+  All operations produce a mutable working copy; source packs are never modified.
+  Includes an embedded World Graph Explorer (Q-11) for visual navigation.
+  User saves via MP-5 (with lineage) or MP-6 (as independent new pack).
+
+acceptance_criteria:
+  - "All four entry points (Clone / Slice / Merge / Split) open the editor with a working copy"
+  - "Source packs are read-only; changes apply only to the working copy"
+  - "Editor lists all items (entities, lore, axioms, game system) with checkboxes for selection"
+  - "Inline entity edit: name, description, tags, type — changes reflected in working copy"
+  - "Embedded World Graph (Q-11) renders the working-copy entities and relationships"
+  - "Save buttons: 'Save with Lineage' and 'Save as New Pack' are both visible"
+  - "Unsaved changes prompt before navigating away"
+
+depends_on:
+  - "MP-1"
+  - "MP-2"
+  - "Q-11"  # Embedded graph explorer
+
+blocks:
+  - "MP-5"
+  - "MP-6"
+  - "MP-8"
+
+implementation:
+  layer: 2  # Agent logic; UI in Layer 3 / packages/ui
+
+  files:
+    create:
+      - "packages/ui/frontend/src/app/forge/editor/page.tsx"
+      - "packages/ui/frontend/src/lib/types.ts"  # WorkingCopyPack type
+    modify:
+      - "packages/agents/src/monitor_agents/"
+      - "packages/ui/backend/src/"
+
+  notes: |
+    Working copy is a client-side copy of the pack document.
+    Entry-point semantics:
+      Clone   → deep copy of one pack
+      Slice   → copy with only user-selected items
+      Merge   → union of two+ packs (duplicates flagged for user resolution)
+      Split   → user partitions items into N labelled buckets → N new packs
+    World Graph embedded via iframe or component reuse from /universes/[id]/graph.

@@ -1,0 +1,38 @@
+stateDiagram-v2
+    direction TB
+    [*] --> DetectModality: File / Document
+    
+    DetectModality --> ProcessText : PDFs and Texts
+    DetectModality --> ProcessVision : Maps and Images
+    DetectModality --> ProcessSession : Transcriptions
+    
+    state ProcessText {
+        Indexer --> Analyzer
+        note right of Analyzer
+            Separates game mechanics,
+            lore, and tables.
+        end note
+    }
+    
+    state ProcessVision {
+        MapExtractor --> SpatialEntities
+        note right of SpatialEntities
+            Extracts LOCATED_IN relationships
+            and coordinates.
+        end note
+    }
+    
+    state ProcessSession {
+        SessionListener --> EventsAndFacts
+    }
+    
+    ProcessText --> TemporalValidation
+    ProcessVision --> TemporalValidation
+    ProcessSession --> TemporalValidation
+    
+    TemporalValidation --> CompileKnowledgePack
+    note right of CompileKnowledgePack
+        Knowledge Pack
+        ready to be applied to the Canon.
+    end note
+    CompileKnowledgePack --> [*]

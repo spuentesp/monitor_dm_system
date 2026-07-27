@@ -1,0 +1,44 @@
+# P-18: AutoGM Oracle & Probability Resolution
+# ============================================
+
+id: "P-18"
+title: "AutoGM Oracle & Probability Resolution"
+category: "play"
+epic: 1
+priority: "high"
+status: "done"
+
+summary: |
+  Introduces a structured "Oracle" mechanic to the resolution layer for answering
+  world-truth questions during solo play. Rather than relying on LLM vibes,
+  queries about unknown environmental states (e.g., "Is the door locked?")
+  evaluate a likelihood based on the scene's tension and narrative context,
+  roll a probability die, and return a binary (Yes/No) or modified (Yes, but / No, and)
+  answer. The Narrator then grounds its description in this fixed oracle result.
+
+acceptance_criteria:
+  - "Queries triggering environmental state checks are routed to Oracle resolution."
+  - "Oracle determines a Likelihood (Likely, 50/50, Unlikely) based on Context/Tension."
+  - "Oracle rolls percentile or probability dice and maps to Yes/No outcomes."
+  - "Support for 'Yes, and' or 'No, but' for extreme rolls."
+  - "The oracle result is canonized as a Fact."
+  - "Narrator output respects the rolled oracle truth."
+
+depends_on:
+  - "P-6"    # Answer Question
+  - "P-9"    # Dice Roll
+
+blocks:
+  - "Solo exploration consistency"
+
+implementation:
+  layer: 2
+  files:
+    create:
+      - "packages/agents/src/monitor_agents/oracle.py"
+    modify:
+      - "packages/agents/src/monitor_agents/resolver.py"
+
+  patterns:
+    - "Integrate Oracle check before Narrator generation for unknown facts."
+    - "Use tension_score from StoryState to skew likelihoods."

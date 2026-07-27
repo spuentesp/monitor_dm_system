@@ -1,0 +1,9 @@
+[cosmic-ray]
+module-path = "packages/agents/src/monitor_agents/loops/story_loop.py"
+python-version = ""
+timeout = 30
+excluded-modules = []
+test-command = "python -m pytest packages/agents/tests/test_story_loop.py packages/agents/tests/test_story_loop_procedural.py tests/behavior/test_story_loop_choreography_behavior.py tests/behavior/test_story_completion_choreography_behavior.py -x -q"
+
+[cosmic-ray.distributor]
+name = "local"

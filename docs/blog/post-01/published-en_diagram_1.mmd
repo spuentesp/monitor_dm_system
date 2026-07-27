@@ -1,0 +1,18 @@
+graph TD
+    PC["Kael Draven\n(Character — PC)"]
+    NPC["Bartender\n(Character — NPC)"]
+    LOC["The Rust Nail\n(Location)"]
+    FACTION["Lost Crew\n(Faction)"]
+    OBJ["Rust Nail Beacon\n(Object)"]
+
+    PC -->|LOCATED_IN| LOC
+    NPC -->|LOCATED_IN| LOC
+    NPC -->|KNOWS| FACTION
+    FACTION -->|OWNED| OBJ
+    PC -->|INTERACTS_WITH| NPC
+
+    style PC fill:#4a90d9,color:#fff
+    style NPC fill:#7b68ee,color:#fff
+    style LOC fill:#2ecc71,color:#fff
+    style FACTION fill:#e67e22,color:#fff
+    style OBJ fill:#e74c3c,color:#fff

@@ -1,0 +1,34 @@
+id: "MP-5"
+title: "Save Pack with Lineage"
+category: "packs"
+epic: 10
+priority: "medium"
+status: "in-progress"
+
+summary: |
+  Persist the current Pack Editor working copy as a new named pack, recording
+  the IDs of all source packs in parent_pack_ids. Consumers can trace the
+  provenance of the new pack back to its parents. The source packs are not
+  modified.
+
+acceptance_criteria:
+  - "New pack document created in MongoDB with parent_pack_ids populated"
+  - "parent_pack_ids contains IDs of all packs used as input to the editor session"
+  - "New pack appears in the Pack Library with a lineage badge"
+  - "Source packs are unchanged"
+  - "User is prompted for a name before saving"
+
+depends_on:
+  - "MP-4"
+
+blocks:
+  - "MP-7"
+  - "MP-8"
+
+implementation:
+  layer: 1
+
+  files:
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/pack_tools.py"
+      - "packages/ui/frontend/src/app/forge/editor/page.tsx"
