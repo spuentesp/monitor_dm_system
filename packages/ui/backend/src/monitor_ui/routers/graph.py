@@ -461,7 +461,7 @@ async def get_entity_ego_graph(
             }
 
         # Load all relationships in this universe
-        rels_r = neo4j_list_relationships(RelationshipFilter(universe_id=universe_id, limit=2000))
+        rels_r = neo4j_list_relationships(RelationshipFilter(universe_id=universe_id, limit=1000))
 
     except Exception as exc:
         return {"nodes": [], "edges": [], "error": str(exc)}
