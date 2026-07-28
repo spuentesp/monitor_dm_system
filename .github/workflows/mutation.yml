@@ -17,7 +17,11 @@ jobs:
   mutate:
     name: "mutate / ${{ matrix.target.name }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Canonkeeper's test suite runs ~1400 mutants × 8 test files (~2k LOC).
+    # The default 90-minute cap was too tight — modules were getting cancelled
+    # mid-execution and the aggregate computed on incomplete data. GitHub-hosted
+    # runners support up to 6h, so 240 leaves headroom without hitting limits.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
@@ -108,6 +112,7 @@ jobs:
         env:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           MUTATION_GIST_ID: ${{ secrets.MUTATION_GIST_ID }}
+          EXPECTED_MODULES: "13"
         run: |
           python3 << 'PYEOF'
           import glob, json, os, urllib.request
@@ -120,9 +125,17 @@ jobs:
               except (ValueError, OSError):
                   pass
 
+          expected = int(os.environ.get("EXPECTED_MODULES", "0"))
           if not scores:
               print("No score artifacts found — all mutation jobs may have failed.")
               raise SystemExit(1)
+
+          if expected and len(scores) < expected:
+              missing = expected - len(scores)
+              print(
+                  f"⚠ Only {len(scores)}/{expected} modules produced a score — "
+                  f"{missing} timed out or failed. Aggregate below may be misleading."
+              )
 
           avg = round(sum(scores.values()) / len(scores))
           count = len(scores)
@@ -130,7 +143,12 @@ jobs:
           for name, score in sorted(scores.items()):
               bar = "█" * (score // 5) + "░" * (20 - score // 5)
               print(f"  {name:<20} {bar} {score}%")
-          print(f"\nAggregate: {avg}% across {count} modules\n")
+          suffix = (
+              f" (incomplete: {count}/{expected})"
+              if expected and count < expected
+              else f" across {count} modules"
+          )
+          print(f"\nAggregate: {avg}%{suffix}\n")
 
           token = os.environ.get("GIST_TOKEN", "")
           gist_id = os.environ.get("MUTATION_GIST_ID", "")
@@ -140,10 +158,17 @@ jobs:
               raise SystemExit(0)
 
           color = "brightgreen" if avg >= 80 else "yellow" if avg >= 60 else "red"
+          # Mark incomplete aggregates so the badge doesn't claim a score that
+          # was computed on a subset of modules.
+          message = (
+              f"{avg}% ({count}/{expected})"
+              if expected and count < expected
+              else f"{avg}% ({count} modules)"
+          )
           badge = {
               "schemaVersion": 1,
               "label": "mutation score",
-              "message": f"{avg}% ({count} modules)",
+              "message": message,
               "color": color,
           }
           payload = json.dumps({
@@ -155,5 +180,5 @@ jobs:
               headers={"Authorization": f"token {token}", "Content-Type": "application/json"},
           )
           with urllib.request.urlopen(req) as r:
-              print(f"Gist badge updated: {avg}% across {count} modules ({color})")
+              print(f"Gist badge updated: {message} ({color})")
           PYEOF
