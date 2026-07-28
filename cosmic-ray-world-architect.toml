@@ -3,7 +3,7 @@ module-path = "packages/agents/src/monitor_agents/world_architect/agent.py"
 python-version = ""
 timeout = 25
 excluded-modules = []
-test-command = "python -m pytest packages/agents/tests/test_world_architect.py packages/agents/tests/test_world_architect_procedural.py tests/behavior/test_world_architect_choreography_behavior.py tests/behavior/test_world_building_choreography_behavior.py -x -q"
+test-command = "python -m pytest packages/agents/tests/test_world_architect.py packages/agents/tests/test_world_architect_procedural.py tests/behavior/test_world_architect_choreography_behavior.py tests/behavior/test_world_building_choreography_behavior.py -x -q --timeout=15 --tb=line -p no:cacheprovider --no-header"
 
 [cosmic-ray.distributor]
 name = "local"

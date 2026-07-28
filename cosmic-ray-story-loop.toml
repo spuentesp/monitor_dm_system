@@ -3,7 +3,7 @@ module-path = "packages/agents/src/monitor_agents/loops/story_loop.py"
 python-version = ""
 timeout = 30
 excluded-modules = []
-test-command = "python -m pytest packages/agents/tests/test_story_loop.py packages/agents/tests/test_story_loop_procedural.py tests/behavior/test_story_loop_choreography_behavior.py tests/behavior/test_story_completion_choreography_behavior.py -x -q"
+test-command = "python -m pytest packages/agents/tests/test_story_loop.py packages/agents/tests/test_story_loop_procedural.py tests/behavior/test_story_loop_choreography_behavior.py tests/behavior/test_story_completion_choreography_behavior.py -x -q --timeout=15 --tb=line -p no:cacheprovider --no-header"
 
 [cosmic-ray.distributor]
 name = "local"

@@ -3,7 +3,7 @@ module-path = "packages/agents/src/monitor_agents/resource_engine.py"
 python-version = ""
 timeout = 20
 excluded-modules = []
-test-command = "python -m pytest packages/agents/tests/test_resource_engine.py packages/agents/tests/test_resource_derivation.py -x -q"
+test-command = "python -m pytest packages/agents/tests/test_resource_engine.py packages/agents/tests/test_resource_derivation.py -x -q --timeout=15 --tb=line -p no:cacheprovider --no-header"
 
 [cosmic-ray.distributor]
 name = "local"

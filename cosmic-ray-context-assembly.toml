@@ -3,7 +3,7 @@ module-path = "packages/agents/src/monitor_agents/context_assembly/agent.py"
 python-version = ""
 timeout = 20
 excluded-modules = []
-test-command = "python -m pytest packages/agents/tests/test_context_assembly.py -x -q"
+test-command = "python -m pytest packages/agents/tests/test_context_assembly.py -x -q --timeout=15 --tb=line -p no:cacheprovider --no-header"
 
 [cosmic-ray.distributor]
 name = "local"

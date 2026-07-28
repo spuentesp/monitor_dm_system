@@ -3,7 +3,7 @@ module-path = "packages/agents/src/monitor_agents/resolver.py"
 python-version = ""
 timeout = 20
 excluded-modules = []
-test-command = "python -m pytest packages/agents/tests/test_resolver.py packages/agents/tests/test_resolver_gm_loop.py packages/agents/tests/test_resolver_oracle.py packages/agents/tests/test_resolver_pushback.py packages/agents/tests/test_tone_resolver.py -x -q"
+test-command = "python -m pytest packages/agents/tests/test_resolver.py packages/agents/tests/test_resolver_gm_loop.py packages/agents/tests/test_resolver_oracle.py packages/agents/tests/test_resolver_pushback.py packages/agents/tests/test_tone_resolver.py -x -q --timeout=15 --tb=line -p no:cacheprovider --no-header"
 
 [cosmic-ray.distributor]
 name = "local"

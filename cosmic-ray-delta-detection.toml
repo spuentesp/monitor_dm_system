@@ -3,7 +3,7 @@ module-path = "packages/data-layer/src/monitor_data/tools/ingest_tools/delta_det
 python-version = ""
 timeout = 20
 excluded-modules = []
-test-command = "python -m pytest packages/data-layer/tests/test_db/test_ingest_tools.py packages/data-layer/tests/test_db/test_ingest_tools_coverage.py -x -q"
+test-command = "python -m pytest packages/data-layer/tests/test_db/test_ingest_tools.py packages/data-layer/tests/test_db/test_ingest_tools_coverage.py -x -q --timeout=15 --tb=line -p no:cacheprovider --no-header"
 
 [cosmic-ray.distributor]
 name = "local"

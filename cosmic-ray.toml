@@ -3,7 +3,7 @@ module-path = "packages/agents/src/monitor_agents/canonkeeper/agent.py"
 python-version = ""
 timeout = 20
 excluded-modules = []
-test-command = "python -m pytest packages/agents/tests/test_canonkeeper.py packages/agents/tests/test_canonkeeper_by_ingest.py packages/agents/tests/test_canonkeeper_event_handling.py packages/agents/tests/test_canonkeeper_live_entry.py packages/agents/tests/test_canonkeeper_placeholder_guard.py packages/agents/tests/test_canonkeeper_support.py packages/agents/tests/test_canonkeeper_verify_fact.py tests/behavior/test_canonkeeper_choreography_behavior.py -x -q"
+test-command = "python -m pytest packages/agents/tests/test_canonkeeper.py packages/agents/tests/test_canonkeeper_by_ingest.py packages/agents/tests/test_canonkeeper_event_handling.py packages/agents/tests/test_canonkeeper_live_entry.py packages/agents/tests/test_canonkeeper_placeholder_guard.py packages/agents/tests/test_canonkeeper_support.py packages/agents/tests/test_canonkeeper_verify_fact.py tests/behavior/test_canonkeeper_choreography_behavior.py -x -q --timeout=15 --tb=line -p no:cacheprovider --no-header"
 
 [cosmic-ray.distributor]
 name = "local"

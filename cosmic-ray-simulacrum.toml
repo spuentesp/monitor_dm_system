@@ -3,7 +3,7 @@ module-path = "packages/agents/src/monitor_agents/simulacrum/agent.py"
 python-version = ""
 timeout = 25
 excluded-modules = []
-test-command = "python -m pytest packages/agents/tests/test_simulacrum.py -x -q"
+test-command = "python -m pytest packages/agents/tests/test_simulacrum.py -x -q --timeout=15 --tb=line -p no:cacheprovider --no-header"
 
 [cosmic-ray.distributor]
 name = "local"

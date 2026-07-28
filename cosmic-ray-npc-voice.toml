@@ -4,7 +4,7 @@ python-version = ""
 timeout = 20
 excluded-modules = []
 # Mutation-focused test file first — kills branch-level mutations the happy-path misses
-test-command = "python -m pytest packages/agents/tests/test_npc_voice.py packages/agents/tests/test_npc_voice_universe_scoping.py packages/agents/tests/test_npc_voice_universe_scoping_mutations.py -x -q"
+test-command = "python -m pytest packages/agents/tests/test_npc_voice.py packages/agents/tests/test_npc_voice_universe_scoping.py packages/agents/tests/test_npc_voice_universe_scoping_mutations.py -x -q --timeout=15 --tb=line -p no:cacheprovider --no-header"
 
 [cosmic-ray.distributor]
 name = "local"

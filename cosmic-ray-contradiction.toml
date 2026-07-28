@@ -3,7 +3,7 @@ module-path = "packages/data-layer/src/monitor_data/tools/ingest_tools/contradic
 python-version = ""
 timeout = 15
 excluded-modules = []
-test-command = "python -m pytest packages/data-layer/tests/test_tools/test_contradiction_detection.py -x -q"
+test-command = "python -m pytest packages/data-layer/tests/test_tools/test_contradiction_detection.py -x -q --timeout=15 --tb=line -p no:cacheprovider --no-header"
 
 [cosmic-ray.distributor]
 name = "local"
