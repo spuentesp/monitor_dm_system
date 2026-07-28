@@ -70,6 +70,8 @@ jobs:
           cache: npm
           cache-dependency-path: packages/ui/frontend/package-lock.json
       - run: npm ci
+      - name: Vitest
+        run: npm test
       - name: Type-check
         run: npx tsc --noEmit
       - name: Build

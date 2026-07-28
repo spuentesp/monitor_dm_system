@@ -83,14 +83,13 @@ AUTHORITY_MATRIX = {
     "neo4j_create_source": ["CanonKeeper", "IngestionPipeline"],
     "neo4j_delete_source": ["CanonKeeper", "IngestionPipeline"],
     "neo4j_get_source": ["*"],
-    "neo4j_list_sources": ["*"],
-    "neo4j_link_evidence": ["CanonKeeper"],
     # =========================================================================
     # NEO4J OPERATIONS - Mechanics (AbilitySystem, Track, Condition)
     # =========================================================================
     "neo4j_create_ability_system": ["CanonKeeper"],
     "neo4j_create_track": ["CanonKeeper"],
     "neo4j_create_condition": ["CanonKeeper"],
+    "neo4j_create_resolution_mechanic": ["CanonKeeper"],
     "neo4j_link_entity_to_ability": ["CanonKeeper"],
     # =========================================================================
     # NEO4J OPERATIONS - Plot Threads
@@ -98,6 +97,28 @@ AUTHORITY_MATRIX = {
     "neo4j_create_plot_thread": ["CanonKeeper"],
     "neo4j_update_plot_thread": ["CanonKeeper"],
     "neo4j_list_plot_threads": ["*"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Agendas
+    # =========================================================================
+    "neo4j_create_agenda": ["CanonKeeper"],
+    "neo4j_update_agenda_clock": ["CanonKeeper"],
+    "neo4j_list_agendas": ["*"],
+    "neo4j_get_plot_thread": ["*"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Multiverse / Universe bulk ops
+    # =========================================================================
+    "neo4j_update_multiverse": ["CanonKeeper"],
+    "neo4j_delete_multiverse": ["CanonKeeper"],
+    "neo4j_merge_universes": ["CanonKeeper"],
+    "neo4j_split_universe": ["CanonKeeper"],
+    # =========================================================================
+    # NEO4J OPERATIONS - Entity batch + templates
+    # =========================================================================
+    "neo4j_batch_create_entities": ["CanonKeeper"],
+    "neo4j_batch_update_entities": ["CanonKeeper"],
+    "neo4j_batch_delete_entities": ["CanonKeeper"],
+    "neo4j_save_template": ["CanonKeeper"],
+    "neo4j_get_universe_state": ["*"],
     # =========================================================================
     # MONGODB OPERATIONS - Scenes
     # =========================================================================

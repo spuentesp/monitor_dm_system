@@ -229,3 +229,78 @@ def test_multiple_agents_workflow():
     assert check_authority("neo4j_get_universe", "Narrator") is True
     assert check_authority("neo4j_get_universe", "Resolver") is True
     assert check_authority("neo4j_get_universe", "CanonKeeper") is True
+
+
+# =============================================================================
+# TESTS: AUTHORITY_MATRIX ↔ neo4j_tools parity
+# =============================================================================
+
+
+def test_authority_matrix_matches_actual_neo4j_tools():
+    """Every neo4j_* tool exported from neo4j_tools must be in AUTHORITY_MATRIX
+    (writes restricted, reads open), and every neo4j_* matrix entry must
+    reference a real tool.
+    """
+    from monitor_data.tools import neo4j_tools
+
+    exported = sorted(
+        n for n in dir(neo4j_tools)
+        if not n.startswith("_") and n.startswith("neo4j_")
+    )
+    neo4j_matrix_entries = [t for t in AUTHORITY_MATRIX if t.startswith("neo4j_")]
+
+    missing_from_matrix = [t for t in exported if t not in AUTHORITY_MATRIX]
+    assert not missing_from_matrix, (
+        f"Tools exported from neo4j_tools but missing from AUTHORITY_MATRIX: "
+        f"{missing_from_matrix}"
+    )
+
+    stale_matrix_entries = [t for t in neo4j_matrix_entries if t not in set(exported)]
+    assert not stale_matrix_entries, (
+        f"AUTHORITY_MATRIX has neo4j entries with no matching exported tool: "
+        f"{stale_matrix_entries}"
+    )
+
+
+def test_authority_matrix_writes_require_canonkeeper():
+    """Every neo4j write verb (create/update/delete/save/set/link/merge/split/
+    batch/ensure/tick/fork/add/remove) registered in the matrix must require
+    CanonKeeper (with explicit sharing for create_source, delete_source,
+    fork_universe, link_to_archetype, create_character_relationship,
+    tick_agendas).
+    """
+    write_verbs = (
+        "create", "update", "delete", "save", "merge", "split",
+        "batch", "ensure", "tick", "fork", "add", "remove",
+    )
+    # Tools with names ending in _set or _state_tags don't match canonical
+    # write-verb patterns; we still verify they require CanonKeeper separately
+    # via state_tags check below.
+    shared_with_others = {
+        "neo4j_create_source",
+        "neo4j_delete_source",
+        "neo4j_fork_universe",
+        "neo4j_link_to_archetype",
+        "neo4j_create_character_relationship",
+        "neo4j_tick_agendas",
+    }
+
+    for tool_name, allowed in AUTHORITY_MATRIX.items():
+        if not tool_name.startswith("neo4j_"):
+            continue
+        is_write = any(f"_{v}_" in tool_name or tool_name.endswith(f"_{v}") for v in write_verbs)
+        if not is_write:
+            continue
+        if tool_name in shared_with_others:
+            assert "CanonKeeper" in allowed, f"{tool_name} must allow CanonKeeper"
+        else:
+            assert allowed == ["CanonKeeper"], (
+                f"{tool_name} should only allow CanonKeeper, got {allowed}"
+            )
+
+    # _state_tags writes are CanonKeeper-only
+    for tag_tool in ("neo4j_set_state_tags", "neo4j_update_state_tags"):
+        if tag_tool in AUTHORITY_MATRIX:
+            assert AUTHORITY_MATRIX[tag_tool] == ["CanonKeeper"], (
+                f"{tag_tool} should only allow CanonKeeper"
+            )

@@ -1,4 +1,4 @@
 import { PageSkeleton } from "@/components/PageSkeleton";
 export default function Loading() {
-  return <PageSkeleton rows={5} />;
+  return <PageSkeleton variant="default" rows={6} />;
 }

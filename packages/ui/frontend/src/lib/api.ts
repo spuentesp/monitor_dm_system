@@ -143,7 +143,7 @@ export class ApiError extends Error {
 /** Default request timeout in milliseconds (30 seconds). */
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-async function req<T>(
+export async function req<T>(
   path: string,
   opts?: RequestInit & { query?: Record<string, string | number | boolean | undefined>; timeout?: number },
 ): Promise<T> {

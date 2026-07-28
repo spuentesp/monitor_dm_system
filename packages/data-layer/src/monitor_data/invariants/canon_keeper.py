@@ -44,12 +44,10 @@ CANON_KEEPER_WRITE_TOOLS: frozenset[str] = frozenset(
         "neo4j_update_entity",
         "neo4j_delete_entity",
         "neo4j_set_state_tags",
-        "neo4j_link_to_archetype",
         "neo4j_save_entity_as_template",
         "neo4j_save_template",
         # Relationships
         "neo4j_create_relationship",
-        "neo4j_create_character_relationship",
         "neo4j_update_relationship",
         "neo4j_delete_relationship",
         "neo4j_update_state_tags",
@@ -63,6 +61,12 @@ CANON_KEEPER_WRITE_TOOLS: frozenset[str] = frozenset(
         "neo4j_create_axiom",
         "neo4j_update_axiom",
         "neo4j_delete_axiom",
+        # (neo4j_link_to_archetype and neo4j_create_character_relationship
+        #  are in SHARED_NEO4J_WRITE_TOOLS — CanonKeeper + Narrator)
+        # (neo4j_tick_agendas is in SHARED_NEO4J_WRITE_TOOLS — CanonKeeper + StoryLoop)
+        # (neo4j_create_source, neo4j_delete_source, neo4j_fork_universe
+        #  are in SHARED_NEO4J_WRITE_TOOLS — IngestionPipeline / WorldArchitect)
+        # All other Neo4j write tools are exclusive to CanonKeeper.
         # Stories
         "neo4j_create_story",
         "neo4j_update_story",
@@ -87,7 +91,6 @@ CANON_KEEPER_WRITE_TOOLS: frozenset[str] = frozenset(
         # Agendas
         "neo4j_create_agenda",
         "neo4j_update_agenda_clock",
-        "neo4j_tick_agendas",
     }
 )
 
@@ -100,6 +103,9 @@ SHARED_NEO4J_WRITE_TOOLS: frozenset[str] = frozenset(
         "neo4j_create_source",  # Also IngestionPipeline
         "neo4j_delete_source",  # Also IngestionPipeline
         "neo4j_fork_universe",  # Also WorldArchitect
+        "neo4j_link_to_archetype",  # Also Narrator (link existing entity to archetype)
+        "neo4j_create_character_relationship",  # Also Narrator (NPC interactions)
+        "neo4j_tick_agendas",  # Also StoryLoop (per-turn agenda ticks)
     }
 )
 
