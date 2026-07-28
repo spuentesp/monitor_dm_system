@@ -3,7 +3,6 @@ import uuid
 from fastapi.testclient import TestClient
 
 from monitor_ui.main import app
-from monitor_ui.routers.ingest import *
 import monitor_ui.routers.ingest as mod
 
 client = TestClient(app)
@@ -22,7 +21,7 @@ def test_missing_lines_in_ingest_more():
             mock_minio.return_value.upload = AsyncMock()
             mock_minio.return_value.presigned_url = AsyncMock(return_value="url")
             
-            res = client.post(
+            _res = client.post(
                 "/api/ingest/assets/test/replace",
                 files={"file": ("test.png", b"data", "image/png")}
             )
@@ -42,7 +41,8 @@ def test_missing_lines_in_ingest_more():
                 selected_layers=[],
                 content_type=None
             )
-        except: pass
+        except Exception:
+            pass
         
     with patch("monitor_ui.routers.ingest.asyncio.wait_for", side_effect=Exception("foo")):
         mod._captured_job_id = [str(uuid.uuid4())]
@@ -57,4 +57,5 @@ def test_missing_lines_in_ingest_more():
                 selected_layers=[],
                 content_type=None
             )
-        except: pass
+        except Exception:
+            pass

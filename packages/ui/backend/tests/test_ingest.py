@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 from monitor_ui.main import app
 
+import monitor_ui.routers.ingest as mod
 client = TestClient(app)
 
 @pytest.fixture(autouse=True)
@@ -44,9 +45,16 @@ def mock_all_dbs():
             def __init__(self, items):
                 self.items = items
             
-            def sort(self, *args, **kwargs): return self
-            def skip(self, *args, **kwargs): return self
-            def limit(self, *args, **kwargs): return self
+            def sort(self, *args, **kwargs):
+
+            
+                return self
+            def skip(self, *args, **kwargs):
+
+                return self
+            def limit(self, *args, **kwargs):
+
+                return self
             
             async def __aiter__(self):
                 for item in self.items:
@@ -125,7 +133,7 @@ def test_get_source_not_found(mock_all_dbs):
     assert response.status_code == 404
 
 def test_upload_source(mock_all_dbs):
-    with patch("monitor_ui.routers.ingest._run_ingest_in_thread") as mock_run:
+    with patch("monitor_ui.routers.ingest._run_ingest_in_thread") as _mock_run:
         with patch("monitor_ui.routers.ingest._create_setting", return_value=(None, uuid.uuid4())):
             response = client.post(
                 "/api/ingest/sources/upload",
@@ -157,7 +165,7 @@ def test_rescan_source(mock_all_dbs):
     
     mock_all_dbs["get_doc"].return_value = MagicMock(file_type="pdf", filename="test.pdf", doc_id=uuid.uuid4(), minio_ref="ref")
     
-    with patch("monitor_ui.routers.ingest._run_ingest_in_thread") as mock_run:
+    with patch("monitor_ui.routers.ingest._run_ingest_in_thread") as _mock_run:
         response = client.post(f"/api/ingest/sources/{job.source_id}/rescan")
         assert response.status_code == 202
 
@@ -242,7 +250,7 @@ def test_internal_queue_functions():
         
     _clear_ingest_slot(queue_token=token)
     
-    t2 = _reserve_ingest_slot("title2")
+    _t2 = _reserve_ingest_slot("title2")
     _clear_ingest_slot(expected_title="title2")
     
     _reserve_ingest_slot("title3")
@@ -265,8 +273,8 @@ def test_run_ingest_in_thread(mock_all_dbs):
     ingest_mod._reserve_ingest_slot("test", source_id=queue_token)
     ingest_mod._ingest_pending_requests = [{"token": queue_token, "title": "test", "job_id": None}]
     
-    with patch("monitor_agents.ingestion.agent.IngestionPipeline.ingest_file", new_callable=AsyncMock) as mock_ingest:
-        with patch("monitor_agents.utils.world_library.WorldLibrary.add_source", new_callable=AsyncMock) as mock_lib:
+    with patch("monitor_agents.ingestion.agent.IngestionPipeline.ingest_file", new_callable=AsyncMock) as _mock_ingest:
+        with patch("monitor_agents.utils.world_library.WorldLibrary.add_source", new_callable=AsyncMock) as _mock_lib:
             _run_ingest_in_thread(
                 queue_token=queue_token,
                 file_bytes=b"test",
@@ -361,8 +369,8 @@ async def test_save_uploaded_source_only(mock_all_dbs):
     import uuid
     
     universe_id = uuid.uuid4()
-    with patch("monitor_agents.ingestion.agent.IngestionPipeline._create_neo4j_source", return_value=uuid.uuid4()) as mock_source:
-        with patch("monitor_agents.ingestion.agent.IngestionPipeline._create_document", return_value=uuid.uuid4()) as mock_doc:
+    with patch("monitor_agents.ingestion.agent.IngestionPipeline._create_neo4j_source", return_value=uuid.uuid4()) as _mock_source:
+        with patch("monitor_agents.ingestion.agent.IngestionPipeline._create_document", return_value=uuid.uuid4()) as _mock_doc:
             res = await _save_uploaded_source_only(
                 file_bytes=b"test",
                 filename="test.pdf",
@@ -419,8 +427,11 @@ async def test_stream_job_branches(mock_all_dbs):
         with patch("asyncio.sleep", new_callable=AsyncMock):
             res = await stream_job(str(uuid.uuid4()))
             gen = res.body_iterator
-            try: await gen.__anext__()
-            except: pass
+            try:
+
+                await gen.__anext__()
+            except Exception:
+                pass
         
     class FakeStatus:
         value = "completed"
@@ -440,28 +451,37 @@ async def test_stream_job_branches(mock_all_dbs):
         with patch("asyncio.sleep", new_callable=AsyncMock):
             res = await stream_job(str(uuid.uuid4()))
             gen = res.body_iterator
-            try: await gen.__anext__()
-            except: pass
+            try:
+
+                await gen.__anext__()
+            except Exception:
+                pass
 
     # Test error in while loop
     with patch("monitor_ui.routers.ingest.mongodb_get_ingestion_job", side_effect=[FakeJob("pending")]*5 + [Exception("err")]):
         with patch("asyncio.sleep", new_callable=AsyncMock):
             res = await stream_job(str(uuid.uuid4()))
             gen = res.body_iterator
-            try: await gen.__anext__()
-            except: pass
+            try:
+
+                await gen.__anext__()
+            except Exception:
+                pass
 
     # Test job disappeared
     with patch("monitor_ui.routers.ingest.mongodb_get_ingestion_job", side_effect=[FakeJob("pending")]*5 + [None]):
         with patch("asyncio.sleep", new_callable=AsyncMock):
             res = await stream_job(str(uuid.uuid4()))
             gen = res.body_iterator
-            try: await gen.__anext__()
-            except: pass
+            try:
+
+                await gen.__anext__()
+            except Exception:
+                pass
 
 def test_list_jobs_and_delete(mock_all_dbs):
     mock_all_dbs["del_job"].return_value = True
-    res = client.delete("/api/ingest/jobs/" + str(uuid.uuid4()))
+    _res = client.delete("/api/ingest/jobs/" + str(uuid.uuid4()))
 
 def test_run_ingest_in_thread_branches(mock_all_dbs):
     from monitor_ui.routers.ingest import _run_ingest_in_thread
@@ -483,7 +503,8 @@ def test_run_ingest_in_thread_branches(mock_all_dbs):
                 selected_layers=[],
                 content_type=None
             )
-        except: pass
+        except Exception:
+            pass
         
     mod._reserve_ingest_slot("test", source_id=q_tok)
     with patch("asyncio.wait_for", side_effect=Exception("mocked fail")):
@@ -498,17 +519,26 @@ def test_run_ingest_in_thread_branches(mock_all_dbs):
                 selected_layers=[],
                 content_type=None
             )
-        except: pass
+        except Exception:
+            pass
 
 def test_assets_all(mock_all_dbs):
     
     class FakeCursor:
         def __init__(self, n): self.n = n
-        def sort(self, *a, **kw): return self
-        def skip(self, *a, **kw): return self
-        def limit(self, *a, **kw): return self
+        def sort(self, *a, **kw):
+
+            return self
+        def skip(self, *a, **kw):
+
+            return self
+        def limit(self, *a, **kw):
+
+            return self
         async def __aiter__(self):
-            for i in range(self.n): yield {"_id": "foo", "object_key": "bar"}
+            for i in range(self.n):
+
+                yield {"_id": "foo", "object_key": "bar"}
             
     mock_mongo = mock_all_dbs["mongo"].return_value
     mock_coll = mock_mongo.get_collection.return_value
@@ -527,16 +557,9 @@ def test_assets_all(mock_all_dbs):
     assert res.status_code == 200
     
     mock_coll.update_one.return_value.matched_count = 1
-    res = client.delete("/api/ingest/assets/test")
+    _res = client.delete("/api/ingest/assets/test")
     assert res.status_code == 200
 
-import pytest
-from fastapi.testclient import TestClient
-
-from monitor_ui.main import app
-import monitor_ui.routers.ingest as mod
-
-client = TestClient(app)
 
 def test_fill_gaps(mock_all_dbs):
     try:
@@ -548,7 +571,9 @@ def test_fill_gaps(mock_all_dbs):
             def __init__(self, jid, sid):
                 self.job_id = jid
                 self.source_id = sid
-                class FakeStatus: value = "completed"
+                class FakeStatus:
+
+                    value = "completed"
                 self.status = FakeStatus()
                 self.title = "job_title"
                 self.created_at = "2024-01-01"
@@ -558,7 +583,9 @@ def test_fill_gaps(mock_all_dbs):
                 
         mock_all_dbs["list_jobs"].return_value = ([FakeJob("job3", "src3")], 1)
         client.get("/api/ingest/jobs")
-    except Exception: pass
+    except Exception:
+
+        pass
     
     try:
         from monitor_data.schemas.knowledge_packs import KnowledgePackType
@@ -572,7 +599,9 @@ def test_fill_gaps(mock_all_dbs):
                         universe_uid=uuid.uuid4(), pack_type_enum=KnowledgePackType.SETTING_SUPPLEMENT,
                         selected_layers=[], content_type=None
                     )
-    except Exception: pass
+    except Exception:
+
+        pass
     
     try:
         mod._reserve_ingest_slot("tok4", source_id="src4")
@@ -583,13 +612,17 @@ def test_fill_gaps(mock_all_dbs):
                     universe_uid=uuid.uuid4(), pack_type_enum=KnowledgePackType.SETTING_SUPPLEMENT,
                     selected_layers=[], content_type=None
                 )
-    except Exception: pass
+    except Exception:
+
+        pass
     
     try:
         mock_all_dbs["get_doc"].return_value = {"_id": "doc1", "title": "doc"}
         mock_all_dbs["get_source"].return_value = MagicMock(id=uuid.uuid4())
         client.get("/api/ingest/sources/" + str(uuid.uuid4()))
-    except Exception: pass
+    except Exception:
+
+        pass
     
     # 5. test assets /replace 
     class FakeCursor:

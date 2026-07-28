@@ -23,7 +23,8 @@ from monitor_ui.routers.chat_loops import (
     _STORY_STATES,
     _CONVERSATION_LOOPS,
 )
-
+import sys
+import importlib
 @pytest.fixture(autouse=True)
 def reset_caches():
     _SCENE_LOOPS.clear()
@@ -233,9 +234,9 @@ async def test_run_end_scene():
         mock_sl.complete_current_scene.return_value = {"current_scene_id": str(uuid.uuid4()), "story_complete": True}
         MockSL.return_value = mock_sl
         
-        with patch("monitor_ui.routers.chat_loops.run_sync_read", new_callable=AsyncMock) as mock_sync:
-            with patch("monitor_ui.routers.chat_loops._generate_scene_summary", new_callable=AsyncMock) as mock_summ:
-                mock_summ.return_value = "summary"
+        with patch("monitor_ui.routers.chat_loops.run_sync_read", new_callable=AsyncMock) as _mock_sync:
+            with patch("monitor_ui.routers.chat_loops._generate_scene_summary", new_callable=AsyncMock) as _mock_summ:
+                _mock_summ.return_value = "summary"
                 resp, meta = await run_end_scene("s1", session, sessions=sessions, messages={}, db_save_session=MagicMock(), db_load_messages=MagicMock(), bootstrap_story_scene=MagicMock())
                 
                 assert "world has moved forward" in resp
@@ -481,9 +482,9 @@ async def test_run_end_scene_branches():
         mock_sl.complete_current_scene.return_value = {"current_scene_id": None, "story_complete": False}
         MockSL.return_value = mock_sl
         
-        with patch("monitor_ui.routers.chat_loops.run_sync_read", new_callable=AsyncMock) as mock_sync:
-            with patch("monitor_ui.routers.chat_loops._generate_scene_summary", new_callable=AsyncMock) as mock_summ:
-                mock_summ.return_value = "summary"
+        with patch("monitor_ui.routers.chat_loops.run_sync_read", new_callable=AsyncMock) as _mock_sync:
+            with patch("monitor_ui.routers.chat_loops._generate_scene_summary", new_callable=AsyncMock) as _mock_summ:
+                _mock_summ.return_value = "summary"
                 resp, meta = await run_end_scene("s1", session, sessions=sessions, messages={}, db_save_session=MagicMock(), db_load_messages=MagicMock(), bootstrap_story_scene=MagicMock())
                 
                 assert meta["scene_status"] == "completed"
@@ -517,8 +518,6 @@ def test_cache_popping_exceptions():
         
 
 
-import sys
-import importlib
 
 def test_import_errors():
     # Save the original modules
@@ -574,9 +573,9 @@ async def test_run_end_scene_story_complete_branch():
         mock_sl.complete_current_scene.return_value = {'current_scene_id': str(uuid.uuid4()), 'story_complete': True}
         MockSL.return_value = mock_sl
         
-        with patch('monitor_ui.routers.chat_loops.run_sync_read', new_callable=AsyncMock) as mock_sync:
-            with patch('monitor_ui.routers.chat_loops._generate_scene_summary', new_callable=AsyncMock) as mock_summ:
-                mock_summ.return_value = 'summary'
+        with patch('monitor_ui.routers.chat_loops.run_sync_read', new_callable=AsyncMock) as _mock_sync:
+            with patch('monitor_ui.routers.chat_loops._generate_scene_summary', new_callable=AsyncMock) as _mock_summ:
+                _mock_summ.return_value = 'summary'
                 resp, meta = await run_end_scene('s1', session, sessions=sessions, messages={}, db_save_session=MagicMock(), db_load_messages=MagicMock(), bootstrap_story_scene=MagicMock())
                 
                 assert meta['story_complete'] is True
