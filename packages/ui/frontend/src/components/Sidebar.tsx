@@ -10,51 +10,40 @@ import {
   ChevronRight,
   ClipboardList,
   FlaskConical,
-  Gamepad2,
-  History,
-  Network,
+  Home,
+  MessagesSquare,
   Settings,
-  Sparkles,
-  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
-import { ModeSwitcher } from "@/components/ModeSwitcher";
-import { WorldPicker } from "@/components/WorldPicker";
 
 // ─── Navigation structure ──────────────────────────────────────
+// Two-tier hub IA (2026-07-31 spec): Lobby (player) / Workbench (builder) /
+// Configuration. World selection lives on universe cards; the old footer
+// WorldPicker/ModeSwitcher dropdowns are gone.
 
 const NAV_GROUPS = [
   {
-    id: "modes",
-    label: "Modes",
+    id: "lobby",
+    label: "Lobby",
     items: [
-      { href: "/play",      icon: Gamepad2,  label: "Play",           sub: "Solo RPG session",            accent: "cyan"   },
-      { href: "/gm",        icon: ClipboardList, label: "GM Assistant",   sub: "Rules, dice & session log",  accent: "emerald" },
-      { href: "/characters", icon: Users,    label: "Characters",     sub: "Roster & conversatory",       accent: "purple" },
+      { href: "/",         icon: Home,           label: "Campaigns", sub: "Your worlds & sessions",        accent: "cyan"   },
+      { href: "/light-rp", icon: MessagesSquare, label: "Light RP",  sub: "Story-free character chats",    accent: "purple" },
     ],
   },
   {
-    id: "forge",
-    label: "Forge",
+    id: "workbench",
+    label: "Workbench",
     items: [
-      { href: "/forge",      icon: FlaskConical,  label: "World Forge", sub: "Author worlds, packs & canon", accent: "cyan"   },
+      { href: "/forge", icon: FlaskConical,  label: "World Forge",  sub: "Author worlds, packs & canon",  accent: "cyan"    },
+      { href: "/gm",    icon: ClipboardList, label: "GM Assistant", sub: "Dice, books, prep & canon Q&A", accent: "emerald" },
     ],
   },
   {
-    id: "query",
-    label: "Query",
+    id: "configuration",
+    label: "Configuration",
     items: [
-      { href: "/search",    icon: Sparkles,      label: "Search",      sub: "Semantic canon search",    accent: "cyan"   },
-      { href: "/explorer",  icon: Network,       label: "Explorer",    sub: "Q-11 entity graph drill-down", accent: "cyan" },
-      { href: "/history",   icon: History,       label: "History",     sub: "Q-10 canon audit trail",   accent: "purple" },
-    ],
-  },
-  {
-    id: "system",
-    label: "System",
-    items: [
-      { href: "/settings", icon: Settings, label: "Settings", sub: "LLM, agents & databases", accent: "emerald" },
+      { href: "/config", icon: Settings, label: "Configuration", sub: "LLMs, prompts & infrastructure", accent: "emerald" },
     ],
   },
 ] as const;
@@ -78,6 +67,11 @@ const ACCENT_CLASSES: Record<Accent, { active: string; icon: string; indicator: 
     indicator: "bg-emerald-500",
   },
 };
+
+function isActive(pathname: string, href: string): boolean {
+  // "/" prefix-matches everything — only exact match counts for the landing.
+  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
 
 // ─── Component ────────────────────────────────────────────────
 
@@ -153,7 +147,7 @@ export function Sidebar() {
             </div>
 
             {group.items.map(({ href, icon: Icon, label, sub, accent }) => {
-              const active = pathname.startsWith(href);
+              const active = isActive(pathname, href);
               const ac = ACCENT_CLASSES[accent as Accent];
               return (
                 <Link
@@ -201,7 +195,7 @@ export function Sidebar() {
                         </motion.div>
                       )}
                     </AnimatePresence>
-                  </motion.div>
+                </motion.div>
                 </Link>
               );
             })}
@@ -209,7 +203,7 @@ export function Sidebar() {
         ))}
       </div>
 
-      {/* Footer */}
+      {/* Footer — connection status + collapse only (no world/mode pickers) */}
       <div className="border-t border-white/5 px-2 py-3 space-y-1 flex-shrink-0">
         <AnimatePresence>
           {!collapsed && (
@@ -223,8 +217,6 @@ export function Sidebar() {
             </motion.div>
           )}
         </AnimatePresence>
-        <WorldPicker collapsed={collapsed} />
-        <ModeSwitcher collapsed={collapsed} />
         <ConnectionStatus />
         <button
           onClick={() => setCollapsed((c) => !c)}
@@ -237,4 +229,3 @@ export function Sidebar() {
     </motion.nav>
   );
 }
-

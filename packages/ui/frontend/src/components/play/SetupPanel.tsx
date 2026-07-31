@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Plus } from "lucide-react";
 import { entitiesApi, universesApi, chatApi } from "@/lib/api";
@@ -459,12 +460,12 @@ export function SetupPanel({
           {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           Create Session
         </button>
-        <a
-          href="/universes"
+        <Link
+          href="/forge/worlds"
           className="px-3 py-2 rounded-lg border border-white/10 text-xs text-slate-300 hover:bg-white/5 transition-all"
         >
           Manage Worlds
-        </a>
+        </Link>
       </div>
     </div>
   );

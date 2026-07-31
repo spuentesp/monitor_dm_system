@@ -16,6 +16,10 @@ const nextConfig: NextConfig = {
       { source: "/systems", destination: "/forge/systems", permanent: false },
       { source: "/architect", destination: "/forge/architect", permanent: false },
       { source: "/universes", destination: "/forge/worlds", permanent: false },
+      // Two-tier hub: settings content moves to /config; the character
+      // roster is superseded by the Light RP screen.
+      { source: "/settings", destination: "/config", permanent: false },
+      { source: "/characters", destination: "/light-rp", permanent: false },
     ];
   },
   // NOTE: no rewrites() here on purpose. /api/* is proxied by the runtime
