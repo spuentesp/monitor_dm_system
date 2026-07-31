@@ -66,6 +66,13 @@ class NPCDirectVoiceSignature(dspy.Signature):  # type: ignore[misc]
             "derived from the source profile. Use only when it fits the fiction."
         )
     )
+    lorebook_context: str = dspy.InputField(
+        desc=(
+            "Lorebook/world-info entries triggered by the current conversation. "
+            "Established facts of the world — weave them in naturally when relevant, "
+            "never recite them verbatim. Empty when nothing triggered."
+        )
+    )
     player_said: str = dspy.InputField(desc="What the player character just said or did towards this NPC")
 
     # ── Outputs ─────────────────────────────────────────────────────────────
@@ -171,6 +178,7 @@ class NPCDirectVoiceModule(dspy.Module):  # type: ignore[misc]
         conversation_history: str,
         profile_context: str,
         player_said: str,
+        lorebook_context: str = "",
     ) -> dspy.Prediction:
         with dspy_context_for("npc_voice", ModelRole.LIGHT):
             return self.speak(
@@ -183,6 +191,7 @@ class NPCDirectVoiceModule(dspy.Module):  # type: ignore[misc]
                 active_triggers=active_triggers,
                 conversation_history=conversation_history,
                 profile_context=profile_context,
+                lorebook_context=lorebook_context,
                 player_said=player_said,
             )
 

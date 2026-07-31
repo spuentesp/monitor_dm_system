@@ -396,6 +396,9 @@ async def start_conversation(character_id: str, universe_id: str | None = None) 
         story_id=None,
         scene_id=None,
         player_entity_id=_CONVERSATORY_PLAYER_ID,
+        # Enables per-turn lorebook scanning (imported character_book entries)
+        # for this conversation.
+        lorebook_character_ids=[character_id],
     )
     conversation_id = str(loop.state.conversation_id)
     _cache_loop(conversation_id, loop)

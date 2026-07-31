@@ -36,6 +36,7 @@ Flow (ACTOR mode):
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -46,6 +47,8 @@ from pydantic import BaseModel, Field
 # Re-export ConversationMode so Layer 3 (CLI) can import it from here
 # instead of directly from monitor_data.schemas.conversations.
 __all__ = ["ConversationMode"]
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_conversation_change_type(change_type: str) -> str:
@@ -107,6 +110,11 @@ class ConversationState(BaseModel):
     # answer (e.g. canon Sister Veil across incarnations). Default False
     # to preserve per-universe incarnation isolation.
     include_cross_incarnation: bool = False
+
+    # Lorebook scanning — character ids whose lorebook entries are scanned
+    # per turn (light-RP passes the backing character; empty disables the
+    # scan). Matched contents are injected into NPCVoice as world facts.
+    lorebook_character_ids: list[str] = Field(default_factory=list)
 
 
 # =============================================================================
@@ -266,6 +274,36 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
     new_proposals: list[dict[str, Any]] = []
     new_turns: list[dict[str, Any]] = list(state.turns)
 
+    # Lorebook scan — light-RP sessions carry the backing character id(s);
+    # matched entries become world facts for the voice module. Best-effort:
+    # a scan failure must not break the turn.
+    lorebook_context: list[str] = []
+    if state.lorebook_character_ids:
+        try:
+            history = [t.get("text", "") for t in state.turns[-6:] if t.get("text")]
+            scan_config = await agent.call_tool(
+                "mongodb_get_scan_config", {"character_id": state.lorebook_character_ids[0]}
+            )
+            lore_result = await agent.call_tool(
+                "mongodb_scan_lorebook",
+                {
+                    "character_ids": state.lorebook_character_ids,
+                    "text": state.current_player_input,
+                    "history": history,
+                    "config": scan_config if isinstance(scan_config, dict) else {},
+                    "turn_index": len(state.turns),
+                    "increment_triggers": True,
+                },
+            )
+            if isinstance(lore_result, dict):
+                lorebook_context = (
+                    (lore_result.get("before") or [])
+                    + (lore_result.get("after") or [])
+                    + (lore_result.get("depth") or [])
+                )
+        except Exception:
+            logger.warning("conversation_loop: lorebook scan failed, continuing without", exc_info=True)
+
     for npc_id in state.npc_ids:
         try:
             if state.mode == ConversationMode.DIRECT:
@@ -284,6 +322,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     # to this incarnation.
                     universe_id=state.universe_id,
                     include_cross_incarnation=getattr(state, "include_cross_incarnation", False),
+                    lorebook_context=lorebook_context,
                 )
                 npc_name = state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
                 responses.append(
@@ -493,6 +532,7 @@ class ConversationLoop:
         scene_id: UUID | None = None,
         story_id: UUID | None = None,
         player_entity_id: UUID | None = None,
+        lorebook_character_ids: list[str] | None = None,
     ) -> None:
         self.state = ConversationState(
             conversation_id=conversation_id,
@@ -502,6 +542,7 @@ class ConversationLoop:
             scene_id=scene_id,
             story_id=story_id,
             player_entity_id=player_entity_id,
+            lorebook_character_ids=lorebook_character_ids or [],
         )
         self._graph = build_conversation_graph().compile()
         self._closed = False
@@ -520,6 +561,7 @@ class ConversationLoop:
         scene_id: UUID | None = None,
         story_id: UUID | None = None,
         player_entity_id: UUID | None = None,
+        lorebook_character_ids: list[str] | None = None,
     ) -> ConversationLoop:
         """Open a new ConversationSession and pre-load NPC context."""
         conversation_id = uuid4()
@@ -531,6 +573,7 @@ class ConversationLoop:
             scene_id=scene_id,
             story_id=story_id,
             player_entity_id=player_entity_id,
+            lorebook_character_ids=lorebook_character_ids or [],
         )
         # Run open_session + load_npc_context nodes
         result = await loop._graph.ainvoke(loop.state.model_dump())

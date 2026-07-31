@@ -321,6 +321,97 @@ class TestGenerateNpcResponses:
         assert kwargs["source_profile"] == source_profile
 
     @pytest.mark.asyncio
+    async def test_direct_mode_scans_lorebook_and_forwards_context(self):
+        """Light-RP sessions carry lorebook_character_ids — the turn must scan
+        entries and hand matched contents to NPCVoice as lorebook_context."""
+        npc_id = uuid4()
+        state = _state(
+            mode=ConversationMode.DIRECT,
+            npc_ids=[npc_id],
+            current_player_input="Tell me about alchefire.",
+            npc_contexts={str(npc_id): {"name": "Mira", "role": "alchemist"}},
+            lorebook_character_ids=["char-1"],
+        )
+
+        mock_agent = MagicMock()
+
+        async def _call_tool(name: str, params: dict) -> object:
+            if name == "mongodb_get_scan_config":
+                return {}
+            if name == "mongodb_scan_lorebook":
+                return {"before": ["Alchefire burns blue without heat."], "after": [], "depth": []}
+            raise AssertionError(f"unexpected tool call: {name}")
+
+        mock_agent.call_tool = AsyncMock(side_effect=_call_tool)
+        mock_agent.respond_direct = AsyncMock(
+            return_value={
+                "npc_response": "Alchefire? That's my secret.",
+                "emotional_state_after": "guarded",
+                "proposals": [],
+            }
+        )
+
+        with patch("monitor_agents.npc_voice.agent.NPCVoice", return_value=mock_agent):
+            await generate_npc_responses(state)
+
+        kwargs = mock_agent.respond_direct.await_args.kwargs
+        assert kwargs["lorebook_context"] == ["Alchefire burns blue without heat."]
+
+    @pytest.mark.asyncio
+    async def test_direct_mode_lorebook_scan_failure_still_responds(self):
+        """A failing lorebook scan must not break the turn."""
+        npc_id = uuid4()
+        state = _state(
+            mode=ConversationMode.DIRECT,
+            npc_ids=[npc_id],
+            current_player_input="Hello.",
+            npc_contexts={str(npc_id): {"name": "Mira", "role": "alchemist"}},
+            lorebook_character_ids=["char-1"],
+        )
+
+        mock_agent = MagicMock()
+        mock_agent.call_tool = AsyncMock(side_effect=RuntimeError("mongo down"))
+        mock_agent.respond_direct = AsyncMock(
+            return_value={
+                "npc_response": "Well met.",
+                "emotional_state_after": "neutral",
+                "proposals": [],
+            }
+        )
+
+        with patch("monitor_agents.npc_voice.agent.NPCVoice", return_value=mock_agent):
+            result = await generate_npc_responses(state)
+
+        assert result["current_npc_responses"][0]["text"] == "Well met."
+        assert mock_agent.respond_direct.await_args.kwargs["lorebook_context"] == []
+
+    @pytest.mark.asyncio
+    async def test_direct_mode_without_lorebook_ids_skips_scan(self):
+        npc_id = uuid4()
+        state = _state(
+            mode=ConversationMode.DIRECT,
+            npc_ids=[npc_id],
+            current_player_input="Hello.",
+            npc_contexts={str(npc_id): {"name": "Mira", "role": "alchemist"}},
+        )
+
+        mock_agent = MagicMock()
+        mock_agent.call_tool = AsyncMock()
+        mock_agent.respond_direct = AsyncMock(
+            return_value={
+                "npc_response": "Well met.",
+                "emotional_state_after": "neutral",
+                "proposals": [],
+            }
+        )
+
+        with patch("monitor_agents.npc_voice.agent.NPCVoice", return_value=mock_agent):
+            await generate_npc_responses(state)
+
+        mock_agent.call_tool.assert_not_called()
+        assert mock_agent.respond_direct.await_args.kwargs["lorebook_context"] == []
+
+    @pytest.mark.asyncio
     async def test_actor_mode_calls_respond_actor(self):
         npc_id = uuid4()
         state = _state(
