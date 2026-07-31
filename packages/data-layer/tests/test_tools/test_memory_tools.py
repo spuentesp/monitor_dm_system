@@ -191,6 +191,8 @@ def test_create_memory_invalid_entity(
     mock_neo4j_client.return_value.execute_read.return_value = []
     # Mock MongoDB character check returning empty
     mock_get_char.return_value = None
+    # Mock MongoDB characters versions[] check returning empty
+    mock_mongo_client.return_value.get_collection.return_value.find_one.return_value = None
 
     fake_entity_id = uuid4()
     params = MemoryCreate(
@@ -202,6 +204,44 @@ def test_create_memory_invalid_entity(
 
     with pytest.raises(ValueError, match="Entity .* not found"):
         mongodb_create_memory(params)
+
+
+@patch("monitor_data.tools.mongodb_tools.characters.mongodb_get_character")
+@patch("monitor_data.tools.mongodb_tools.memories.get_mongodb_client")
+@patch("monitor_data.tools.mongodb_tools.memories.get_neo4j_client")
+def test_create_memory_version_entity_id_accepted(
+    mock_neo4j_client: Mock,
+    mock_mongo_client: Mock,
+    mock_get_char: Mock,
+    entity_data: dict[str, Any],
+):
+    """Regression: light-RP incarnations address the per-universe entity id,
+    which lives only in the character doc's versions[] array (Character
+    Versions). Memory writes for those entities must be accepted."""
+    # Not in Neo4j, not a standalone character id...
+    mock_neo4j_client.return_value.execute_read.return_value = []
+    mock_get_char.return_value = None
+    # ...but present as a version entity id on a character doc.
+    incarnation_entity_id = uuid4()
+    characters_collection = Mock()
+    characters_collection.find_one.return_value = {
+        "id": str(uuid4()),
+        "versions": [{"entity_id": str(incarnation_entity_id), "universe_id": entity_data["universe_id"]}],
+    }
+    mock_mongo_client.return_value.get_collection.return_value = characters_collection
+
+    params = MemoryCreate(
+        universe_id=UUID(entity_data["universe_id"]),
+        entity_id=incarnation_entity_id,
+        text="Player said: \"I'm hunting the same corsairs you are.\"",
+        importance=0.65,
+    )
+
+    memory = mongodb_create_memory(params)
+
+    assert memory.entity_id == incarnation_entity_id
+    characters_collection.find_one.assert_called_with({"versions.entity_id": str(incarnation_entity_id)})
+    characters_collection.insert_one.assert_called_once()
 
 
 @patch("monitor_data.tools.mongodb_tools.memories.get_neo4j_client")

@@ -743,6 +743,68 @@ def test_update_npc_profile_merges_relationship_states(monkeypatch):
     assert result.relationship_states[str(target_id_1)]["sentiment"] == "trust"  # Merged
 
 
+def test_update_npc_profile_per_universe_maps_do_not_cross_contaminate(monkeypatch):
+    """Regression: emotion map must hold the emotion string, not the
+    relationship snapshot dict (leaked loop variable corrupted live profiles
+    and bricked subsequent mongodb_get_npc_profile validation)."""
+    entity_id = uuid4()
+    profile_id = uuid4()
+    universe_id = uuid4()
+    player_id = uuid4()
+
+    now = datetime.now(UTC)
+    existing_profile = {
+        "profile_id": str(profile_id),
+        "entity_id": str(entity_id),
+        "traits": {},
+        "values": [],
+        "fears": [],
+        "desires": [],
+        "speech_style": None,
+        "catchphrases": [],
+        "mannerisms": [],
+        "emotional_tendencies": [],
+        "preferences": [],
+        "triggers": [],
+        "secrets": [],
+        "gm_notes": None,
+        "current_emotional_state": "neutral",
+        "relationship_states": {},
+        "relationship_states_by_universe": {},
+        "current_emotional_state_by_universe": {},
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    fake_mongo = _FakeMongoClient()
+    fake_mongo.profiles_db.profiles[str(profile_id)] = existing_profile
+
+    monkeypatch.setattr(
+        "monitor_data.tools.mongodb_tools.npc_profiles.get_mongodb_client",
+        lambda: fake_mongo,
+    )
+    monkeypatch.setattr(
+        "monitor_data.tools.mongodb_tools.npc_profiles.get_neo4j_client",
+        lambda: _FakeNeo4jClient(entity_exists=True),
+    )
+
+    from monitor_data.tools.mongodb_tools.npc_profiles import mongodb_update_npc_profile
+
+    snapshot = {"stance": "guarded", "trust": 0.3, "affinity": 0.0}
+    result = mongodb_update_npc_profile(
+        entity_id,
+        NPCProfileUpdate(
+            relationship_states_by_universe={str(universe_id): {str(player_id): snapshot}},
+            current_emotional_state_by_universe={str(universe_id): "roused, cautiously allied"},
+        ),
+    )
+
+    assert result.current_emotional_state_by_universe == {
+        str(universe_id): "roused, cautiously allied"
+    }
+    assert result.relationship_states_by_universe == {str(universe_id): {str(player_id): snapshot}}
+
+
 def test_update_npc_profile_replaces_catchphrases(monkeypatch):
     """Test updating NPC profile with catchphrases replaces (not appends) to list."""
     entity_id = uuid4()

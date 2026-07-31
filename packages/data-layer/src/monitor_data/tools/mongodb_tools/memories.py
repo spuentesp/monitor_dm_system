@@ -46,11 +46,16 @@ def mongodb_create_memory(params: MemoryCreate) -> MemoryResponse:
     """
     result = neo4j_client.execute_read(entity_check_query, {"entity_id": str(params.entity_id)})
     if not result:
-        # Fallback: Check MongoDB for standalone characters (Task 4)
+        # Fallback: Check MongoDB for standalone characters (Task 4) — by
+        # character id, or by incarnation entity id (Character Versions:
+        # light-RP conversations address the per-universe entity id, which
+        # lives only in the character doc's versions[] array).
         from monitor_data.tools.mongodb_tools.characters import mongodb_get_character
 
         if not mongodb_get_character(params.entity_id):
-            raise ValueError(f"Entity {params.entity_id} not found in Neo4j or MongoDB")
+            characters = mongo_client.get_collection("characters")
+            if not characters.find_one({"versions.entity_id": str(params.entity_id)}):
+                raise ValueError(f"Entity {params.entity_id} not found in Neo4j or MongoDB")
 
     # Verify scene exists if provided
     if params.scene_id:

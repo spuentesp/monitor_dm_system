@@ -203,7 +203,7 @@ def mongodb_update_npc_profile(entity_id: UUID, params: NPCProfileUpdate) -> NPC
     if params.current_emotional_state_by_universe is not None:
         merged_emotion = dict(existing.get("current_emotional_state_by_universe", {}))
         for universe_id, state_val in (params.current_emotional_state_by_universe or {}).items():
-            merged_emotion[universe_id] = state
+            merged_emotion[universe_id] = state_val
         update_fields["current_emotional_state_by_universe"] = merged_emotion
 
     profiles.update_one(
