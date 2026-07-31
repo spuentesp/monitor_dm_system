@@ -19,7 +19,11 @@ from fastapi.responses import RedirectResponse
 from monitor_data.db.minio import get_minio_client
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.db.postgres import get_postgres_client
-from monitor_data.llm.image_providers import ImageProviderAdapter, resolve_image_adapter
+from monitor_data.llm.image_providers import (
+    ImageProviderAdapter,
+    ImageProviderError,
+    resolve_image_adapter,
+)
 from pydantic import BaseModel, Field
 
 from .character_storage import get_character, update_character
@@ -103,7 +107,15 @@ def build_scene_prompt(messages: list[dict[str, Any]], character: dict[str, Any]
 
 async def _adapter() -> ImageProviderAdapter:
     postgres = get_postgres_client()
-    adapter = await resolve_image_adapter(postgres)
+    try:
+        adapter = await resolve_image_adapter(postgres)
+    except ImageProviderError as exc:
+        # A role='image' row exists but is unusable (e.g. saved without an
+        # API key and no env fallback) — same actionable 400 as "no provider".
+        raise HTTPException(
+            status_code=400,
+            detail=f"Image provider is misconfigured: {exc} Fix it under /config → LLM Providers.",
+        )
     if adapter is None:
         raise HTTPException(status_code=400, detail=_NO_PROVIDER_DETAIL)
     return adapter

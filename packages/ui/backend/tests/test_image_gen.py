@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from monitor_data.llm.image_providers import ImageProviderError
 
 import monitor_ui.routers.image_gen as image_gen
 from monitor_ui.routers.image_gen import build_portrait_prompt, build_scene_prompt, router
@@ -92,6 +93,23 @@ def test_portrait_400_when_no_image_provider(mock_storage):
     with (
         patch.object(image_gen, "get_character", return_value=dict(CHAR)),
         patch.object(image_gen, "resolve_image_adapter", new=AsyncMock(return_value=None)),
+    ):
+        res = client.post("/api/image/portrait", json={"character_id": "c-1"})
+    assert res.status_code == 400
+    assert "/config" in res.json()["detail"]
+
+
+def test_portrait_400_when_image_row_is_keyless(mock_storage):
+    """A role='image' row without an API key (and no env fallback) makes
+    resolve_image_adapter raise ImageProviderError — must surface as 400,
+    not an unhandled 500."""
+    with (
+        patch.object(image_gen, "get_character", return_value=dict(CHAR)),
+        patch.object(
+            image_gen,
+            "resolve_image_adapter",
+            new=AsyncMock(side_effect=ImageProviderError("No API key configured for image provider 'img-a'")),
+        ),
     ):
         res = client.post("/api/image/portrait", json={"character_id": "c-1"})
     assert res.status_code == 400
