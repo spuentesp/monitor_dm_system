@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  Download,
   Edit2,
   Loader2,
   Tag,
   Trash2,
   Plus,
+  Upload,
   X,
   TrendingUp,
   Filter,
@@ -229,9 +231,30 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
   const [editingEntry, setEditingEntry] = useState<LorebookEntry | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [newKeywords, setNewKeywords] = useState("");
+  const [newSecondaryKeywords, setNewSecondaryKeywords] = useState("");
+  const [newComment, setNewComment] = useState("");
   const [newContent, setNewContent] = useState("");
   const [newPriority, setNewPriority] = useState(50);
+  const [newOrder, setNewOrder] = useState(100);
+  const [newPosition, setNewPosition] = useState(1);
+  const [newDepth, setNewDepth] = useState(4);
+  const [newConstant, setNewConstant] = useState(false);
+  const [newSelective, setNewSelective] = useState(false);
+  const [newSelectiveLogic, setNewSelectiveLogic] = useState(0);
+  const [newProbability, setNewProbability] = useState(100);
+  const [newUseProbability, setNewUseProbability] = useState(true);
+  const [newCaseSensitive, setNewCaseSensitive] = useState<boolean | null>(null);
+  const [newMatchWholeWords, setNewMatchWholeWords] = useState<boolean | null>(null);
   const [newTags, setNewTags] = useState("");
+  const [newGroup, setNewGroup] = useState("");
+  const [newGroupOverride, setNewGroupOverride] = useState(false);
+  const [newSticky, setNewSticky] = useState(0);
+  const [newCooldown, setNewCooldown] = useState(0);
+  const [newDelay, setNewDelay] = useState(0);
+  const [newExcludeRecursion, setNewExcludeRecursion] = useState(false);
+  const [newPreventRecursion, setNewPreventRecursion] = useState(false);
+  const [newVectorized, setNewVectorized] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Ingest state (M3-G.2)
   const [isIngesting, setIsIngesting] = useState(false);
@@ -265,11 +288,7 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["lorebook", effectiveCharacterId] });
       qc.invalidateQueries({ queryKey: ["lorebook-stats", effectiveCharacterId] });
-      setIsCreating(false);
-      setNewKeywords("");
-      setNewContent("");
-      setNewPriority(50);
-      setNewTags("");
+      resetForm();
     },
   });
 
@@ -298,10 +317,18 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
   // bulkCreate POST. Batches are sequential so failures are localized —
   // a 500 on batch 7 still saves batches 1-6.
   const LOREBOOK_INGEST_BATCH = 20;
+  const importMutation = useMutation({
+    mutationFn: (file: File) => lorebookApi.import(effectiveCharacterId, file),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lorebook", effectiveCharacterId] });
+      qc.invalidateQueries({ queryKey: ["lorebook-stats", effectiveCharacterId] });
+    },
+  });
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const ingestMutation = useMutation({
     mutationFn: async (data: LorebookIngestRequest) => {
-      // Chunk the text into sized pieces (chunking module also clamps
-      // the size to a safe minimum).
       const chunks = lorebookChunksForText(data.content ?? "", data.chunk_size ?? 1000);
       const entries = chunks.map((chunk, idx) => ({
         keywords: data.auto_keywords
@@ -344,6 +371,63 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
     },
   });
 
+  const resetForm = () => {
+    setIsCreating(false);
+    setEditingEntry(null);
+    setNewKeywords("");
+    setNewSecondaryKeywords("");
+    setNewComment("");
+    setNewContent("");
+    setNewPriority(50);
+    setNewOrder(100);
+    setNewPosition(1);
+    setNewDepth(4);
+    setNewConstant(false);
+    setNewSelective(false);
+    setNewSelectiveLogic(0);
+    setNewProbability(100);
+    setNewUseProbability(true);
+    setNewCaseSensitive(null);
+    setNewMatchWholeWords(null);
+    setNewTags("");
+    setNewGroup("");
+    setNewGroupOverride(false);
+    setNewSticky(0);
+    setNewCooldown(0);
+    setNewDelay(0);
+    setNewExcludeRecursion(false);
+    setNewPreventRecursion(false);
+    setNewVectorized(false);
+    setShowAdvanced(false);
+  };
+
+  const buildPayload = (): LorebookEntryCreate => ({
+    keywords: newKeywords.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean),
+    secondary_keywords: newSecondaryKeywords.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean),
+    comment: newComment.trim(),
+    content: newContent.trim(),
+    priority: newPriority,
+    order: newOrder,
+    position: newPosition,
+    depth: newDepth,
+    constant: newConstant,
+    selective: newSelective,
+    selective_logic: newSelectiveLogic,
+    probability: newProbability,
+    use_probability: newUseProbability,
+    case_sensitive: newCaseSensitive,
+    match_whole_words: newMatchWholeWords,
+    tags: newTags.split(",").map((t) => t.trim()).filter(Boolean),
+    group: newGroup.trim(),
+    group_override: newGroupOverride,
+    sticky: newSticky,
+    cooldown: newCooldown,
+    delay: newDelay,
+    exclude_recursion: newExcludeRecursion,
+    prevent_recursion: newPreventRecursion,
+    vectorized: newVectorized,
+  });
+
   const handleSort = (field: SortField, asc: boolean) => {
     setSortField(field);
     setSortAsc(asc);
@@ -358,24 +442,14 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
 
   const handleSaveNew = () => {
     if (!newContent.trim()) return;
-    createMutation.mutate({
-      keywords: newKeywords.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean),
-      content: newContent.trim(),
-      priority: newPriority,
-      tags: newTags.split(",").map((t) => t.trim()).filter(Boolean),
-    });
+    createMutation.mutate(buildPayload());
   };
 
   const handleSaveEdit = () => {
     if (!editingEntry || !newContent.trim()) return;
     updateMutation.mutate({
       id: editingEntry.id,
-      body: {
-        keywords: newKeywords.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean),
-        content: newContent.trim(),
-        priority: newPriority,
-        tags: newTags.split(",").map((t) => t.trim()).filter(Boolean),
-      },
+      body: buildPayload(),
     });
   };
 
@@ -408,6 +482,32 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
           )}
         </div>
         <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) importMutation.mutate(file);
+              if (e.target) e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importMutation.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-xs font-medium disabled:opacity-50"
+          >
+            {importMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+            Import ST
+          </button>
+          <button
+            onClick={() => lorebookApi.export(effectiveCharacterId)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-xs font-medium"
+          >
+            <Download size={13} />
+            Export ST
+          </button>
           <button
             onClick={() => setIsIngesting(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-500 text-xs font-medium"
@@ -461,9 +561,29 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
               onEdit={(e) => {
                 setEditingEntry(e);
                 setNewKeywords(e.keywords.join(", "));
+                setNewSecondaryKeywords(e.secondary_keywords.join(", "));
+                setNewComment(e.comment || "");
                 setNewContent(e.content);
                 setNewPriority(e.priority);
+                setNewOrder(e.order);
+                setNewPosition(e.position);
+                setNewDepth(e.depth);
+                setNewConstant(e.constant);
+                setNewSelective(e.selective);
+                setNewSelectiveLogic(e.selective_logic);
+                setNewProbability(e.probability);
+                setNewUseProbability(e.use_probability);
+                setNewCaseSensitive(e.case_sensitive);
+                setNewMatchWholeWords(e.match_whole_words);
                 setNewTags(e.tags.join(", "));
+                setNewGroup(e.group || "");
+                setNewGroupOverride(e.group_override);
+                setNewSticky(e.sticky);
+                setNewCooldown(e.cooldown);
+                setNewDelay(e.delay);
+                setNewExcludeRecursion(e.exclude_recursion);
+                setNewPreventRecursion(e.prevent_recursion);
+                setNewVectorized(e.vectorized);
               }}
               onDelete={(id) => deleteMutation.mutate(id)}
             />
@@ -486,18 +606,22 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
                   {editingEntry ? "Edit Entry" : "New Entry"}
                 </span>
                 <button
-                  onClick={() => {
-                    setIsCreating(false);
-                    setEditingEntry(null);
-                    setNewKeywords("");
-                    setNewContent("");
-                    setNewPriority(50);
-                    setNewTags("");
-                  }}
+                  onClick={resetForm}
                   className="text-xs text-gray-500 hover:text-gray-300"
                 >
                   Cancel
                 </button>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Title / Comment</label>
+                <input
+                  type="text"
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="Dragon weaknesses"
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:border-blue-500 focus:outline-none"
+                />
               </div>
 
               <div>
@@ -522,9 +646,9 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Priority (0-100)</label>
+                  <label className="text-xs text-gray-500 mb-1 block">Priority</label>
                   <input
                     type="number"
                     min={0}
@@ -535,6 +659,46 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
                   />
                 </div>
                 <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Order</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1000}
+                    value={newOrder}
+                    onChange={(e) => setNewOrder(parseInt(e.target.value) || 0)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Position</label>
+                  <select
+                    value={newPosition}
+                    onChange={(e) => setNewPosition(parseInt(e.target.value))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value={0}>Before char</option>
+                    <option value={1}>After char</option>
+                    <option value={2}>AN top</option>
+                    <option value={3}>AN bottom</option>
+                    <option value={4}>@Depth</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Depth</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={newDepth}
+                    onChange={(e) => setNewDepth(parseInt(e.target.value) || 0)}
+                    disabled={newPosition !== 4}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
                   <label className="text-xs text-gray-500 mb-1 block">Tags (comma-separated)</label>
                   <input
                     type="text"
@@ -544,7 +708,190 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
                     className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:border-blue-500 focus:outline-none"
                   />
                 </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Group</label>
+                  <input
+                    type="text"
+                    value={newGroup}
+                    onChange={(e) => setNewGroup(e.target.value)}
+                    placeholder="monsters"
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
               </div>
+
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={newConstant}
+                    onChange={(e) => setNewConstant(e.target.checked)}
+                    className="rounded"
+                  />
+                  Constant
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={newSelective}
+                    onChange={(e) => setNewSelective(e.target.checked)}
+                    className="rounded"
+                  />
+                  Selective
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={newGroupOverride}
+                    onChange={(e) => setNewGroupOverride(e.target.checked)}
+                    className="rounded"
+                  />
+                  Group override
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={newExcludeRecursion}
+                    onChange={(e) => setNewExcludeRecursion(e.target.checked)}
+                    className="rounded"
+                  />
+                  Exclude recursion
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={newPreventRecursion}
+                    onChange={(e) => setNewPreventRecursion(e.target.checked)}
+                    className="rounded"
+                  />
+                  Prevent recursion
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={newVectorized}
+                    onChange={(e) => setNewVectorized(e.target.checked)}
+                    className="rounded"
+                  />
+                  Vectorized
+                </label>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1"
+              >
+                {showAdvanced ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                Advanced ST options
+              </button>
+
+              {showAdvanced && (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 border-t border-gray-800 pt-3">
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Secondary keywords</label>
+                    <input
+                      type="text"
+                      value={newSecondaryKeywords}
+                      onChange={(e) => setNewSecondaryKeywords(e.target.value)}
+                      placeholder="fire, flame"
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Selective logic</label>
+                    <select
+                      value={newSelectiveLogic}
+                      onChange={(e) => setNewSelectiveLogic(parseInt(e.target.value))}
+                      disabled={!newSelective}
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+                    >
+                      <option value={0}>AND ANY</option>
+                      <option value={1}>NOT ALL</option>
+                      <option value={2}>NOT ANY</option>
+                      <option value={3}>AND ALL</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Probability %</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={newProbability}
+                      onChange={(e) => setNewProbability(parseInt(e.target.value) || 0)}
+                      disabled={!newUseProbability}
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Sticky</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={newSticky}
+                      onChange={(e) => setNewSticky(parseInt(e.target.value) || 0)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Cooldown</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={newCooldown}
+                      onChange={(e) => setNewCooldown(parseInt(e.target.value) || 0)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Delay</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={newDelay}
+                      onChange={(e) => setNewDelay(parseInt(e.target.value) || 0)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={newUseProbability}
+                        onChange={(e) => setNewUseProbability(e.target.checked)}
+                        className="rounded"
+                      />
+                      Use probability
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={newCaseSensitive ?? false}
+                        onChange={(e) => setNewCaseSensitive(e.target.checked || null)}
+                        className="rounded"
+                      />
+                      Case-sensitive
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={newMatchWholeWords ?? false}
+                        onChange={(e) => setNewMatchWholeWords(e.target.checked || null)}
+                        className="rounded"
+                      />
+                      Whole words
+                    </label>
+                  </div>
+                </div>
+              )}
 
               <button
                 onClick={editingEntry ? handleSaveEdit : handleSaveNew}

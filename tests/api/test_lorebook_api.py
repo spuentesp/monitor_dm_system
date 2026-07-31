@@ -100,6 +100,33 @@ def patched_lorebook_client(monkeypatch) -> Generator[TestClient, None, None]:
         "mongodb_get_top_lorebook_entries",
         lambda character_id, limit: [_make_entry(priority=99)],
     )
+    monkeypatch.setattr(
+        lb_router,
+        "mongodb_get_scan_config",
+        lambda character_id: {
+            "scan_depth": 2,
+            "token_budget": 500,
+            "recursive_scanning": True,
+            "case_sensitive": False,
+            "match_whole_words": False,
+            "include_names": True,
+        },
+    )
+    monkeypatch.setattr(
+        lb_router,
+        "mongodb_save_scan_config",
+        lambda character_id, config: config,
+    )
+    monkeypatch.setattr(
+        lb_router,
+        "mongodb_scan_lorebook",
+        lambda character_ids, text, **kwargs: {
+            "before": [],
+            "after": ["Dragons hoard gold."],
+            "depth": [],
+            "triggered_entry_ids": ["e1"],
+        },
+    )
 
     app = FastAPI()
     app.include_router(lb_router.router)
@@ -172,3 +199,50 @@ class TestLorebookEndpoints:
     def test_top(self, patched_lorebook_client):
         resp = patched_lorebook_client.get("/lorebook/top?character_id=char-1&limit=5")
         assert resp.status_code in (200, 422)
+
+    def test_import_json_payload(self, patched_lorebook_client):
+        import json as _json
+
+        payload = {
+            "name": "Test Book",
+            "entries": {
+                "0": {"uid": 0, "content": "Dragons.", "keys": ["dragon"]},
+            },
+        }
+        resp = patched_lorebook_client.post(
+            "/lorebook/import",
+            data={"character_id": "char-1", "payload": _json.dumps(payload)},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["imported"] == 1
+
+    def test_export(self, patched_lorebook_client):
+        resp = patched_lorebook_client.get("/lorebook/export?character_id=char-1")
+        assert resp.status_code == 200
+        assert "entries" in resp.json()
+
+    def test_get_scan_config(self, patched_lorebook_client):
+        resp = patched_lorebook_client.get("/lorebook/scan-config?character_id=char-1")
+        assert resp.status_code == 200
+        assert resp.json()["scan_depth"] == 2
+
+    def test_update_scan_config(self, patched_lorebook_client):
+        resp = patched_lorebook_client.put(
+            "/lorebook/scan-config?character_id=char-1",
+            json={
+                "scan_depth": 5,
+                "token_budget": 1000,
+                "recursive_scanning": False,
+                "case_sensitive": True,
+                "match_whole_words": True,
+                "include_names": False,
+            },
+        )
+        assert resp.status_code == 200
+
+    def test_scan_endpoint(self, patched_lorebook_client):
+        resp = patched_lorebook_client.post(
+            "/lorebook/scan?character_id=char-1&text=dragon",
+        )
+        assert resp.status_code == 200
+        assert "Dragons hoard gold." in resp.json()["after"]

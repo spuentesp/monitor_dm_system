@@ -1216,11 +1216,31 @@ export interface LorebookEntry {
   id: string;
   character_id: string;
   keywords: string[];
+  secondary_keywords: string[];
   content: string;
+  comment: string;
   priority: number;
+  order: number;
+  position: number;
+  depth: number;
   is_active: boolean;
+  constant: boolean;
+  selective: boolean;
+  selective_logic: number;
+  probability: number;
+  use_probability: boolean;
+  case_sensitive: boolean | null;
+  match_whole_words: boolean | null;
   tags: string[];
   scene_filter: string | null;
+  group: string;
+  group_override: boolean;
+  sticky: number;
+  cooldown: number;
+  delay: number;
+  exclude_recursion: boolean;
+  prevent_recursion: boolean;
+  vectorized: boolean;
   trigger_count: number;
   last_triggered: string | null;
   created_at: string;
@@ -1228,12 +1248,42 @@ export interface LorebookEntry {
 
 export interface LorebookEntryCreate {
   keywords: string[];
+  secondary_keywords?: string[];
   content: string;
-  priority: number;
+  comment?: string;
+  priority?: number;
+  order?: number;
+  position?: number;
+  depth?: number;
   is_active?: boolean;
-  tags: string[];
+  constant?: boolean;
+  selective?: boolean;
+  selective_logic?: number;
+  probability?: number;
+  use_probability?: boolean;
+  case_sensitive?: boolean | null;
+  match_whole_words?: boolean | null;
+  tags?: string[];
   scene_filter?: string | null;
+  group?: string;
+  group_override?: boolean;
+  sticky?: number;
+  cooldown?: number;
+  delay?: number;
+  exclude_recursion?: boolean;
+  prevent_recursion?: boolean;
+  vectorized?: boolean;
   auto_generate_keywords?: boolean;
+  st_extensions?: Record<string, unknown>;
+}
+
+export interface LorebookScanConfig {
+  scan_depth: number;
+  token_budget: number;
+  recursive_scanning: boolean;
+  case_sensitive: boolean;
+  match_whole_words: boolean;
+  include_names: boolean;
 }
 
 export interface LorebookIngestRequest {

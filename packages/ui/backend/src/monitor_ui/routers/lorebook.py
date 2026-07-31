@@ -5,17 +5,27 @@ Exposes the full lifecycle of lorebook entries (keyword-triggered memory injecti
 to the UI. Entries belong to characters or universes and are scanned against
 player input to inject relevant lore into the narrative context.
 
+Also provides SillyTavern / character.ai lorebook import/export.
+
 LAYER: 3 (UI backend / FastAPI router)
 IMPORTS FROM: data-layer only
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from typing import Any
+
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import JSONResponse
+from monitor_data.interop.sillytavern_lorebook import (
+    build_st_lorebook,
+    parse_st_lorebook_raw,
+)
 from monitor_data.schemas.lorebook import (
     LorebookEntry,
     LorebookEntryCreate,
     LorebookEntryUpdate,
+    LorebookScanConfig,
 )
 from monitor_data.tools.mongodb_tools.lorebook_tools import (
     mongodb_bulk_create_lorebook_entries,
@@ -25,8 +35,11 @@ from monitor_data.tools.mongodb_tools.lorebook_tools import (
     mongodb_get_lorebook_entries_by_tags,
     mongodb_get_lorebook_entry,
     mongodb_get_lorebook_stats,
+    mongodb_get_scan_config,
     mongodb_get_top_lorebook_entries,
     mongodb_inject_lorebook_entries,
+    mongodb_save_scan_config,
+    mongodb_scan_lorebook,
     mongodb_update_lorebook_entry,
 )
 
@@ -140,3 +153,121 @@ async def get_top_entries(
 ) -> list[LorebookEntry]:
     """Get top lorebook entries by trigger count."""
     return mongodb_get_top_lorebook_entries(character_id=character_id, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# SillyTavern import/export
+# ---------------------------------------------------------------------------
+
+
+@router.post("/lorebook/import", status_code=201)
+async def import_lorebook(
+    character_id: str = Form(..., description="Character ID to own the imported entries"),
+    file: UploadFile | None = File(None, description="SillyTavern World Info JSON file"),
+    payload: str | None = Form(None, description="Raw SillyTavern World Info JSON string"),
+) -> dict[str, Any]:
+    """Import a SillyTavern World Info JSON file or string for a character."""
+    raw: bytes | str | None = None
+    if file:
+        raw = await file.read()
+    elif payload:
+        raw = payload
+    else:
+        raise HTTPException(status_code=422, detail="Provide either 'file' or 'payload'.")
+
+    try:
+        parsed_entries, config = parse_st_lorebook_raw(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid lorebook JSON: {exc}") from exc
+
+    created: list[LorebookEntry] = []
+    errors: list[str] = []
+    for raw_entry in parsed_entries:
+        try:
+            data = LorebookEntryCreate(**raw_entry)
+            entry = mongodb_create_lorebook_entry(character_id=character_id, data=data)
+            created.append(entry)
+        except Exception as exc:  # pragma: no cover - defensive
+            errors.append(str(exc))
+
+    mongodb_save_scan_config(character_id, config)
+
+    return {
+        "imported": len(created),
+        "errors": errors,
+        "entries": created,
+        "scan_config": config.model_dump(),
+    }
+
+
+@router.get("/lorebook/export")
+async def export_lorebook(
+    character_id: str = Query(..., description="Character ID"),
+    name: str = Query(default="MONITOR lorebook"),
+    description: str = Query(default=""),
+) -> JSONResponse:
+    """Export a character's lorebook as a SillyTavern World Info JSON file."""
+    entries = mongodb_get_lorebook_entries(character_id, sort_by="order", ascending=True)
+    raw_config = mongodb_get_scan_config(character_id)
+    config = raw_config if isinstance(raw_config, LorebookScanConfig) else LorebookScanConfig(**raw_config)
+    book = build_st_lorebook(
+        entries,
+        name=name,
+        description=description,
+        config=config,
+    )
+    filename = f"{character_id}_lorebook.json"
+    return JSONResponse(
+        content=book,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scan config
+# ---------------------------------------------------------------------------
+
+
+@router.get("/lorebook/scan-config", response_model=LorebookScanConfig)
+async def get_scan_config(character_id: str = Query(..., description="Character ID")) -> LorebookScanConfig:
+    """Get SillyTavern-style scan settings for a character's lorebook."""
+    return mongodb_get_scan_config(character_id)
+
+
+@router.put("/lorebook/scan-config", response_model=LorebookScanConfig)
+async def update_scan_config(
+    character_id: str = Query(..., description="Character ID"),
+    config: LorebookScanConfig = ...,  # type: ignore[assignment]
+) -> LorebookScanConfig:
+    """Update SillyTavern-style scan settings for a character's lorebook."""
+    return mongodb_save_scan_config(character_id, config)
+
+
+# ---------------------------------------------------------------------------
+# Full scan (diagnostic/debug)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/lorebook/scan")
+async def scan_lorebook(
+    character_id: str = Query(..., description="Character ID"),
+    text: str = Query(..., description="Player input text to scan"),
+    history: list[str] | None = Query(None, description="Recent turn texts (oldest to newest)"),
+    scene_context: str | None = Query(None, description="Optional scene tag filter"),
+) -> dict[str, Any]:
+    """Run a full SillyTavern-aware scan and return position-grouped contents."""
+    raw_config = mongodb_get_scan_config(character_id)
+    config = raw_config if isinstance(raw_config, LorebookScanConfig) else LorebookScanConfig(**raw_config)
+    result = mongodb_scan_lorebook(
+        character_ids=[character_id],
+        text=text,
+        history=history,
+        config=config,
+        scene_context=scene_context,
+        turn_index=None,
+        increment_triggers=False,
+    )
+    if isinstance(result, dict):
+        return result
+    return result.model_dump()

@@ -512,7 +512,7 @@ class TestAssemble:
 
     @pytest.mark.asyncio
     async def test_assemble_injects_lorebook_entries(self, monkeypatch):
-        """assemble() should call mongodb_inject_lorebook_entries via call_tool and include results in profile_context."""
+        """assemble() should call mongodb_scan_lorebook via call_tool and include results in profile_context."""
         agent = ContextAssembly.__new__(ContextAssembly)
         agent._cache_key = MagicMock(return_value="solo_play:assemble:test")
         agent._cache_get_json = MagicMock(return_value=None)
@@ -524,15 +524,30 @@ class TestAssemble:
         agent._fetch_runtime_profile = AsyncMock(return_value={})
         agent._summarise_context = AsyncMock(return_value="Summary with lore.")
 
-        # Mock call_tool to return lorebook entries when called with the right tool name
+        # Mock call_tool to return lorebook entries when called with the scan tool
         async def mock_call_tool(tool_name, arguments):
-            if tool_name == "mongodb_inject_lorebook_entries":
-                return ["Lore about dragons"]
+            if tool_name == "mongodb_scan_lorebook":
+                return {
+                    "before": [],
+                    "after": ["Lore about dragons"],
+                    "depth": [],
+                    "triggered_entry_ids": ["e1"],
+                }
+            if tool_name == "mongodb_get_scan_config":
+                return {
+                    "scan_depth": 2,
+                    "token_budget": 500,
+                    "recursive_scanning": True,
+                    "case_sensitive": False,
+                    "match_whole_words": False,
+                    "include_names": True,
+                }
             return {}
 
         agent.call_tool = AsyncMock(side_effect=mock_call_tool)
 
         actor_context = {"id": str(uuid4()), "name": "Hero"}
+        player_context_id = actor_context["id"]
         player_action = "I look for dragons"
 
         await agent.assemble(
@@ -543,10 +558,20 @@ class TestAssemble:
         )
 
         agent.call_tool.assert_any_call(
-            "mongodb_inject_lorebook_entries",
+            "mongodb_scan_lorebook",
             {
-                "character_id": actor_context["id"],
+                "character_ids": [player_context_id],
                 "text": player_action,
+                "history": [],
+                "config": {
+                    "scan_depth": 2,
+                    "token_budget": 500,
+                    "recursive_scanning": True,
+                    "case_sensitive": False,
+                    "match_whole_words": False,
+                    "include_names": True,
+                },
+                "turn_index": 0,
                 "increment_triggers": True,
             },
         )

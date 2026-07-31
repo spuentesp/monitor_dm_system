@@ -82,6 +82,19 @@ class FakeCollection:
                 return Mock(modified_count=1)
         return Mock(modified_count=0)
 
+    def update_many(self, query: dict, update: dict) -> Mock:
+        matched = 0
+        ids = query.get("id", {}).get("$in", []) if isinstance(query.get("id"), dict) else []
+        for d in self.docs:
+            if d.get("id") in ids:
+                if "$set" in update:
+                    d.update(update["$set"])
+                if "$inc" in update:
+                    for k, v in update["$inc"].items():
+                        d[k] = d.get(k, 0) + v
+                matched += 1
+        return Mock(modified_count=matched)
+
     def aggregate(self, pipeline: list[dict]) -> list[dict]:
         char_id = None
         for stage in pipeline:
@@ -558,3 +571,246 @@ class TestGetTopEntries:
         assert result[0].content == "D2"  # trigger_count=10
         assert result[1].content == "D1"  # trigger_count=3
         assert result[2].content == "D3"  # trigger_count=1
+
+
+# =============================================================================
+# mongodb_scan_lorebook — SillyTavern semantics
+# =============================================================================
+
+
+class TestScanLorebook:
+    def _scan(self, coll, character_id, text, **kwargs):
+        from monitor_data.tools.mongodb_tools.lorebook_tools import mongodb_scan_lorebook
+
+        with patch("monitor_data.tools.mongodb_tools.lorebook_tools._coll", return_value=coll):
+            return mongodb_scan_lorebook(character_ids=[character_id], text=text, **kwargs)
+
+    def _make_doc(
+        self,
+        entry_id: str,
+        character_id: str = "char-123",
+        keywords: list[str] | None = None,
+        content: str = "Content",
+        priority: int = 50,
+        **kwargs,
+    ) -> dict:
+        defaults = {
+            "id": entry_id,
+            "character_id": character_id,
+            "keywords": keywords or [],
+            "secondary_keywords": [],
+            "content": content,
+            "comment": "",
+            "priority": priority,
+            "order": 100,
+            "position": 1,
+            "depth": 4,
+            "is_active": True,
+            "constant": False,
+            "selective": False,
+            "selective_logic": 0,
+            "probability": 100,
+            "use_probability": True,
+            "case_sensitive": None,
+            "match_whole_words": None,
+            "tags": [],
+            "scene_filter": None,
+            "group": "",
+            "group_override": False,
+            "sticky": 0,
+            "cooldown": 0,
+            "delay": 0,
+            "exclude_recursion": False,
+            "prevent_recursion": False,
+            "vectorized": False,
+            "trigger_count": 0,
+            "last_triggered": None,
+            "last_triggered_turn_index": None,
+            "created_turn_index": None,
+            "st_extensions": {},
+            "created_at": "2024-01-01",
+        }
+        defaults.update(kwargs)
+        return defaults
+
+    def test_constant_entry_triggers_without_keyword(self):
+        coll = FakeCollection()
+        coll.docs = [self._make_doc("e1", keywords=[], content="Always on.", constant=True)]
+        result = self._scan(coll, "char-123", "hello")
+        assert result.after == ["Always on."]
+
+    def test_scan_depth_searches_history(self):
+        coll = FakeCollection()
+        coll.docs = [self._make_doc("e1", keywords=["dragon"], content="Dragons.")]
+        result = self._scan(coll, "char-123", "hello", history=["we saw a dragon earlier"])
+        assert result.after == ["Dragons."]
+
+    def test_scan_depth_respects_config(self):
+        coll = FakeCollection()
+        coll.docs = [self._make_doc("e1", keywords=["dragon"], content="Dragons.")]
+        from monitor_data.schemas.lorebook import LorebookScanConfig
+
+        config = LorebookScanConfig(scan_depth=0)
+        result = self._scan(coll, "char-123", "hello", history=["we saw a dragon earlier"], config=config)
+        assert result.after == []
+
+    def test_selective_and_any_requires_secondary(self):
+        coll = FakeCollection()
+        coll.docs = [
+            self._make_doc(
+                "e1",
+                keywords=["dragon"],
+                secondary_keywords=["fire"],
+                content="Fire dragon.",
+                selective=True,
+                selective_logic=0,
+            )
+        ]
+        result = self._scan(coll, "char-123", "I see a dragon")
+        assert result.after == []
+        result = self._scan(coll, "char-123", "dragon breathes fire")
+        assert result.after == ["Fire dragon."]
+
+    def test_selective_not_all(self):
+        coll = FakeCollection()
+        coll.docs = [
+            self._make_doc(
+                "e1",
+                keywords=["dragon"],
+                secondary_keywords=["gold", "silver"],
+                content="Dragon.",
+                selective=True,
+                selective_logic=1,
+            )
+        ]
+        result = self._scan(coll, "char-123", "dragon with gold and silver")
+        assert result.after == []
+        result = self._scan(coll, "char-123", "dragon with gold only")
+        assert result.after == ["Dragon."]
+
+    def test_probability_blocks_when_roll_fails(self):
+        coll = FakeCollection()
+        coll.docs = [self._make_doc("e1", keywords=["dragon"], content="Dragons.", probability=0)]
+        import random
+
+        result = self._scan(coll, "char-123", "dragon", rng=random.Random(1))
+        assert result.after == []
+
+    def test_probability_allows_when_roll_succeeds(self):
+        coll = FakeCollection()
+        coll.docs = [self._make_doc("e1", keywords=["dragon"], content="Dragons.", probability=100)]
+        import random
+
+        result = self._scan(coll, "char-123", "dragon", rng=random.Random(1))
+        assert result.after == ["Dragons."]
+
+    def test_position_grouping(self):
+        coll = FakeCollection()
+        coll.docs = [
+            self._make_doc("e1", keywords=["a"], content="Before.", position=0, order=1),
+            self._make_doc("e2", keywords=["a"], content="After.", position=1, order=1),
+            self._make_doc("e3", keywords=["a"], content="Depth.", position=4, order=1),
+        ]
+        result = self._scan(coll, "char-123", "a")
+        assert result.before == ["Before."]
+        assert result.after == ["After."]
+        assert result.depth == ["Depth."]
+
+    def test_token_budget_truncates(self):
+        coll = FakeCollection()
+        long_text = "word " * 500  # ~2500 chars -> ~625 tokens
+        coll.docs = [
+            self._make_doc("e1", keywords=["a"], content="Short.", order=1),
+            self._make_doc("e2", keywords=["a"], content=long_text, order=2),
+        ]
+        from monitor_data.schemas.lorebook import LorebookScanConfig
+
+        config = LorebookScanConfig(token_budget=10)
+        result = self._scan(coll, "char-123", "a", config=config)
+        assert "Short." in result.all_contents()
+        assert long_text not in result.all_contents()
+
+    def test_group_competition(self):
+        coll = FakeCollection()
+        coll.docs = [
+            self._make_doc("e1", keywords=["a"], content="High.", group="g", priority=80),
+            self._make_doc("e2", keywords=["a"], content="Low.", group="g", priority=50),
+        ]
+        result = self._scan(coll, "char-123", "a")
+        assert result.after == ["High."]
+
+    def test_sticky_keeps_entry_active(self):
+        coll = FakeCollection()
+        coll.docs = [
+            self._make_doc(
+                "e1",
+                keywords=["dragon"],
+                content="Sticky.",
+                sticky=2,
+                last_triggered_turn_index=5,
+            )
+        ]
+        result = self._scan(coll, "char-123", "hello", turn_index=6)
+        assert result.after == ["Sticky."]
+
+    def test_cooldown_blocks_retrigger(self):
+        coll = FakeCollection()
+        coll.docs = [
+            self._make_doc(
+                "e1",
+                keywords=["dragon"],
+                content="Cooldown.",
+                sticky=1,
+                cooldown=3,
+                last_triggered_turn_index=5,
+            )
+        ]
+        # Turn 8 is within sticky(5)+cooldown(3)=8 window -> blocked.
+        result = self._scan(coll, "char-123", "dragon", turn_index=8)
+        assert result.after == []
+        # Turn 10 is past the window -> allowed.
+        result = self._scan(coll, "char-123", "dragon", turn_index=10)
+        assert result.after == ["Cooldown."]
+
+    def test_delay_blocks_early_trigger(self):
+        coll = FakeCollection()
+        coll.docs = [
+            self._make_doc(
+                "e1",
+                keywords=["dragon"],
+                content="Delayed.",
+                delay=3,
+                created_turn_index=5,
+            )
+        ]
+        result = self._scan(coll, "char-123", "dragon", turn_index=7)
+        assert result.after == []
+        result = self._scan(coll, "char-123", "dragon", turn_index=9)
+        assert result.after == ["Delayed."]
+
+    def test_recursive_scanning(self):
+        coll = FakeCollection()
+        coll.docs = [
+            self._make_doc("e1", keywords=["dragon"], content="Wyrms are related."),
+            self._make_doc("e2", keywords=["wyrm"], content="Wyrm detail."),
+        ]
+        result = self._scan(coll, "char-123", "dragon")
+        assert "Wyrm detail." in result.all_contents()
+
+    def test_prevent_recursion_stops_chain(self):
+        coll = FakeCollection()
+        coll.docs = [
+            self._make_doc("e1", keywords=["dragon"], content="Wyrms are related.", prevent_recursion=True),
+            self._make_doc("e2", keywords=["wyrm"], content="Wyrm detail."),
+        ]
+        result = self._scan(coll, "char-123", "dragon")
+        assert "Wyrm detail." not in result.all_contents()
+
+    def test_exclude_recursion_not_scanned(self):
+        coll = FakeCollection()
+        coll.docs = [
+            self._make_doc("e1", keywords=["dragon"], content="Wyrms are related."),
+            self._make_doc("e2", keywords=["wyrm"], content="Wyrm detail.", exclude_recursion=True),
+        ]
+        result = self._scan(coll, "char-123", "dragon")
+        assert "Wyrm detail." not in result.all_contents()

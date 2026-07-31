@@ -88,3 +88,6 @@ mutation_log.txt
 # Test logs
 docs/testing/live_gm_vs_player/
 tests/e2e/logs/
+
+# Superpowers skill scratch (brainstorm companion, SDD workspaces)
+.superpowers/

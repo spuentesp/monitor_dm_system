@@ -993,8 +993,15 @@ async def create_character_endpoint(body: CharacterCreate) -> CharacterDetail:
 
 @router.post("/characters/import-card", response_model=CharacterDetail, status_code=201)
 async def import_character_card(file: UploadFile = File(...)) -> CharacterDetail:
-    """Import a SillyTavern/Tavern character card (chara_card_v2 JSON or PNG)."""
-    from .character_cards import parse_character_card
+    """Import a SillyTavern/Tavern character card (chara_card_v2 JSON or PNG).
+
+    Also imports any embedded ``character_book`` lorebook entries.
+    """
+    from monitor_data.tools.mongodb_tools.lorebook_tools import (
+        mongodb_bulk_create_lorebook_entries,
+        mongodb_save_scan_config,
+    )
+    from .character_cards import parse_character_card_with_book
 
     raw = await file.read()
     if not raw:
@@ -1002,23 +1009,44 @@ async def import_character_card(file: UploadFile = File(...)) -> CharacterDetail
     if len(raw) > 20 * 1024 * 1024:
         raise HTTPException(status_code=422, detail="Card file too large (max 20MB).")
     try:
-        create = parse_character_card(raw, content_type=file.content_type or "", filename=file.filename or "")
+        create, lorebook_entries, scan_config = parse_character_card_with_book(
+            raw, content_type=file.content_type or "", filename=file.filename or ""
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     doc = _create_character_doc(create.model_dump())
+    character_id = doc.get("id") or doc.get("_id")
+    if character_id and lorebook_entries:
+        mongodb_bulk_create_lorebook_entries(character_id=str(character_id), entries=lorebook_entries)
+        mongodb_save_scan_config(str(character_id), scan_config)
+
     return CharacterDetail(**_serialise_character(doc))
 
 
 @router.get("/characters/{character_id}/export-card")
 async def export_character_card(character_id: str) -> dict:    # type: ignore
-    """Export a standalone character as a chara_card_v2 object."""
+    """Export a standalone character as a chara_card_v2 object.
+
+    Includes the character's lorebook as an embedded ``character_book``.
+    """
+    from monitor_data.tools.mongodb_tools.lorebook_tools import (
+        mongodb_get_lorebook_entries,
+        mongodb_get_scan_config,
+    )
     from .character_cards import build_character_card
 
     doc = _get_character_doc(character_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Character not found")
-    return build_character_card(_serialise_character(doc))
+
+    entries = mongodb_get_lorebook_entries(character_id, sort_by="order", ascending=True)
+    scan_config = mongodb_get_scan_config(character_id)
+    return build_character_card(
+        _serialise_character(doc),
+        lorebook_entries=[e.model_dump() for e in entries],
+        scan_config=scan_config,
+    )
 
 
 @router.get("/characters", response_model=list[CharacterDetail])

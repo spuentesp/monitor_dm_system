@@ -20,6 +20,7 @@ import pytest
 from monitor_ui.routers.character_cards import (
     build_character_card,
     parse_character_card,
+    parse_character_card_with_book,
 )
 
 
@@ -261,6 +262,89 @@ class TestRoundTrip:
         assert parsed.first_message == original["first_message"]
         # gm_notes was placed in creator_notes by build_character_card
         assert "Secretly an ex-thief" in parsed.gm_notes
+
+
+# ---------------------------------------------------------------------------
+# Character book (lorebook) interop
+# ---------------------------------------------------------------------------
+
+
+class TestCharacterBook:
+    def test_parse_extracts_embedded_book(self):
+        card = {
+            "spec": "chara_card_v2",
+            "data": {
+                "name": "Aldric",
+                "description": "innkeeper",
+                "first_mes": "Welcome.",
+                "character_book": {
+                    "name": "Aldric's lore",
+                    "scan_depth": 3,
+                    "entries": {
+                        "0": {
+                            "uid": 0,
+                            "comment": "Dragons",
+                            "content": "Dragons hoard gold.",
+                            "keys": ["dragon"],
+                            "constant": True,
+                        },
+                    },
+                },
+            },
+        }
+        character, entries, config = parse_character_card_with_book(json.dumps(card).encode())
+        assert character.name == "Aldric"
+        assert len(entries) == 1
+        assert entries[0].content == "Dragons hoard gold."
+        assert entries[0].constant is True
+        assert config.scan_depth == 3
+
+    def test_parse_without_book_returns_empty_entries(self):
+        card = {"data": {"name": "Simple", "description": "x"}}
+        character, entries, config = parse_character_card_with_book(json.dumps(card).encode())
+        assert character.name == "Simple"
+        assert entries == []
+
+    def test_build_embeds_lorebook(self):
+        character = {
+            "name": "Aldric",
+            "description": "innkeeper",
+            "first_message": "Welcome.",
+            "gm_notes": "secret",
+        }
+        entries = [
+            {
+                "keywords": ["dragon"],
+                "secondary_keywords": [],
+                "content": "Dragons hoard gold.",
+                "comment": "Dragons",
+                "priority": 80,
+                "order": 100,
+                "position": 1,
+                "depth": 4,
+                "constant": True,
+                "selective": False,
+                "selective_logic": 0,
+                "probability": 100,
+                "use_probability": True,
+                "case_sensitive": None,
+                "match_whole_words": None,
+                "tags": [],
+                "group": "",
+                "group_override": False,
+                "sticky": 0,
+                "cooldown": 0,
+                "delay": 0,
+                "exclude_recursion": False,
+                "prevent_recursion": False,
+                "vectorized": False,
+            }
+        ]
+        card_obj = build_character_card(character, lorebook_entries=entries)
+        book = card_obj["data"]["character_book"]
+        assert book is not None
+        assert book["entries"]["0"]["keys"] == ["dragon"]
+        assert book["entries"]["0"]["constant"] is True
 
 
 # ---------------------------------------------------------------------------

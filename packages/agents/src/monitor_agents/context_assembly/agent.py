@@ -292,23 +292,62 @@ class ContextAssembly(BaseAgent):
 
         matched_lore: list[str] = []
         profile_context = build_profile_context(source_profile)
+        lorebook_before: list[str] = []
+        lorebook_after: list[str] = []
+        lorebook_depth: list[str] = []
 
         if player_action and actor_id_str:
             try:
+                # Build scan history from recent turns (speaker: content if available).
+                history: list[str] = []
+                for turn in turns:
+                    speaker = turn.get("speaker") or turn.get("name") or ""
+                    text = turn.get("content") or turn.get("text") or turn.get("message") or ""
+                    if speaker and text:
+                        history.append(f"{speaker}: {text}")
+                    elif text:
+                        history.append(text)
+
+                character_ids = [actor_id_str]
+                if universe_id:
+                    character_ids.append(f"universe:{universe_id}")
+
+                scan_config = await self.call_tool(
+                    "mongodb_get_scan_config", {"character_id": actor_id_str}
+                )
+                if not isinstance(scan_config, dict):
+                    scan_config = {}
+
                 lore_result = await self.call_tool(
-                    "mongodb_inject_lorebook_entries",
+                    "mongodb_scan_lorebook",
                     {
-                        "character_id": actor_id_str,
+                        "character_ids": character_ids,
                         "text": player_action,
+                        "history": history,
+                        "config": scan_config,
+                        "turn_index": len(turns),
                         "increment_triggers": True,
                     },
                 )
-                if isinstance(lore_result, list):
+                if isinstance(lore_result, dict):
+                    lorebook_before = lore_result.get("before", []) or []
+                    lorebook_after = lore_result.get("after", []) or []
+                    lorebook_depth = lore_result.get("depth", []) or []
+                    matched_lore = lorebook_before + lorebook_after + lorebook_depth
+                elif isinstance(lore_result, list):
                     matched_lore = lore_result
-                elif isinstance(lore_result, dict):
-                    matched_lore = lore_result.get("entries", lore_result.get("results", []))  # type: ignore[assignment]
-                if matched_lore:
-                    profile_context += "\n\nRELEVANT LOREBOOK ENTRIES:\n" + "\n".join(matched_lore)
+
+                if lorebook_before:
+                    profile_context = (
+                        "RELEVANT LOREBOOK ENTRIES:\n"
+                        + "\n".join(lorebook_before)
+                        + "\n\n"
+                        + profile_context
+                    )
+                if lorebook_after:
+                    profile_context += "\n\nRELEVANT LOREBOOK ENTRIES:\n" + "\n".join(lorebook_after)
+                if lorebook_depth:
+                    profile_context += "\n\nLOREBOOK (@DEPTH):\n" + "\n".join(lorebook_depth)
             except Exception as e:
                 logger.warning(f"Failed to inject lorebook entries: {e}")
 

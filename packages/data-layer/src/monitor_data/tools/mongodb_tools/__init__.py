@@ -146,9 +146,12 @@ from monitor_data.tools.mongodb_tools.lorebook_tools import (
     mongodb_get_lorebook_entries_by_tags,
     mongodb_get_lorebook_entry,
     mongodb_get_lorebook_stats,
+    mongodb_get_scan_config,
     mongodb_get_top_lorebook_entries,
     mongodb_inject_lorebook_entries,
     mongodb_list_lorebook_entries_by_ids,
+    mongodb_save_scan_config,
+    mongodb_scan_lorebook,
     mongodb_update_lorebook_entry,
 )
 
@@ -591,4 +594,7 @@ __all__ = [
     "mongodb_bulk_create_lorebook_entries",
     "mongodb_get_lorebook_stats",
     "mongodb_get_top_lorebook_entries",
+    "mongodb_scan_lorebook",
+    "mongodb_get_scan_config",
+    "mongodb_save_scan_config",
 ]

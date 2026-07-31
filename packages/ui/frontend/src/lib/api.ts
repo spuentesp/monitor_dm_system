@@ -84,6 +84,7 @@ import type {
   WorldSnapshot,
   SnapshotComparison,
   WorldCoverage,
+  LorebookScanConfig,
 } from "./types";
 
 const RAW_API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -676,6 +677,32 @@ export const lorebookApi = {
     req<unknown[]>(`/lorebook/bulk?character_id=${encodeURIComponent(characterId)}`, {
       method: "POST",
       body: JSON.stringify(entries),
+    }),
+  import: async (characterId: string, file: File) => {
+    const form = new FormData();
+    form.append("character_id", characterId);
+    form.append("file", file);
+    const res = await fetch(apiUrl("/lorebook/import"), {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText);
+      throw new ApiError(res.status, text);
+    }
+    return (await res.json()) as { imported: number; errors: string[]; entries: unknown[] };
+  },
+  export: (characterId: string) => {
+    const params = new URLSearchParams({ character_id: characterId });
+    window.open(`${apiUrl("/lorebook/export")}?${params.toString()}`, "_blank");
+  },
+  getScanConfig: (characterId: string) =>
+    req<LorebookScanConfig>("/lorebook/scan-config", { query: { character_id: characterId } }),
+  updateScanConfig: (characterId: string, body: LorebookScanConfig) =>
+    req<LorebookScanConfig>("/lorebook/scan-config", {
+      method: "PUT",
+      query: { character_id: characterId },
+      body: JSON.stringify(body),
     }),
 };
 

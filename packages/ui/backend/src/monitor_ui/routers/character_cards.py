@@ -16,7 +16,13 @@ import binascii
 import json
 import struct
 import zlib
-from typing import Any
+from typing import Any, cast
+
+from monitor_data.interop.sillytavern_lorebook import (
+    build_character_book,
+    parse_character_book_from_card,
+)
+from monitor_data.schemas.lorebook import LorebookEntryCreate, LorebookScanConfig
 
 from .entities_schemas import CharacterCreate
 
@@ -59,17 +65,26 @@ def _extract_card_from_png(data: bytes) -> dict[str, Any]:
     raise ValueError("No character card found in this PNG (no 'chara'/'ccv3' chunk).")
 
 
-def parse_character_card(raw: bytes, *, content_type: str = "", filename: str = "") -> CharacterCreate:
-    """Parse a JSON or PNG character card into a CharacterCreate."""
+def _load_card_dict(raw: bytes, *, content_type: str = "", filename: str = "") -> dict[str, Any]:
+    """Load the raw card bytes into a dict, handling PNG extraction."""
     is_png = raw.startswith(_PNG_SIGNATURE) or content_type == "image/png" or filename.lower().endswith(".png")
-    card: dict[str, Any]
     if is_png:
-        card = _extract_card_from_png(raw)
-    else:
-        try:
-            card = json.loads(raw.decode("utf-8", "ignore"))
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Card is not valid JSON: {exc}") from exc
+        return _extract_card_from_png(raw)
+
+    try:
+        return cast(dict[str, Any], json.loads(raw.decode("utf-8", "ignore")))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Card is not valid JSON: {exc}") from exc
+
+
+def parse_character_card_with_book(
+    raw: bytes,
+    *,
+    content_type: str = "",
+    filename: str = "",
+) -> tuple[CharacterCreate, list[LorebookEntryCreate], LorebookScanConfig]:
+    """Parse a JSON/PNG character card into a CharacterCreate plus embedded lorebook."""
+    card = _load_card_dict(raw, content_type=content_type, filename=filename)
 
     # v2/v3 nest everything under "data"; v1 cards are flat.
     data = card.get("data") if isinstance(card.get("data"), dict) else card
@@ -80,7 +95,6 @@ def parse_character_card(raw: bytes, *, content_type: str = "", filename: str = 
     if not name:
         raise ValueError("Card has no character name.")
 
-    # gm_notes carries the AI-facing guidance ST keeps in several fields.
     notes_parts = [
         str(data.get("system_prompt") or "").strip(),
         str(data.get("scenario") or "").strip(),
@@ -89,7 +103,7 @@ def parse_character_card(raw: bytes, *, content_type: str = "", filename: str = 
     ]
     gm_notes = "\n\n".join(p for p in notes_parts if p)[:8000]
 
-    return CharacterCreate(
+    character = CharacterCreate(
         name=name[:200],
         description=str(data.get("description") or data.get("char_persona") or "").strip(),
         personality=str(data.get("personality") or "").strip(),
@@ -99,9 +113,55 @@ def parse_character_card(raw: bytes, *, content_type: str = "", filename: str = 
         is_ooc_persona=False,
     )
 
+    book_data = parse_character_book_from_card(card)
+    entries: list[LorebookEntryCreate] = []
+    config = LorebookScanConfig()
+    if book_data is not None:
+        raw_entries, config = book_data
+        for raw_entry in raw_entries:
+            try:
+                entries.append(LorebookEntryCreate(**raw_entry))
+            except Exception:
+                # Defensive: skip malformed entries rather than failing the whole card.
+                continue
 
-def build_character_card(character: dict[str, Any]) -> dict[str, Any]:
-    """Serialize one of our characters into a chara_card_v2 object."""
+    return character, entries, config
+
+
+def parse_character_card(raw: bytes, *, content_type: str = "", filename: str = "") -> CharacterCreate:
+    """Parse a JSON or PNG character card into a CharacterCreate.
+
+    Backward-compatible wrapper that ignores any embedded ``character_book``.
+    Use ``parse_character_card_with_book`` to import lorebook entries too.
+    """
+    character, _, _ = parse_character_card_with_book(
+        raw, content_type=content_type, filename=filename
+    )
+    return character
+
+
+def build_character_card(
+    character: dict[str, Any],
+    *,
+    lorebook_entries: list[dict[str, Any]] | None = None,
+    scan_config: LorebookScanConfig | None = None,
+) -> dict[str, Any]:
+    """Serialize one of our characters into a chara_card_v2 object.
+
+    Args:
+        character: Serialized character dict from ``_serialise_character``.
+        lorebook_entries: Optional lorebook entries to embed as ``character_book``.
+        scan_config: Optional scan config to embed with the character book.
+    """
+    book: dict[str, Any] | None = None
+    if lorebook_entries is not None:
+        book = build_character_book(
+            lorebook_entries,
+            name=f"{character.get('name', '')} lorebook",
+            description="",
+            config=scan_config,
+        )
+
     return {
         "spec": "chara_card_v2",
         "spec_version": "2.0",
@@ -119,5 +179,6 @@ def build_character_card(character: dict[str, Any]) -> dict[str, Any]:
             "creator": "MONITOR",
             "character_version": "1.0",
             "alternate_greetings": [],
+            "character_book": book,
         },
     }
