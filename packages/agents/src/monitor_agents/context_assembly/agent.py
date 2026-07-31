@@ -110,6 +110,32 @@ def _entity_to_text(entity: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _unwrap_search_results(raw: Any) -> list[dict[str, Any]]:
+    """Normalize a ``qdrant_search`` MCP payload to a flat list of result dicts.
+
+    The server serializes ``VectorSearchResponse`` — a dict with a "results"
+    list — and each ``ScoredVector`` nests metadata under "payload". Callers
+    expect flat items (``text``/``chunk_id``/``score`` at top level), so unwrap
+    the envelope and merge payload keys up. Returns [] for anything unexpected.
+    """
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if isinstance(data, dict):
+        data = data.get("results") or []
+    if not isinstance(data, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        item = dict(item)
+        payload = item.pop("payload", None)
+        items.append({**payload, **item} if isinstance(payload, dict) else item)
+    return items
+
+
 class ContextAssembly(BaseAgent):
     """
     Assembles ranked, relevance-filtered context from all three data sources.
@@ -697,13 +723,9 @@ class ContextAssembly(BaseAgent):
         if not raw:
             self._cache_set_json(cache_key, [], ttl=self._ttl(short=True))
             return []
-        try:
-            memories = json.loads(raw) if isinstance(raw, str) else raw
-        except (json.JSONDecodeError, TypeError):
-            logger.warning("context_assembly: JSON parse failed for memories, returning []", exc_info=True)
-            return []
+        memories = _unwrap_search_results(raw)
         self._cache_set_json(cache_key, memories, ttl=self._ttl(short=True))
-        return cast(list[dict[str, Any]], memories)
+        return memories
 
     async def _fetch_recent_turns(self, scene_id: UUID) -> list[dict[str, Any]]:
         """Fetch recent turn history from MongoDB via MCP."""
@@ -793,16 +815,9 @@ class ContextAssembly(BaseAgent):
         if not raw:
             self._cache_set_json(cache_key, [], ttl=self._ttl(short=True))
             return []
-        try:
-            memories = json.loads(raw) if isinstance(raw, str) else raw
-        except (json.JSONDecodeError, TypeError):
-            logger.warning(
-                "context_assembly: JSON parse failed for memories (qdrant), returning []",
-                exc_info=True,
-            )
-            return []
+        memories = _unwrap_search_results(raw)
         self._cache_set_json(cache_key, memories, ttl=self._ttl(short=True))
-        return cast(list[dict[str, Any]], memories)
+        return memories
 
     async def _fetch_recent_conversation_turns(
         self,
@@ -873,13 +888,9 @@ class ContextAssembly(BaseAgent):
         if not raw:
             self._cache_set_json(cache_key, [], ttl=self._ttl(short=True))
             return []
-        try:
-            snippets = json.loads(raw) if isinstance(raw, str) else raw
-        except (json.JSONDecodeError, TypeError):
-            logger.warning("context_assembly: JSON parse failed for snippets, returning []", exc_info=True)
-            return []
+        snippets = _unwrap_search_results(raw)
         self._cache_set_json(cache_key, snippets, ttl=self._ttl(short=True))
-        return cast(list[dict[str, Any]], snippets)
+        return snippets
 
     async def _search_snippets_for_entities(
         self,
@@ -944,15 +955,7 @@ class ContextAssembly(BaseAgent):
         for raw in keyword_responses:
             if isinstance(raw, BaseException) or not raw:
                 continue
-            try:
-                results = json.loads(raw) if isinstance(raw, str) else raw
-            except (json.JSONDecodeError, TypeError):
-                logger.warning(
-                    "context_assembly: JSON parse failed for keyword search result, skipping",
-                    exc_info=True,
-                )
-                continue
-            for item in results:
+            for item in _unwrap_search_results(raw):
                 cid = item.get("chunk_id") or item.get("id") or str(item)
                 if cid not in seen_ids:
                     seen_ids.add(cid)

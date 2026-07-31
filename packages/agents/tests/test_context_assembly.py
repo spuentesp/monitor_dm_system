@@ -438,6 +438,36 @@ class TestFetchMemories:
 
         assert result == []
 
+    @pytest.mark.asyncio
+    async def test_unwraps_vector_search_response_envelope(self):
+        """Regression: the server returns VectorSearchResponse as a dict
+        {"results": [...]} — treating it as a list silently broke retrieval."""
+        agent = ContextAssembly.__new__(ContextAssembly)
+        envelope = {
+            "collection": "memories",
+            "count": 1,
+            "results": [{"id": str(uuid4()), "score": 0.9, "payload": {"text": "the guard patrols"}}],
+        }
+        agent.call_tool = AsyncMock(return_value=envelope)
+
+        result = await agent._fetch_memories(scene_id=uuid4(), story_id=uuid4(), query="guard")
+
+        assert len(result) == 1
+        # ScoredVector payload is flattened so consumers see text at top level.
+        assert result[0]["text"] == "the guard patrols"
+        assert result[0]["score"] == 0.9
+
+    @pytest.mark.asyncio
+    async def test_unwraps_json_string_envelope(self):
+        """Same unwrap when the payload arrives as a raw JSON string."""
+        agent = ContextAssembly.__new__(ContextAssembly)
+        envelope = {"results": [{"id": str(uuid4()), "score": 0.5, "payload": {"chunk_id": "c1"}}]}
+        agent.call_tool = AsyncMock(return_value=json.dumps(envelope))
+
+        result = await agent._fetch_memories(scene_id=uuid4(), story_id=uuid4(), query="q")
+
+        assert result == [{"chunk_id": "c1", "id": envelope["results"][0]["id"], "score": 0.5}]
+
 
 # ===========================================================================
 # assemble (public API)

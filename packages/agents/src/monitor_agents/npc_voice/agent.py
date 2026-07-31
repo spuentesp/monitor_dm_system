@@ -113,6 +113,7 @@ class NPCVoice(BaseAgent):
         *,
         universe_id: UUID | None = None,
         include_cross_incarnation: bool = False,
+        lorebook_context: list[str] | None = None,
     ) -> dict[str, Any]:
         """
         Generate a direct in-character NPC response.
@@ -131,6 +132,9 @@ class NPCVoice(BaseAgent):
                 recall and write to the legacy profile fields.
             include_cross_incarnation: Broadens recall beyond the current
                 incarnation. Only meaningful when universe_id is set.
+            lorebook_context: Contents of lorebook entries triggered for this
+                turn (scanned by the caller, which knows the character id).
+                Injected into the voice module as world facts.
 
         Returns:
             {
@@ -178,6 +182,7 @@ class NPCVoice(BaseAgent):
             active_triggers=json.dumps(active_triggers, default=str),
             conversation_history=history_text,
             profile_context=profile_context,
+            lorebook_context="\n".join(lorebook_context or []),
             player_said=player_said,
         )
 
@@ -401,14 +406,33 @@ class NPCVoice(BaseAgent):
         # a no-op (codex P2).
         if universe_id is not None and not include_cross_incarnation:
             search_kwargs["universe_id"] = str(universe_id)
-        if include_cross_incarnation:
-            search_kwargs["include_cross_incarnation"] = True
-
         # Wrap params per the data-layer tool contract (MemorySearchRequest).
         # Live e2e (Kvothe) surfaced that flat dicts fail Pydantic validation
         # in production; this restore is required.
         result = await self.call_tool("qdrant_search_memories", {"params": search_kwargs})
-        return result if isinstance(result, list) else []
+        # The server serializes MemorySearchResponse — a dict with a
+        # "results" list — not a bare list. Unwrap it; treating the dict as
+        # "no results" silently disabled recall in every conversation.
+        if isinstance(result, dict):
+            result = result.get("results") or []
+        if not isinstance(result, list):
+            return []
+        # Qdrant stores vectors only — text is NOT in the payload (storage
+        # optimization in qdrant_tools). Hydrate each hit from MongoDB so the
+        # LLM sees memory content instead of bare ids with text=None.
+        for item in result:
+            if not isinstance(item, dict) or item.get("text"):
+                continue
+            memory_id = item.get("memory_id")
+            if not memory_id:
+                continue
+            try:
+                doc = await self.call_tool("mongodb_get_memory", {"memory_id": str(memory_id)})
+            except Exception:
+                continue
+            if isinstance(doc, dict) and doc.get("text"):
+                item["text"] = doc["text"]
+        return result
 
     async def _get_story_context(self, npc_id: UUID) -> str:
         """Summarise recent facts about the NPC for actor mode."""

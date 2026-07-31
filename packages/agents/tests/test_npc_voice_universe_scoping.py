@@ -116,6 +116,43 @@ class TestRecallMemories:
         assert "include_cross_incarnation" not in captured["inner"]
 
     @pytest.mark.asyncio
+    async def test_recall_hydrates_text_from_mongodb(self, npc_id):
+        """Regression: Qdrant hits carry text=None by design — recall must
+        hydrate from MongoDB or the LLM sees contentless memory stubs."""
+        agent = NPCVoice()
+        memory_id = uuid4()
+        hits = [{"memory_id": str(memory_id), "entity_id": str(npc_id), "text": None, "score": 0.9}]
+
+        async def _call(name: str, params: dict[str, Any]) -> Any:
+            if name == "qdrant_search_memories":
+                return hits
+            if name == "mongodb_get_memory":
+                assert params["memory_id"] == str(memory_id)
+                return {"memory_id": str(memory_id), "text": "Player split a grudge over Widow's Reef."}
+            raise AssertionError(f"unexpected tool call: {name}")
+
+        agent.call_tool = _call  # type: ignore[method-assign]
+        result = await agent._recall_memories(npc_id, "widow's reef")
+        assert result[0]["text"] == "Player split a grudge over Widow's Reef."
+
+    @pytest.mark.asyncio
+    async def test_recall_tolerates_hydration_failure(self, npc_id):
+        """A missing/failed Mongo fetch must not break recall."""
+        agent = NPCVoice()
+
+        async def _call(name: str, params: dict[str, Any]) -> Any:
+            if name == "qdrant_search_memories":
+                return [{"memory_id": str(uuid4()), "entity_id": str(npc_id), "text": None, "score": 0.8}]
+            if name == "mongodb_get_memory":
+                raise RuntimeError("mongo down")
+            raise AssertionError(f"unexpected tool call: {name}")
+
+        agent.call_tool = _call  # type: ignore[method-assign]
+        result = await agent._recall_memories(npc_id, "anything")
+        assert len(result) == 1
+        assert result[0]["text"] is None
+
+    @pytest.mark.asyncio
     async def test_passes_universe_id_when_provided(self, npc_id, universe_id):
         agent = NPCVoice()
         captured: dict[str, Any] = {}
@@ -130,7 +167,9 @@ class TestRecallMemories:
         assert "include_cross_incarnation" not in captured["inner"]
 
     @pytest.mark.asyncio
-    async def test_include_cross_incarnation_flag_is_forwarded(self, npc_id, universe_id):
+    async def test_cross_incarnation_drops_universe_filter(self, npc_id, universe_id):
+        """Cross-incarnation recall broadens by OMITTING universe_id — there is
+        no include_cross_incarnation field on MemorySearchRequest."""
         agent = NPCVoice()
         captured: dict[str, Any] = {}
 
@@ -145,7 +184,35 @@ class TestRecallMemories:
             universe_id=universe_id,
             include_cross_incarnation=True,
         )
-        assert captured["inner"]["include_cross_incarnation"] is True
+        assert "universe_id" not in captured["inner"]
+        assert "include_cross_incarnation" not in captured["inner"]
+
+    @pytest.mark.asyncio
+    async def test_recall_unwraps_response_envelope(self, npc_id):
+        """Regression: the server serializes MemorySearchResponse as a dict
+        {"results": [...]} — treating it as "not a list" silently disabled
+        recall in every conversation (live Bug E)."""
+        agent = NPCVoice()
+        memory_id = uuid4()
+        envelope = {
+            "results": [
+                {"memory_id": str(memory_id), "entity_id": str(npc_id), "text": None, "score": 0.9}
+            ],
+            "query": "widow's reef",
+            "top_k": 5,
+        }
+
+        async def _call(name: str, params: dict[str, Any]) -> Any:
+            if name == "qdrant_search_memories":
+                return envelope
+            if name == "mongodb_get_memory":
+                return {"memory_id": str(memory_id), "text": "Player split a grudge over Widow's Reef."}
+            raise AssertionError(f"unexpected tool call: {name}")
+
+        agent.call_tool = _call  # type: ignore[method-assign]
+        result = await agent._recall_memories(npc_id, "widow's reef")
+        assert len(result) == 1
+        assert result[0]["text"] == "Player split a grudge over Widow's Reef."
 
 
 # ---------------------------------------------------------------------------
@@ -440,9 +507,11 @@ class TestRespondDirectThreading:
         )
 
         # When include_cross_incarnation=True, universe_id is NOT passed to
-        # recall so the search spans all universes for this NPC.
+        # recall so the search spans all universes for this NPC. There is no
+        # include_cross_incarnation field on MemorySearchRequest — omission of
+        # universe_id IS the broadening mechanism.
         assert "universe_id" not in captured["recall"]
-        assert captured["recall"]["include_cross_incarnation"] is True
+        assert "include_cross_incarnation" not in captured["recall"]
 
 
 # ---------------------------------------------------------------------------

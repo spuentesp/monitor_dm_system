@@ -461,12 +461,13 @@ class TestRecallMemoriesMutation:
         assert result == []
 
     def test_cross_incarnation_without_universe_id(self, agent, npc_id):
-        """Cross-incarnation flag alone (no universe_id) must be sent through.
-        Mutation: gate the flag on `universe_id is not None`."""
+        """Cross-incarnation broadening works by OMITTING universe_id — there is
+        no include_cross_incarnation field on MemorySearchRequest, so nothing
+        extra should leak into the tool kwargs either."""
         asyncio.run(agent._recall_memories(npc_id, "q", include_cross_incarnation=True))
         call = _captured["qdrant_search_memories"][-1]
-        assert call.get("include_cross_incarnation") is True
         assert "universe_id" not in call
+        assert "include_cross_incarnation" not in call
 
 
 # ---------------------------------------------------------------------------
@@ -497,10 +498,11 @@ class TestRespondDirectThreadingMutations:
                 )
             )
         recall = _captured.get("qdrant_search_memories", [{}])[-1]
-        assert recall.get("include_cross_incarnation") is True
         # universe_id is omitted when include_cross_incarnation=True so the
-        # recall spans all universes for this NPC (not scoped to one).
+        # recall spans all universes for this NPC (not scoped to one). The
+        # flag itself is not a MemorySearchRequest field and must not leak.
         assert "universe_id" not in recall
+        assert "include_cross_incarnation" not in recall
 
     def test_explicit_include_cross_incarnation_false_not_in_kwargs(self, agent, npc_data, npc_id, player_id, conv_id):
         """Sanity: explicit False must NOT land in the qdrant kwargs."""
