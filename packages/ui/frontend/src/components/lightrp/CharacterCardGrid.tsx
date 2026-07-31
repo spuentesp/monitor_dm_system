@@ -3,6 +3,7 @@
 import { Brain, MessageCircle, MoreVertical, Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { apiUrl } from "@/lib/api";
+import { useDismissRef } from "@/lib/useDismissRef";
 import type { StandaloneCharacter } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,8 @@ export function CharacterCardGrid({
   onDelete: (c: StandaloneCharacter) => void;
 }) {
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // One open menu at a time — the ref is attached to the card that owns it.
+  const menuRef = useDismissRef<HTMLDivElement>(() => setMenuFor(null), menuFor !== null);
 
   if (characters.length === 0) {
     return (
@@ -34,7 +37,11 @@ export function CharacterCardGrid({
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {characters.map((c) => (
-        <div key={c.id} className="glass relative flex flex-col gap-3 rounded-2xl p-4">
+        <div
+          key={c.id}
+          ref={menuFor === c.id ? menuRef : undefined}
+          className="glass relative flex flex-col gap-3 rounded-2xl p-4"
+        >
           <div className="flex items-start gap-3">
             {c.avatar_url ? (
               // eslint-disable-next-line @next/next/no-img-element

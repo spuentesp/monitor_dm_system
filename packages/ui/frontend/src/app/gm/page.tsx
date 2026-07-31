@@ -28,6 +28,7 @@ import {
 import { entitiesApi, ingestApi, universesApi, gmApi, storiesApi } from "@/lib/api";
 import type { PlotHook, Contradiction, SessionPrep, Handout, StoryThread } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useDismissRef } from "@/lib/useDismissRef";
 import { SessionRecorder } from "@/components/gm/SessionRecorder";
 import { AskTheWorldPanel } from "@/components/gm/AskTheWorldPanel";
 import { useGmPanelPrefs, visibleOrderedPanels } from "@/lib/gm-panel-prefs";
@@ -1119,6 +1120,7 @@ function GMAssistantPageContent() {
   const [centerTab, setCenterTab] = useState<"recorder" | "notebook">("recorder");
   const { prefs, toggleHidden, move } = useGmPanelPrefs();
   const [customizeOpen, setCustomizeOpen] = useState(false);
+  const customizeRef = useDismissRef<HTMLDivElement>(() => setCustomizeOpen(false), customizeOpen);
   const visibleToolPanels = visibleOrderedPanels(TOOL_PANEL_IDS, prefs);
   // A hidden/non-tool active panel falls back to the first visible tool panel.
   const effectiveToolPanel: GMPanel | null = visibleToolPanels.includes(activePanel)
@@ -1277,15 +1279,16 @@ function GMAssistantPageContent() {
                   {label}
                 </button>
               ))}
-              <button
-                onClick={() => setCustomizeOpen((o) => !o)}
-                aria-label="Customize panels"
-                className="ml-auto flex-shrink-0 text-slate-600 hover:text-slate-300"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-              </button>
-              {customizeOpen && (
-                <div className="absolute right-2 top-9 z-20 w-52 rounded-lg border border-white/10 bg-slate-900/95 p-2 shadow-xl">
+              <div ref={customizeRef} className="contents">
+                <button
+                  onClick={() => setCustomizeOpen((o) => !o)}
+                  aria-label="Customize panels"
+                  className="ml-auto flex-shrink-0 text-slate-600 hover:text-slate-300"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                </button>
+                {customizeOpen && (
+                  <div className="absolute right-2 top-9 z-20 w-52 rounded-lg border border-white/10 bg-slate-900/95 p-2 shadow-xl">
                   {GM_PANELS.filter((p) => TOOL_PANEL_IDS.includes(p.id)).map(({ id, label }) => (
                     <div key={id} className="flex items-center gap-1.5 py-0.5">
                       <input
@@ -1316,6 +1319,7 @@ function GMAssistantPageContent() {
                   ))}
                 </div>
               )}
+              </div>
             </div>
             <div className="flex-1 overflow-hidden">
               {visibleToolPanels.length === 0 ? (
