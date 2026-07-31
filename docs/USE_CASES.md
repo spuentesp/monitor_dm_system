@@ -71,3 +71,23 @@ See the [documentation map](./_index.md) for core objectives (O1-O5) and epics (
 | **Epic 9** — Docs | DOC-1 | [epic-9-docs-DOC/](use-cases/epic-9-docs-DOC/) |
 | **Epic 10** — Packs | MP-1 to MP-9 | [epic-10-packs-MP/](use-cases/epic-10-packs-MP/) |
 | **Epic 11** — System | SYS-1 to SYS-12 | [epic-11-system-SYS/](use-cases/epic-11-system-SYS/) |
+
+---
+
+## Two-Tier Hub Surface (2026-07-31 UI redesign)
+
+The web UI is organized as a two-tier hub: a **Lobby** at `/` for picking up
+play quickly, and a **Workbench** (`/forge`, `/gm`) for world-building and GM
+assistance. This surface reuses existing use cases; no new UC IDs were added.
+Design spec: `docs/superpowers/specs/2026-07-31-ui-two-tier-hub-design.md`.
+
+| Surface | What it does | Backing use cases / endpoints |
+|---------|--------------|-------------------------------|
+| **Lobby** (`/`) | Continue-playing rail, universe card grid (playable state + latest story), New Campaign wizard | `GET /api/universes/universes`, `GET /api/chat`, `GET /api/stories` (P-, DL-) |
+| **Light RP** (`/light-rp`) | Story-less 1:1 chats with roster character cards; import/export chara_card_v2 | `POST/GET /api/entities/characters/{id}/conversations` (M-31 / Character Versions) |
+| **Image generation** | "Generate portrait" on cards, "Generate scene image" in chat; images stored in MinIO, `avatar_url` holds the object key | `POST /api/image/portrait`, `POST /api/image/scene`, `GET /api/image/avatar/{id}` (`routers/image_gen.py` + `monitor_data/llm/image_providers.py`) |
+| **Configuration** (`/config`) | LLM provider registry incl. the assignable `image` role per provider | existing LLM registry UI (`/api/llm`, SYS-) |
+
+End-to-end coverage: `tests/e2e/test_05_lobby_lightrp_image.py` (gated;
+`RUN_INTEGRATION=1 RUN_E2E=1`). Future use cases recorded in the spec (light-RP
+chats feeding world data, memory inspector) are intentionally not implemented.

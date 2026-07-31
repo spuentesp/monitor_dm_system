@@ -159,4 +159,7 @@ curl -s -X POST http://localhost:9999/mcp -H "Content-Type: application/json" \
 | CanonKeeper agent | \`packages/agents/src/monitor_agents/canonkeeper.py\` | 2 |
 | Scene loop | \`packages/agents/src/monitor_agents/loops/scene_loop.py\` | 2 |
 | Play command | \`packages/cli/src/monitor_cli/commands/play.py\` | 3 |
+| Image provider adapters | \`packages/data-layer/src/monitor_data/llm/image_providers.py\` | 1 |
+| Image generation endpoints | \`packages/ui/backend/src/monitor_ui/routers/image_gen.py\` | UI |
+| Configuration page (\`/config\`) | \`packages/ui/frontend/src/app/config/page.tsx\` | UI |
 

@@ -71,7 +71,7 @@ packages/data-layer/
     ├── schemas/          # Pydantic v2 models (facts, entities, CanonLevel, ...)
     ├── middleware/       # Authority checks for write tools (auth.py)
     ├── retrieval/        # Retrieval service
-    ├── llm/              # LLM provider clients/config
+    ├── llm/              # LLM provider clients/config + image_providers.py
     ├── contracts/        # Cross-layer data contracts
     ├── invariants/       # Invariant checks
     ├── initialization/   # Bootstrap/seed logic
@@ -130,10 +130,13 @@ packages/ui/
 │       ├── main.py, config.py, watchdog.py
 │       └── routers/        # REST/WebSocket routers; chat_ws.py drives SceneLoop
 │                           #   (chat*, ingest*, entities*, universes, stories,
-│                           #    canon_review, forge, pack_library, gm_tools, ...)
+│                           #    canon_review, forge, pack_library, gm_tools,
+│                           #    image_gen, ...)
 └── frontend/               # Next.js + TypeScript + Tailwind
     ├── package.json, next.config.ts, playwright.config.ts, vitest.config.ts, Dockerfile
     ├── src/                # app/, components/, features/, hooks/, lib/
+    │                       #   two-tier hub routes: / (Lobby), /light-rp (Light RP),
+    │                       #   /forge + /gm (Workbench), /config (Configuration)
     └── e2e/                # Playwright tests
 ```
 
