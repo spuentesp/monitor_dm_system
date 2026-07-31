@@ -27,6 +27,7 @@ from monitor_ui.routers import (
     gm_notes,
     gm_tools,
     graph,
+    image_gen,
     ingest,
     jobs_health,
     llm_mgmt,
@@ -266,6 +267,7 @@ def create_app() -> FastAPI:
     app.include_router(stories.router, prefix="/api/stories", tags=["stories"])
     app.include_router(stories.scenes_router, prefix="/api", tags=["scenes"])
     app.include_router(forge.router, prefix="/api/forge", tags=["forge"])
+    app.include_router(image_gen.router, prefix="/api/image", tags=["image"])
     app.include_router(templates.router, prefix="/api", tags=["templates"])
     app.include_router(gm_tools.router, prefix="/api", tags=["gm-tools"])
     app.include_router(gm_notes.router, prefix="/api", tags=["gm-notes"])

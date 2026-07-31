@@ -69,12 +69,16 @@ class ModelRole(StrEnum):
                memory indexing, proposed-change evaluation).
     HEAVY    — most capable: narrative generation (Narrator), final canon
                evaluation (CanonKeeper), long-form story reasoning.
+    EMBEDDING — vector embeddings.
+    IMAGE    — image generation (portraits, scene illustrations); resolved
+               by monitor_data.llm.image_providers, not by the chat registry.
     """
 
     LIGHT = "light"
     STANDARD = "standard"
     HEAVY = "heavy"
     EMBEDDING = "embedding"
+    IMAGE = "image"
 
     @classmethod
     def coerce(cls, value: ModelRole | str | None) -> ModelRole | None:

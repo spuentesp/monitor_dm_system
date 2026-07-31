@@ -143,6 +143,7 @@ AVAILABLE_MODELS: dict[str, list[str]] = {
     "google_ai_studio": [
         "gemini-2.5-flash",
         "gemini-2.5-pro",
+        "gemini-2.5-flash-image",
         "gemini-2.0-flash",
         "gemini-1.5-pro",
     ],
@@ -174,6 +175,7 @@ AVAILABLE_MODELS: dict[str, list[str]] = {
         "MiniMax-M2.7",
         "M2-her",
         "MiniMax-Text-01",
+        "image-01",
         "abab6.5s-chat",
         "abab6.5g-chat",
         "abab5.5s-chat",
