@@ -117,7 +117,7 @@ function AddProviderForm({
     api_key: "",
     base_url: "",
     is_default: false,
-    role: "standard" as "light" | "standard" | "heavy" | "embedding",
+    role: "standard" as "light" | "standard" | "heavy" | "embedding" | "image",
   });
 
   const models = availableModels(form.provider);
@@ -248,13 +248,15 @@ function AddProviderForm({
           <label className="text-xs text-slate-500">Role tier</label>
           <select
             value={form.role}
-            onChange={(e) => setForm({ ...form, role: e.target.value as "light" | "standard" | "heavy" | "embedding" })}
+            onChange={(e) => setForm({ ...form, role: e.target.value as "light" | "standard" | "heavy" | "embedding" | "image" })}
             className="input-cyber"
+            aria-label="Role tier"
           >
             <option value="light">Light — fast/cheap tasks</option>
             <option value="standard">Standard — balanced</option>
             <option value="heavy">Heavy — most capable</option>
             <option value="embedding">Embedding — vector embeddings</option>
+            <option value="image">Image — image generation</option>
           </select>
         </div>
       </div>
@@ -309,6 +311,7 @@ const ROLE_COLORS: Record<string, string> = {
   standard: "text-amber-300 bg-amber-500/10 border-amber-500/20",
   heavy: "text-rose-300 bg-rose-500/10 border-rose-500/20",
   embedding: "text-teal-300 bg-teal-500/10 border-teal-500/20",
+  image: "text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-500/20",
 };
 
 function ProviderCard({ conn, models }: { conn: LLMConnection; models: string[] }) {
@@ -436,6 +439,7 @@ function ProviderCard({ conn, models }: { conn: LLMConnection; models: string[] 
               <option value="standard">Standard — balanced</option>
               <option value="heavy">Heavy — most capable</option>
               <option value="embedding">Embedding — vector embeddings</option>
+              <option value="image">Image — image generation</option>
             </select>
           </div>
         ) : (
@@ -538,6 +542,7 @@ const TIER_META: Record<string, { label: string; desc: string; colors: string }>
   heavy:    { label: "Heavy",    desc: "Complex reasoning, narration, canon decisions",  colors: "text-rose-300 bg-rose-500/10 border-rose-500/25" },
   standard: { label: "Standard", desc: "Balanced tasks, NPC dialogue, world queries",    colors: "text-amber-300 bg-amber-500/10 border-amber-500/25" },
   light:    { label: "Light",    desc: "Fast/cheap tasks: intent parsing, context prep",  colors: "text-sky-300 bg-sky-500/10 border-sky-500/25" },
+  image:    { label: "Image",    desc: "Portraits & scene illustrations",                 colors: "text-fuchsia-300 bg-fuchsia-500/10 border-fuchsia-500/25" },
 };
 
 function TierAssignment({ providers }: { providers: LLMConnection[] }) {
@@ -561,7 +566,7 @@ function TierAssignment({ providers }: { providers: LLMConnection[] }) {
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Tier Assignment</p>
         <span className="text-xs text-slate-600 ml-1">— primary provider for each task complexity</span>
       </div>
-      {(["heavy", "standard", "light"] as const).map((tier) => {
+      {(["heavy", "standard", "light", "image"] as const).map((tier) => {
         const meta = TIER_META[tier];
         const current = primaryFor(tier);
         const othersCount = providers.filter(p => p.role === tier && p.id !== current?.id).length;
