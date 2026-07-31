@@ -955,6 +955,31 @@ async def list_characters(system_id: str) -> list[Character]:
 # ---------------------------------------------------------------------------
 
 
+def _character_entity_ids(char: dict[str, Any]) -> list[str]:
+    """All entity ids a standalone character's memories may be filed under.
+
+    Light-RP conversations write memories against the incarnation's
+    per-universe entity id (versions[].entity_id), not the character id.
+    """
+    ids = [str(v["entity_id"]) for v in char.get("versions", []) or [] if v.get("entity_id")]
+    if char.get("entity_id"):
+        ids.append(str(char["entity_id"]))
+    return ids
+
+
+def _count_character_memories(entity_ids: list[str]) -> int:
+    """Live memory count across a character's incarnation entity ids."""
+    if not entity_ids:
+        return 0
+    try:
+        from monitor_data.db.mongodb import get_mongodb_client
+
+        coll = get_mongodb_client().get_collection("character_memories")
+        return int(coll.count_documents({"entity_id": {"$in": entity_ids}}))
+    except Exception:
+        return 0
+
+
 def _serialise_character(doc: dict) -> dict:    # type: ignore
     """Convert MongoDB document fields to JSON-safe strings for CharacterDetail.
 
@@ -981,6 +1006,9 @@ def _serialise_character(doc: dict) -> dict:    # type: ignore
                 nv[ts_field] = str(ts)
         out_versions.append(nv)
     doc["versions"] = out_versions
+    # Memory badge: count live from character_memories (the doc's stored
+    # memory_count is only ever reset, never incremented on writes).
+    doc["memory_count"] = _count_character_memories(_character_entity_ids(doc))
     return doc
 
 
@@ -1145,15 +1173,15 @@ async def get_character_memories(
     char = _get_character_doc(character_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
-    entity_id = char.get("entity_id")
-    if not entity_id:
+    entity_ids = _character_entity_ids(char)
+    if not entity_ids:
         return {"memories": [], "total": 0}
 
     try:
         from monitor_data.db.mongodb import get_mongodb_client
 
-        coll = get_mongodb_client().get_collection("memories")
-        query: dict[str, Any] = {"entity_id": entity_id}
+        coll = get_mongodb_client().get_collection("character_memories")
+        query: dict[str, Any] = {"entity_id": {"$in": entity_ids}}
         if min_importance > 0:
             query["importance"] = {"$gte": min_importance}
         total = coll.count_documents(query)
@@ -1182,13 +1210,15 @@ async def clear_character_memories(character_id: str) -> None:
     char = _get_character_doc(character_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
-    entity_id = char.get("entity_id")
-    if not entity_id:
+    entity_ids = _character_entity_ids(char)
+    if not entity_ids:
         return
     try:
         from monitor_data.db.mongodb import get_mongodb_client
 
-        get_mongodb_client().get_collection("memories").delete_many({"entity_id": entity_id})
+        get_mongodb_client().get_collection("character_memories").delete_many(
+            {"entity_id": {"$in": entity_ids}}
+        )
         _increment_memory_count(character_id, delta=-char.get("memory_count", 0))
     except Exception:
         pass
