@@ -6,6 +6,7 @@ import { Upload } from "lucide-react";
 import { entitiesApi, imageApi } from "@/lib/api";
 import { CharacterChat } from "@/components/characters/CharacterChat";
 import { CharacterCardGrid } from "@/components/lightrp/CharacterCardGrid";
+import { RecentChatsRail } from "@/components/lightrp/RecentChatsRail";
 import { useNotify } from "@/components/NotificationProvider";
 import { errorMessage } from "@/lib/errors";
 import type { StandaloneCharacter } from "@/lib/types";
@@ -107,12 +108,15 @@ export default function LightRpPage() {
           </button>
         </div>
       ) : (
-        <CharacterCardGrid
-          characters={charactersQ.data ?? []}
-          onChat={setActive}
-          onGeneratePortrait={(c) => void generatePortrait(c)}
-          onDelete={(c) => void deleteChar(c)}
-        />
+        <>
+          <RecentChatsRail characters={charactersQ.data ?? []} />
+          <CharacterCardGrid
+            characters={charactersQ.data ?? []}
+            onChat={setActive}
+            onGeneratePortrait={(c) => void generatePortrait(c)}
+            onDelete={(c) => void deleteChar(c)}
+          />
+        </>
       )}
     </div>
   );

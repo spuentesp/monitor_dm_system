@@ -54,6 +54,7 @@ function renderPage() {
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(api.entitiesApi, "listStandaloneCharacters").mockResolvedValue([char]);
+  vi.spyOn(api.entitiesApi, "listCharacterConversations").mockResolvedValue([]);
 });
 
 describe("/light-rp", () => {
@@ -134,5 +135,27 @@ describe("/light-rp", () => {
     await user.click(screen.getByRole("button", { name: /delete/i }));
     await user.click(await screen.findByRole("button", { name: /confirm/i }));
     expect(del).toHaveBeenCalledWith("c-1");
+  });
+
+  it("shows a recent-chats rail with turn count, status and age", async () => {
+    vi.spyOn(api.entitiesApi, "listCharacterConversations").mockResolvedValue([
+      {
+        conversation_id: "conv-1",
+        status: "ended",
+        turn_count: 4,
+        created_at: "2026-07-30T10:00:00Z",
+        updated_at: "2026-07-31T09:00:00Z",
+      },
+    ]);
+    renderPage();
+    const rail = await screen.findByRole("region", { name: /recent chats/i });
+    expect(rail).toHaveTextContent("Wisp");
+    expect(rail).toHaveTextContent("4 turns · ended");
+  });
+
+  it("hides the recent-chats rail when there are no conversations", async () => {
+    renderPage();
+    expect(await screen.findByText("Wisp")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /recent chats/i })).not.toBeInTheDocument();
   });
 });
