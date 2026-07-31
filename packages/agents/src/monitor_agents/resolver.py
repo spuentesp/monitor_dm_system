@@ -595,6 +595,15 @@ class Resolver(BaseAgent):
         scene_context_for_awareness.setdefault("entities", [])
         scene_context_for_awareness.setdefault("turns", [])
         scene_context_for_awareness.setdefault("source_profile", {})
+        # Session-Zero table agreements (lines and veils) are session-scoped
+        # player constraints, not canon. The GMAgent and downstream nar-
+        # rative nodes must see them so prompt instructions can override
+        # the LLM's normal willingness to depict restricted content.
+        if "agreements" not in scene_context_for_awareness:
+            scene_context_for_awareness["agreements"] = {
+                "lines": [],
+                "veils": [],
+            }
 
         established_facts: list[str] = []
         sp = scene_context_for_awareness.get("source_profile") or {}

@@ -19,7 +19,8 @@ monolithic orchestrator. Each loop lives in
 - **[Conversation Loop](./conversation_loop.md)** — deep multi-turn NPC dialogue.
 
 ## Setup & character loops
-- **[Session Zero Loop](./session_zero_loop.md)** — story-first character interview.
+- **[Character Interview Loop](./character_interview_loop.md)** — story-first character interview (the *who* of the player character).
+- **[Story Agreements Loop](./story_agreements_loop.md)** — three-question Session Zero agreement interview (premise, themes, lines, veils).
 - **[Character Creation Loop](./character_creation_loop.md)** — schema-driven build.
 - **[Progression Loop](./progression_loop.md)** — advancement / level-up.
 - **[World-Building Loop](./world_building_loop.md)** — collaborative setting creation.

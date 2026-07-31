@@ -455,6 +455,8 @@ class CharacterCreationLoop:
         game_context: dict[str, Any],
         scene_id: UUID | None = None,
         story_id: UUID | None = None,
+        *,
+        seed: dict[str, Any] | None = None,
     ) -> None:
         self._game_context = game_context
         self._scene_id = scene_id
@@ -465,11 +467,21 @@ class CharacterCreationLoop:
             story_id=story_id,
             game_context=game_context,
         )
+        # Apply a Session Zero handoff (or any pre-known character profile)
+        # exactly once at construction. The seed is only honoured when the
+        # loop has not already started collecting answers.
+        self._initial_seed = _normalise_initial_seed(seed)
 
     async def start(self) -> dict[str, Any]:
         """Initialize the loop and return the first GM prompt."""
         result = load_system(self._state)
         self._state = self._state.model_copy(update=result)
+
+        if self._initial_seed:
+            self._state = self._state.model_copy(update=_apply_initial_seed(self._state, self._initial_seed))
+            # Once consumed the seed is single-use so future starts on a
+            # cached loop do not overwrite any in-flight player progress.
+            self._initial_seed = {}
 
         if self._state.creation_complete:
             return {
@@ -680,6 +692,88 @@ def _safe_json_object(raw: str) -> dict[str, Any]:
     except (json.JSONDecodeError, TypeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _normalise_initial_seed(seed: dict[str, Any] | None) -> dict[str, Any]:
+    """Coerce arbitrary Session Zero shapes into the seed fields the loop understands.
+
+    Accepts either a flat dict or a `SessionZeroSummary.model_dump()` payload
+    and returns a small, deterministic mapping with non-empty string values.
+    Empty inputs collapse to `{}` so callers can safely pass `seed=summary`
+    regardless of shape.
+    """
+    if not isinstance(seed, dict):
+        return {}
+    normalised: dict[str, Any] = {}
+
+    name = seed.get("character_name") or seed.get("name") or seed.get("speaker_label")
+    if isinstance(name, str) and name.strip():
+        normalised["character_name"] = name.strip()
+
+    concept = seed.get("concept") or seed.get("pending_character_concept")
+    if isinstance(concept, str) and concept.strip():
+        normalised["concept"] = concept.strip()
+
+    backstory = seed.get("backstory")
+    if isinstance(backstory, str) and backstory.strip():
+        normalised["backstory"] = backstory.strip()
+
+    return normalised
+
+
+def _is_name_step(step: dict[str, Any]) -> bool:
+    """True if a creation step is the canonical 'Character Name' prompt."""
+    step_type = (step.get("step_type") or step.get("type") or "").lower()
+    if step_type in ("choose_name", "name"):
+        return True
+    title = (step.get("title") or "").strip().lower()
+    return title == "character name"
+
+
+def _apply_initial_seed(state: CharacterCreationState, seed: dict[str, Any]) -> dict[str, Any]:
+    """Apply a Session Zero handoff to the freshly-loaded character-creation state.
+
+    - Records the seeded name/concept/backstory on the state so they survive
+      the loop's final character build.
+    - Advances past the first `choose_name` step when a name is already known,
+      so the GM does not re-ask a question the player already answered.
+    - Leaves every other creation step in place.
+    """
+    if not seed:
+        return {}
+
+    updates: dict[str, Any] = {}
+    if seed.get("character_name") and not state.character_name:
+        updates["character_name"] = seed["character_name"]
+    if seed.get("concept") and not state.concept:
+        updates["concept"] = seed["concept"]
+
+    character_data = dict(state.character_data or {})
+    if seed.get("backstory") and not character_data.get("backstory"):
+        character_data["backstory"] = seed["backstory"]
+    if seed.get("concept") and not character_data.get("concept"):
+        character_data["concept"] = seed["concept"]
+    if character_data:
+        updates["character_data"] = character_data
+
+    # Advance past the canonical name step when the seed carries one.
+    if seed.get("character_name") and state.creation_steps:
+        idx = state.current_step_index
+        steps = list(state.creation_steps)
+        # Consume up to one contiguous name step at the current index.
+        consumed = 0
+        while idx + consumed < len(steps) and _is_name_step(steps[idx + consumed]):
+            consumed += 1
+            break  # only skip the first name step
+        if consumed:
+            new_idx = min(idx + consumed, len(steps) - 1)
+            updates["current_step_index"] = new_idx
+            if new_idx >= len(steps) - 1:
+                # Landed on the final step after the skip; keep that step open
+                # so the player still interacts with whatever follows the name.
+                pass
+
+    return updates
 
 
 async def _extract_attribute_and_resource_assignments(

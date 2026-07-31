@@ -146,6 +146,7 @@ def scene_loop_signature(
     story_id: str,
 ) -> tuple[Any, ...]:
     actor_id = as_uuid(session.get("speaker_character_id") or session.get("character_id"))
+    agreements_lines, agreements_veils = _session_agreements(session)
     return (
         scene_id,
         story_id,
@@ -158,6 +159,8 @@ def scene_loop_signature(
         session.get("tone", "dramatic"),
         session.get("gm_profile_id"),
         session.get("roll_model", "tap"),
+        tuple(agreements_lines),
+        tuple(agreements_veils),
     )
 
 
@@ -188,6 +191,22 @@ def _build_story_state_dict(session: dict[str, Any], *, story_id: str) -> dict[s
     return story_state
 
 
+def _session_agreements(session: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Return the Session-Zero ``lines`` and ``veils`` arrays for a session.
+
+    Agreements live on ``session["story_agreements"]`` (set by
+    ``finalize_preplay``). When the player skipped Session Zero, the field
+    is present but may be empty, which is the same default as a fully
+    unanswered interview.
+    """
+    raw = session.get("story_agreements")
+    if not isinstance(raw, dict):
+        return [], []
+    lines = [str(item).strip() for item in (raw.get("lines") or []) if str(item).strip()]
+    veils = [str(item).strip() for item in (raw.get("veils") or []) if str(item).strip()]
+    return lines, veils
+
+
 def get_scene_loop(
     session_id: str,
     session: dict[str, Any],
@@ -201,6 +220,8 @@ def get_scene_loop(
     if cached and cached[0] == signature:
         _SCENE_LOOPS.move_to_end(session_id)
         return cached[1]
+
+    agreements_lines, agreements_veils = _session_agreements(session)
 
     # Load GM profile if configured
     gm_profile_dict: dict[str, Any] | None = None
@@ -230,6 +251,8 @@ def get_scene_loop(
         # "manual" pause for the player (propose_roll → dice prompt).
         roll_mode="auto" if session.get("roll_model") == "gm" else "normal",
         story_state=_build_story_state_dict(session, story_id=story_id),
+        agreements_lines=agreements_lines,
+        agreements_veils=agreements_veils,
     )
     _SCENE_LOOPS[session_id] = (signature, loop)
     _SCENE_LOOPS.move_to_end(session_id)
@@ -256,9 +279,13 @@ def pop_character_creation_loop(session_id: str) -> None:
 
 def pop_session_zero_loop(session_id: str) -> None:
     try:
-        from monitor_agents.loops.preplay_orchestrator import _SESSION_ZERO_LOOPS
+        from monitor_agents.loops.preplay_orchestrator import (
+            _CHARACTER_INTERVIEW_LOOPS,
+            _STORY_AGREEMENT_LOOPS,
+        )
 
-        _SESSION_ZERO_LOOPS.pop(session_id, None)
+        _CHARACTER_INTERVIEW_LOOPS.pop(session_id, None)
+        _STORY_AGREEMENT_LOOPS.pop(session_id, None)
     except ImportError:
         pass
 
@@ -286,7 +313,13 @@ async def run_preplay_turn(
     world_lore = []
     system_context = ""
 
-    if session.get("phase", "awaiting_character") == "session_zero":
+    phase = session.get("phase", "character_interview")
+    legacy_character_interview = (
+        phase == "session_zero"
+        and not session.get("character_id")
+        and not session.get("story_agreements_started")
+    )
+    if phase in {"character_interview", "awaiting_character"} or legacy_character_interview:
         from .chat_opening import fetch_opening_hook
 
         try:
@@ -296,7 +329,7 @@ async def run_preplay_turn(
             logger.debug("Failed to fetch opening hook for session zero: %s", exc)
 
         try:
-            from monitor_agents.session_zero import ground_world_lore
+            from monitor_agents.character_interview import ground_world_lore
 
             world_lore = ground_world_lore(world_lore, session.get("system_label") or "", system_context)
         except Exception as exc:

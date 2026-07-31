@@ -65,16 +65,32 @@ def bootstrap_story_scene(
 
     story_id = session.get("story_id")
     scene_id = session.get("scene_id")
-    pc_uuid = as_uuid(session.get("character_id"))
-    pc_ids = [pc_uuid] if pc_uuid else []
+    character_ids = [
+        session.get("character_id"),
+        *(session.get("controlled_character_ids") or []),
+    ]
+    pc_ids = list(
+        dict.fromkeys(
+            character_id
+            for value in character_ids
+            if (character_id := as_uuid(value)) is not None
+        )
+    )
 
     try:
         if not story_id:
-            theme = f"{session.get('tone', 'dramatic')} {str(session.get('mode', 'autonomous_gm')).replace('_', ' ')}".strip()
-            premise = (
-                "Session started from the Play Console. "
-                "The story should continue from player chat input and persist accepted changes in this universe."
-            )
+            agreements = session.get("story_agreements") or {}
+            agreed_themes = agreements.get("themes") if isinstance(agreements, dict) else []
+            theme_parts = [session.get("tone", "dramatic"), *(agreed_themes or [])]
+            theme = " ".join(
+                str(part).strip() for part in theme_parts if str(part).strip()
+            )[:500]
+            premise = str(
+                (agreements.get("story_premise") if isinstance(agreements, dict) else None)
+                or session.get("story_premise")
+                or session.get("session_intro", {}).get("intro_text")
+                or "A new story begins with the selected player character."
+            ).strip()
             created_story = neo4j_create_story(
                 StoryCreate(
                     universe_id=universe_id,

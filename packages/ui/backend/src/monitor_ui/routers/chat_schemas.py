@@ -67,8 +67,8 @@ class SessionCreate(BaseModel):
         None,
         description=(
             "An existing player-character entity the player selected instead of "
-            "creating a new one. When set, the preplay flow binds it and skips "
-            "Session Zero / character creation, going straight to active play."
+            "creating a new one. Selection skips character creation but still "
+            "runs the setting introduction and Session Zero agreements before play."
         ),
     )
     authored_prompt_collection_id: str | None = Field(
@@ -81,7 +81,7 @@ class SessionCreate(BaseModel):
     )
     story_id: str | None = None  # resume an existing story
     chat_mode: str = "ic"  # "ic" | "ooc"
-    phase: str = "awaiting_character"  # "awaiting_character" | "char_creation" | "active_play"
+    phase: str = "character_interview"  # "character_interview" | "char_creation" | "session_zero" | "active_play"
 
 
 class MessageSend(BaseModel):
@@ -132,7 +132,7 @@ class Session(BaseModel):
     selected_character_id: str | None = None
     authored_prompt_collection_id: str | None = None
     chat_mode: str = "ic"
-    phase: str = "awaiting_character"  # "awaiting_character" | "char_creation" | "active_play"
+    phase: str = "character_interview"  # "character_interview" | "char_creation" | "session_zero" | "active_play"
     created_at: str
     updated_at: str
     message_count: int = 0

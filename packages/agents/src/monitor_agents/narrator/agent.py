@@ -468,6 +468,33 @@ class Narrator(BaseAgent):
                 else ""
             )
         )
+        # Table agreements (lines and veils) are session-scoped player
+        # constraints. We surface them as a hard directive in the setting
+        # anchor so the narrator respects them on every turn.
+        agreements = context.get("agreements") if isinstance(context, dict) else None
+        if isinstance(agreements, dict):
+            lines = [
+                str(item).strip()
+                for item in (agreements.get("lines") or [])
+                if str(item).strip()
+            ]
+            veils = [
+                str(item).strip()
+                for item in (agreements.get("veils") or [])
+                if str(item).strip()
+            ]
+            if lines:
+                lines_listing = "; ".join(lines)
+                setting_parts.append(
+                    "TABLE LINES (never depict, introduce, or make central): "
+                    f"{lines_listing}."
+                )
+            if veils:
+                veils_listing = "; ".join(veils)
+                setting_parts.append(
+                    "TABLE VEILS (acknowledge but fade to black without detail): "
+                    f"{veils_listing}."
+                )
         setting_anchor = " | ".join(setting_parts)
 
         # Resolve dynamic model role based on dramatic intensity.

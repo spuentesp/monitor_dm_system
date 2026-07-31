@@ -1,6 +1,6 @@
 # De-heuristic principle — what we mean by "no regex"
 
-> Status: living document, last updated 2026-07-17.
+> Status: living document, last updated 2026-07-29 (P-19 pre-play redesign).
 
 ## The principle
 
@@ -41,6 +41,10 @@ such, not lumped in with gameplay heuristics.
 | `_resolve_base_dc` regex (extract DC number from `success_threshold`) | **Structured parsing** | ❌ Keep — extracts a number from structured text. |
 | `resolver._extract_(( ... ))` OOC markers | **Structured parsing** | ❌ Keep — extracts markers from a syntactic format. |
 | `_char_generation` dice-formula parsing (`\d*d\d+`) | **Structured parsing** | ❌ Keep — parses a well-defined format. |
+| Pre-play `preplay_support.is_ooc_question` (`_OOC_PATTERNS`) | **Pre-filter before LLM** | ❌ Keep — cheap router; semantic replacement costs more than the question it answers. |
+| Pre-play `infer_character_name_from_text` regex | **Structured parsing** | ❌ Keep — extracts a name from a self-introduction. |
+| Pre-play `handle_char_creation` `_SKIP_RE` regex | **Pre-filter before LLM** | ❌ Keep — single short turn to a deterministic branch; semantic replacement costs more than the decision. |
+| `StoryAgreementsLoop` authored prompt collection (`resolve_authored_questions`) | **Authoritative content** | ❌ Keep — a curated prompt collection is content, not a heuristic decision. |
 
 ## The litmus test
 
@@ -126,3 +130,4 @@ index-time and query-time consistent by construction. See
 | 2026-07-17 | `roll_classifier` + `classifiers/intent` (roll necessity + intent) | **Deleted** — GMAgent LLM emits both directly; resolver falls back to a thin intent→necessity map | `gm-tool-authority` (P5) |
 | 2026-07-17 | `_action_routing` + `_tracks_conditions` embedding calls | Demoted → `RetrievalService.nearest` (one embedding owner) | `gm-tool-authority` (P4) |
 | 2026-07-17 | All direct `embed_text`/`embed_batch` retrieval callers | Routed through `RetrievalService` (pinned model, model/dim guard) | `gm-tool-authority` (P1–P3) |
+| 2026-07-29 | Session Zero character interview & OOC regex; CC skip-word regex | Documented as pre-filters / structured parsing (kept) | P-19 pre-play redesign |

@@ -153,6 +153,11 @@ class SceneState(BaseModel):
     # Story state (Task 2)
     story_state: StoryState | None = None
 
+    # Session-Zero table agreements (lines and veils). Empty lists mean no
+    # constraints; the resolver/narrator must still respect them when set.
+    agreements_lines: list[str] = Field(default_factory=list)
+    agreements_veils: list[str] = Field(default_factory=list)
+
     # ── Turn Context & Coherence (narrative coherence fixes) ──
     # Deterministic context summary from ContextAssembly._summarise_context.
     # Computed by assemble() but previously discarded by load_context.
@@ -328,6 +333,10 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
             "turns": state.previous_turns,
             "source_profile": state.source_profile,
             "pending_roll": state.pending_roll,
+            "agreements": {
+                "lines": list(state.agreements_lines or []),
+                "veils": list(state.agreements_veils or []),
+            },
         },
         game_context=state.game_context,
         play_mode=state.play_mode,
@@ -390,6 +399,10 @@ async def narrate(state: SceneState) -> dict[str, Any]:
             "context_summary": state.context_summary,
             "turn_context": state.turn_context,
             "established_facts": state.established_facts,
+            "agreements": {
+                "lines": list(state.agreements_lines or []),
+                "veils": list(state.agreements_veils or []),
+            },
         },
         game_context=state.game_context,
         session_tone=state.session_tone,
@@ -989,6 +1002,8 @@ class SceneLoop:
         roll_mode: str = "normal",
         tension_score: float = 0.5,
         story_state: dict[str, Any] | None = None,
+        agreements_lines: list[str] | None = None,
+        agreements_veils: list[str] | None = None,
     ) -> None:
         self.scene_id = scene_id
         self.story_id = story_id
@@ -1007,6 +1022,8 @@ class SceneLoop:
         self.roll_mode = roll_mode
         self.tension_score = tension_score
         self.story_state = story_state
+        self.agreements_lines = list(agreements_lines or [])
+        self.agreements_veils = list(agreements_veils or [])
         self._graph = build_scene_graph()
 
     async def run(
@@ -1046,6 +1063,8 @@ class SceneLoop:
                 tension_score=getattr(self, "tension_score", 0.5),
                 roll_mode=getattr(self, "roll_mode", "normal"),
                 story_state=getattr(self, "story_state", None),
+                agreements_lines=getattr(self, "agreements_lines", []),
+                agreements_veils=getattr(self, "agreements_veils", []),
                 resolution=resolution_override,
             )
             # Add pre-loaded gm_profile to state if available

@@ -60,12 +60,6 @@ async def fetch_opening_hook(session: dict[str, Any]) -> dict[str, Any]:
             "MATCH (a:Axiom) WHERE a.universe_id = $uid RETURN a.statement AS s ORDER BY a.confidence DESC LIMIT 5",
             {"uid": universe_id},
         )
-        if not axiom_rows:
-            axiom_rows = await asyncio.to_thread(
-                neo.execute_read,
-                "MATCH (a:Axiom) RETURN a.statement AS s ORDER BY a.confidence DESC LIMIT 5",
-                {},
-            )
         result["axioms"] = [r["s"] for r in axiom_rows if r.get("s")]
 
         # LoreFacts — grounded narrative facts for scene atmosphere
@@ -74,12 +68,6 @@ async def fetch_opening_hook(session: dict[str, Any]) -> dict[str, Any]:
             "MATCH (f:Fact) WHERE f.universe_id = $uid RETURN f.statement AS s ORDER BY f.confidence DESC LIMIT 6",
             {"uid": universe_id},
         )
-        if not fact_rows:
-            fact_rows = await asyncio.to_thread(
-                neo.execute_read,
-                "MATCH (f:Fact) RETURN f.statement AS s ORDER BY f.confidence DESC LIMIT 6",
-                {},
-            )
         result["facts"] = [r["s"] for r in fact_rows if r.get("s")]
 
         # Location entities — for concrete scene anchoring

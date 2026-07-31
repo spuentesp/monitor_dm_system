@@ -20,9 +20,13 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from monitor_agents.dspy_runtime import stream_callback_var
-from monitor_agents.loops.preplay_support import _generate_prologue
+from monitor_agents.loops.preplay_finalize import finalize_preplay
+from monitor_agents.loops.preplay_orchestrator import (
+    start_character_interview,
+    start_story_agreements,
+)
 
 from .chat_game_system import (
     _GSR_AVAILABLE,
@@ -418,8 +422,9 @@ async def create_session(body: SessionCreate) -> Session:
     # reliable signal that this session is meant to continue an existing
     # story rather than start one -- see PLAY_AND_FORGE_DIRECTION.md S5.
     is_resume = bool(body.story_id)
+    defer_autonomous_preplay = mode == "autonomous_gm" and not is_resume
 
-    if body.mode != "world_architect":
+    if body.mode != "world_architect" and not defer_autonomous_preplay:
         story_id, scene_id, bootstrap_error = _bootstrap_story_scene(session)
         session["story_id"] = story_id
         session["scene_id"] = scene_id
@@ -432,14 +437,16 @@ async def create_session(body: SessionCreate) -> Session:
         if body.selected_character_id not in session["controlled_character_ids"]:
             session["controlled_character_ids"].append(body.selected_character_id)
 
-    if (
-        body.mode == "world_architect"
-        or body.character_id
-        or body.controlled_character_ids
-        or body.selected_character_id
-    ):
+    if body.mode == "world_architect" or is_resume:
+        session["phase"] = "active_play"
+    elif defer_autonomous_preplay:
+        session["phase"] = (
+            "session_zero" if session.get("character_id") else "character_interview"
+        )
+    elif body.character_id or body.controlled_character_ids or body.selected_character_id:
         session["phase"] = "active_play"
     else:
+        # Preserve the existing GM-assistant setup behavior.
         session["phase"] = "awaiting_character"
 
     _SESSIONS[sid] = session
@@ -501,12 +508,32 @@ async def create_session(body: SessionCreate) -> Session:
                 )
             )
     else:
-        gm_text, gm_meta = await _build_gm_opening(
-            sid,
-            session,
-            session_game_system_doc=_session_game_system_doc,
-            is_resume=is_resume,
-        )
+        if defer_autonomous_preplay:
+            system_doc = _session_game_system_doc(session)
+            if session.get("character_id"):
+                gm_text, gm_meta = await start_story_agreements(
+                    sid,
+                    session,
+                    system_doc=system_doc,
+                )
+            else:
+                from .chat_opening import fetch_opening_hook
+
+                lore_data = await fetch_opening_hook(session)
+                gm_text, gm_meta = await start_character_interview(
+                    sid,
+                    session,
+                    system_doc=system_doc,
+                    world_lore=(lore_data.get("axioms", []) + lore_data.get("facts", [])),
+                )
+            _db_save_session(session)
+        else:
+            gm_text, gm_meta = await _build_gm_opening(
+                sid,
+                session,
+                session_game_system_doc=_session_game_system_doc,
+                is_resume=is_resume,
+            )
         messages.append(_make_gm_msg(sid, gm_text, gm_meta))
 
     _MESSAGES[sid] = messages
@@ -772,6 +799,49 @@ async def greet_character(session_id: str, character_id: str) -> Message:
     return Message(**gm_msg)
 
 
+@router.post("/{session_id}/begin", response_model=Message)
+async def begin_story(session_id: str) -> Message:
+    """Confirm Session Zero and create the first in-fiction narration once."""
+    _ensure_sessions_loaded()
+    session = _SESSIONS.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    msgs = _MESSAGES.setdefault(session_id, [])
+    if session.get("preplay_finalized_at"):
+        for message in msgs:
+            metadata = message.get("metadata") or {}
+            if metadata.get("type") == "gm_opening" and metadata.get("preplay_finalized"):
+                return Message(**message)
+        raise HTTPException(status_code=409, detail="Story was already begun")
+
+    if session.get("phase") != "session_zero":
+        raise HTTPException(status_code=409, detail="Session Zero is not awaiting Begin Story")
+    agreements = session.get("story_agreements")
+    if not isinstance(agreements, dict) or agreements.get("confirmed"):
+        raise HTTPException(status_code=409, detail="Session Zero agreements are incomplete")
+
+    system_doc = _session_game_system_doc(session)
+    try:
+        narrative, metadata = await finalize_preplay(session, system_doc=system_doc)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("begin_story failed for %s", session_id)
+        raise HTTPException(status_code=500, detail="Could not begin the story") from exc
+    # The router's session reference and the dict finalize_preplay mutated are
+    # the same object; re-store it so concurrent reads see the latest state.
+    _SESSIONS[session_id] = session
+
+    session["updated_at"] = _now()
+    _db_save_session(session)
+    gm_msg = _make_gm_msg(session_id, narrative, metadata)
+    msgs.append(gm_msg)
+    _db_save_message(gm_msg)
+    asyncio.create_task(fanout_completed_gm_message(session_id, gm_msg))
+    return Message(**gm_msg)
+
+
 @router.post("/{session_id}/send", response_model=Message)
 async def send_message(session_id: str, body: MessageSend) -> Message:
     _ensure_sessions_loaded()
@@ -871,6 +941,7 @@ async def send_message(session_id: str, body: MessageSend) -> Message:
         )
     elif session.get("phase") in (
         "awaiting_character",
+        "character_interview",
         "char_creation",
         "session_zero",
     ):
@@ -1094,30 +1165,23 @@ async def end_scene(session_id: str) -> Message:
 # ---------------------------------------------------------------------------
 
 
-_PREPLAY_PHASES = frozenset({"awaiting_character", "session_zero", "char_creation"})
+_PREPLAY_PHASES = frozenset(
+    {"awaiting_character", "character_interview", "session_zero", "char_creation"}
+)
+_CHARACTER_SETUP_PHASES = frozenset(
+    {"awaiting_character", "character_interview", "char_creation"}
+)
 
 
 @router.post("/{session_id}/skip-preplay", response_model=Message)
 async def skip_preplay(session_id: str) -> Message:
-    """Skip the entire pre-play phase and jump to active_play.
+    """Use safe defaults for Session Zero and invoke the normal Begin path.
 
-    Behavior:
-      * 404 if the session is unknown.
-      * 409 if the session's ``phase`` is not one of the pre-play phases
-        (``awaiting_character``, ``session_zero``, ``char_creation``) —
-        skipping during active_play would be a no-op, so reject explicitly.
-      * Pops both ``_SESSION_ZERO_LOOPS`` and ``_CHAR_CREATION_LOOPS``
-        caches (the same teardown those loops do on summary).
-      * Sets ``phase = "active_play"`` and saves.
-      * Generates a prologue via ``_generate_prologue`` if there is a
-        ``session_zero_summary.backstory``; otherwise emits a minimal
-        generic opening line so the player lands in active_play with
-        *something* to respond to.
-      * Returns the GM message and fans it out via the same path as
-        ``send_message``.
+    Character selection/creation remains an invariant: a player cannot skip
+    into narration without a bound character. Once a character exists, this
+    endpoint persists explicit default agreements and uses the same idempotent
+    finalizer as the Begin Story action.
     """
-    from fastapi import HTTPException
-
     _ensure_sessions_loaded()
     session = _SESSIONS.get(session_id)
     if not session:
@@ -1127,83 +1191,43 @@ async def skip_preplay(session_id: str) -> Message:
     if current_phase not in _PREPLAY_PHASES:
         raise HTTPException(
             status_code=409,
-            detail=(f"Cannot skip-preplay from phase '{current_phase}' — session is already past pre-play."),
+            detail=f"Cannot skip-preplay from phase '{current_phase}'",
+        )
+    if current_phase in _CHARACTER_SETUP_PHASES and not session.get("character_id"):
+        raise HTTPException(
+            status_code=409,
+            detail="Select or create a player character before beginning the story",
         )
 
-    # Pop the loop caches: same teardown the loops do on summary, so
-    # restarting the conversation starts clean.
-    try:
-        _pop_session_zero_loop(session_id)
-    except Exception as exc:
-        logger.debug("skip_preplay: pop_session_zero_loop no-op: %s", exc)
-    try:
-        _pop_char_creation_loop(session_id)
-    except Exception as exc:
-        logger.debug("skip_preplay: pop_character_creation_loop no-op: %s", exc)
+    system_doc = _session_game_system_doc(session)
+    if current_phase != "session_zero":
+        await start_story_agreements(
+            session_id,
+            session,
+            system_doc=system_doc,
+        )
 
-    # Flip the phase + persist.
-    now = _now()
-    session["phase"] = "active_play"
-    session["updated_at"] = now
+    from monitor_agents.story_agreements import StoryAgreements
+
+    existing = session.get("story_agreements")
+    if isinstance(existing, dict):
+        agreements = StoryAgreements.model_validate(existing).model_copy(
+            update={"source": "skipped", "confirmed": False, "confirmed_at": None}
+        )
+    else:
+        agreements = StoryAgreements(
+            story_premise=str(session.get("story_premise") or "").strip(),
+            tone=session.get("tone", "dramatic"),
+            source="skipped",
+        )
+    session["story_agreements"] = agreements.model_dump(mode="json")
+    session["phase"] = "session_zero"
+    session["updated_at"] = _now()
     _db_save_session(session)
 
-    # Generate the prologue. Fall back to a generic opening line if the
-    # narrator LLM call fails or there's no summary.
-    summary = session.get("session_zero_summary") or {}
-    backstory = summary.get("backstory", "") if isinstance(summary, dict) else ""
-    if backstory.strip():
-        try:
-            prologue = await _generate_prologue(session, backstory)
-        except Exception as exc:
-            logger.warning("skip_preplay: _generate_prologue failed: %s", exc)
-            prologue = ""
-    else:
-        prologue = ""
-
-    if not prologue or not prologue.strip():
-        # Minimal landing-text so the player isn't staring at an empty
-        # transcript after clicking Skip.
-        try:
-            from monitor_agents.narrator.agent import Narrator
-
-            narrator = Narrator()
-            prologue = (
-                await narrator.generate_opening(
-                    user_input="(skip pre-play — set the opening scene)",
-                    context={"entities": [], "memories": [], "turns": []},
-                    game_context=None,
-                    session_tone=session.get("tone", "dramatic"),
-                    gm_profile=None,
-                )
-            ).strip()
-        except Exception as exc:
-            logger.warning("skip_preplay: narrator.generate_opening fallback failed: %s", exc)
-            prologue = ""
-
-    if not prologue:
-        prologue = "The story begins. Where are you, and what do you do next?"
-
-    meta = {
-        "type": "gm_opening",
-        "skip_preplay": True,
-        "phase_transition": f"{current_phase}->active_play",
-    }
-    gm_msg = _make_gm_msg(session_id, prologue, meta)
-    msgs = _MESSAGES.setdefault(session_id, [])
-    msgs.append(gm_msg)
-    _db_save_message(gm_msg)
-
-    # Update session meta mirrors (parity with send_message).
-    if meta.get("working_state"):
-        _SESSIONS[session_id]["latest_working_state"] = meta["working_state"]
-    if meta.get("scene_checkpoint"):
-        _SESSIONS[session_id]["latest_scene_checkpoint"] = meta["scene_checkpoint"]
-    if meta.get("social_read"):
-        _SESSIONS[session_id]["latest_social_read"] = meta["social_read"]
-    if meta.get("relationship_snapshot"):
-        _SESSIONS[session_id]["latest_relationship_snapshot"] = meta["relationship_snapshot"]
-    asyncio.create_task(fanout_completed_gm_message(session_id, gm_msg))
-    return Message(**gm_msg)
+    _pop_session_zero_loop(session_id)
+    _pop_char_creation_loop(session_id)
+    return await begin_story(session_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1227,7 +1251,26 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
             raw = await websocket.receive_text()
             data = json.loads(raw)
             msg_type: str = data.get("type", "message")
-            content: str = data.get("content", "")
+            raw_content = data.get("content", "")
+            content = raw_content if isinstance(raw_content, str) else ""
+
+            # Heartbeats are transport control frames, not player turns.  The
+            # browser sends one every 30 seconds; letting it fall through would
+            # persist an empty player message and invoke the GM indefinitely.
+            if msg_type == "ping":
+                if not await _send_ws_payload(websocket, {"type": "pong"}):
+                    break
+                continue
+
+            # Reject blank normal turns at the protocol boundary so malformed
+            # clients cannot trigger narration without player input.
+            if msg_type == "message" and not content.strip():
+                if not await _send_ws_payload(
+                    websocket,
+                    {"type": "error", "detail": "Message content cannot be empty."},
+                ):
+                    break
+                continue
 
             now = _now()
             msgs = _MESSAGES.setdefault(session_id, [])
@@ -1404,6 +1447,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                     )
                 elif session.get("phase") in (
                     "awaiting_character",
+                    "character_interview",
                     "char_creation",
                     "session_zero",
                 ):

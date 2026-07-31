@@ -103,6 +103,16 @@ class _GMReActSignature(dspy.Signature):  # type: ignore[misc]
     upstream_pending_roll: str = dspy.InputField(
         desc=("JSON of any pending-roll spec the previous turn proposed. Empty string when there is no pending roll.")
     )
+    table_agreements: str = dspy.InputField(
+        desc=(
+            "Player table agreements from Session Zero, formatted as a single block. "
+            "List `lines` (subjects that must never be depicted or introduced) and "
+            "`veils` (subjects that may exist but must fade to black without detail). "
+            "Empty string when the player stated no agreements. These override your "
+            "default tendency to depict dramatic or distressing content; reroute or "
+            "acknowledge and skip such material rather than describing it."
+        )
+    )
 
     # ── Outputs ──
     intent_type: str = dspy.OutputField(desc="meta / ooc / query / dialogue / action. Choose one.")
@@ -429,6 +439,17 @@ class GMAgent(BaseAgent):
             self._react_module = _build_react_module(tools, max_iters=self._max_tool_calls)
         return self._react_module
 
+    def _predict_react(self, react_module: Any, **kwargs: Any) -> Any:
+        """Forward to the ReAct module; tests override this seam to capture kwargs.
+
+        The base implementation runs the synchronous DSPy ReAct module.
+        Tests override this seam to capture the kwargs the production code
+        passes without spinning up DSPy.
+        """
+        if callable(react_module):
+            return react_module(**kwargs)
+        return None
+
     async def decide(
         self,
         scene_id: str,
@@ -489,6 +510,31 @@ class GMAgent(BaseAgent):
         upstream_action_json = json.dumps(upstream_action_context or {})
         upstream_pending_json = json.dumps(upstream_pending_roll or {})
 
+        # Render the Session-Zero table agreements (lines/veils) into a
+        # prompt block the GM ReAct loop must respect. Empty lists collapse
+        # to an empty string so the signature field stays optional.
+        agreements_block = ""
+        if isinstance(scene_context, dict):
+            agreements = scene_context.get("agreements") or {}
+            if isinstance(agreements, dict):
+                lines = [
+                    str(item).strip()
+                    for item in (agreements.get("lines") or [])
+                    if str(item).strip()
+                ]
+                veils = [
+                    str(item).strip()
+                    for item in (agreements.get("veils") or [])
+                    if str(item).strip()
+                ]
+                if lines or veils:
+                    block_parts: list[str] = []
+                    if lines:
+                        block_parts.append("Lines: " + "; ".join(lines))
+                    if veils:
+                        block_parts.append("Veils: " + "; ".join(veils))
+                    agreements_block = "\n".join(block_parts)
+
         # Install the loop-bridge so async tools can resolve.
         set_loop_bridge(build_loop_bridge_from_running_loop())
 
@@ -504,7 +550,8 @@ class GMAgent(BaseAgent):
                 from monitor_agents.dspy_runtime import dspy_context_for
 
                 with dspy_context_for("gm_agent", ModelRole.STANDARD):
-                    return react_module(
+                    return self._predict_react(
+                        react_module,
                         user_input=user_input or "",
                         character_name=character_name,
                         character_role=character_role,
@@ -515,6 +562,7 @@ class GMAgent(BaseAgent):
                         recent_turns=recent_turns_text or "(none)",
                         upstream_action_context=upstream_action_json,
                         upstream_pending_roll=upstream_pending_json,
+                        table_agreements=agreements_block,
                     )
 
             try:

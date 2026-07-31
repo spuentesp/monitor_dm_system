@@ -374,11 +374,13 @@ async def _generate_prologue(session: dict[str, Any], summary_text: str) -> str:
         return summary_text + "\n\nThe story begins. What do you do?"
     return "Your character is ready. The story begins — what do you do?"
 
-def resolve_authored_session_zero_questions(
+def resolve_authored_questions(
     session: dict[str, Any],
     session_game_system_doc: Any,
+    *,
+    category: str,
 ) -> list[dict[str, Any]]:
-    """Resolve authored Session Zero questions from a curated prompt_collection."""
+    """Resolve authored questions for a universe/system-scoped prompt category."""
     try:
         from monitor_data.schemas.prompt_collections import PromptCollectionFilter
         from monitor_data.tools.mongodb_tools import (
@@ -424,8 +426,8 @@ def resolve_authored_session_zero_questions(
         universe_uuid = uuid.UUID(str(universe_id)) if universe_id else None
 
         for filt in (
-            PromptCollectionFilter(category="session_zero", universe_id=universe_uuid) if universe_uuid else None,
-            PromptCollectionFilter(category="session_zero", system_id=system_id) if system_id else None,
+            PromptCollectionFilter(category=category, universe_id=universe_uuid) if universe_uuid else None,
+            PromptCollectionFilter(category=category, system_id=system_id) if system_id else None,
         ):
             if filt is None:
                 continue
@@ -433,6 +435,18 @@ def resolve_authored_session_zero_questions(
             if listing.collections:
                 return _entries_to_questions(listing.collections[0])
     except Exception as exc:
-        logger.debug("resolve_authored_session_zero_questions failed: %s", exc)
+        logger.debug("resolve_authored_questions(%s) failed: %s", category, exc)
 
     return []
+
+
+def resolve_authored_session_zero_questions(
+    session: dict[str, Any],
+    session_game_system_doc: Any,
+) -> list[dict[str, Any]]:
+    """Compatibility wrapper for character-interview prompt collections."""
+    return resolve_authored_questions(
+        session,
+        session_game_system_doc,
+        category="session_zero",
+    )

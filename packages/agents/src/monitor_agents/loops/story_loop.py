@@ -107,6 +107,18 @@ class StoryState(BaseModel):
         description="Summaries of completed scenes for arc evaluation context",
     )
 
+    # Session-Zero table agreements (lines + veils) — P-19 redesign. These
+    # are session-scoped player constraints, not canon; the resolver/narrator
+    # consume them as context but they are never written to Neo4j.
+    agreements_lines: list[str] = Field(
+        default_factory=list,
+        description="Subjects that must never be depicted or introduced.",
+    )
+    agreements_veils: list[str] = Field(
+        default_factory=list,
+        description="Subjects that may exist but must fade to black.",
+    )
+
 
 # =============================================================================
 # NODES

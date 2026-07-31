@@ -12,6 +12,11 @@ See: docs/architecture/CONVERSATIONAL_LOOPS.md
 LAYER: 2 (agents)
 """
 
+from monitor_agents.loops.character_interview_loop import (
+    CharacterInterviewLoop,
+    CharacterInterviewState,
+    build_character_interview_graph,
+)
 from monitor_agents.loops.character_creation_loop import (
     CharacterCreationLoop,
     CharacterCreationState,
@@ -35,6 +40,8 @@ from monitor_agents.loops.world_building_loop import (
 __all__ = [
     "CharacterCreationLoop",
     "CharacterCreationState",
+    "CharacterInterviewLoop",
+    "CharacterInterviewState",
     "ConversationLoop",
     "ConversationState",
     "SceneLoop",
@@ -44,6 +51,7 @@ __all__ = [
     "WorldBuildingLoop",
     "WorldBuildingState",
     "build_character_creation_graph",
+    "build_character_interview_graph",
     "build_conversation_graph",
     "build_scene_graph",
     "build_story_graph",
