@@ -1120,6 +1120,10 @@ function GMAssistantPageContent() {
   const { prefs, toggleHidden, move } = useGmPanelPrefs();
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const visibleToolPanels = visibleOrderedPanels(TOOL_PANEL_IDS, prefs);
+  // A hidden/non-tool active panel falls back to the first visible tool panel.
+  const effectiveToolPanel: GMPanel | null = visibleToolPanels.includes(activePanel)
+    ? activePanel
+    : (visibleToolPanels[0] ?? null);
 
   // Resolve a deep-linked universe's label once
   const { data: requestedUniverse } = useQuery({
@@ -1314,14 +1318,21 @@ function GMAssistantPageContent() {
               )}
             </div>
             <div className="flex-1 overflow-hidden">
-              {activePanel === "ask-world" && <AskTheWorldPanel universeId={universeId} />}
-              {activePanel === "hooks" && <PlotHooksPanel universeId={universeId} />}
-              {activePanel === "threads" && <ThreadsPanel universeId={universeId} />}
-              {activePanel === "contradictions" && <ContradictionsPanel universeId={universeId} />}
-              {activePanel === "session-prep" && <SessionPrepPanel universeId={universeId} />}
-              {activePanel === "handouts" && <HandoutsPanel universeId={universeId} />}
-              {/* Default to ask-the-world if a hidden/non-tool panel is active */}
-              {!visibleToolPanels.includes(activePanel) && <AskTheWorldPanel universeId={universeId} />}
+              {visibleToolPanels.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+                  <SlidersHorizontal className="h-8 w-8 text-slate-700" />
+                  <p className="text-xs text-slate-600">All panels hidden — customize to re-enable</p>
+                </div>
+              ) : (
+                <>
+                  {effectiveToolPanel === "ask-world" && <AskTheWorldPanel universeId={universeId} />}
+                  {effectiveToolPanel === "hooks" && <PlotHooksPanel universeId={universeId} />}
+                  {effectiveToolPanel === "threads" && <ThreadsPanel universeId={universeId} />}
+                  {effectiveToolPanel === "contradictions" && <ContradictionsPanel universeId={universeId} />}
+                  {effectiveToolPanel === "session-prep" && <SessionPrepPanel universeId={universeId} />}
+                  {effectiveToolPanel === "handouts" && <HandoutsPanel universeId={universeId} />}
+                </>
+              )}
             </div>
           </div>
 

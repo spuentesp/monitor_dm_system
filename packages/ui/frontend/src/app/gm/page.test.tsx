@@ -249,3 +249,34 @@ describe("GM Assistant scratchpad (P2.3 — server-backed, no localStorage)", ()
     expect(setItemSpy).not.toHaveBeenCalledWith("gm-notebook-u-1", expect.anything());
   });
 });
+
+
+describe("GM Assistant hidden tool panels (user-modifiable prefs)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("shows a placeholder instead of a hidden panel when every tool panel is hidden", () => {
+    window.localStorage.setItem(
+      "monitor.gm.hiddenPanels",
+      JSON.stringify(["ask-world", "hooks", "threads", "contradictions", "session-prep", "handouts"]),
+    );
+    renderPage();
+
+    expect(screen.getByText(/all panels hidden — customize to re-enable/i)).toBeInTheDocument();
+    // No tool panel body leaks through — not even the ask-the-world default.
+    expect(screen.queryByPlaceholderText(/ask the world/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/select a universe to generate plot hooks/i)).not.toBeInTheDocument();
+  });
+
+  it("falls back to the first visible panel rather than a hidden ask-world", () => {
+    window.localStorage.setItem("monitor.gm.hiddenPanels", JSON.stringify(["ask-world"]));
+    renderPage();
+
+    // The default active panel is the recorder (a non-tool panel), so the tools
+    // body falls back to the first VISIBLE tool panel — Hooks — never the
+    // hidden Ask panel.
+    expect(screen.getByText(/select a universe to generate plot hooks/i)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/ask the world/i)).not.toBeInTheDocument();
+  });
+});
