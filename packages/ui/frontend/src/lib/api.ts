@@ -97,7 +97,7 @@ const BASE = RAW_API_BASE.replace(/\/$/, "");
 // upgrade /api/chat/ws/* connections to the backend.
 const RAW_WS_BASE = process.env.NEXT_PUBLIC_WS_URL ?? "";
 
-function apiUrl(path: string): string {
+export function apiUrl(path: string): string {
   return `${BASE}/api${path}`;
 }
 
