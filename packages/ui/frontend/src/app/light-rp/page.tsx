@@ -92,6 +92,20 @@ export default function LightRpPage() {
 
       {charactersQ.isLoading ? (
         <div className="text-sm text-slate-500">Loading characters…</div>
+      ) : charactersQ.isError ? (
+        <div
+          role="alert"
+          className="glass flex items-center justify-between gap-3 rounded-xl px-5 py-4 text-sm text-red-300/80"
+        >
+          Couldn't load your characters — check the backend and retry.
+          <button
+            type="button"
+            onClick={() => void charactersQ.refetch()}
+            className="btn-ghost px-3 py-1.5 text-xs"
+          >
+            Retry
+          </button>
+        </div>
       ) : (
         <CharacterCardGrid
           characters={charactersQ.data ?? []}

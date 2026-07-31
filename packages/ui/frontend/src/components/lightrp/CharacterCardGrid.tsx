@@ -25,6 +25,7 @@ export function CharacterCardGrid({
   const [menuFor, setMenuFor] = useState<string | null>(null);
   // One open menu at a time — the ref is attached to the card that owns it.
   const menuRef = useDismissRef<HTMLDivElement>(() => setMenuFor(null), menuFor !== null);
+  const [confirmDelete, setConfirmDelete] = useState<StandaloneCharacter | null>(null);
 
   if (characters.length === 0) {
     return (
@@ -35,7 +36,8 @@ export function CharacterCardGrid({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {characters.map((c) => (
         <div
           key={c.id}
@@ -84,7 +86,7 @@ export function CharacterCardGrid({
               <button
                 onClick={() => {
                   setMenuFor(null);
-                  onDelete(c);
+                  setConfirmDelete(c);
                 }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-red-300 hover:bg-white/5"
               >
@@ -112,6 +114,42 @@ export function CharacterCardGrid({
           </div>
         </div>
       ))}
-    </div>
+      </div>
+
+      {confirmDelete && (
+        <div
+          role="dialog"
+          aria-label={`Delete ${confirmDelete.name}`}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+        >
+          <div className="glass w-full max-w-sm space-y-4 rounded-2xl border border-red-500/20 p-6">
+            <h2 className="text-sm font-semibold text-slate-100">Delete {confirmDelete.name}?</h2>
+            <p className="text-xs text-slate-400">
+              This permanently removes {confirmDelete.name} and their memories. This can't be
+              undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(null)}
+                className="btn-ghost px-3 py-1.5 text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDelete(confirmDelete);
+                  setConfirmDelete(null);
+                }}
+                className="btn-cyber border-red-500/40 px-3 py-1.5 text-xs text-red-200"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
