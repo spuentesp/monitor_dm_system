@@ -183,6 +183,11 @@ async def generate_scene_image(body: SceneRequest) -> SceneResponse:
             status_code=400,
             detail="Provide conversation_id (light RP) or session_id (play chat).",
         )
+    if body.conversation_id and body.session_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either conversation_id or session_id, not both.",
+        )
 
     messages, source = _load_scene_messages(body)
     adapter = await _adapter()

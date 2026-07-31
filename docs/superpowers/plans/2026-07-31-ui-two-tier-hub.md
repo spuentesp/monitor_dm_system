@@ -3810,6 +3810,7 @@ Mapping of `docs/superpowers/specs/2026-07-31-ui-two-tier-hub-design.md` require
 | §2 Data via existing endpoints; no aggregation endpoint unless profiling demands | Tasks 2–3 (three existing list endpoints, client-side join) |
 | §3 `CharacterCardGrid` (portrait, name, 1-line summary, memory badge, overflow: Generate portrait/Delete) | Tasks 4, 8 (Export card already exists via `entitiesApi.exportCharacterCardUrl`; Edit stays in the character editor, out of this task's scope) |
 | §3 `ImportCardButton` (chara_card_v2 JSON/PNG via existing import endpoint) | Task 4 |
+| §3 Recent light chats (resume) rail | Not implemented; deferred — backing endpoint `entitiesApi.listCharacterConversations` exists, follow-up work |
 | §3 Future use cases (light-RP→world data, memory inspector) recorded, not implemented | Not implemented; noted in Task 4/9 docs |
 | §4 Forge functionally unchanged under Workbench | Task 1 (routes kept; nav group) |
 | §4 GM panels + new ask-the-world chat panel querying canon | Task 5 (scoped semantic search endpoint) |

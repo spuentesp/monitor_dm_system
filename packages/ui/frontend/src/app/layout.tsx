@@ -27,11 +27,10 @@ export default function RootLayout({
           Skip to main content
         </a>
         <Providers>
-          {/* Fixed sidebar. Wrapped in Suspense because Sidebar (via
-              WorldPicker) calls useSearchParams() — without Suspense,
-              Next 15 prerender bails on every page. The skeleton renders
-              instantly; the live search-params content swaps in after
-              hydration. */}
+          {/* Fixed sidebar. Wrapped in Suspense so Next 15 prerender doesn't
+              bail on pages/components that call useSearchParams() (search,
+              forge pages, PlayConsole, ...). The skeleton renders instantly;
+              the live search-params content swaps in after hydration. */}
           <Suspense fallback={<div className="w-[224px] shrink-0" aria-hidden="true" />}>
             <Sidebar />
           </Suspense>

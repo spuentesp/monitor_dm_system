@@ -153,6 +153,7 @@ def adapter_for_provider_row(row: dict[str, Any]) -> ImageProviderAdapter:
         return GeminiImageAdapter(
             api_key=api_key,
             model=(row.get("model") or "").strip() or _GEMINI_DEFAULT_MODEL,
+            base_url=(row.get("base_url") or "").strip().rstrip("/") or _GEMINI_DEFAULT_BASE,
         )
     raise ImageProviderError(f"Provider '{provider.value}' does not support image generation")
 

@@ -178,6 +178,12 @@ def test_scene_400_without_any_source(mock_storage):
     assert res.status_code == 400
 
 
+def test_scene_400_with_both_sources(mock_storage):
+    res = client.post("/api/image/scene", json={"conversation_id": "c-1", "session_id": "s-1"})
+    assert res.status_code == 400
+    assert "not both" in res.json()["detail"]
+
+
 def test_scene_404_for_unknown_conversation(fake_adapter, mock_storage):
     mongo = MagicMock()  # pymongo calls are synchronous
     mongo.get_collection.return_value.find_one.return_value = None

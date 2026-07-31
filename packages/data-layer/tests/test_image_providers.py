@@ -160,6 +160,32 @@ def test_factory_picks_adapter_by_provider_type():
         adapter_for_provider_row({"provider": "anthropic", "api_key": "k"})
 
 
+def test_factory_gemini_honors_custom_base_url(monkeypatch):
+    """A stored base_url (e.g. a Gemini-compatible proxy) must end up in the
+    request URL, trailing slash stripped; missing base_url falls back to the
+    Google default."""
+    payload = {"candidates": [{"content": {"parts": [{"inlineData": {"data": PNG_B64}}]}}]}
+    client = _FakeClient(posts=[_FakeResponse(payload)])
+    monkeypatch.setattr("monitor_data.llm.image_providers.httpx.AsyncClient", lambda **kw: client)
+
+    adapter = adapter_for_provider_row(
+        {
+            "provider": "google_ai_studio",
+            "api_key": "gk",
+            "base_url": "https://gemini-proxy.example.com/",
+            "model": "gemini-2.5-flash-image",
+        }
+    )
+    assert isinstance(adapter, GeminiImageAdapter)
+    _run(adapter.generate_image("p"))
+    assert client.post_calls[0]["url"] == (
+        "https://gemini-proxy.example.com/v1beta/models/gemini-2.5-flash-image:generateContent"
+    )
+
+    default = adapter_for_provider_row({"provider": "google_ai_studio", "api_key": "gk", "base_url": None})
+    assert default.base_url == "https://generativelanguage.googleapis.com"
+
+
 def test_factory_requires_api_key(monkeypatch):
     monkeypatch.delenv("MINIMAX_TOKEN", raising=False)
     monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
