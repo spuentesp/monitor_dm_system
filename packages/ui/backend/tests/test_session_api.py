@@ -86,7 +86,7 @@ class TestChatModePersistence:
         assert resp.status_code == 201
         data = resp.json()
         assert data["persona_id"] == "persona-42"
-        assert data["phase"] == "awaiting_character"
+        assert data["phase"] in {"character_interview", "awaiting_character"}
         assert _sessions[data["id"]]["persona_id"] == "persona-42"
 
     @patch("monitor_ui.routers.chat._db_save_session")

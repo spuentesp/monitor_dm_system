@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
+from fastapi import WebSocketDisconnect
 from monitor_ui.routers import (
     chat,
     chat_game_system,
@@ -853,6 +854,71 @@ async def test_send_message_schedules_websocket_fanout(monkeypatch):
 
     assert result.content == "The deck lights shiver awake."
     assert fanout_calls == [(session_id, "The deck lights shiver awake.")]
+
+
+class _InboundWebSocket:
+    def __init__(self, frames: list[dict[str, object]]) -> None:
+        self._frames = [json.dumps(frame) for frame in frames]
+        self.accepted = False
+        self.sent: list[dict[str, object]] = []
+
+    async def accept(self) -> None:
+        self.accepted = True
+
+    async def receive_text(self) -> str:
+        if self._frames:
+            return self._frames.pop(0)
+        raise WebSocketDisconnect()
+
+    async def send_text(self, raw: str) -> None:
+        self.sent.append(json.loads(raw))
+
+
+@pytest.mark.asyncio
+async def test_websocket_ping_returns_pong_without_running_turn(monkeypatch):
+    session_id = str(uuid4())
+    websocket = _InboundWebSocket([{"type": "ping"}])
+    saved_messages: list[dict[str, object]] = []
+    scene_turn = AsyncMock()
+    chat._MESSAGES[session_id] = []
+
+    monkeypatch.setattr(chat, "_ensure_sessions_loaded", lambda: None)
+    monkeypatch.setattr(chat, "ws_register", lambda *_args: None)
+    monkeypatch.setattr(chat, "ws_unregister", lambda *_args: None)
+    monkeypatch.setattr(chat, "_db_save_message", saved_messages.append)
+    monkeypatch.setattr(chat, "_run_scene_turn", scene_turn)
+
+    await chat.chat_websocket(websocket, session_id)  # type: ignore[arg-type]
+
+    assert websocket.accepted is True
+    assert websocket.sent == [{"type": "pong"}]
+    assert chat._MESSAGES[session_id] == []
+    assert saved_messages == []
+    scene_turn.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_websocket_blank_message_is_rejected_without_running_turn(monkeypatch):
+    session_id = str(uuid4())
+    websocket = _InboundWebSocket([{"type": "message", "content": "  \n"}])
+    saved_messages: list[dict[str, object]] = []
+    scene_turn = AsyncMock()
+    chat._MESSAGES[session_id] = []
+
+    monkeypatch.setattr(chat, "_ensure_sessions_loaded", lambda: None)
+    monkeypatch.setattr(chat, "ws_register", lambda *_args: None)
+    monkeypatch.setattr(chat, "ws_unregister", lambda *_args: None)
+    monkeypatch.setattr(chat, "_db_save_message", saved_messages.append)
+    monkeypatch.setattr(chat, "_run_scene_turn", scene_turn)
+
+    await chat.chat_websocket(websocket, session_id)  # type: ignore[arg-type]
+
+    assert websocket.sent == [
+        {"type": "error", "detail": "Message content cannot be empty."}
+    ]
+    assert chat._MESSAGES[session_id] == []
+    assert saved_messages == []
+    scene_turn.assert_not_awaited()
 
 
 @pytest.mark.asyncio
