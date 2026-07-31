@@ -1,13 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { AnimatePresence } from "framer-motion";
 import { Plus } from "lucide-react";
 import { chatApi, storiesApi, universesApi } from "@/lib/api";
 import { ContinuePlayingRail } from "@/components/lobby/ContinuePlayingRail";
+import { NewCampaignWizard } from "@/components/lobby/NewCampaignWizard";
 import { UniverseCardGrid } from "@/components/lobby/UniverseCardGrid";
 import type { StorySummary } from "@/lib/types";
 
 export default function LobbyPage() {
+  const [wizardOpen, setWizardOpen] = useState(false);
   const sessionsQ = useQuery({ queryKey: ["sessions"], queryFn: chatApi.listSessions });
   const universesQ = useQuery({ queryKey: ["universes"], queryFn: () => universesApi.listUniverses() });
   const storiesQ = useQuery({
@@ -32,7 +36,11 @@ export default function LobbyPage() {
             Jump back in, or start a new campaign in one of your worlds.
           </p>
         </div>
-        <button type="button" className="btn-cyber flex items-center gap-2 px-4 py-2 text-sm">
+        <button
+          type="button"
+          onClick={() => setWizardOpen(true)}
+          className="btn-cyber flex items-center gap-2 px-4 py-2 text-sm"
+        >
           <Plus className="h-4 w-4" /> New campaign
         </button>
       </header>
@@ -52,6 +60,15 @@ export default function LobbyPage() {
           />
         )}
       </section>
+
+      <AnimatePresence>
+        {wizardOpen && (
+          <NewCampaignWizard
+            universes={universesQ.data ?? []}
+            onClose={() => setWizardOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
