@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import LobbyPage from "./page";
 import * as api from "@/lib/api";
@@ -88,5 +89,31 @@ describe("Lobby — Campaigns tab", () => {
   it("has a New campaign call-to-action", async () => {
     renderPage();
     expect(await screen.findByRole("button", { name: /new campaign/i })).toBeInTheDocument();
+  });
+
+  it("shows an error notice with retry when universes fail to load", async () => {
+    vi.spyOn(api.universesApi, "listUniverses").mockRejectedValue(new Error("backend down"));
+    const user = userEvent.setup();
+    renderPage();
+    expect(
+      await screen.findByText(/couldn't load your worlds/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/no universes yet/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+    expect(api.universesApi.listUniverses).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows an inline error in the rail area when sessions fail to load", async () => {
+    vi.spyOn(api.chatApi, "listSessions").mockRejectedValue(new Error("boom"));
+    renderPage();
+    expect(await screen.findByText(/couldn't load recent sessions/i)).toBeInTheDocument();
+    expect(screen.queryByText("The Ashen Road")).not.toBeInTheDocument();
+  });
+
+  it("shows 'Stories unavailable' on cards when stories fail to load", async () => {
+    vi.spyOn(api.storiesApi, "listStories").mockRejectedValue(new Error("boom"));
+    renderPage();
+    expect(await screen.findByText("Stories unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("No stories yet")).not.toBeInTheDocument();
   });
 });

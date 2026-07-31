@@ -18,9 +18,12 @@ const BADGE_CLASSES: Record<ReturnType<typeof playableState>, string> = {
 export function UniverseCardGrid({
   universes,
   latestStoryByUniverse,
+  storiesError = false,
 }: {
   universes: Universe[];
   latestStoryByUniverse: Record<string, StorySummary | undefined>;
+  /** True when the stories query failed — cards show a muted placeholder. */
+  storiesError?: boolean;
 }) {
   if (universes.length === 0) {
     return (
@@ -69,7 +72,11 @@ export function UniverseCardGrid({
 
             <div className="flex items-center gap-1.5 text-xs text-slate-400 min-h-[1rem]">
               <BookOpen className="h-3 w-3 flex-shrink-0 text-purple-300" />
-              <span className="truncate">{latest ? latest.title : "No stories yet"}</span>
+              {storiesError ? (
+                <span className="truncate italic text-slate-600">Stories unavailable</span>
+              ) : (
+                <span className="truncate">{latest ? latest.title : "No stories yet"}</span>
+              )}
             </div>
 
             <div className="mt-auto flex gap-2">

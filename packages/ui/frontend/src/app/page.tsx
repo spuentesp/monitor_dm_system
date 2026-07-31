@@ -45,7 +45,23 @@ export default function LobbyPage() {
         </button>
       </header>
 
-      <ContinuePlayingRail sessions={sessionsQ.data ?? []} />
+      {sessionsQ.isError ? (
+        <div
+          role="alert"
+          className="glass flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-xs text-red-300/80"
+        >
+          Couldn't load recent sessions — check the backend and retry.
+          <button
+            type="button"
+            onClick={() => void sessionsQ.refetch()}
+            className="btn-ghost px-3 py-1.5 text-xs"
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <ContinuePlayingRail sessions={sessionsQ.data ?? []} />
+      )}
 
       <section aria-label="Playable universes" className="space-y-2">
         <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -53,10 +69,25 @@ export default function LobbyPage() {
         </div>
         {universesQ.isLoading ? (
           <div className="text-sm text-slate-500">Loading universes…</div>
+        ) : universesQ.isError ? (
+          <div
+            role="alert"
+            className="glass flex items-center justify-between gap-3 rounded-xl px-5 py-4 text-sm text-red-300/80"
+          >
+            Couldn't load your worlds — check the backend and retry.
+            <button
+              type="button"
+              onClick={() => void universesQ.refetch()}
+              className="btn-ghost px-3 py-1.5 text-xs"
+            >
+              Retry
+            </button>
+          </div>
         ) : (
           <UniverseCardGrid
             universes={universesQ.data ?? []}
             latestStoryByUniverse={latestStoryByUniverse}
+            storiesError={storiesQ.isError}
           />
         )}
       </section>
