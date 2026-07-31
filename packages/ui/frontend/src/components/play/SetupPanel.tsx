@@ -126,12 +126,12 @@ export function SetupPanel({
   }, [systems, selectedSystemId, selectedBenchmarkId]);
 
   useEffect(() => {
-    if (characters.length > 0 && !characters.some((c) => c.id === selectedCharacterId)) {
-      setSelectedCharacterId(characters[0].id);
-    }
     if (characters.length === 0) {
       setSelectedCharacterId("");
     }
+    // We no longer auto-select the first character — the player must
+    // explicitly pick a saved PC or opt into creating one. This keeps
+    // "selected" meaning "deliberate" in the backend session payload.
   }, [characters, selectedCharacterId]);
 
   const selectedMv = multiverses.find((mv) => mv.id === selectedMvId);
@@ -351,7 +351,7 @@ export function SetupPanel({
             onChange={(e) => setSelectedCharacterId(e.target.value)}
             disabled={!selectedSystemId || charactersLoading}
           >
-            <option value="">Type a custom / new speaker</option>
+            <option value="">Create a new character in Session Zero</option>
             {characters.map((character) => (
               <option key={character.id} value={character.id}>
                 {character.name}
@@ -363,6 +363,9 @@ export function SetupPanel({
               No existing characters found for this system yet.
             </p>
           )}
+          <p className="text-[10px] text-slate-500">
+            Selection is deliberate — leaving this blank lets Session Zero build a new character.
+          </p>
         </div>
       </div>
 

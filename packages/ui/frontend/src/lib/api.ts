@@ -258,6 +258,10 @@ export const chatApi = {
   // 180s timeout mirrors endScene — both calls may invoke the LLM prologue path.
   skipPreplay: (sessionId: string) =>
     req<Message>(`/chat/${sessionId}/skip-preplay`, { method: "POST", timeout: 180_000 }),
+  // [P-19] Begin Story — confirm Session Zero agreements and bootstrap the
+  // opening narration once the player has accepted the agreement summary.
+  beginStory: (sessionId: string) =>
+    req<Message>(`/chat/${sessionId}/begin`, { method: "POST", timeout: 180_000 }),
   getRecap: (sessionId: string) =>
     req<{ recap: string; story_id: string | null; universe_id: string | null; persisted?: boolean }>(
       `/chat/${sessionId}/recap`,

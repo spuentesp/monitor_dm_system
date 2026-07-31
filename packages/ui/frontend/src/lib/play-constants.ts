@@ -23,7 +23,22 @@ export const MODE_LABEL: Record<string, string> = {
 };
 
 export const PHASE_STYLE: Record<string, { label: string; cls: string }> = {
-  awaiting_character: { label: "Choosing character", cls: "text-amber-300 border-amber-500/30 bg-amber-500/10" },
+  awaiting_character: {
+    label: "Choosing character",
+    cls: "text-amber-300 border-amber-500/30 bg-amber-500/10",
+  },
+  character_interview: {
+    label: "Building your character",
+    cls: "text-amber-300 border-amber-500/30 bg-amber-500/10",
+  },
+  char_creation: {
+    label: "Building your character",
+    cls: "text-amber-300 border-amber-500/30 bg-amber-500/10",
+  },
+  session_zero: {
+    label: "Session Zero — agreeing the story",
+    cls: "text-amber-300 border-amber-500/30 bg-amber-500/10",
+  },
   awaiting_premise: { label: "Setting premise", cls: "text-amber-300 border-amber-500/30 bg-amber-500/10" },
   setup: { label: "Setup", cls: "text-amber-300 border-amber-500/30 bg-amber-500/10" },
   active_play: { label: "In play", cls: "text-emerald-300 border-emerald-500/30 bg-emerald-500/10" },

@@ -273,8 +273,26 @@ export default function PlayConsole() {
     },
   });
 
+  // [P-19] Begin Story — confirm Session Zero agreements and bootstrap the
+  // opening narration. Only meaningful once agreements are awaiting
+  // confirmation.
+  const beginStory = useMutation({
+    mutationFn: () => chatApi.beginStory(activeSessionId!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["session-state", activeSessionId] });
+      qc.invalidateQueries({ queryKey: ["play-sessions"] });
+    },
+  });
+
   // Pre-play phases where the Skip-to-play affordance is meaningful.
-  const preplayPhases = ["awaiting_character", "session_zero", "char_creation"];
+  // A character must already be bound (either selected on setup or produced
+  // by the character stage) before the Skip button accepts the click.
+  const preplayPhases = [
+    "awaiting_character",
+    "character_interview",
+    "char_creation",
+    "session_zero",
+  ];
 
   const renameSession = useMutation({
     mutationFn: ({ id, title }: { id: string; title: string }) =>
@@ -543,7 +561,27 @@ export default function PlayConsole() {
                     className="ml-1 text-[10px] px-2 py-0.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
                     title="Skip the pre-play interview and start playing"
                   >
-                    {skipPreplay.isPending ? "Skipping…" : "Skip to play"}
+                    {skipPreplay.isPending ? "Skipping…" : "Use defaults & begin"}
+                  </button>
+                )}
+              {/* [P-19] Begin Story — appear once Session Zero is awaiting
+                  confirmation. Hides once the session is finalized. */}
+              {activeSessionId &&
+                (sessionState?.session?.phase ?? activeSession?.phase) ===
+                  "session_zero" &&
+                Boolean(
+                  sessionState?.recent_phase_sequence?.includes?.(
+                    "story_agreements_summary",
+                  ),
+                ) && (
+                  <button
+                    type="button"
+                    onClick={() => beginStory.mutate()}
+                    disabled={beginStory.isPending}
+                    className="ml-1 text-[10px] px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    title="Confirm the Session Zero agreements and start the story"
+                  >
+                    {beginStory.isPending ? "Beginning…" : "Begin Story"}
                   </button>
                 )}
               {selectedCharacter && (
