@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Send, Heart, ShieldAlert, Sparkles } from "lucide-react";
-import { entitiesApi } from "@/lib/api";
+import { ArrowLeft, Send, Heart, ShieldAlert, Sparkles, ImagePlus, Loader2 } from "lucide-react";
+import { entitiesApi, imageApi } from "@/lib/api";
 import type { StandaloneCharacter } from "@/lib/types";
 import { useNotify } from "@/components/NotificationProvider";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ type ChatMessage = {
   text: string;
   emotional_state?: string | null;
   snapshot?: Record<string, unknown>;
+  image_url?: string;
 };
 
 function num(snapshot: Record<string, unknown> | undefined, key: string): number {
@@ -36,6 +37,7 @@ export function CharacterChat({
   const [draft, setDraft] = useState("");
   const [starting, setStarting] = useState(true);
   const [sending, setSending] = useState(false);
+  const [sceneBusy, setSceneBusy] = useState(false);
   // Character Versions: broaden memory recall to other universes of this
   // character when the user opts in (default off — strict universe scope).
   const [includeCrossIncarnation, setIncludeCrossIncarnation] = useState(false);
@@ -100,6 +102,23 @@ export function CharacterChat({
     }
   }
 
+  /** Summarise the recent chat into a scene illustration (never blocks chat). */
+  async function generateScene() {
+    if (!conversationId || sceneBusy) return;
+    setSceneBusy(true);
+    try {
+      const res = await imageApi.generateScene({ conversation_id: conversationId, last_n: 12 });
+      setMessages((m) => [
+        ...m,
+        { id: `img-${Date.now()}`, role: "char", text: "", image_url: res.image_url },
+      ]);
+    } catch (e) {
+      notify("error", `Scene image failed: ${errorMessage(e)}`);
+    } finally {
+      setSceneBusy(false);
+    }
+  }
+
   const stance = (lastRead?.snapshot?.["stance"] as string) ?? "neutral";
 
   return (
@@ -117,6 +136,19 @@ export function CharacterChat({
             <div className="truncate text-sm font-semibold text-fg-primary">{character.name}</div>
             <div className="truncate text-xs text-fg-muted">{character.description || "Conversatory"}</div>
           </div>
+          <button
+            className="btn-ghost ml-auto p-1.5"
+            onClick={() => void generateScene()}
+            disabled={!conversationId || sceneBusy}
+            aria-label="Generate scene image"
+            title="🖼 Generate scene image from the recent chat"
+          >
+            {sceneBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ImagePlus className="h-4 w-4" />
+            )}
+          </button>
         </div>
 
         <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4">
@@ -137,6 +169,14 @@ export function CharacterChat({
                       : "glass text-fg-secondary rounded-bl-sm",
                   )}
                 >
+                  {m.image_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={m.image_url}
+                      alt="Scene illustration"
+                      className="mb-1 max-w-full rounded-lg"
+                    />
+                  )}
                   {m.text}
                   {m.role === "char" && m.emotional_state && (
                     <div className="mt-1 text-[10px] uppercase tracking-wide text-fg-dim">

@@ -1180,6 +1180,23 @@ export const entitiesApi = {
     }),
 };
 
+// ─── Image generation (portraits & scene illustrations) ───────
+
+export const imageApi = {
+  generatePortrait: (characterId: string) =>
+    req<{ avatar_url: string; key: string }>("/image/portrait", {
+      method: "POST",
+      body: JSON.stringify({ character_id: characterId }),
+      timeout: 120_000, // image generation is slow — mirrors the chat timeouts
+    }),
+  generateScene: (data: { conversation_id?: string; session_id?: string; last_n?: number }) =>
+    req<{ image_url: string; key: string }>("/image/scene", {
+      method: "POST",
+      body: JSON.stringify(data),
+      timeout: 120_000,
+    }),
+};
+
 // ─── Universes ────────────────────────────────────────────────
 
 /** Response of POST /universes/universes/{id}/fork (a summary dict, not a Universe). */

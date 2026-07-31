@@ -81,4 +81,16 @@ describe("/light-rp", () => {
     expect(input.accept).toContain(".json");
     expect(input.accept).toContain(".png");
   });
+
+  it("generates a portrait from the card overflow menu", async () => {
+    vi.spyOn(api.imageApi, "generatePortrait").mockResolvedValue({
+      avatar_url: "https://minio.example.com/p.png",
+      key: "portraits/c-1/p.png",
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /actions for wisp/i }));
+    await user.click(screen.getByRole("button", { name: /generate portrait/i }));
+    expect(api.imageApi.generatePortrait).toHaveBeenCalledWith("c-1");
+  });
 });

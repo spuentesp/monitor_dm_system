@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Upload } from "lucide-react";
-import { entitiesApi } from "@/lib/api";
+import { entitiesApi, imageApi } from "@/lib/api";
 import { CharacterChat } from "@/components/characters/CharacterChat";
 import { CharacterCardGrid } from "@/components/lightrp/CharacterCardGrid";
 import { useNotify } from "@/components/NotificationProvider";
@@ -42,6 +42,16 @@ export default function LightRpPage() {
       await qc.invalidateQueries({ queryKey: ["standalone-characters"] });
     } catch (e) {
       notify("error", `Delete failed: ${errorMessage(e)}`);
+    }
+  }
+
+  async function generatePortrait(c: StandaloneCharacter) {
+    try {
+      await imageApi.generatePortrait(c.id);
+      await qc.invalidateQueries({ queryKey: ["standalone-characters"] });
+      notify("success", `Portrait updated for ${c.name}`);
+    } catch (e) {
+      notify("error", `Portrait failed: ${errorMessage(e)}`);
     }
   }
 
@@ -86,6 +96,7 @@ export default function LightRpPage() {
         <CharacterCardGrid
           characters={charactersQ.data ?? []}
           onChat={setActive}
+          onGeneratePortrait={(c) => void generatePortrait(c)}
           onDelete={(c) => void deleteChar(c)}
         />
       )}
