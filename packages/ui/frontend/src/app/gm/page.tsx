@@ -7,6 +7,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   BookOpen,
   ChevronDown,
+  ChevronUp,
   ClipboardList,
   Dices,
   GitBranch,
@@ -16,6 +17,7 @@ import {
   Mic,
   NotebookPen,
   RefreshCw,
+  SlidersHorizontal,
   Sparkles,
   Upload,
   X,
@@ -27,6 +29,8 @@ import { entitiesApi, ingestApi, universesApi, gmApi, storiesApi } from "@/lib/a
 import type { PlotHook, Contradiction, SessionPrep, Handout, StoryThread } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { SessionRecorder } from "@/components/gm/SessionRecorder";
+import { AskTheWorldPanel } from "@/components/gm/AskTheWorldPanel";
+import { useGmPanelPrefs, visibleOrderedPanels } from "@/lib/gm-panel-prefs";
 import { useWorldContext } from "@/lib/world-context";
 
 // ═══════════════════════════════════════════════════════════════
@@ -1091,6 +1095,7 @@ const GM_PANELS = [
   { id: "recorder",       label: "Recorder",       icon: Mic },
   { id: "notebook",       label: "Scratchpad",     icon: NotebookPen },
   { id: "dice",           label: "Dice",            icon: Dices },
+  { id: "ask-world",      label: "Ask",             icon: Globe2 },
   { id: "hooks",          label: "Hooks",          icon: Sparkles },
   { id: "threads",        label: "Threads",        icon: GitBranch },
   { id: "contradictions", label: "Contradictions",  icon: AlertTriangle },
@@ -1100,7 +1105,7 @@ const GM_PANELS = [
 
 type GMPanel = (typeof GM_PANELS)[number]["id"];
 
-const TOOL_PANEL_IDS: GMPanel[] = ["hooks", "threads", "contradictions", "session-prep", "handouts"];
+const TOOL_PANEL_IDS: GMPanel[] = ["ask-world", "hooks", "threads", "contradictions", "session-prep", "handouts"];
 
 function GMAssistantPageContent() {
   const searchParams = useSearchParams();
@@ -1112,6 +1117,9 @@ function GMAssistantPageContent() {
   const [systemOverridden, setSystemOverridden] = useState(false);
   const [activePanel, setActivePanel] = useState<GMPanel>("recorder");
   const [centerTab, setCenterTab] = useState<"recorder" | "notebook">("recorder");
+  const { prefs, toggleHidden, move } = useGmPanelPrefs();
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const visibleToolPanels = visibleOrderedPanels(TOOL_PANEL_IDS, prefs);
 
   // Resolve a deep-linked universe's label once
   const { data: requestedUniverse } = useQuery({
@@ -1248,9 +1256,9 @@ function GMAssistantPageContent() {
 
           {/* GM Tools column */}
           <div className="w-96 flex-shrink-0 flex flex-col overflow-hidden">
-            {/* Sub-tabs for GM tools */}
-            <div className="flex items-center gap-1 px-3 py-2 border-b border-white/5 flex-shrink-0 overflow-x-auto">
-              {GM_PANELS.filter((p) => TOOL_PANEL_IDS.includes(p.id)).map(({ id, label, icon: Icon }) => (
+            {/* Sub-tabs for GM tools (order/visibility is user-modifiable) */}
+            <div className="relative flex items-center gap-1 px-3 py-2 border-b border-white/5 flex-shrink-0 overflow-x-auto">
+              {GM_PANELS.filter((p) => visibleToolPanels.includes(p.id)).map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   onClick={() => setActivePanel(id as GMPanel)}
@@ -1265,15 +1273,55 @@ function GMAssistantPageContent() {
                   {label}
                 </button>
               ))}
+              <button
+                onClick={() => setCustomizeOpen((o) => !o)}
+                aria-label="Customize panels"
+                className="ml-auto flex-shrink-0 text-slate-600 hover:text-slate-300"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+              {customizeOpen && (
+                <div className="absolute right-2 top-9 z-20 w-52 rounded-lg border border-white/10 bg-slate-900/95 p-2 shadow-xl">
+                  {GM_PANELS.filter((p) => TOOL_PANEL_IDS.includes(p.id)).map(({ id, label }) => (
+                    <div key={id} className="flex items-center gap-1.5 py-0.5">
+                      <input
+                        type="checkbox"
+                        id={`panel-vis-${id}`}
+                        checked={!prefs.hidden.includes(id)}
+                        onChange={() => toggleHidden(id)}
+                        className="h-3 w-3 accent-emerald-400"
+                      />
+                      <label htmlFor={`panel-vis-${id}`} className="flex-1 text-xs text-slate-300">
+                        {label}
+                      </label>
+                      <button
+                        onClick={() => move(id, -1, [...TOOL_PANEL_IDS])}
+                        aria-label={`Move ${label} up`}
+                        className="text-slate-600 hover:text-slate-300"
+                      >
+                        <ChevronUp className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => move(id, 1, [...TOOL_PANEL_IDS])}
+                        aria-label={`Move ${label} down`}
+                        className="text-slate-600 hover:text-slate-300"
+                      >
+                        <ChevronDown className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex-1 overflow-hidden">
+              {activePanel === "ask-world" && <AskTheWorldPanel universeId={universeId} />}
               {activePanel === "hooks" && <PlotHooksPanel universeId={universeId} />}
               {activePanel === "threads" && <ThreadsPanel universeId={universeId} />}
               {activePanel === "contradictions" && <ContradictionsPanel universeId={universeId} />}
               {activePanel === "session-prep" && <SessionPrepPanel universeId={universeId} />}
               {activePanel === "handouts" && <HandoutsPanel universeId={universeId} />}
-              {/* Default to hooks if a non-tool panel is active */}
-              {!TOOL_PANEL_IDS.includes(activePanel) && <PlotHooksPanel universeId={universeId} />}
+              {/* Default to ask-the-world if a hidden/non-tool panel is active */}
+              {!visibleToolPanels.includes(activePanel) && <AskTheWorldPanel universeId={universeId} />}
             </div>
           </div>
 
@@ -1323,6 +1371,11 @@ function GMAssistantPageContent() {
               {activePanel === "dice" && (
                 <div className="flex-1 overflow-hidden px-4 py-4">
                   <DiceRoller />
+                </div>
+              )}
+              {activePanel === "ask-world" && (
+                <div className="flex-1 overflow-hidden">
+                  <AskTheWorldPanel universeId={universeId} />
                 </div>
               )}
               {activePanel === "hooks" && (
