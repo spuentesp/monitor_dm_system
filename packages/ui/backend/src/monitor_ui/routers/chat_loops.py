@@ -263,6 +263,8 @@ def get_scene_loop(
         # must be visible on the next turn.
         ooc_exchanges=session.setdefault("ooc_exchanges", []),
         chat_log=chat_log,
+        # Task 7: last scene's summary becomes the next scene's opening recap.
+        opening_recap=str(session.get("last_scene_summary") or ""),
     )
     _SCENE_LOOPS[session_id] = (signature, loop)
     _SCENE_LOOPS.move_to_end(session_id)
@@ -642,6 +644,8 @@ async def run_end_scene(
 
             # Generate summary and mark scene as completed
             summary = await _generate_scene_summary(session_id, messages)
+            # Task 7: persist the recap so the next scene's opening can render it.
+            session["last_scene_summary"] = summary
             if _DB_READERS_AVAILABLE:
                 await run_sync_read(
                     mongodb_update_scene,

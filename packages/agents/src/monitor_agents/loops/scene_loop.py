@@ -108,6 +108,9 @@ class SceneState(BaseModel):
     npc_profiles: dict[str, Any] = Field(default_factory=dict)
     # Open foreshadowing items for the current scene (loaded in load_context).
     scene_foreshadowing_open: list[dict[str, Any]] = Field(default_factory=list)
+    # Optional one-line recap from the previous scene. Rendered once at scene
+    # start; cleared after first use.
+    opening_recap: str = ""
 
     # Dice roll mode for this turn — normal, advantage, or disadvantage
     roll_mode: str = Field(default="normal")
@@ -1199,6 +1202,7 @@ class SceneLoop:
         director_notes: list[str] | None = None,
         ooc_exchanges: list[dict[str, Any]] | None = None,
         chat_log: list[Any] | None = None,
+        opening_recap: str = "",
     ) -> None:
         self.scene_id = scene_id
         self.story_id = story_id
@@ -1229,6 +1233,8 @@ class SceneLoop:
         # Live chat-log reference (last 6 messages are derived per-turn via
         # _chat_tail); refresh on every get_scene_loop call.
         self.chat_log = chat_log
+        # Optional one-line recap from the previous scene (Task 7).
+        self.opening_recap = opening_recap
         self._graph = build_scene_graph()
 
     async def run(
@@ -1276,6 +1282,7 @@ class SceneLoop:
                 established_facts=list(getattr(self, "director_notes", []) or []),
                 ooc_exchanges=list(getattr(self, "ooc_exchanges", []) or []),
                 recent_chat=_chat_tail(getattr(self, "chat_log", None)),
+                opening_recap=str(getattr(self, "opening_recap", "") or ""),
                 resolution=resolution_override,
             )
             # Add pre-loaded gm_profile to state if available

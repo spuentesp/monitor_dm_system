@@ -265,6 +265,14 @@ def _npc_state_block(
     )
 
 
+def _opening_recap_block(text: str | None, *, max_chars: int = 120) -> str:
+    """Render the LAST SCENE line. Empty when no text."""
+    if not text:
+        return ""
+    truncated = str(text).strip().replace("\n", " ")[:max_chars]
+    return f"\n\nLAST SCENE: {truncated}"
+
+
 def _foreshadowing_block(
     open_items: Any, *, turns_count: int, cap: int = 5, max_chars: int = 200
 ) -> str:
@@ -618,6 +626,9 @@ class Narrator(BaseAgent):
 
         # Inject pacing signal (Task 2).
         profile_context += _pace_block(context.get("pacing"))
+
+        # Inject LAST SCENE recap (Task 7) — only on the opening turn.
+        profile_context += _opening_recap_block(context.get("opening_recap"))
 
         # Inject ACTOR PROFILE block. [G-4] empty-sheet sentinel handled by
         # ``Narrator._build_actor_block`` (see hallucination guard). The local
