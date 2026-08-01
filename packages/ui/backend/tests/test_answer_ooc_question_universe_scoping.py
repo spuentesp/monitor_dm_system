@@ -26,7 +26,7 @@ def test_archetype_query_has_no_universe_bypass():
     own explanatory comment about the fix legitimately quotes that phrase
     as prose.
     """
-    source = inspect.getsource(preplay_support.answer_ooc_question)
+    source = inspect.getsource(preplay_support._compose_ooc_answer)
     normalized = " ".join(source.lower().split())
 
     assert "uid or 1=1" not in normalized
