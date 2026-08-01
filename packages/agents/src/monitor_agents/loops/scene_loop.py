@@ -1073,7 +1073,7 @@ async def _lookup_entity_by_name_and_universe(
             "AND ($uid IS NULL OR e.universe_id = $uid) "
             "RETURN e {.*} AS e LIMIT 1"
         )
-        rows = await run_sync_read(
+        rows: list = await run_sync_read(
             client.execute_read,
             cypher,
             {"name": name, "uid": str(universe_id) if universe_id else None},
