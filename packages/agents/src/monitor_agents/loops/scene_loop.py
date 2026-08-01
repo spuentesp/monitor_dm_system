@@ -805,6 +805,19 @@ async def canonize_checkpoint(state: SceneState) -> dict[str, Any]:
         scene_id=state.scene_id,
         proposals=state.pending_proposals,
     )
+    # Improvised NPC bootstrap: seed minimal NPCProfiles for new CHARACTER
+    # entities so they show up in the NPC STATE block next turn. Best-effort.
+    try:
+        seeded = await seed_npc_profiles_for_accepted_proposals(
+            state.pending_proposals,
+            universe_id=state.universe_id,
+            scene_id=state.scene_id,
+            story_id=state.story_id,
+        )
+        if seeded:
+            logger.debug("canonize_checkpoint: seeded %d NPC profiles", seeded)
+    except Exception as exc:
+        logger.warning("canonize_checkpoint: NPC profile seeding failed: %s", exc)
     PersistenceService.clear_scene_runtime_cache(state.scene_id, include_entities=True)
     return {"pending_proposals": []}
 
@@ -1039,6 +1052,113 @@ async def check_foreshadowing(state: SceneState) -> dict[str, Any]:
             logger.debug("check_foreshadowing: payoff write failed: %s", exc)
 
     return {"foreshadowing_planted": planted, "foreshadowing_paid": paid}
+
+async def _lookup_entity_by_name_and_universe(
+    name: str, universe_id: UUID | None
+) -> dict[str, Any] | None:
+    """Find a Neo4j entity by (name, universe_id). Returns the entity dict or None.
+
+    Best-effort: any failure is swallowed and returns None (the caller skips
+    NPCProfile creation rather than breaking the canonize step).
+    """
+    if not name:
+        return None
+    try:
+        from monitor_agents.utils.db_readers import run_sync_read
+        from monitor_data.db.neo4j import get_neo4j_client
+
+        client = get_neo4j_client()
+        cypher = (
+            "MATCH (e:Entity) WHERE toLower(e.name) = toLower($name) "
+            "AND ($uid IS NULL OR e.universe_id = $uid) "
+            "RETURN e {.*} AS e LIMIT 1"
+        )
+        rows = await run_sync_read(
+            client.execute_read,
+            cypher,
+            {"name": name, "uid": str(universe_id) if universe_id else None},
+        )
+        if not rows:
+            return None
+        row = rows[0]
+        if not isinstance(row, dict):
+            return None
+        return row.get("e")
+    except Exception as exc:
+        logger.debug("_lookup_entity_by_name_and_universe: %s", exc)
+        return None
+
+
+async def seed_npc_profiles_for_accepted_proposals(
+    proposals: list[dict[str, Any]],
+    *,
+    universe_id: UUID | None,
+    scene_id: UUID,
+    story_id: UUID,
+) -> int:
+    """For each CHARACTER entity proposal, look up the entity in Neo4j and
+    create a minimal NPCProfile (current_emotional_state='neutral', gm_notes
+    from the proposal description). Returns the number seeded. Never raises.
+    """
+    if not proposals:
+        return 0
+    try:
+        from monitor_data.schemas.npc_profiles import NPCProfileCreate
+        from monitor_data.tools.mongodb_tools import mongodb_create_npc_profile
+        import anyio
+    except Exception as exc:
+        logger.debug("seed_npc_profiles: imports failed: %s", exc)
+        return 0
+
+    seeded = 0
+    for proposal in proposals:
+        if not isinstance(proposal, dict):
+            continue
+        if proposal.get("proposal_type") != "ENTITY":
+            continue
+        content = proposal.get("content") or {}
+        if not isinstance(content, dict):
+            continue
+        if (content.get("entity_type") or "").upper() != "CHARACTER":
+            continue
+        name = str(content.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            entity = await _lookup_entity_by_name_and_universe(name, universe_id)
+            if not entity:
+                continue
+            eid = entity.get("id") or entity.get("entity_id")
+            if not eid:
+                continue
+            description = str(content.get("description") or "").strip()
+            gm_notes = description[:1000] if description else None
+            params = NPCProfileCreate(
+                entity_id=UUID(str(eid)),
+                universe_id=universe_id,
+                traits={},
+                values=[],
+                fears=[],
+                desires=[],
+                speech_style=None,
+                catchphrases=[],
+                mannerisms=[],
+                emotional_tendencies=[],
+                preferences=[],
+                triggers=[],
+                secrets=[],
+                gm_notes=gm_notes,
+                current_emotional_state="neutral",
+                relationship_states={},
+                relationship_states_by_universe={},
+                current_emotional_state_by_universe={},
+            )
+            await anyio.to_thread.run_sync(mongodb_create_npc_profile, params)
+            seeded += 1
+        except Exception as exc:
+            logger.debug("seed_npc_profiles: failed for %r: %s", name, exc)
+    return seeded
+
 
 def _chat_tail(chat_log: Any, *, limit: int = 6) -> list[dict[str, str]]:
     """Last `limit` chat messages as {role, mode, content} dicts (IC/OOC labeled)."""
