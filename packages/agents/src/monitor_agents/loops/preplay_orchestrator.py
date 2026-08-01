@@ -508,6 +508,28 @@ async def handle_char_creation(state: PreplayState) -> dict[str, Any]:
     }
 
 
+def _character_recap(session: dict[str, Any]) -> str:
+    """Small review of the established character, prepended to the closing
+    Session-Zero summary so the player confirms it before Begin Story."""
+    summary = session.get("character_summary")
+    if not isinstance(summary, dict):
+        return ""
+    lines = ["CHARACTER REVIEW — what we established:"]
+    name = str(summary.get("character_name") or session.get("speaker_label") or "").strip()
+    concept = str(summary.get("concept") or "").strip()
+    appearance = str(summary.get("appearance") or "").strip()
+    backstory = str(summary.get("backstory") or "").strip()
+    if name:
+        lines.append(f"- Name: {name}")
+    if concept:
+        lines.append(f"- Origin & concept: {concept}")
+    if appearance:
+        lines.append(f"- Appearance: {appearance}")
+    if backstory:
+        lines.append(f"- Story so far: {backstory[:400]}")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
 async def handle_story_agreements(state: PreplayState) -> dict[str, Any]:
     session = state.session_data
     loop = get_story_agreements_loop(state.session_id, session, state.system_doc)
@@ -546,8 +568,13 @@ async def handle_story_agreements(state: PreplayState) -> dict[str, Any]:
         if agreement_data.get("story_premise"):
             session["story_premise"] = agreement_data["story_premise"]
 
+    recap = _character_recap(session) if result.get("complete") else ""
+    gm_message = result.get("gm_message", "Tell me more.")
+    if recap:
+        gm_message = recap + "\n\n---\n\n" + gm_message
+
     return {
-        "response_text": result.get("gm_message", "Tell me more."),
+        "response_text": gm_message,
         "metadata": metadata,
         "session_data": session,
         "next_step": END,
