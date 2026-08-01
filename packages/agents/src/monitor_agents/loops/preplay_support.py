@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from monitor_agents.llm_errors import classify_llm_error
@@ -207,6 +208,28 @@ def record_director_note(session: dict[str, Any], text: str) -> bool:
     notes.append(entry)
     del notes[:-_DIRECTOR_NOTES_MAX]
     return True
+
+
+OOC_EXCHANGES_CAP = 8
+
+
+def record_ooc_exchange(session: dict[str, Any], question: str, answer: str) -> None:
+    """Append an OOC Q&A pair to the session for later narrator context.
+
+    In-place append (same shared-reference pattern as director notes) so a
+    cached SceneLoop sees new exchanges on the next turn. Cap: newest 8.
+    """
+    exchanges = session.setdefault("ooc_exchanges", [])
+    if not isinstance(exchanges, list):
+        exchanges = session["ooc_exchanges"] = []
+    exchanges.append(
+        {
+            "question": question.strip(),
+            "answer": answer.strip(),
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+    )
+    del exchanges[:-OOC_EXCHANGES_CAP]
 
 
 # ---------------------------------------------------------------------------
@@ -440,6 +463,24 @@ def _build_ooc_signature() -> Any:
 
 
 async def answer_ooc_question(
+    session: dict[str, Any],
+    question: str,
+    *,
+    session_game_system_doc: Any,
+    gsr_available: bool,
+) -> str:
+    """Answer an OOC message and record the exchange for later GM context."""
+    answer = await _compose_ooc_answer(
+        session,
+        question,
+        session_game_system_doc=session_game_system_doc,
+        gsr_available=gsr_available,
+    )
+    record_ooc_exchange(session, normalize_ooc_text(question), answer)
+    return answer
+
+
+async def _compose_ooc_answer(
     session: dict[str, Any],
     question: str,
     *,
