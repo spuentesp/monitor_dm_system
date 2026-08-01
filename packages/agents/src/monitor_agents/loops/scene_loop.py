@@ -42,6 +42,7 @@ from monitor_agents.loops.scene_support import (
 from monitor_agents.services.persistence_service import PersistenceService
 from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
 from monitor_agents.loops.story_loop import StoryState
+from monitor_agents.narrator.agent import compute_pacing
 from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,8 @@ class SceneState(BaseModel):
     # Tone for this session — drives Narrator voice (dramatic/grim/horror/heroic/mystery/adventure)
     session_tone: str = Field(default="dramatic")
     tension_score: float = Field(default=0.5)
+    # Deterministic pacing signal (tempo 0..1 + phase). Set in load_context.
+    pacing: dict[str, Any] = Field(default_factory=lambda: {"tempo": 0.5, "phase": "setup"})
 
     # Dice roll mode for this turn — normal, advantage, or disadvantage
     roll_mode: str = Field(default="normal")
@@ -334,6 +337,9 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         "temporal_mode": temporal_mode,
         "time_ref": time_ref,
         "context_summary": context.get("summary", ""),
+        # Deterministic pacing signal (Task 2). Uses state.turns_count and
+        # recent_proposal_count from the just-loaded state.
+        "pacing": compute_pacing(state.turns_count, len(state.pending_proposals or [])),
     }
 
 

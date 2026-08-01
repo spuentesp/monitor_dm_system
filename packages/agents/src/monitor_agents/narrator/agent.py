@@ -129,6 +129,40 @@ def _table_talk_block(ooc_exchanges: Any, *, cap: int = 8, max_chars: int = 300)
     )
 
 
+def compute_pacing(turns_count: int, recent_proposal_count: int) -> dict[str, Any]:
+    """Deterministic pacing signal from turn count + recent proposal count.
+
+    - tempo (0..1): higher = more action recently.
+    - phase: setup / rising / peak / falling / coda.
+    """
+    tempo = 0.4 + 0.04 * turns_count - 0.3 * recent_proposal_count
+    tempo = max(0.0, min(1.0, tempo))
+    if turns_count < 3:
+        phase = "setup"
+    elif tempo >= 0.7 and recent_proposal_count >= 1:
+        phase = "peak"
+    elif tempo <= 0.3 and turns_count > 5:
+        phase = "falling"
+    elif turns_count > 30:
+        phase = "coda"
+    else:
+        phase = "rising"
+    return {"tempo": round(tempo, 2), "phase": phase}
+
+
+def _pace_block(pacing: Any) -> str:
+    """Render the PACE block (single line). Empty when at defaults."""
+    if not isinstance(pacing, dict):
+        return ""
+    tempo = pacing.get("tempo")
+    phase = pacing.get("phase")
+    if tempo is None or phase is None:
+        return ""
+    if tempo == 0.5 and phase == "setup":
+        return ""
+    return f"\n\nPACE: tempo={tempo:.2f} phase={phase}"
+
+
 def _recent_chat_block(recent_chat: Any, *, max_tokens: int = 500) -> str:
     """Render the raw chat tail as a labeled block, hard-capped by tokens."""
     if not isinstance(recent_chat, list) or not recent_chat:
@@ -452,6 +486,9 @@ class Narrator(BaseAgent):
             gm_profile=gm_profile,
         )
         profile_context = build_narrative_profile_context(source_profile)
+
+        # Inject pacing signal (Task 2).
+        profile_context += _pace_block(context.get("pacing"))
 
         # Inject ACTOR PROFILE block. [G-4] empty-sheet sentinel handled by
         # ``Narrator._build_actor_block`` (see hallucination guard). The local
