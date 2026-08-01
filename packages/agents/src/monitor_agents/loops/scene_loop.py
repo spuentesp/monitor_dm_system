@@ -103,6 +103,9 @@ class SceneState(BaseModel):
     tension_score: float = Field(default=0.5)
     # Deterministic pacing signal (tempo 0..1 + phase). Set in load_context.
     pacing: dict[str, Any] = Field(default_factory=lambda: {"tempo": 0.5, "phase": "setup"})
+    # NPC profiles fetched per scene (entity_id -> dict). Rendered by Narrator
+    # into the NPC STATE block; never reset across turns.
+    npc_profiles: dict[str, Any] = Field(default_factory=dict)
 
     # Dice roll mode for this turn — normal, advantage, or disadvantage
     roll_mode: str = Field(default="normal")
@@ -324,6 +327,23 @@ async def load_context(state: SceneState) -> dict[str, Any]:
                 entity_id=state.actor_id,
             )
 
+    # Fetch NPC profiles for entities in this scene (Task 4). Best-effort:
+    # any failure leaves npc_profiles empty and the NPC STATE block degrades.
+    npc_profiles: dict[str, Any] = {}
+    try:
+        entity_ids = [
+            UUID(str(e["id"])) for e in state.entity_context
+            if isinstance(e, dict) and e.get("id")
+        ]
+        if entity_ids:
+            from monitor_data.tools.mongodb_tools import mongodb_get_npc_profiles_by_entities
+            profiles = await run_sync_read(
+                mongodb_get_npc_profiles_by_entities, entity_ids,
+            )
+            npc_profiles = {str(p.entity_id): p.model_dump(mode="json") for p in profiles}
+    except Exception as exc:
+        logger.warning("load_context: npc profile fetch failed: %s", exc)
+
     return {
         "entity_context": context.get("entities", []),
         "memory_context": context.get("memories", []),
@@ -337,9 +357,8 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         "temporal_mode": temporal_mode,
         "time_ref": time_ref,
         "context_summary": context.get("summary", ""),
-        # Deterministic pacing signal (Task 2). Uses state.turns_count and
-        # recent_proposal_count from the just-loaded state.
         "pacing": compute_pacing(state.turns_count, len(state.pending_proposals or [])),
+        "npc_profiles": npc_profiles,
     }
 
 
@@ -449,6 +468,8 @@ async def narrate(state: SceneState) -> dict[str, Any]:
             "established_facts": state.established_facts,
             "ooc_exchanges": state.ooc_exchanges,
             "recent_chat": state.recent_chat,
+            "pacing": state.pacing,
+            "npc_profiles": state.npc_profiles,
             "agreements": {
                 "lines": list(state.agreements_lines or []),
                 "veils": list(state.agreements_veils or []),

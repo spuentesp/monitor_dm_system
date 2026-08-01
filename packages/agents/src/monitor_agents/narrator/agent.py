@@ -163,6 +163,49 @@ def _pace_block(pacing: Any) -> str:
     return f"\n\nPACE: tempo={tempo:.2f} phase={phase}"
 
 
+def _npc_state_block(
+    npc_profiles: Any,
+    *,
+    universe_id: str | None,
+    player_id: str | None,
+    cap: int = 4,
+    max_chars: int = 200,
+) -> str:
+    """Render per-NPC emotion + relationship + speech_style as a narrator block.
+
+    Empty when no NPC has emotion/relationship in the active universe+player
+    partition. Capped at `cap` NPCs and `max_chars` chars per field.
+    """
+    if not isinstance(npc_profiles, dict) or not npc_profiles:
+        return ""
+    rows: list[str] = []
+    for profile in list(npc_profiles.values())[:cap]:
+        if not isinstance(profile, dict):
+            continue
+        name = str(profile.get("name") or "(unnamed)")[:max_chars].strip()
+        emo_map = profile.get("current_emotional_state_by_universe") or {}
+        emo = str((emo_map.get(universe_id) if universe_id else None) or "").strip()[:max_chars]
+        rel_map = (profile.get("relationship_states_by_universe") or {}).get(universe_id or "", {}) or {}
+        rel = rel_map.get(player_id or "", {}) if isinstance(rel_map.get(player_id or ""), dict) else {}
+        disposition = str(rel.get("disposition") or "")[:max_chars].strip()
+        speech = str(profile.get("speech_style") or "")[:max_chars].strip()
+        if not (emo or disposition or speech):
+            continue
+        bits = []
+        if emo:
+            bits.append(f'emotion="{emo}"')
+        if disposition:
+            bits.append(f'disposition="{disposition}"')
+        if speech:
+            bits.append(f'speech_style="{speech}"')
+        rows.append(f"- {name}: " + ", ".join(bits))
+    if not rows:
+        return ""
+    return (
+        "\n\nNPC STATE (use these in dialogue; do not contradict):\n" + "\n".join(rows) + "\n"
+    )
+
+
 def _recent_chat_block(recent_chat: Any, *, max_tokens: int = 500) -> str:
     """Render the raw chat tail as a labeled block, hard-capped by tokens."""
     if not isinstance(recent_chat, list) or not recent_chat:
@@ -497,6 +540,15 @@ class Narrator(BaseAgent):
         actor_block = self._build_actor_block(actor)
         if actor_block:
             profile_context += actor_block
+
+        # Inject NPC state (Task 4): per-NPC emotion + relationship + voice.
+        profile_context += _npc_state_block(
+            context.get("npc_profiles"),
+            universe_id=context.get("universe_id") or (
+                str(getattr(story_state, "universe_id", "")) if story_state else None
+            ),
+            player_id=str(actor.get("id")) if isinstance(actor, dict) and actor.get("id") else None,
+        )
 
         # Inject lorebook entries into profile_context
         lore_to_inject = lorebook_context or context.get("lorebook_context")
