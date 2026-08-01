@@ -342,7 +342,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         ]
         if entity_ids:
             from monitor_data.tools.mongodb_tools import mongodb_get_npc_profiles_by_entities
-            profiles = await run_sync_read(
+            profiles: list = await run_sync_read(
                 mongodb_get_npc_profiles_by_entities, entity_ids,
             )
             npc_profiles = {str(p.entity_id): p.model_dump(mode="json") for p in profiles}
@@ -353,7 +353,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     open_foreshadowing: list[dict[str, Any]] = []
     try:
         from monitor_data.tools.mongodb_tools import mongodb_list_open_foreshadowing
-        items = await run_sync_read(
+        items: list = await run_sync_read(
             mongodb_list_open_foreshadowing,
             state.scene_id,
             state.story_id,
@@ -1028,9 +1028,11 @@ async def check_foreshadowing(state: SceneState) -> dict[str, Any]:
             continue
         try:
             await anyio.to_thread.run_sync(
-                mongodb_mark_foreshadowing_paid,
+                lambda fid, turn: mongodb_mark_foreshadowing_paid(
+                    fid, paid_at_turn=turn
+                ),
                 UUID(str(match.get("foreshadowing_id"))),
-                paid_at_turn=state.turns_count,
+                state.turns_count,
             )
             paid += 1
         except Exception as exc:

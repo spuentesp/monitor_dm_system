@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid as _uuid
 
-import pytest
 
 from monitor_agents.narrator.agent import _opening_recap_block
 from monitor_agents.loops.scene_loop import SceneState

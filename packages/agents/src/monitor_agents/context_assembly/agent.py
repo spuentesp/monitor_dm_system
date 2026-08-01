@@ -730,6 +730,7 @@ class ContextAssembly(BaseAgent):
             ids = [UUID(str(m["memory_id"])) for m in memories if m.get("memory_id")]
             if ids:
                 from monitor_data.tools.mongodb_tools import mongodb_increment_memory_access
+                import anyio
                 await anyio.to_thread.run_sync(mongodb_increment_memory_access, ids)
         except Exception as exc:
             logger.debug("_search_memories: access_count increment failed: %s", exc)
@@ -831,6 +832,7 @@ class ContextAssembly(BaseAgent):
             ids = [UUID(str(m["memory_id"])) for m in memories if m.get("memory_id")]
             if ids:
                 from monitor_data.tools.mongodb_tools import mongodb_increment_memory_access
+                import anyio
                 await anyio.to_thread.run_sync(mongodb_increment_memory_access, ids)
         except Exception as exc:
             logger.debug("_fetch_memories: access_count increment failed: %s", exc)

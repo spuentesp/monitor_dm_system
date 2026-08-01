@@ -83,7 +83,7 @@ def test_increment_batches(fake_mongo: _FakeMongoClient) -> None:
     ids = [str(uuid4()), str(uuid4()), str(uuid4())]
     for i in ids:
         fake_mongo.mem.docs.append({"memory_id": i, "access_count": 0})
-    n = mongodb_increment_memory_access([uuid4(), uuid4()])
+    mongodb_increment_memory_access([uuid4(), uuid4()])
     # Two of the three docs match (we only added three IDs but pass two UUIDs to increment)
     assert len(fake_mongo.mem.update_calls) == 1
     upd = fake_mongo.mem.update_calls[0]

@@ -290,7 +290,7 @@ def _foreshadowing_block(
         if not summary:
             continue
         overdue = target_turn <= turns_count
-        suffix = f" (overdue — pay off soon)" if overdue else ""
+        suffix = " (overdue — pay off soon)" if overdue else ""
         rows.append(f"- {summary} (target turn {target_turn}){suffix}")
     if not rows:
         return ""
@@ -426,7 +426,7 @@ class Narrator(BaseAgent):
                 minutes_elapsed,
                 suggested_actions,
                 degraded,
-            ) = await self._generate_narrative_and_proposals(  # type: ignore[misc]
+            ) = await self._generate_narrative_and_proposals(
                 user_input=user_input,
                 resolution=resolution,
                 context=context,
@@ -841,7 +841,7 @@ class Narrator(BaseAgent):
 
         if prediction is None:
             # Empty narrative from both attempts — degraded.
-            return narrative_text, [], 1, [], {"error_class": "empty_narrative"}  # type: ignore[return-value]
+            return narrative_text, [], 1, [], {"error_class": "empty_narrative"}
 
         # Parse proposed_changes from DSPy output (JSON array string)
         proposals = self._parse_proposed_changes(getattr(prediction, "proposed_changes", "[]"))
@@ -855,9 +855,7 @@ class Narrator(BaseAgent):
         except (json.JSONDecodeError, TypeError):
             emo_dict = {}
         if isinstance(emo_dict, dict) and emo_dict:
-            class _MiniState:
-                pass
-            ms = _MiniState()
+            ms: Any = type("_MiniState", (), {})()
             ms.universe_id = context.get("universe_id") or (
                 str(getattr(story_state, "universe_id", "")) if story_state else None
             )
@@ -891,7 +889,7 @@ class Narrator(BaseAgent):
         When both degrade, returns the second attempt's output with
         ``{"retried": True, ...}`` attached so the caller can tell.
         """
-        kwargs = dict(
+        kwargs: dict[str, Any] = dict(
             user_input=user_input,
             resolution=resolution,
             context=context,
@@ -926,7 +924,7 @@ class Narrator(BaseAgent):
         story_premise: str | None = None,
     ) -> str:
         """Run the DSPy narrator module — returns prose only (for opening narratives)."""
-        text, _, _, _, _ = await self._generate_narrative_and_proposals(  # type: ignore[misc]
+        text, _, _, _, _ = await self._generate_narrative_and_proposals(
             user_input=user_input,
             resolution=resolution,
             context=context,
@@ -935,7 +933,7 @@ class Narrator(BaseAgent):
             gm_profile=gm_profile,
             story_premise=story_premise,
         )
-        return text  # type: ignore[no-any-return]
+        return text
 
     # ------------------------------------------------------------------
     # Path 1 — 3-step reconcile: GM draft + outcome -> polished prose.

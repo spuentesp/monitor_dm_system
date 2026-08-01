@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid as _uuid
 from typing import Any
 
-import pytest
 
 from monitor_agents.narrator.agent import _npc_state_block
 from monitor_agents.loops.scene_loop import SceneState
