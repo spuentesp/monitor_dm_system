@@ -265,6 +265,33 @@ def _npc_state_block(
     )
 
 
+def _foreshadowing_block(
+    open_items: Any, *, turns_count: int, cap: int = 5, max_chars: int = 200
+) -> str:
+    """Render OPEN FORESHADOWING as a labeled narrator block (empty when none)."""
+    if not isinstance(open_items, list) or not open_items:
+        return ""
+    rows: list[str] = []
+    for item in open_items[:cap]:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("status") or "open") != "open":
+            continue
+        summary = str(item.get("summary") or "")[:max_chars].strip()
+        target_turn = int(item.get("target_turn") or 0)
+        if not summary:
+            continue
+        overdue = target_turn <= turns_count
+        suffix = f" (overdue — pay off soon)" if overdue else ""
+        rows.append(f"- {summary} (target turn {target_turn}){suffix}")
+    if not rows:
+        return ""
+    return (
+        "\n\nOPEN FORESHADOWING (pay off or reference these where natural):\n"
+        + "\n".join(rows) + "\n"
+    )
+
+
 def _recent_chat_block(recent_chat: Any, *, max_tokens: int = 500) -> str:
     """Render the raw chat tail as a labeled block, hard-capped by tokens."""
     if not isinstance(recent_chat, list) or not recent_chat:
@@ -607,6 +634,12 @@ class Narrator(BaseAgent):
                 str(getattr(story_state, "universe_id", "")) if story_state else None
             ),
             player_id=str(actor.get("id")) if isinstance(actor, dict) and actor.get("id") else None,
+        )
+
+        # Inject OPEN FORESHADOWING (Task 6).
+        profile_context += _foreshadowing_block(
+            context.get("scene_foreshadowing_open"),
+            turns_count=int(context.get("turns_count") or 0),
         )
 
         # Inject lorebook entries into profile_context

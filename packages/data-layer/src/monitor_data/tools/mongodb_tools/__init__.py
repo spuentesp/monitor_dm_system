@@ -132,6 +132,13 @@ from monitor_data.tools.mongodb_tools.roleplay_errors import (
     mongodb_record_roleplay_error,
 )
 
+# Foreshadowing operations
+from monitor_data.tools.mongodb_tools.foreshadowing import (
+    mongodb_create_foreshadowing,
+    mongodb_list_open_foreshadowing,
+    mongodb_mark_foreshadowing_paid,
+)
+
 # Knowledge Pack operations
 from monitor_data.tools.mongodb_tools.knowledge_packs import (
     _convert_knowledge_pack_doc,
@@ -466,6 +473,9 @@ __all__ = [
     "mongodb_list_ingestion_jobs",
     "mongodb_record_roleplay_error",
     "mongodb_list_roleplay_errors",
+    "mongodb_create_foreshadowing",
+    "mongodb_list_open_foreshadowing",
+    "mongodb_mark_foreshadowing_paid",
     # Knowledge Packs
     "_convert_knowledge_pack_doc",
     "mongodb_create_knowledge_pack",

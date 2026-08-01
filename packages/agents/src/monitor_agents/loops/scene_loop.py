@@ -106,6 +106,8 @@ class SceneState(BaseModel):
     # NPC profiles fetched per scene (entity_id -> dict). Rendered by Narrator
     # into the NPC STATE block; never reset across turns.
     npc_profiles: dict[str, Any] = Field(default_factory=dict)
+    # Open foreshadowing items for the current scene (loaded in load_context).
+    scene_foreshadowing_open: list[dict[str, Any]] = Field(default_factory=list)
 
     # Dice roll mode for this turn — normal, advantage, or disadvantage
     roll_mode: str = Field(default="normal")
@@ -344,6 +346,20 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     except Exception as exc:
         logger.warning("load_context: npc profile fetch failed: %s", exc)
 
+    # Fetch open foreshadowing (Task 6). Best-effort: failure leaves the block silent.
+    open_foreshadowing: list[dict[str, Any]] = []
+    try:
+        from monitor_data.tools.mongodb_tools import mongodb_list_open_foreshadowing
+        items = await run_sync_read(
+            mongodb_list_open_foreshadowing,
+            state.scene_id,
+            state.story_id,
+            limit=5,
+        )
+        open_foreshadowing = [r.model_dump(mode="json") for r in items]
+    except Exception as exc:
+        logger.debug("load_context: foreshadowing fetch failed: %s", exc)
+
     return {
         "entity_context": context.get("entities", []),
         "memory_context": context.get("memories", []),
@@ -359,6 +375,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         "context_summary": context.get("summary", ""),
         "pacing": compute_pacing(state.turns_count, len(state.pending_proposals or [])),
         "npc_profiles": npc_profiles,
+        "scene_foreshadowing_open": open_foreshadowing,
     }
 
 
@@ -948,6 +965,76 @@ async def check_events(state: SceneState) -> dict[str, Any]:
         resolution=state.resolution,
     )
 
+
+async def check_foreshadowing(state: SceneState) -> dict[str, Any]:
+    """Propose 0-2 plants and 0-2 payoffs for this turn; persist open plants.
+
+    Best-effort: any failure here is logged and swallowed (the scene continues).
+    """
+    from monitor_agents.foreshadowing.agent import ForeshadowingAgent
+    from monitor_data.schemas.foreshadowing import ForeshadowingCreate
+    from monitor_data.tools.mongodb_tools import (
+        mongodb_create_foreshadowing,
+        mongodb_mark_foreshadowing_paid,
+    )
+    import anyio
+
+    try:
+        agent = ForeshadowingAgent()
+        proposals = await agent.propose(
+            scene_id=state.scene_id,
+            story_id=state.story_id,
+            narrative_text=state.narrative_text or "",
+            entities=state.entity_context,
+            player_action=state.user_input or "",
+        )
+    except Exception as exc:
+        logger.warning("check_foreshadowing: agent failed: %s", exc)
+        return {"foreshadowing_planted": 0, "foreshadowing_paid": 0}
+
+    planted = 0
+    for plant in proposals.get("plants", []):
+        try:
+            await anyio.to_thread.run_sync(
+                mongodb_create_foreshadowing,
+                ForeshadowingCreate(
+                    scene_id=state.scene_id,
+                    story_id=state.story_id,
+                    kind="plant",
+                    summary=str(plant.get("summary") or "")[:200],
+                    planted_by_turn=state.turns_count,
+                    target_turn=int(plant.get("target_turn") or state.turns_count + 5),
+                ),
+            )
+            planted += 1
+        except Exception as exc:
+            logger.debug("check_foreshadowing: plant write failed: %s", exc)
+
+    open_items = state.scene_foreshadowing_open or []
+    open_by_summary = {
+        str(o.get("summary") or "").strip().lower(): o
+        for o in open_items if isinstance(o, dict)
+    }
+    paid = 0
+    for payoff in proposals.get("payoffs", []):
+        summary = str(payoff.get("summary") or "").strip()
+        if not summary:
+            continue
+        match = open_by_summary.get(summary.lower())
+        if not match:
+            continue
+        try:
+            await anyio.to_thread.run_sync(
+                mongodb_mark_foreshadowing_paid,
+                UUID(str(match.get("foreshadowing_id"))),
+                paid_at_turn=state.turns_count,
+            )
+            paid += 1
+        except Exception as exc:
+            logger.debug("check_foreshadowing: payoff write failed: %s", exc)
+
+    return {"foreshadowing_planted": planted, "foreshadowing_paid": paid}
+
 def _chat_tail(chat_log: Any, *, limit: int = 6) -> list[dict[str, str]]:
     """Last `limit` chat messages as {role, mode, content} dicts (IC/OOC labeled)."""
     if not isinstance(chat_log, list) or not chat_log:
@@ -1022,6 +1109,7 @@ def build_scene_graph() -> StateGraph:
     graph.add_node("persist_memories", persist_memories_node)
     graph.add_node("check_consistency", check_consistency)
     graph.add_node("check_events", check_events)
+    graph.add_node("check_foreshadowing", check_foreshadowing)
     graph.add_node("persist_turn_artifacts", persist_turn_artifacts)
     graph.add_node("complete_current_scene", complete_current_scene)
     graph.add_node("canonize", canonize_checkpoint)
@@ -1048,6 +1136,9 @@ def build_scene_graph() -> StateGraph:
     graph.add_edge("persist_memories", "check_events")
     graph.add_edge("check_consistency", "persist_turn_artifacts")
     graph.add_edge("check_events", "persist_turn_artifacts")
+    # Foreshadowing fires in parallel with consistency/events; its plants/payoffs
+    # are persisted straight to MongoDB, no need to fan into persist_turn_artifacts.
+    graph.add_edge("persist_memories", "check_foreshadowing")
     graph.add_conditional_edges(
         "persist_turn_artifacts",
         route_after_narration,
