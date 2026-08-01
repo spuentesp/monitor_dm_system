@@ -163,6 +163,65 @@ def _pace_block(pacing: Any) -> str:
     return f"\n\nPACE: tempo={tempo:.2f} phase={phase}"
 
 
+async def apply_npc_emotion_updates(state: Any, predicted: dict[str, str]) -> int:
+    """Diff predicted NPC emotions against current NPCProfile and write changes.
+
+    Resolves predicted NPC names to entity_ids via state.entity_context.
+    For each (entity_id, emotion_after), checks the current
+    current_emotional_state_by_universe[state.universe_id]; calls
+    mongodb_update_npc_profile when different. Never raises — failures are
+    logged. Returns the number of writes successfully completed.
+    """
+    if not isinstance(predicted, dict) or not predicted:
+        return 0
+    universe_id = getattr(state, "universe_id", None)
+    universe_key = str(universe_id) if universe_id else None
+    profiles = getattr(state, "npc_profiles", {}) or {}
+    entities = getattr(state, "entity_context", []) or []
+    name_to_id: dict[str, str] = {}
+    for entity in entities:
+        if not isinstance(entity, dict):
+            continue
+        name = str(entity.get("name") or "").strip()
+        eid = str(entity.get("id") or "").strip()
+        if name and eid:
+            name_to_id.setdefault(name.lower(), eid)
+
+    from monitor_data.schemas.npc_profiles import NPCProfileUpdate
+    from monitor_data.tools.mongodb_tools import mongodb_update_npc_profile
+    import anyio
+
+    writes = 0
+    for name, emotion in predicted.items():
+        key = str(name or "").strip().lower()
+        if not key or not emotion:
+            continue
+        entity_id = name_to_id.get(key)
+        if not entity_id:
+            continue
+        profile = profiles.get(entity_id) or {}
+        emo_map = profile.get("current_emotional_state_by_universe") or {}
+        current = str(emo_map.get(universe_key) or "").strip() if universe_key else ""
+        emotion_clean = str(emotion).strip()
+        if emotion_clean == current:
+            continue
+        try:
+            update_params: dict[str, Any] = {
+                "current_emotional_state": emotion_clean,
+            }
+            if universe_key:
+                update_params["current_emotional_state_by_universe"] = {universe_key: emotion_clean}
+            await anyio.to_thread.run_sync(
+                mongodb_update_npc_profile,
+                UUID(entity_id),
+                NPCProfileUpdate(**update_params),
+            )
+            writes += 1
+        except Exception as exc:
+            logger.debug("apply_npc_emotion_updates: write failed for %s: %s", entity_id, exc)
+    return writes
+
+
 def _npc_state_block(
     npc_profiles: Any,
     *,
@@ -744,6 +803,27 @@ class Narrator(BaseAgent):
         proposals = self._parse_proposed_changes(getattr(prediction, "proposed_changes", "[]"))
         minutes_elapsed = self._parse_minutes(getattr(prediction, "narrative_time_elapsed", "0"))
         suggested_actions = self._parse_suggested_actions(getattr(prediction, "suggested_actions", "[]"))
+
+        # Task 5: dispatch per-NPC emotion writes (background, never raises).
+        try:
+            raw_emo = getattr(prediction, "npc_emotional_states", "") or "{}"
+            emo_dict = json.loads(raw_emo) if isinstance(raw_emo, str) else {}
+        except (json.JSONDecodeError, TypeError):
+            emo_dict = {}
+        if isinstance(emo_dict, dict) and emo_dict:
+            class _MiniState:
+                pass
+            ms = _MiniState()
+            ms.universe_id = context.get("universe_id") or (
+                str(getattr(story_state, "universe_id", "")) if story_state else None
+            )
+            ms.npc_profiles = context.get("npc_profiles") or {}
+            ms.entity_context = context.get("entities") or []
+            try:
+                await apply_npc_emotion_updates(ms, emo_dict)
+            except Exception as exc:
+                logger.debug("npc emotion dispatch failed: %s", exc)
+
         if not narrative_text.strip():
             return narrative_text, proposals, minutes_elapsed, suggested_actions, {"error_class": "empty_narrative"}  # type: ignore[return-value]
         return narrative_text, proposals, minutes_elapsed, suggested_actions, None  # type: ignore[return-value]

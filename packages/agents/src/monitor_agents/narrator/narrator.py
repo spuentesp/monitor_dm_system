@@ -165,6 +165,17 @@ class NarratorSignature(dspy.Signature):  # type: ignore[misc]
             "These are optional prompts, never rails. Empty array [] if none fit."
         )
     )
+    npc_emotional_states: str = dspy.OutputField(
+        desc=(
+            "JSON object mapping each named NPC present in the scene (by their name "
+            "as it appears in the entity list / scene_context) to the short emotion "
+            "they should be carrying after this turn (max 5 words). Use the NPC's "
+            "previously established emotion (NPC STATE block or ESTABLISHED FACTS) "
+            "as the baseline; only include NPCs whose emotion has clearly shifted. "
+            "Example: '{\"Vex\": \"resolute\", \"Old Tomas\": \"furious\"}'. Empty "
+            "object {} if no NPC present."
+        )
+    )
 
 
 class ContextAssemblySignature(dspy.Signature):  # type: ignore[misc]
