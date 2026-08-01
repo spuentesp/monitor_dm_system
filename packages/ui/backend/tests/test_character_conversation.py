@@ -237,6 +237,96 @@ class TestConversationLifecycle:
         with pytest.raises(KeyError):
             asyncio.run(cc.send_message("does-not-exist", "hi"))
 
+    def test_send_message_resumes_from_transcript_when_loop_missing(self):
+        """A loop orphaned by a backend restart is rebuilt from the persisted
+        MongoDB transcript instead of failing with a 409."""
+        from uuid import uuid4
+
+        entity_id, universe_id = str(uuid4()), str(uuid4())
+        conv_id = str(uuid4())
+        doc = {
+            "conversation_id": conv_id,
+            "status": "active",
+            "universe_id": universe_id,
+            "npc_ids": [entity_id],
+            "player_entity_id": str(cc._CONVERSATORY_PLAYER_ID),
+            "turns": [
+                {"turn_index": 0, "speaker_role": "player", "entity_name": "Player", "text": "hi"},
+                {"turn_index": 1, "speaker_role": "npc", "entity_name": "Maeve", "text": "well met"},
+            ],
+        }
+        mongo = MagicMock()
+        mongo.get_collection.return_value.find_one.return_value = doc
+
+        fake_loop = MagicMock()
+        fake_loop.state = SimpleNamespace(turns=[], turns_count=0)
+        fake_loop.step = AsyncMock(return_value=[{"text": "we meet again", "emotional_state": "warm"}])
+
+        with (
+            patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
+            patch.object(
+                cc,
+                "ensure_character_backed",
+                new=AsyncMock(
+                    return_value={"entity_id": entity_id, "universe_id": universe_id, "version_id": str(uuid4())}
+                ),
+            ),
+            patch("monitor_agents.loops.conversation_loop.ConversationLoop", return_value=fake_loop),
+            patch("monitor_agents.loops.conversation_loop.load_npc_context", new=AsyncMock(return_value={})),
+        ):
+            reply = asyncio.run(cc.send_message(conv_id, "remember me?", character_id="char-1"))
+
+        assert reply["text"] == "we meet again"
+        # Transcript turns were restored before stepping, and the loop cached.
+        assert [t["text"] for t in fake_loop.state.turns] == ["hi", "well met"]
+        assert fake_loop.state.turns_count == 2
+        assert cc.get_loop(conv_id) is fake_loop
+
+    def test_resume_rejects_other_incarnation(self):
+        """A conversation belonging to a different incarnation is not resumed."""
+        from uuid import uuid4
+
+        doc = {
+            "conversation_id": "conv-other",
+            "status": "active",
+            "universe_id": str(uuid4()),
+            "npc_ids": [str(uuid4())],  # different entity
+            "turns": [],
+        }
+        mongo = MagicMock()
+        mongo.get_collection.return_value.find_one.return_value = doc
+
+        with (
+            patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
+            patch.object(
+                cc,
+                "ensure_character_backed",
+                new=AsyncMock(
+                    return_value={
+                        "entity_id": str(uuid4()),
+                        "universe_id": str(uuid4()),
+                        "version_id": str(uuid4()),
+                    }
+                ),
+            ),
+        ):
+            loop = asyncio.run(cc.resume_conversation("char-1", "conv-other"))
+
+        assert loop is None
+        assert cc.get_loop("conv-other") is None
+
+    def test_resume_rejects_ended_conversation(self):
+        mongo = MagicMock()
+        mongo.get_collection.return_value.find_one.return_value = {
+            "conversation_id": "conv-done",
+            "status": "completed",
+        }
+
+        with patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo):
+            loop = asyncio.run(cc.resume_conversation("char-1", "conv-done"))
+
+        assert loop is None
+
 
 # ---------------------------------------------------------------------------
 # draft_card (LLM-assisted card filling)

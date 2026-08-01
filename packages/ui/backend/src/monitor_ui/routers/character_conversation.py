@@ -420,17 +420,74 @@ async def start_conversation(character_id: str, universe_id: str | None = None) 
     }
 
 
+async def resume_conversation(character_id: str, conversation_id: str) -> Any | None:
+    """Rebuild an in-memory DIRECT loop from its persisted MongoDB transcript.
+
+    Light-RP loops are process-local; a backend restart orphans active
+    sessions. The ``conversations`` doc has everything needed to continue:
+    universe/npc/player ids plus the full turn list. Returns None when the
+    conversation is unknown, not active, or belongs to another incarnation.
+    """
+    from monitor_agents.loops.conversation_loop import (
+        ConversationLoop,
+        ConversationMode,
+        load_npc_context,
+    )
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    coll = get_mongodb_client().get_collection("conversations")
+    doc = coll.find_one({"conversation_id": conversation_id})
+    if not doc or doc.get("status") != "active":
+        return None
+
+    backing = await ensure_character_backed(character_id, universe_id=doc.get("universe_id"))
+    if backing["entity_id"] not in [str(n) for n in (doc.get("npc_ids") or [])]:
+        return None
+
+    player_id = doc.get("player_entity_id")
+    loop = ConversationLoop(
+        conversation_id=uuid.UUID(conversation_id),
+        universe_id=uuid.UUID(backing["universe_id"]),
+        mode=ConversationMode.DIRECT,
+        npc_ids=[uuid.UUID(backing["entity_id"])],
+        story_id=None,
+        scene_id=None,
+        player_entity_id=uuid.UUID(player_id) if player_id else _CONVERSATORY_PLAYER_ID,
+        lorebook_character_ids=[character_id],
+    )
+    loop._apply(await load_npc_context(loop.state))
+    loop.state.turns = [
+        {
+            "turn_index": t.get("turn_index", i),
+            "speaker_role": t.get("speaker_role"),
+            "entity_name": t.get("entity_name"),
+            "text": t.get("text", ""),
+        }
+        for i, t in enumerate(doc.get("turns", []))
+    ]
+    loop.state.turns_count = len(loop.state.turns)
+    _cache_loop(conversation_id, loop)
+    return loop
+
+
 async def send_message(
     conversation_id: str,
     text: str,
     include_cross_incarnation: bool = False,
+    character_id: str | None = None,
 ) -> dict[str, Any]:
     """Step the loop once; return the NPC reply + emotional/relationship read.
 
     include_cross_incarnation is propagated to NPCVoice so the Qdrant recall
     can broaden to other universes when the caller explicitly opts in.
+
+    Loops are process-local, so a backend restart orphans active sessions.
+    When the loop is missing and character_id is provided, the loop is
+    rebuilt from the persisted MongoDB transcript (resume) before giving up.
     """
     loop = get_loop(conversation_id)
+    if loop is None and character_id:
+        loop = await resume_conversation(character_id, conversation_id)
     if loop is None:
         raise KeyError(conversation_id)
 

@@ -1376,11 +1376,17 @@ async def send_character_message(
 
     Set include_cross_incarnation=true to broaden NPC memory recall to all
     universes of this character (default false — strict universe partition).
+
+    Sessions are process-local; if the backend restarted since this
+    conversation was last used, it is transparently rebuilt from the
+    persisted transcript (resume).
     """
     from . import character_conversation as cc
 
     try:
-        reply = await cc.send_message(conversation_id, body.text, body.include_cross_incarnation)
+        reply = await cc.send_message(
+            conversation_id, body.text, body.include_cross_incarnation, character_id=character_id
+        )
     except KeyError:
         raise HTTPException(
             status_code=409,
