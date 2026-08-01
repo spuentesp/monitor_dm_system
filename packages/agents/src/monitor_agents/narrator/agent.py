@@ -393,7 +393,7 @@ class Narrator(BaseAgent):
     # monitor_agents.utils.tone_resolver.BUILTIN_TONE_PROFILES
     # (single source of truth — DRY).
 
-    async def _generate_narrative_and_proposals(
+    async def _generate_once(
         self,
         *,
         user_input: str | None,
@@ -405,12 +405,24 @@ class Narrator(BaseAgent):
         lorebook_context: list[str] | None = None,
         story_state: StoryState | None = None,
         story_premise: str | None = None,
-    ) -> tuple[str, list[dict[str, Any]], int]:
-        """Run the DSPy narrator module and parse proposals from the output.
+        trimmed: bool = False,
+    ) -> tuple[str, list[dict[str, Any]], int, list[dict[str, Any]], dict[str, Any] | None]:
+        """Run the DSPy narrator module once. When ``trimmed=True``, drops
+        ``lorebook_context``, ``recent_chat``, and ``context_summary`` to make
+        the retry path cheaper when a transient failure has already happened.
 
-        Returns:
-            (narrative_text, proposals, minutes_elapsed)
+        Returns ``(narrative_text, proposals, minutes_elapsed, suggested_actions,
+        degraded_or_none)``. The 5th element is a non-empty dict when the call
+        could not produce real prose (LLMProviderUnavailable raised and
+        swallowed, or empty narrative returned). Real provider failures are
+        still re-raised as ``LLMProviderUnavailable`` by the inner loop.
         """
+        # When trimmed, blank out the fields that the retry should skip so the
+        # downstream prompt assembly picks up the cheaper context.
+        if trimmed:
+            lorebook_context = []
+            context = {**context, "recent_chat": [], "context_summary": ""}
+
         # The explicit story_premise kwarg (opening-time, one-off calls) wins
         # when given; otherwise fall back to the persisted StoryState's own
         # story_premise (ongoing scene turns) so a stated premise keeps
@@ -636,13 +648,58 @@ class Narrator(BaseAgent):
             raise last_provider_error
 
         if prediction is None:
-            return narrative_text, [], 1, [], None  # type: ignore[return-value]
+            # Empty narrative from both attempts — degraded.
+            return narrative_text, [], 1, [], {"error_class": "empty_narrative"}  # type: ignore[return-value]
 
         # Parse proposed_changes from DSPy output (JSON array string)
         proposals = self._parse_proposed_changes(getattr(prediction, "proposed_changes", "[]"))
         minutes_elapsed = self._parse_minutes(getattr(prediction, "narrative_time_elapsed", "0"))
         suggested_actions = self._parse_suggested_actions(getattr(prediction, "suggested_actions", "[]"))
+        if not narrative_text.strip():
+            return narrative_text, proposals, minutes_elapsed, suggested_actions, {"error_class": "empty_narrative"}  # type: ignore[return-value]
         return narrative_text, proposals, minutes_elapsed, suggested_actions, None  # type: ignore[return-value]
+
+    async def _generate_narrative_and_proposals(
+        self,
+        *,
+        user_input: str | None,
+        resolution: dict[str, Any] | None,
+        context: dict[str, Any],
+        game_context: dict[str, Any] | None = None,
+        session_tone: str = "dramatic",
+        gm_profile: dict[str, Any] | None = None,
+        lorebook_context: list[str] | None = None,
+        story_state: StoryState | None = None,
+        story_premise: str | None = None,
+    ) -> tuple[str, list[dict[str, Any]], int, list[dict[str, Any]], dict[str, Any] | None]:
+        """Public entry: run once; if degraded, retry with trimmed context.
+
+        Returns the non-degraded result when any of the two attempts succeeds.
+        When both degrade, returns the second attempt's output with
+        ``{"retried": True, ...}`` attached so the caller can tell.
+        """
+        kwargs = dict(
+            user_input=user_input,
+            resolution=resolution,
+            context=context,
+            game_context=game_context,
+            session_tone=session_tone,
+            gm_profile=gm_profile,
+            lorebook_context=lorebook_context,
+            story_state=story_state,
+            story_premise=story_premise,
+        )
+        first = await self._generate_once(trimmed=False, **kwargs)
+        if first[0].strip() and first[4] is None:
+            return first
+        retry = await self._generate_once(trimmed=True, **kwargs)
+        if retry[0].strip() and retry[4] is None:
+            return retry
+        # Both degraded: ship the retry result with retried=True.
+        narr, props, mins, sugg, deg = retry
+        merged = dict(deg or {})
+        merged["retried"] = True
+        return narr, props, mins, sugg, merged
 
     async def _generate_narrative_text(
         self,

@@ -601,8 +601,13 @@ async def test_unknown_shaped_failure_retries_then_degrades_silently() -> None:
         context={"entities": [], "memories": [], "turns": [], "source_profile": {}},
     )
     assert narrative_text == ""
-    assert degraded is None
-    assert narrator._narrator_module.call_count == 2  # both retry attempts used
+    # After the soft-retry (Task 1): the outer retry also failed, so the
+    # surface degraded dict is populated with retried=True.
+    assert isinstance(degraded, dict)
+    assert degraded.get("retried") is True
+    # 4 = 2 inner attempts in the first _generate_once + 2 inner attempts in
+    # the trimmed retry.
+    assert narrator._narrator_module.call_count == 4
 
 
 @pytest.mark.asyncio
