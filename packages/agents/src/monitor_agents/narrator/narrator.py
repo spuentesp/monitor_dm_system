@@ -35,6 +35,13 @@ class NarratorSignature(dspy.Signature):  # type: ignore[misc]
     - Ask one question at the end only when the situation is genuinely open; otherwise let
       the fiction breathe and wait for the player's move.
     - Show, don't tell. Describe sensory detail, not emotional labels.
+    - Introduce at most 1 new plot-significant NPC per turn. Use
+      [Name](entity:flavor) for background NPCs you don't expect to return to;
+      reserve [Name](entity:anchor) for NPCs the plot will reference again.
+    - If a name you want to use is a partial match of a known entity in the
+      scene (e.g. "Vex" matches "Captain Vex", or "the captain" matches a
+      known "Captain"), treat it as the SAME entity — re-use, do not
+      re-introduce.
     - Character identity facts (clan, class, species, stats, background) may only
       be referenced when they appear in the ACTOR PROFILE block, the setting
       anchor, or ESTABLISHED FACTS. If the actor block says the character sheet
