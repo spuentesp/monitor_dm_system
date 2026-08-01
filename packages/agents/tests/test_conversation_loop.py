@@ -599,6 +599,79 @@ class TestCloseSession:
         assert payload["params"]["story_id"] == str(story_id)
         assert payload["params"]["evidence"][0]["type"] == "snippet"
 
+    @pytest.mark.asyncio
+    async def test_episodic_memories_staged_as_event_proposals(self):
+        """End-of-chat distills salient moments from the transcript and stages
+        them as event proposals — previously only state/relationship changes
+        were staged, so sessions left no narrative trace for CanonKeeper."""
+        npc_id = uuid4()
+        state = _state(
+            pending_proposals=[],
+            npc_ids=[npc_id],
+            npc_contexts={str(npc_id): {"name": "Kessa", "role": "captain"}},
+            turns=[
+                {"turn_index": 0, "speaker_role": "player", "entity_name": "Player", "text": "You're a fraud."},
+                {"turn_index": 1, "speaker_role": "npc", "entity_name": "Kessa", "text": "Say that again."},
+                {"turn_index": 2, "speaker_role": "player", "entity_name": "Player", "text": "I'm sorry."},
+            ],
+        )
+
+        mock_agent = MagicMock()
+        mock_agent.call_tool = AsyncMock()
+
+        fake_extractor = MagicMock()
+        fake_extractor.forward = MagicMock(
+            return_value=[
+                {"text": "Aldric insulted Kessa, then apologized.", "importance": 8, "emotional_valence": -0.2}
+            ]
+        )
+
+        with (
+            patch("monitor_agents.npc_voice.agent.NPCVoice", return_value=mock_agent),
+            patch(
+                "monitor_agents.extraction.memory_extraction.MemoryExtractor",
+                return_value=fake_extractor,
+            ),
+        ):
+            await close_session(state)
+
+        stage_calls = [c for c in mock_agent.call_tool.call_args_list if c[0][0] == "mongodb_create_proposed_change"]
+        assert len(stage_calls) == 1
+        params = stage_calls[0][0][1]["params"]
+        assert params["change_type"] == "event"
+        assert params["content"]["description"] == "Aldric insulted Kessa, then apologized."
+        assert params["content"]["importance"] == 0.8
+        assert params["content"]["source"] == "episodic_extraction"
+
+    @pytest.mark.asyncio
+    async def test_episodic_extraction_failure_does_not_block_close(self):
+        npc_id = uuid4()
+        state = _state(
+            pending_proposals=[],
+            npc_ids=[npc_id],
+            turns=[
+                {"turn_index": 0, "speaker_role": "player", "text": "hi"},
+                {"turn_index": 1, "speaker_role": "npc", "text": "well met"},
+            ],
+        )
+
+        mock_agent = MagicMock()
+        mock_agent.call_tool = AsyncMock()
+
+        with (
+            patch("monitor_agents.npc_voice.agent.NPCVoice", return_value=mock_agent),
+            patch(
+                "monitor_agents.extraction.memory_extraction.MemoryExtractor",
+                side_effect=RuntimeError("llm down"),
+            ),
+        ):
+            result = await close_session(state)
+
+        # Session still closed; no episodic proposals staged.
+        assert result == {"pending_proposals": []}
+        stage_calls = [c for c in mock_agent.call_tool.call_args_list if c[0][0] == "mongodb_create_proposed_change"]
+        assert stage_calls == []
+
 
 # ===========================================================================
 # open_session — params wrapping + conversation_id adoption

@@ -401,6 +401,60 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
     }
 
 
+async def _extract_episodic_memories(state: ConversationState) -> list[dict[str, Any]]:
+    """Distill salient episodic memories from the full session transcript.
+
+    Per-turn proposals are state/relationship only — this adds session-level
+    "what happened" events so a closed conversation leaves a narrative trace
+    CanonKeeper can review and canonize. Best-effort: extraction failures
+    never block session close.
+    """
+    turns = [t for t in state.turns if t.get("text")]
+    if len(turns) < 2 or not state.npc_ids:
+        return []
+    try:
+        import anyio
+
+        from monitor_agents.extraction.memory_extraction import MemoryExtractor
+
+        npc_name = (state.npc_contexts.get(str(state.npc_ids[0])) or {}).get("name", "the character")
+        transcript = "\n".join(
+            f"{t.get('entity_name') or t.get('speaker_role', '?')}: {t['text']}" for t in turns[-30:]
+        )[:8000]
+        extractor = MemoryExtractor()
+        memories = await anyio.to_thread.run_sync(
+            extractor.forward, transcript, "conversation", npc_name
+        )
+    except Exception:
+        logger.warning("episodic memory extraction failed", exc_info=True)
+        return []
+
+    proposals: list[dict[str, Any]] = []
+    for m in memories[:5]:
+        text = str(m.get("text") or "").strip()
+        if not text:
+            continue
+        try:
+            importance = min(1.0, max(0.0, float(m.get("importance", 5) or 5) / 10))
+        except (TypeError, ValueError):
+            importance = 0.5
+        proposals.append(
+            {
+                "change_type": "event",
+                "content": {
+                    "description": text,
+                    "entity_id": str(state.npc_ids[0]),
+                    "importance": importance,
+                    "emotional_valence": m.get("emotional_valence", 0.0),
+                    "source": "episodic_extraction",
+                },
+                "confidence": 0.6,
+                "proposer": "NPCVoice",
+            }
+        )
+    return proposals
+
+
 async def close_session(state: ConversationState) -> dict[str, Any]:
     """
     Mark the ConversationSession as completed in MongoDB.
@@ -421,8 +475,12 @@ async def close_session(state: ConversationState) -> dict[str, Any]:
         },
     )
 
+    # Distill session-level episodic memories and stage them alongside the
+    # per-turn state/relationship proposals.
+    proposals_to_stage = list(state.pending_proposals) + await _extract_episodic_memories(state)
+
     # Stage proposals for CanonKeeper (written to proposed_changes collection)
-    for proposal in state.pending_proposals:
+    for proposal in proposals_to_stage:
         try:
             params: dict[str, Any] = {
                 "change_type": _normalize_conversation_change_type(proposal.get("change_type", "fact")),
@@ -463,7 +521,7 @@ async def close_session(state: ConversationState) -> dict[str, Any]:
                 exc_info=True,
             )
 
-    return {}
+    return {"pending_proposals": proposals_to_stage}
 
 
 def route_after_npc_response(state: ConversationState) -> str:
