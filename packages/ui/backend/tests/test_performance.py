@@ -52,9 +52,9 @@ def mock_tracker():
     tracker.get_slow_queries.return_value = [
         {
             "pattern": "MATCH (n) RETURN n",
-            "execution_time_ms": 200.0,
+            "duration_ms": 200.0,
             "timestamp": "2023-01-01T00:00:00Z",
-            "sample_query": "MATCH (n) RETURN n LIMIT 1"
+            "query": "MATCH (n) RETURN n LIMIT 1"
         }
     ]
     return tracker
@@ -123,6 +123,27 @@ def test_get_slow_queries(mock_tracker):
         response = client.get("/performance/slow?limit=10&min_time_ms=100")
         assert response.status_code == 200
         assert len(response.json()) == 1
+
+
+def test_get_slow_queries_with_real_tracker():
+    """Regression: the router must match QueryPerformanceTracker's real API.
+
+    The tracker only accepts threshold_ms and stores records with
+    duration_ms/query keys; the old router passed limit/min_time_ms kwargs
+    and read execution_time_ms/sample_query, so /performance/slow 500'd.
+    """
+    from monitor_data.db.neo4j import QueryPerformanceTracker
+
+    tracker = QueryPerformanceTracker()
+    tracker.track_query("write", "MATCH (n) RETURN n LIMIT 1", 200.0)
+    with patch("monitor_ui.routers.performance._get_tracker", return_value=tracker):
+        response = client.get("/performance/slow?limit=10&min_time_ms=100")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["pattern"].startswith("MATCH (n) RETURN n")
+        assert data[0]["execution_time_ms"] == 200.0
+        assert data[0]["sample_query"] == "MATCH (n) RETURN n LIMIT 1"
 
 def test_get_performance_report(mock_tracker):
     with patch("monitor_ui.routers.performance._get_tracker", return_value=mock_tracker):

@@ -203,7 +203,7 @@ export function CharacterPanel({
               <button
                 onClick={() => handleSelect(char)}
                 className={cn(
-                  "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all",
+                  "w-full flex items-center gap-2.5 px-3 py-2 pr-8 rounded-xl text-left transition-all",
                   selectedId === char.id
                     ? "bg-purple-500/10 border border-purple-500/20 text-slate-100"
                     : "text-slate-400 hover:bg-white/5 hover:text-slate-200 border border-transparent",
@@ -235,17 +235,19 @@ export function CharacterPanel({
                     OOC
                   </span>
                 )}
+              </button>
 
-                {/* Context menu trigger */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setContextMenuId(contextMenuId === char.id ? null : char.id);
-                  }}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 transition-all flex-shrink-0"
-                >
-                  <MoreVertical className="w-3 h-3 text-slate-500" />
-                </button>
+              {/* Context menu trigger — sibling of the card button, not a
+                  descendant: nested <button> is invalid HTML and breaks
+                  hydration. */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setContextMenuId(contextMenuId === char.id ? null : char.id);
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 transition-all flex-shrink-0"
+              >
+                <MoreVertical className="w-3 h-3 text-slate-500" />
               </button>
 
               {/* Context menu */}

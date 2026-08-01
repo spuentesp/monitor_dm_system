@@ -37,6 +37,8 @@ from monitor_agents.narrator.narrator import (
     CompatCheckModule,
     NarratorModule,
 )
+from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 from monitor_agents.utils.runtime_profile_support import (
     build_narrative_profile_context,
     build_tone_hints_from_profile,
@@ -138,6 +140,7 @@ class Narrator(BaseAgent):
         lorebook_context: list[str] | None = None,
         story_state: StoryState | None = None,
         gm_verdict: Any | None = None,
+        persist_turn: bool = True,
     ) -> dict[str, Any]:
         """
         Generate GM narrative for a single turn and persist it to MongoDB.
@@ -163,6 +166,8 @@ class Narrator(BaseAgent):
             gm_verdict:   Optional GMVerdict (from GMAgent.decide). When present,
                           narrator refines ``narrative_draft`` instead of writing
                           from scratch.
+            persist_turn: When False, skip writing the exchange to the scene's
+                          turn log (used for OOC/meta calls with no real scene).
 
         Returns:
             {
@@ -209,12 +214,17 @@ class Narrator(BaseAgent):
             )
 
         # --- Persist turn to MongoDB ---
-        turn_id = await self._persist_turn(
-            scene_id=scene_id,
-            user_input=user_input,
-            narrative_text=narrative_text,
-            resolution=resolution,
-        )
+        # OOC/meta calls (persist_turn=False) run against a synthetic scene id
+        # — persisting would 404 on mongodb_append_turn and pollute the scene
+        # record used for canon extraction with out-of-fiction chatter.
+        turn_id = ""
+        if persist_turn:
+            turn_id = await self._persist_turn(
+                scene_id=scene_id,
+                user_input=user_input,
+                narrative_text=narrative_text,
+                resolution=resolution,
+            )
 
         return {
             "narrative_text": narrative_text,
@@ -705,6 +715,14 @@ class Narrator(BaseAgent):
                     exc,
                 )
                 compat = "DIVERGES"
+                info = classify_llm_error(exc)
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.NARRATOR,
+                    category=RoleplayErrorCategory.LLM,
+                    message=info.message,
+                    fatal=False,
+                    llm_error_class=info.error_class.value,
+                )
 
         # Incompatible: drop the draft, regenerate from outcome.
         if compat == "INCOMPATIBLE":
@@ -769,6 +787,13 @@ class Narrator(BaseAgent):
             narrative_text = draft_text
             degraded = (
                 exc if isinstance(exc, LLMProviderUnavailable) else LLMProviderUnavailable(classify_llm_error(exc))
+            )
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.NARRATOR,
+                category=RoleplayErrorCategory.LLM,
+                message=degraded.info.message,
+                fatal=False,
+                llm_error_class=degraded.info.error_class.value,
             )
 
         proposals = []  # type: ignore[var-annotated]

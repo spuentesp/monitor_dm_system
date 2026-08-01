@@ -253,6 +253,9 @@ def get_scene_loop(
         story_state=_build_story_state_dict(session, story_id=story_id),
         agreements_lines=agreements_lines,
         agreements_veils=agreements_veils,
+        # Shared reference: OOC director notes appended after this loop is
+        # cached must be visible on the next turn.
+        director_notes=session.setdefault("director_notes", []),
     )
     _SCENE_LOOPS[session_id] = (signature, loop)
     _SCENE_LOOPS.move_to_end(session_id)

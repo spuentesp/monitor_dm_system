@@ -63,6 +63,22 @@ export function wrapOutgoingMessageForOoc(
   return `((${trimmed}))`;
 }
 
+/**
+ * [P-19] Begin Story visibility gate. The story-agreements summary is always
+ * the latest GM message while Session Zero awaits confirmation (any further
+ * chat input re-presents it), so key on the latest GM metadata *type*.
+ * The previous gate searched `recent_phase_sequence` — a list of metadata
+ * *phase* values ("session_zero", …) — for the type string
+ * "story_agreements_summary", which could never match, so the button never
+ * rendered.
+ */
+export function shouldShowBeginStory(
+  phase: string | undefined,
+  latestGmMetadata: Record<string, unknown> | undefined,
+): boolean {
+  return phase === "session_zero" && latestGmMetadata?.type === "story_agreements_summary";
+}
+
 // ─── Tone / mode labels (Play-specific) ─────────────────────────────
 
 const TONES = ["dramatic", "grim", "horror", "heroic", "mystery", "adventure"] as const;
@@ -567,12 +583,9 @@ export default function PlayConsole() {
               {/* [P-19] Begin Story — appear once Session Zero is awaiting
                   confirmation. Hides once the session is finalized. */}
               {activeSessionId &&
-                (sessionState?.session?.phase ?? activeSession?.phase) ===
-                  "session_zero" &&
-                Boolean(
-                  sessionState?.recent_phase_sequence?.includes?.(
-                    "story_agreements_summary",
-                  ),
+                shouldShowBeginStory(
+                  sessionState?.session?.phase ?? activeSession?.phase,
+                  sessionState?.latest_gm_metadata,
                 ) && (
                   <button
                     type="button"

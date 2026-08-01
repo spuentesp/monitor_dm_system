@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wrapOutgoingMessageForOoc } from "./PlayConsole";
+import { shouldShowBeginStory, wrapOutgoingMessageForOoc } from "./PlayConsole";
 
 describe("wrapOutgoingMessageForOoc", () => {
   it("wraps the message in ((...)) when in OOC mode with no selected character", () => {
@@ -47,5 +47,30 @@ describe("wrapOutgoingMessageForOoc", () => {
         hasSelectedCharacter: false,
       }),
     ).toBe("((can I use fire magic here?))");
+  });
+});
+
+describe("shouldShowBeginStory", () => {
+  it("shows once the Session Zero summary is the latest GM message", () => {
+    expect(
+      shouldShowBeginStory("session_zero", { type: "story_agreements_summary" }),
+    ).toBe(true);
+  });
+
+  it("stays hidden while Session Zero questions are still in flight", () => {
+    expect(
+      shouldShowBeginStory("session_zero", { type: "story_agreements_question" }),
+    ).toBe(false);
+  });
+
+  it("stays hidden outside the session_zero phase even with a summary", () => {
+    expect(
+      shouldShowBeginStory("active_play", { type: "story_agreements_summary" }),
+    ).toBe(false);
+  });
+
+  it("stays hidden with no GM metadata yet", () => {
+    expect(shouldShowBeginStory("session_zero", undefined)).toBe(false);
+    expect(shouldShowBeginStory("session_zero", {})).toBe(false);
   });
 });

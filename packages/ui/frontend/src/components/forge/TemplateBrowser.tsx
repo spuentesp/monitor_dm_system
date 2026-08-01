@@ -60,10 +60,21 @@ function TemplateCard({
   const varCount = template.variable_properties?.length ?? 0;
 
   return (
-    <button
-      onClick={onSelect} aria-label="Select template"
+    // role="button" div: the edit/delete <button>s below cannot be nested
+    // inside a real <button> — invalid HTML, breaks hydration.
+    <div
+      onClick={onSelect}
+      role="button"
+      tabIndex={0}
+      aria-label="Select template"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
       className={cn(
-        "w-full text-left glass-dark rounded-xl border p-3 space-y-2 transition-all",
+        "w-full text-left glass-dark rounded-xl border p-3 space-y-2 transition-all cursor-pointer",
         isSelected
           ? "border-cyan-500/30 bg-cyan-500/5"
           : "border-white/5 hover:border-white/10 hover:bg-white/2"
@@ -102,7 +113,7 @@ function TemplateCard({
         {template.usage_count > 0 && <span className="flex items-center gap-0.5"><Copy className="w-2.5 h-2.5" /> Used {template.usage_count}×</span>}
         {template.parent_template_id && <span className="flex items-center gap-0.5"><ChevronRight className="w-2.5 h-2.5" /> Inherited</span>}
       </div>
-    </button>
+    </div>
   );
 }
 

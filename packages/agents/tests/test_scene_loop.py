@@ -189,7 +189,30 @@ class TestResolveActionNode:
         assert result["pending_proposals"] == []
 
     @pytest.mark.asyncio
-    async def test_proposals_appended_to_existing(self):
+    async def test_director_notes_merged_into_source_profile(self):
+        """Player-established facts (director notes) must reach the resolver,
+        which reads established_facts from source_profile."""
+        (SceneState, _, _, _, _, _, resolve_action, _) = _import_scene_loop()
+
+        fake_resolution = {"success_level": "success", "proposals": []}
+        mock_resolve = AsyncMock(return_value=(fake_resolution, None))
+        with patch("monitor_agents.resolver.Resolver.resolve_turn", mock_resolve):
+            state = SceneState(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                user_input="I look around",
+                established_facts=["this happens in Santiago de Chile"],
+                source_profile={"established_facts": ["pre-existing fact"]},
+            )
+            await resolve_action(state)
+
+        sent_profile = mock_resolve.call_args.kwargs["context"]["source_profile"]
+        assert sent_profile["established_facts"] == [
+            "this happens in Santiago de Chile",
+            "pre-existing fact",
+        ]
+        # The state's own source_profile must not be mutated.
+        assert state.source_profile == {"established_facts": ["pre-existing fact"]}
         (SceneState, _, _, _, _, _, resolve_action, _) = _import_scene_loop()
 
         existing_proposal = {"proposal_id": "p-existing"}

@@ -40,7 +40,9 @@ from monitor_agents.loops.scene_support import (
     map_action_type,
 )
 from monitor_agents.services.persistence_service import PersistenceService
+from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
 from monitor_agents.loops.story_loop import StoryState
+from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
 logger = logging.getLogger(__name__)
 _SCENE_GRAPH_TEMPLATE: StateGraph | None = None
@@ -240,6 +242,15 @@ async def load_context(state: SceneState) -> dict[str, Any]:
             universe_id = state.universe_id
     except Exception as exc:
         logger.error(f"Scene bootstrap/load failed: {exc}", exc_info=True)
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.SCENE_LOOP,
+            category=RoleplayErrorCategory.SCENE_BOOTSTRAP_FAILED,
+            message=str(exc),
+            fatal=True,
+            universe_id=universe_id,
+            story_id=state.story_id,
+            scene_id=state.scene_id,
+        )
         # Continue anyway, but this might fail later if scene is required
         pass
 
@@ -270,6 +281,15 @@ async def load_context(state: SceneState) -> dict[str, Any]:
                 gm_profile = profile_res.model_dump()
         except Exception as e:
             logger.warning("Failed to load GM profile %s: %s", state.gm_profile_id, e)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=str(e),
+                fatal=False,
+                universe_id=universe_id,
+                story_id=state.story_id,
+                scene_id=state.scene_id,
+            )
 
     # Fetch the character's working state for the ResourceEngine
     working_state_dict = {}
@@ -286,6 +306,16 @@ async def load_context(state: SceneState) -> dict[str, Any]:
                 working_state_dict = dict(ws_res.state.resources or {})
         except Exception as e:
             logger.warning("Failed to load working state for actor %s: %s", state.actor_id, e)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=str(e),
+                fatal=False,
+                universe_id=universe_id,
+                story_id=state.story_id,
+                scene_id=state.scene_id,
+                entity_id=state.actor_id,
+            )
 
     return {
         "entity_context": context.get("entities", []),
@@ -325,13 +355,21 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
     # carries the GM's narrative_draft so the Narrator downstream can
     # refine it against the outcome. We pop the internal "_gm_verdict"
     # key from the dict to keep state.resolution clean.
+    # The resolver/GMAgent read established facts from source_profile, so
+    # merge the player's director notes in there as well.
+    source_profile = dict(state.source_profile or {})
+    if state.established_facts:
+        source_profile["established_facts"] = [
+            *state.established_facts,
+            *[f for f in source_profile.get("established_facts") or [] if f not in state.established_facts],
+        ]
     resolution, gm_verdict = await resolver.resolve_turn(
         scene_id=str(state.scene_id),
         user_input=state.user_input,
         context={
             "entities": state.entity_context,
             "turns": state.previous_turns,
-            "source_profile": state.source_profile,
+            "source_profile": source_profile,
             "pending_roll": state.pending_roll,
             "agreements": {
                 "lines": list(state.agreements_lines or []),
@@ -801,6 +839,16 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
         )
     except Exception as e:
         logger.warning("CanonKeeper.end_scene failed (non-fatal): %s", e)
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.CANONKEEPER,
+            category=RoleplayErrorCategory.CANONKEEPER_WRITE_FAILED,
+            message=str(e),
+            fatal=False,
+            universe_id=getattr(state, "universe_id", None),
+            story_id=state.story_id,
+            scene_id=state.scene_id,
+            entity_id=state.actor_id,
+        )
 
     # 4. Downtime trigger (P-21): when the story arc reaches "resolution",
     # signal that progression options are available.
@@ -1004,6 +1052,7 @@ class SceneLoop:
         story_state: dict[str, Any] | None = None,
         agreements_lines: list[str] | None = None,
         agreements_veils: list[str] | None = None,
+        director_notes: list[str] | None = None,
     ) -> None:
         self.scene_id = scene_id
         self.story_id = story_id
@@ -1024,6 +1073,10 @@ class SceneLoop:
         self.story_state = story_state
         self.agreements_lines = list(agreements_lines or [])
         self.agreements_veils = list(agreements_veils or [])
+        # Player-established facts asserted OOC ("this happens in Santiago").
+        # Kept as a REFERENCE to the session's list so notes recorded after
+        # this loop was cached still show up on the next turn.
+        self.director_notes = director_notes if director_notes is not None else []
         self._graph = build_scene_graph()
 
     async def run(
@@ -1065,6 +1118,10 @@ class SceneLoop:
                 story_state=getattr(self, "story_state", None),
                 agreements_lines=getattr(self, "agreements_lines", []),
                 agreements_veils=getattr(self, "agreements_veils", []),
+                # Feed the (otherwise dead) established_facts channel with the
+                # player's director notes so the GMAgent and Narrator treat
+                # them as established truth instead of improvising settings.
+                established_facts=list(getattr(self, "director_notes", []) or []),
                 resolution=resolution_override,
             )
             # Add pre-loaded gm_profile to state if available

@@ -4,9 +4,23 @@ import re
 import uuid
 from typing import Any
 
+from monitor_agents.llm_errors import classify_llm_error
 from monitor_agents.loops.scene_support import strip_entity_tags
+from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_universe_uuid(session: dict[str, Any]) -> uuid.UUID | None:
+    """Best-effort UUID parse of session universe_id for error correlation."""
+    raw = session.get("universe_id")
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(str(raw))
+    except (TypeError, ValueError):
+        return None
 
 # ---------------------------------------------------------------------------
 # OOC Detection (moved from chat_support.py)
@@ -30,7 +44,13 @@ def normalize_ooc_text(text: str) -> str:
     """Strip explicit `(( ... ))` OOC wrappers when present."""
     raw = (text or "").strip()
     match = _OOC_BLOCK_RE.match(raw)
-    return (match.group("content") if match else raw).strip()
+    if match:
+        return match.group("content").strip()
+    # Unclosed "(( ..." — the player started an OOC aside but never closed
+    # it (e.g. "(( Oracle:"). Treat the remainder as the OOC content.
+    if raw.startswith("(("):
+        return raw[2:].strip()
+    return raw
 
 
 def is_ooc_question(text: str) -> bool:
@@ -38,7 +58,155 @@ def is_ooc_question(text: str) -> bool:
     raw = (text or "").strip()
     if _OOC_BLOCK_RE.match(raw):
         return True
+    if raw.startswith("(("):
+        # Unclosed OOC wrapper — still meta intent, don't route in-fiction.
+        return True
     return bool(_OOC_PATTERNS.search(normalize_ooc_text(raw)))
+
+
+# ---------------------------------------------------------------------------
+# Begin Story intent (typed alternative to the Begin Story button)
+# ---------------------------------------------------------------------------
+
+_BEGIN_STORY_PHRASES = frozenset(
+    {
+        "begin",
+        "begin story",
+        "begin the story",
+        "begin narration",
+        "begin the narration",
+        "start",
+        "start story",
+        "start the story",
+        "start narration",
+        "start the narration",
+        "confirm",
+        "confirmed",
+        "looks good",
+        "lgtm",
+        "go ahead",
+        "proceed",
+        "let's begin",
+        "lets begin",
+        "let's go",
+        "lets go",
+        "ready",
+        "i'm ready",
+        "im ready",
+        "yes",
+        "yeah",
+        "yep",
+        "ok",
+        "okay",
+        "sure",
+        "continue",
+    }
+)
+
+
+def is_begin_story_command(text: str) -> bool:
+    """Return `True` when the player's text confirms the Session Zero agreements.
+
+    The story-agreements loop treats ANY input while awaiting confirmation as
+    a revision request and re-presents the summary, so typing "begin story"
+    in chat used to loop forever. The router checks this before dispatching
+    a pre-play turn and routes matching messages through the same finalize
+    path as the Begin Story button. Only matched while agreements are
+    awaiting confirmation, so short affirmations ("yes", "ok") are safe.
+    """
+    raw = (text or "").strip()
+    if not raw or _OOC_BLOCK_RE.match(raw):
+        return False
+    normalized = re.sub(r"\s+", " ", raw.lower()).strip(" .!?")
+    return normalized in _BEGIN_STORY_PHRASES
+
+
+def session_facts_block(session: dict[str, Any]) -> str:
+    """Compact facts the pre-play stages stored on the session.
+
+    Used to ground OOC answers ("who am I?", "what is this story?") so the
+    narrator doesn't plead ignorance about the character it helped create.
+    """
+    lines: list[str] = []
+    summary = session.get("character_summary") or session.get("session_zero_summary") or {}
+    if isinstance(summary, dict):
+        name = str(summary.get("character_name") or session.get("speaker_label") or "").strip()
+        if name:
+            lines.append(f"Player character: {name}")
+        concept = str(summary.get("concept") or "").strip()
+        if concept:
+            lines.append(f"Concept: {concept}")
+        backstory = str(summary.get("backstory") or "").strip()
+        if backstory:
+            lines.append(f"Backstory: {backstory}")
+    elif session.get("speaker_label"):
+        lines.append(f"Player character: {session['speaker_label']}")
+
+    agreements = session.get("story_agreements") or {}
+    if isinstance(agreements, dict):
+        premise = str(agreements.get("story_premise") or session.get("story_premise") or "").strip()
+        if premise:
+            lines.append(f"Story premise: {premise}")
+        themes = [str(theme) for theme in agreements.get("themes") or [] if theme]
+        if themes:
+            lines.append("Themes: " + ", ".join(themes))
+
+    notes = [str(note).strip() for note in session.get("director_notes") or [] if str(note).strip()]
+    if notes:
+        lines.append("Player direction (established by the player, treat as true):")
+        lines.extend(f"- {note}" for note in notes[-20:])
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Director notes — player-established facts asserted OOC
+# ---------------------------------------------------------------------------
+
+_DIRECTOR_NOTES_MAX = 20
+_QUESTION_WORDS = frozenset(
+    {
+        "who", "what", "where", "when", "why", "how", "which",
+        "can", "could", "do", "does", "did", "is", "are", "am", "was", "were",
+        "should", "would", "will", "may", "might",
+    }
+)
+
+
+def looks_like_question(text: str) -> bool:
+    """Heuristic: trailing question mark, or a leading question word.
+
+    A "?" mid-sentence ("...okay? i want X") does not make the whole
+    statement a question — those are director notes and must be recorded.
+    """
+    stripped = (text or "").strip().lower()
+    if not stripped:
+        return False
+    if stripped.endswith("?"):
+        return True
+    first = stripped.split(None, 1)[0].strip(".,!;:")
+    return first in _QUESTION_WORDS
+
+
+def record_director_note(session: dict[str, Any], text: str) -> bool:
+    """Persist a player-established fact asserted OOC (e.g. "this happens in
+    Santiago") onto the session so later turns can see it.
+
+    Statements are recorded verbatim, deduped, and capped at the most recent
+    20. Questions ("who am I?") are NOT facts and are skipped. The list is
+    mutated in place so a cached SceneLoop holding the same reference sees
+    new notes on the next turn.
+    """
+    entry = (text or "").strip()
+    if not entry or looks_like_question(entry):
+        return False
+    notes = session.setdefault("director_notes", [])
+    if not isinstance(notes, list):
+        notes = session["director_notes"] = []
+    if entry in notes:
+        return False
+    notes.append(entry)
+    del notes[:-_DIRECTOR_NOTES_MAX]
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +407,38 @@ def _seed_answers_from_persona(persona: dict[str, Any]) -> list[dict[str, str]]:
 # OOC answer and Prologue generation
 # ---------------------------------------------------------------------------
 
+
+def _build_ooc_signature() -> Any:
+    """Lazily define the DSPy signature so `import dspy` stays deferred."""
+    import dspy
+
+    class OocAnswerSignature(dspy.Signature):  # type: ignore[misc]
+        """Answer a player's out-of-character (OOC) message in the GM's meta voice.
+
+        The player is talking TO the game master, not acting in the fiction:
+        asking rules/world questions, or giving direction ("this happens in
+        Santiago"). Answer the question or acknowledge the direction BRIEFLY
+        in ((double-paren)) OOC style, grounded in the session facts. NEVER
+        narrate new fiction, NEVER advance the scene, NEVER invent locations,
+        NPCs, or events. If the player gave direction, confirm what you
+        recorded in one or two sentences.
+        """
+
+        ooc_message: str = dspy.InputField(
+            desc="The player's OOC message — a meta question or a director note"
+        )
+        session_facts: str = dspy.InputField(
+            desc="Established facts: character, premise, player director notes"
+        )
+        world_lore: str = dspy.InputField(desc="Relevant world/system lore (may be empty)")
+        mechanical_hint: str = dspy.InputField(desc="Rules hint to include when relevant (may be empty)")
+        answer: str = dspy.OutputField(
+            desc="Short meta answer in ((...)) style — no fiction, 1-4 sentences"
+        )
+
+    return OocAnswerSignature
+
+
 async def answer_ooc_question(
     session: dict[str, Any],
     question: str,
@@ -251,11 +451,16 @@ async def answer_ooc_question(
     system_doc = session_game_system_doc(session) if callable(session_game_system_doc) else session_game_system_doc
     universe_id = session.get("universe_id")
 
+    # Player statements made OOC are table direction ("lets be clear: this is
+    # happening in Santiago") — persist them so the next scene turn honours
+    # them instead of improvising a new setting.
+    record_director_note(session, question)
+
     mechanical_hint = ""
     if system_doc and gsr_available:
         try:
             from monitor_agents.game_system import GameSystemRuntime
-            
+
             gsr = GameSystemRuntime(system_doc)
             probe_text = question
             lower_q = question.lower()
@@ -279,6 +484,15 @@ async def answer_ooc_question(
                 )
         except Exception as exc:
             logger.debug("answer_ooc_question mechanical hint failed: %s", exc)
+            info = classify_llm_error(exc)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.PREPLAY,
+                category=RoleplayErrorCategory.LLM,
+                message=info.message,
+                fatal=False,
+                llm_error_class=info.error_class.value,
+                universe_id=_safe_universe_uuid(session),
+            )
 
     # Gather entity archetypes for character type questions
     archetype_lines: list[str] = []
@@ -302,31 +516,40 @@ async def answer_ooc_question(
     except Exception:
         pass
 
-    # Try LLM answer
+    # Try LLM answer — a dedicated meta-voice signature, NOT the narration
+    # pipeline (which is prompted to produce fiction and sometimes answered
+    # OOC questions by inventing whole new scenes).
     try:
-        from monitor_agents.narrator.agent import Narrator
+        import dspy
 
-        narrator = Narrator()
+        from monitor_agents.dspy_runtime import dspy_context_for
+        from monitor_data.schemas.llm_config import ModelRole
+
+        facts = session_facts_block(session)
         lore_block = "\n".join(archetype_lines[:6]) if archetype_lines else ""
-        result = await narrator.narrate_turn(
-            scene_id=uuid.uuid4(),
-            user_input=f"[OOC] {question}",
-            resolution=None,
-            context={
-                "entities": [{"context": lore_block}] if lore_block else [],
-                "memories": [],
-                "turns": [],
-            },
-            game_context=system_doc,
-            session_tone=session.get("tone", "dramatic"),
-        )
-        answer = strip_entity_tags(result.get("narrative_text", "")).strip()
+        with dspy_context_for("ooc_answer", ModelRole.LIGHT):
+            prediction = dspy.Predict(_build_ooc_signature())(
+                ooc_message=question,
+                session_facts=facts or "(nothing established yet)",
+                world_lore=lore_block or "(none available)",
+                mechanical_hint=mechanical_hint or "(none)",
+            )
+        answer = strip_entity_tags(str(getattr(prediction, "answer", ""))).strip()
         if answer and len(answer) > 30:
             if mechanical_hint and mechanical_hint.lower() not in answer.lower():
                 return f"{answer}\n\n{mechanical_hint}"
             return answer
     except Exception as exc:
         logger.debug("answer_ooc_question LLM failed: %s", exc)
+        info = classify_llm_error(exc)
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.PREPLAY,
+            category=RoleplayErrorCategory.LLM,
+            message=info.message,
+            fatal=False,
+            llm_error_class=info.error_class.value,
+            universe_id=_safe_universe_uuid(session),
+        )
 
     # Fallback
     if archetype_lines:
@@ -369,6 +592,15 @@ async def _generate_prologue(session: dict[str, Any], summary_text: str) -> str:
             return prologue
     except Exception as exc:
         logger.debug("_generate_prologue LLM call failed: %s", exc)
+        info = classify_llm_error(exc)
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.PREPLAY,
+            category=RoleplayErrorCategory.LLM,
+            message=info.message,
+            fatal=False,
+            llm_error_class=info.error_class.value,
+            universe_id=_safe_universe_uuid(session),
+        )
 
     if summary_text:
         return summary_text + "\n\nThe story begins. What do you do?"

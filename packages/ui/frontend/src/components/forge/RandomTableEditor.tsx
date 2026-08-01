@@ -510,10 +510,20 @@ export function RandomTableBrowser({ universeId }: RandomTableBrowserProps) {
         {filtered.map((table) => {
           const config = getTableTypeConfig(table.table_type);
           return (
-            <button
+            // role="button" div: nested <button> (the delete action) inside a
+            // real <button> is invalid HTML and breaks hydration.
+            <div
               key={table.table_id}
+              role="button"
+              tabIndex={0}
               onClick={() => setSelectedTable(table)}
-              className="w-full text-left glass-dark rounded-xl border border-white/5 p-3 space-y-1.5 hover:border-white/10 hover:bg-white/2 transition-all"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSelectedTable(table);
+                }
+              }}
+              className="w-full text-left glass-dark rounded-xl border border-white/5 p-3 space-y-1.5 hover:border-white/10 hover:bg-white/2 transition-all cursor-pointer"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -540,7 +550,7 @@ export function RandomTableBrowser({ universeId }: RandomTableBrowserProps) {
                 <span>{table.entries.length} entries</span>
                 {table.weighted && <span className="text-amber-500">Weighted</span>}
               </div>
-            </button>
+            </div>
           );
         })}
       </div>

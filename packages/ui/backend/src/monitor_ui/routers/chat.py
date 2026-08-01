@@ -27,6 +27,7 @@ from monitor_agents.loops.preplay_orchestrator import (
     start_character_interview,
     start_story_agreements,
 )
+from monitor_agents.loops.preplay_support import is_begin_story_command
 
 from .chat_game_system import (
     _GSR_AVAILABLE,
@@ -799,6 +800,22 @@ async def greet_character(session_id: str, character_id: str) -> Message:
     return Message(**gm_msg)
 
 
+def _begin_story_intent(session: dict[str, Any], content: str) -> bool:
+    """True when a chat message should trigger the same path as Begin Story.
+
+    Mirrors ``begin_story``'s own guards: only while Session Zero agreements
+    are awaiting confirmation. Without this, typing "begin story" in chat was
+    swallowed by the story-agreements loop as a *revision* and the summary
+    was re-presented endlessly.
+    """
+    if session.get("phase") != "session_zero" or session.get("preplay_finalized_at"):
+        return False
+    agreements = session.get("story_agreements")
+    if not isinstance(agreements, dict) or agreements.get("confirmed"):
+        return False
+    return is_begin_story_command(content)
+
+
 @router.post("/{session_id}/begin", response_model=Message)
 async def begin_story(session_id: str) -> Message:
     """Confirm Session Zero and create the first in-fiction narration once."""
@@ -939,6 +956,10 @@ async def send_message(session_id: str, body: MessageSend) -> Message:
             db_save_session=_db_save_session,
             db_load_messages=_db_load_messages,
         )
+    elif _begin_story_intent(session, body.content):
+        # Typed "begin story" (or "confirm", "looks good", …) while Session
+        # Zero awaits confirmation — run the same finalize path as the button.
+        return await begin_story(session_id)
     elif session.get("phase") in (
         "awaiting_character",
         "character_interview",
@@ -1364,6 +1385,17 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                     break
                 await fanout_event(session_id, done_payload, exclude=websocket)
                 continue
+
+            # Typed "begin story" while Session Zero awaits confirmation —
+            # same finalize path as the Begin Story button. begin_story
+            # persists the opening and streams it to every subscriber
+            # (this socket included) via fanout_completed_gm_message.
+            if _begin_story_intent(_SESSIONS.get(session_id, {}), content):
+                try:
+                    await begin_story(session_id)
+                    continue
+                except HTTPException:
+                    pass  # fall through to the normal pre-play turn
 
             start_payload = {"type": "start", "message_id": gm_id}
             composing_payload = {"type": "composing", "message_id": gm_id}

@@ -192,14 +192,17 @@ async def get_slow_queries(
         List of slow query executions with metadata
     """
     tracker = _get_tracker()  # type: ignore
-    slow_queries = tracker.get_slow_queries(limit=limit, min_time_ms=min_time_ms)
+    # QueryPerformanceTracker.get_slow_queries only accepts a threshold and
+    # its records use duration_ms/query keys — map the router's
+    # limit/min_time_ms parameters and SlowQueryInfo fields onto that API.
+    slow_queries = tracker.get_slow_queries(threshold_ms=min_time_ms)[-limit:]
 
     return [
         SlowQueryInfo(
             pattern=query["pattern"],
-            execution_time_ms=query["execution_time_ms"],
+            execution_time_ms=query["duration_ms"],
             timestamp=query["timestamp"],
-            sample_query=query.get("sample_query"),
+            sample_query=query.get("query"),
         )
         for query in slow_queries
     ]
@@ -269,14 +272,14 @@ async def get_performance_report(
         for pattern in slowest_report["by_pattern"]
     ]
 
-    # Get recent slow queries
-    slow_queries = tracker.get_slow_queries(limit=slow_query_limit, min_time_ms=150.0)
+    # Get recent slow queries (same tracker-API mapping as /performance/slow)
+    slow_queries = tracker.get_slow_queries(threshold_ms=150.0)[-slow_query_limit:]
     recent_slow_queries = [
         SlowQueryInfo(
             pattern=query["pattern"],
-            execution_time_ms=query["execution_time_ms"],
+            execution_time_ms=query["duration_ms"],
             timestamp=query["timestamp"],
-            sample_query=query.get("sample_query"),
+            sample_query=query.get("query"),
         )
         for query in slow_queries
     ]
