@@ -466,6 +466,8 @@ async def resume_conversation(character_id: str, conversation_id: str) -> Any | 
         for i, t in enumerate(doc.get("turns", []))
     ]
     loop.state.turns_count = len(loop.state.turns)
+    # Restore the durable proposal outbox written after each turn (crash-safe).
+    loop.state.pending_proposals = list(doc.get("pending_proposals") or [])
     _cache_loop(conversation_id, loop)
     return loop
 
@@ -499,6 +501,19 @@ async def send_message(
 
     responses = await loop.step(text)
 
+    # Durable outbox: persist accumulated proposals onto the conversation doc
+    # after every turn so a mid-session crash doesn't lose them (they used to
+    # live only in loop memory until close). Restored on resume.
+    try:
+        from monitor_data.db.mongodb import get_mongodb_client
+
+        get_mongodb_client().get_collection("conversations").update_one(
+            {"conversation_id": conversation_id},
+            {"$set": {"pending_proposals": list(getattr(loop.state, "pending_proposals", []) or [])}},
+        )
+    except Exception:
+        log.warning("conversation_proposals_persist_failed", conversation_id=conversation_id, exc_info=True)
+
     # Reset the transient flag so subsequent steps default to strict scope.
     if include_cross_incarnation and getattr(loop, "state", None) is not None:
         loop.state.include_cross_incarnation = False
@@ -511,14 +526,61 @@ async def send_message(
     }
 
 
-async def end_conversation(conversation_id: str) -> dict[str, Any]:
+async def redistill_conversation(
+    character_id: str, conversation_id: str, *, force: bool = False
+) -> dict[str, Any]:
+    """Rebuild episodic event proposals for a persisted conversation.
+
+    Episodic proposals are derived from the durable transcript, so they can
+    always be regenerated — e.g. after a close-time LLM failure. Idempotent
+    by default: if episodic proposals already exist for this conversation,
+    they are returned unless force=True.
+    """
+    from monitor_agents.loops.conversation_loop import redistill_episodic_proposals
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    client = get_mongodb_client()
+    doc = client.get_collection("conversations").find_one({"conversation_id": conversation_id})
+    if not doc:
+        raise KeyError(conversation_id)
+
+    backing = await ensure_character_backed(character_id, universe_id=doc.get("universe_id"))
+    if backing["entity_id"] not in [str(n) for n in (doc.get("npc_ids") or [])]:
+        raise KeyError(conversation_id)
+
+    existing = list(
+        client.get_collection("proposed_changes").find(
+            {"evidence.ref_id": conversation_id, "content.source": "episodic_extraction"},
+            {"content.description": 1, "status": 1},
+        )
+    )
+    if existing and not force:
+        return {
+            "staged": 0,
+            "existing": len(existing),
+            "descriptions": [e.get("content", {}).get("description", "") for e in existing],
+        }
+
+    staged = await redistill_episodic_proposals(doc)
+    return {
+        "staged": len(staged),
+        "existing": len(existing),
+        "descriptions": [p.get("content", {}).get("description", "") for p in staged],
+    }
+
+
+async def end_conversation(conversation_id: str, character_id: str | None = None) -> dict[str, Any]:
     """Finish the loop (persist + stage). Drops it from the cache.
 
     Always evicts the loop from the cache, even when finish() raises — leaving
     a dead loop in the cache would silently block the same conversation_id
-    from being restarted.
+    from being restarted. When the loop was lost to a restart, it is rebuilt
+    from the persisted transcript first so the accumulated proposal outbox
+    still gets staged.
     """
     loop = get_loop(conversation_id)
+    if loop is None and character_id:
+        loop = await resume_conversation(character_id, conversation_id)
     if loop is None:
         return {"ended": True, "proposals": 0}
     proposals: list[Any] = []

@@ -327,6 +327,147 @@ class TestConversationLifecycle:
 
         assert loop is None
 
+    def test_send_message_persists_proposal_outbox(self):
+        """After every turn, accumulated proposals are written onto the
+        conversation doc so a mid-session crash can't lose them."""
+        fake_loop = MagicMock()
+        fake_loop.state.pending_proposals = [{"change_type": "relationship", "content": {}}]
+        fake_loop.step = AsyncMock(return_value=[{"text": "aye", "emotional_state": "warm"}])
+        cc._cache_loop("conv-outbox", fake_loop)
+        mongo = MagicMock()
+
+        with patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo):
+            asyncio.run(cc.send_message("conv-outbox", "hi"))
+
+        update = mongo.get_collection.return_value.update_one
+        update.assert_called_once()
+        args = update.call_args[0]
+        assert args[0] == {"conversation_id": "conv-outbox"}
+        assert args[1]["$set"]["pending_proposals"] == [{"change_type": "relationship", "content": {}}]
+
+    def test_resume_restores_pending_proposals(self):
+        from uuid import uuid4
+
+        entity_id, universe_id, conv_id = str(uuid4()), str(uuid4()), str(uuid4())
+        outbox = [{"change_type": "state_change", "content": {"mood": "wary"}}]
+        doc = {
+            "conversation_id": conv_id,
+            "status": "active",
+            "universe_id": universe_id,
+            "npc_ids": [entity_id],
+            "player_entity_id": str(cc._CONVERSATORY_PLAYER_ID),
+            "turns": [],
+            "pending_proposals": outbox,
+        }
+        mongo = MagicMock()
+        mongo.get_collection.return_value.find_one.return_value = doc
+
+        fake_loop = MagicMock()
+        fake_loop.state = SimpleNamespace(turns=[], turns_count=0, pending_proposals=[])
+
+        with (
+            patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
+            patch.object(
+                cc,
+                "ensure_character_backed",
+                new=AsyncMock(
+                    return_value={"entity_id": entity_id, "universe_id": universe_id, "version_id": str(uuid4())}
+                ),
+            ),
+            patch("monitor_agents.loops.conversation_loop.ConversationLoop", return_value=fake_loop),
+            patch("monitor_agents.loops.conversation_loop.load_npc_context", new=AsyncMock(return_value={})),
+        ):
+            loop = asyncio.run(cc.resume_conversation("char-1", conv_id))
+
+        assert loop.state.pending_proposals == outbox
+
+
+class TestRedistillConversation:
+    def setup_method(self):
+        cc._LOOPS.clear()
+
+    def _doc(self, entity_id: str, universe_id: str, conv_id: str) -> dict:
+        return {
+            "conversation_id": conv_id,
+            "status": "completed",
+            "universe_id": universe_id,
+            "npc_ids": [entity_id],
+            "turns": [
+                {"turn_index": 0, "speaker_role": "player", "text": "hi"},
+                {"turn_index": 1, "speaker_role": "npc", "text": "well met"},
+            ],
+        }
+
+    def test_redistill_is_idempotent_when_proposals_exist(self):
+        from uuid import uuid4
+
+        entity_id, universe_id, conv_id = str(uuid4()), str(uuid4()), str(uuid4())
+        mongo = MagicMock()
+        coll = mongo.get_collection.return_value
+        coll.find_one.return_value = self._doc(entity_id, universe_id, conv_id)
+        coll.find.return_value = [
+            {"content": {"description": "Kessa accepted the helm."}, "status": "pending"}
+        ]
+
+        with (
+            patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
+            patch.object(
+                cc,
+                "ensure_character_backed",
+                new=AsyncMock(
+                    return_value={"entity_id": entity_id, "universe_id": universe_id, "version_id": str(uuid4())}
+                ),
+            ),
+            patch(
+                "monitor_agents.loops.conversation_loop.redistill_episodic_proposals",
+                new=AsyncMock(return_value=[]),
+            ) as mock_redistill,
+        ):
+            out = asyncio.run(cc.redistill_conversation("char-1", conv_id))
+
+        assert out["staged"] == 0
+        assert out["existing"] == 1
+        assert out["descriptions"] == ["Kessa accepted the helm."]
+        mock_redistill.assert_not_awaited()
+
+    def test_redistill_force_restages(self):
+        from uuid import uuid4
+
+        entity_id, universe_id, conv_id = str(uuid4()), str(uuid4()), str(uuid4())
+        mongo = MagicMock()
+        coll = mongo.get_collection.return_value
+        coll.find_one.return_value = self._doc(entity_id, universe_id, conv_id)
+        coll.find.return_value = []
+
+        staged = [{"change_type": "event", "content": {"description": "New take."}}]
+        with (
+            patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
+            patch.object(
+                cc,
+                "ensure_character_backed",
+                new=AsyncMock(
+                    return_value={"entity_id": entity_id, "universe_id": universe_id, "version_id": str(uuid4())}
+                ),
+            ),
+            patch(
+                "monitor_agents.loops.conversation_loop.redistill_episodic_proposals",
+                new=AsyncMock(return_value=staged),
+            ) as mock_redistill,
+        ):
+            out = asyncio.run(cc.redistill_conversation("char-1", conv_id, force=True))
+
+        assert out["staged"] == 1
+        assert out["descriptions"] == ["New take."]
+        mock_redistill.assert_awaited_once()
+
+    def test_redistill_unknown_conversation_raises(self):
+        mongo = MagicMock()
+        mongo.get_collection.return_value.find_one.return_value = None
+
+        with patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo):
+            with pytest.raises(KeyError):
+                asyncio.run(cc.redistill_conversation("char-1", "nope"))
+
 
 # ---------------------------------------------------------------------------
 # draft_card (LLM-assisted card filling)

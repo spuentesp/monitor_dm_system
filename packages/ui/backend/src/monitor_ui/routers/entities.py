@@ -1399,10 +1399,31 @@ async def send_character_message(
 
 @router.post("/characters/{character_id}/conversations/{conversation_id}/end")
 async def end_character_conversation(character_id: str, conversation_id: str) -> dict:    # type: ignore
-    """Close a conversatory session (persist working state + stage proposals)."""
+    """Close a conversatory session (persist working state + stage proposals).
+
+    If the loop was lost to a backend restart, it is rebuilt from the
+    persisted transcript first so accumulated proposals still stage.
+    """
     from . import character_conversation as cc
 
-    return await cc.end_conversation(conversation_id)
+    return await cc.end_conversation(conversation_id, character_id=character_id)
+
+
+@router.post("/characters/{character_id}/conversations/{conversation_id}/redistill")
+async def redistill_character_conversation(
+    character_id: str, conversation_id: str, force: bool = False
+) -> dict:    # type: ignore
+    """Rebuild episodic event proposals from the persisted transcript.
+
+    Use after a close-time extraction failure, or with force=true to
+    regenerate proposals that already exist.
+    """
+    from . import character_conversation as cc
+
+    try:
+        return await cc.redistill_conversation(character_id, conversation_id, force=force)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Conversation not found for this character.")
 
 
 @router.get(
