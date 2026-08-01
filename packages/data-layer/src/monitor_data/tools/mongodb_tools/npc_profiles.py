@@ -101,6 +101,23 @@ def mongodb_get_npc_profile(entity_id: UUID) -> NPCProfileResponse | None:
     return _npc_profile_doc_to_response(doc)
 
 
+def mongodb_get_npc_profiles_by_entities(
+    entity_ids: list[UUID],
+) -> list[NPCProfileResponse]:
+    """Bulk fetch NPC profiles for the given entities (single Mongo find).
+
+    Returns [] when input is empty or no matches. Order is not guaranteed —
+    callers must key by entity_id if they need stable order.
+    """
+    if not entity_ids:
+        return []
+    mongo_client = get_mongodb_client()
+    docs = mongo_client["npc_profiles"].find(
+        {"entity_id": {"$in": [str(e) for e in entity_ids]}}
+    )
+    return [_npc_profile_doc_to_response(d) for d in docs]
+
+
 def mongodb_update_npc_profile(entity_id: UUID, params: NPCProfileUpdate) -> NPCProfileResponse:
     """Update or upsert an NPC profile with new emotional/social state."""
     mongo_client = get_mongodb_client()
