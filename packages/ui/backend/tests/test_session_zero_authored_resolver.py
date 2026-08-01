@@ -54,7 +54,9 @@ def test_returns_empty_when_no_binding():
         m_list.return_value = PromptCollectionListResponse(collections=[], total=0, limit=50, offset=0)
         m_get.return_value = None
         result = resolve_authored_session_zero_questions(session, lambda s: None)
-    assert result == []
+    # Baseline (name/origin/appearance) is always asked, so an empty authored
+    # binding still produces the 3 baseline questions.
+    assert [q["category"] for q in result] == ["name", "origin", "appearance"]
 
 
 def test_explicit_binding_wins_and_is_ordered():
@@ -68,10 +70,12 @@ def test_explicit_binding_wins_and_is_ordered():
 
     m_get.assert_called_once()
     m_list.assert_not_called()  # explicit binding short-circuits
-    # Sorted by entry.order → name (0) before loss (1).
-    assert [q["question_text"] for q in result] == ["What are you called?", "Whose blood do you regret?"]
-    assert result[0]["category"] == "name"
-    assert result[1]["is_final"] is True
+    # Baseline questions whose category isn't covered by the authored collection
+    # come first; "name" is authored so its baseline counterpart is suppressed.
+    categories = [q["category"] for q in result]
+    assert categories == ["origin", "appearance", "name", "loss"]
+    assert result[2]["category"] == "name"
+    assert result[3]["is_final"] is True
 
 
 def test_universe_binding_preferred_over_system():
@@ -91,8 +95,9 @@ def test_universe_binding_preferred_over_system():
     ):
         result = resolve_authored_session_zero_questions(session, _fake_doc(system_id))
 
-    assert len(result) == 2
-    assert result[0]["question_text"] == "What are you called?"
+    # 2 baseline (origin, appearance — name is authored) + 2 authored
+    assert len(result) == 4
+    assert result[0]["category"] == "origin"
 
 
 def test_system_binding_when_no_universe_match():
@@ -110,4 +115,4 @@ def test_system_binding_when_no_universe_match():
     ):
         result = resolve_authored_session_zero_questions(session, _fake_doc(system_id))
 
-    assert len(result) == 2
+    assert len(result) == 4

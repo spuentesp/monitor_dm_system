@@ -173,6 +173,11 @@ class SessionZeroSummary(BaseModel):
         ),
     )
 
+    appearance: str | None = Field(
+        None,
+        description="General physical appearance, if mentioned in the answers.",
+    )
+
     key_bonds: list[str] = Field(
         default_factory=list, description="Key relationships or bonds mentioned in the answers."
     )
@@ -345,6 +350,9 @@ if _DSPY_AVAILABLE:
         backstory: str = dspy.OutputField(
             desc="A 2-4 paragraph backstory woven from the answers. Narrative prose, not bullet points.",
         )
+        appearance: str = dspy.OutputField(
+            desc="A one-sentence physical description distilled from the answers; empty string if none given.",
+        )
         key_bonds: str = dspy.OutputField(
             desc="Comma-separated list of key relationships or bonds.",
         )
@@ -454,10 +462,13 @@ def prediction_to_summary(pred: Any) -> SessionZeroSummary:
     """Convert a DSPy Prediction into a typed SessionZeroSummary."""
     name_raw = str(getattr(pred, "character_name", "") or "").strip()
     name = None if name_raw.lower() in ("", "unknown", "none", "null") else name_raw
+    appearance_raw = str(getattr(pred, "appearance", "") or "").strip()
+    appearance = appearance_raw or None
     return SessionZeroSummary(
         character_name=name,
         concept=str(getattr(pred, "concept", "") or "").strip(),
         backstory=str(getattr(pred, "backstory", "") or "").strip(),
+        appearance=appearance,
         key_bonds=_parse_string_list(getattr(pred, "key_bonds", "")),
         key_fears=_parse_string_list(getattr(pred, "key_fears", "")),
         key_motivations=_parse_string_list(getattr(pred, "key_motivations", "")),

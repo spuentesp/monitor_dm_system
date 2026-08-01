@@ -213,6 +213,31 @@ def record_director_note(session: dict[str, Any], text: str) -> bool:
 OOC_EXCHANGES_CAP = 8
 
 
+# Minimum Session-Zero intake, asked for EVERY game (deduped against authored
+# pack questions by category). These feed the character summary and, at
+# begin_story, the one-time canon seed.
+BASELINE_SESSION_ZERO_QUESTIONS: list[dict[str, Any]] = [
+    {
+        "question_text": "What is your character's name?",
+        "category": "name",
+        "is_final": False,
+        "answer_options": [],
+    },
+    {
+        "question_text": "Where does your character come from? Give their origin or background in a sentence or two.",
+        "category": "origin",
+        "is_final": False,
+        "answer_options": [],
+    },
+    {
+        "question_text": "What does your character look like? Describe their general appearance.",
+        "category": "appearance",
+        "is_final": False,
+        "answer_options": [],
+    },
+]
+
+
 def record_ooc_exchange(session: dict[str, Any], question: str, answer: str) -> None:
     """Append an OOC Q&A pair to the session for later narrator context.
 
@@ -717,9 +742,22 @@ def resolve_authored_session_zero_questions(
     session: dict[str, Any],
     session_game_system_doc: Any,
 ) -> list[dict[str, Any]]:
-    """Compatibility wrapper for character-interview prompt collections."""
-    return resolve_authored_questions(
+    """Character-interview questions: universal baseline + authored pack questions.
+
+    Baseline questions (name/origin/appearance) come first; an authored
+    question with the same category suppresses its baseline counterpart.
+    """
+    authored = resolve_authored_questions(
         session,
         session_game_system_doc,
         category="session_zero",
     )
+    authored_categories = {
+        str(q.get("category") or "").strip().lower() for q in authored
+    }
+    baseline = [
+        dict(q)
+        for q in BASELINE_SESSION_ZERO_QUESTIONS
+        if q["category"] not in authored_categories
+    ]
+    return baseline + authored
