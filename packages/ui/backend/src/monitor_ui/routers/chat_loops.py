@@ -214,11 +214,14 @@ def get_scene_loop(
     scene_id: str,
     story_id: str,
     actor_context: dict[str, Any] | None = None,
+    chat_log: list[Any] | None = None,
 ) -> Any:
     signature = scene_loop_signature(session, scene_id=scene_id, story_id=story_id)
     cached = _SCENE_LOOPS.get(session_id)
     if cached and cached[0] == signature:
         _SCENE_LOOPS.move_to_end(session_id)
+        if chat_log is not None:
+            cached[1].chat_log = chat_log  # refresh volatile reference
         return cached[1]
 
     agreements_lines, agreements_veils = _session_agreements(session)
@@ -259,6 +262,7 @@ def get_scene_loop(
         # Shared reference: OOC answers appended after this loop is cached
         # must be visible on the next turn.
         ooc_exchanges=session.setdefault("ooc_exchanges", []),
+        chat_log=chat_log,
     )
     _SCENE_LOOPS[session_id] = (signature, loop)
     _SCENE_LOOPS.move_to_end(session_id)

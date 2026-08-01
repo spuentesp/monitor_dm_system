@@ -129,6 +129,36 @@ def _table_talk_block(ooc_exchanges: Any, *, cap: int = 8, max_chars: int = 300)
     )
 
 
+def _recent_chat_block(recent_chat: Any, *, max_tokens: int = 500) -> str:
+    """Render the raw chat tail as a labeled block, hard-capped by tokens."""
+    if not isinstance(recent_chat, list) or not recent_chat:
+        return ""
+    from monitor_agents.token_budget import count_tokens
+
+    lines: list[str] = []
+    used = 0
+    for item in reversed(recent_chat):
+        if not isinstance(item, dict):
+            continue
+        content = str(item.get("content") or "").strip()
+        if not content:
+            continue
+        label = "[OOC]" if str(item.get("mode") or "ic").lower() == "ooc" else "[IC]"
+        line = f"{label} {item.get('role') or '?'}: {content}"
+        cost = count_tokens(line)
+        if used + cost > max_tokens:
+            break
+        lines.append(line)
+        used += cost
+    if not lines:
+        return ""
+    lines.reverse()
+    return (
+        "\n\nRECENT TABLE CONVERSATION (provenance labels, not content — "
+        "never address OOC remarks in fiction):\n" + "\n".join(lines) + "\n"
+    )
+
+
 class Narrator(BaseAgent):
     """
     Generates GM narrative prose and extracts world-state change proposals.
@@ -449,6 +479,9 @@ class Narrator(BaseAgent):
 
         # Inject OOC table talk (player questions + GM answers) as background.
         profile_context += _table_talk_block(context.get("ooc_exchanges"))
+
+        # Inject the raw recent chat tail (IC + OOC, labeled).
+        profile_context += _recent_chat_block(context.get("recent_chat"))
 
         # Inject turn context for spatial/situational awareness
         turn_ctx = context.get("turn_context")

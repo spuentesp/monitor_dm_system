@@ -263,6 +263,7 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
             scene_id=scene_id,
             story_id=story_id,
             actor_context=state.actor_context,
+            chat_log=_chat_log_for(callbacks, state.session_id),
         )
         if state.resolution_override is not None:
             result = await loop.run(
@@ -418,6 +419,23 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
 
 def route_intent(state: SceneOrchestratorState) -> str:
     return state.next_node
+
+
+def _chat_log_for(callbacks: Any, session_id: str) -> list[Any] | None:
+    """Live chat message list for a session via UI-provided callbacks."""
+    try:
+        messages = getattr(callbacks, "messages", None)
+        if isinstance(messages, dict):
+            log = messages.get(session_id)
+            if isinstance(log, list):
+                return log
+        loader = getattr(callbacks, "db_load_messages", None)
+        if callable(loader):
+            loaded = loader(session_id)
+            return loaded if isinstance(loaded, list) else None
+    except Exception:
+        return None
+    return None
 
 
 class SceneOrchestrator:

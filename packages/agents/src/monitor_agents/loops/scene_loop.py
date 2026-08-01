@@ -176,6 +176,8 @@ class SceneState(BaseModel):
     established_facts: list[str] = Field(default_factory=list)
     # OOC table talk (Q&A pairs) from the session, rendered by the Narrator.
     ooc_exchanges: list[dict[str, Any]] = Field(default_factory=list)
+    # Raw recent chat tail (IC + OOC, labeled) rendered by the Narrator.
+    recent_chat: list[dict[str, Any]] = Field(default_factory=list)
     # Consistency violations detected by check_consistency node.
     consistency_violations: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -440,6 +442,7 @@ async def narrate(state: SceneState) -> dict[str, Any]:
             "turn_context": state.turn_context,
             "established_facts": state.established_facts,
             "ooc_exchanges": state.ooc_exchanges,
+            "recent_chat": state.recent_chat,
             "agreements": {
                 "lines": list(state.agreements_lines or []),
                 "veils": list(state.agreements_veils or []),
@@ -918,6 +921,23 @@ async def check_events(state: SceneState) -> dict[str, Any]:
         resolution=state.resolution,
     )
 
+def _chat_tail(chat_log: Any, *, limit: int = 6) -> list[dict[str, str]]:
+    """Last `limit` chat messages as {role, mode, content} dicts (IC/OOC labeled)."""
+    if not isinstance(chat_log, list) or not chat_log:
+        return []
+    tail: list[dict[str, str]] = []
+    for m in chat_log[-limit:]:
+        if not isinstance(m, dict):
+            continue
+        content = str(m.get("content") or "").strip()
+        if not content:
+            continue
+        meta = m.get("metadata") if isinstance(m.get("metadata"), dict) else {}
+        mode = str(m.get("chat_mode") or meta.get("chat_mode") or "ic")
+        tail.append({"role": str(m.get("role") or "?"), "mode": mode, "content": content})
+    return tail
+
+
 def route_after_narration(state: SceneState) -> str:
     """
     Decide whether to loop for another turn or end the scene.
@@ -1057,6 +1077,7 @@ class SceneLoop:
         agreements_veils: list[str] | None = None,
         director_notes: list[str] | None = None,
         ooc_exchanges: list[dict[str, Any]] | None = None,
+        chat_log: list[Any] | None = None,
     ) -> None:
         self.scene_id = scene_id
         self.story_id = story_id
@@ -1084,6 +1105,9 @@ class SceneLoop:
         # OOC Q&A exchanges — REFERENCE to the session's list (same pattern
         # as director_notes) so answers given mid-scene show up next turn.
         self.ooc_exchanges = ooc_exchanges if ooc_exchanges is not None else []
+        # Live chat-log reference (last 6 messages are derived per-turn via
+        # _chat_tail); refresh on every get_scene_loop call.
+        self.chat_log = chat_log
         self._graph = build_scene_graph()
 
     async def run(
@@ -1130,6 +1154,7 @@ class SceneLoop:
                 # them as established truth instead of improvising settings.
                 established_facts=list(getattr(self, "director_notes", []) or []),
                 ooc_exchanges=list(getattr(self, "ooc_exchanges", []) or []),
+                recent_chat=_chat_tail(getattr(self, "chat_log", None)),
                 resolution=resolution_override,
             )
             # Add pre-loaded gm_profile to state if available
