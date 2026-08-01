@@ -16,6 +16,76 @@ from monitor_agents.story_agreements import StoryAgreements
 log = structlog.get_logger()
 
 
+DIRECTOR_NOTES_CAP = 20
+
+
+async def seed_canon_from_session_zero(session: dict[str, Any]) -> None:
+    """One-time: turn Session-Zero outcomes into retrievable canon.
+
+    Writes a high-importance character memory (MongoDB + Qdrant via the
+    create hook) so ContextAssembly retrieves who the PC is on every turn,
+    and records premise/tone as director notes (ESTABLISHED FACTS). Runs at
+    most once per session; failures degrade to a log line — the story still
+    begins.
+    """
+    if session.get("canon_seeded"):
+        return
+    session["canon_seeded"] = True  # mark first: idempotent even on failure
+
+    summary = session.get("character_summary")
+    parts: list[str] = []
+    if isinstance(summary, dict):
+        name = str(summary.get("character_name") or session.get("speaker_label") or "").strip()
+        concept = str(summary.get("concept") or "").strip()
+        appearance = str(summary.get("appearance") or "").strip()
+        backstory = str(summary.get("backstory") or "").strip()
+        if name:
+            parts.append(f"Name: {name}")
+        if concept:
+            parts.append(f"Origin & concept: {concept}")
+        if appearance:
+            parts.append(f"Appearance: {appearance}")
+        if backstory:
+            parts.append(f"Backstory: {backstory}")
+
+    universe_id = session.get("universe_id") or session.get("world_id")
+    entity_id = session.get("character_id")
+    story_id = session.get("story_id")
+    scene_id = session.get("scene_id")
+    if parts and universe_id and entity_id and story_id:
+        try:
+            import anyio
+
+            from monitor_data.schemas.memories import MemoryCreate
+            from monitor_data.tools.mongodb_tools import mongodb_create_memory
+
+            text = "PLAYER CHARACTER (established in Session Zero):\n" + "\n".join(parts)
+            params = MemoryCreate(
+                universe_id=UUID(str(universe_id)),
+                entity_id=UUID(str(entity_id)),
+                scene_id=UUID(str(scene_id)) if scene_id else None,
+                text=text[:5000],
+                importance=0.9,
+                emotional_valence=0.0,
+                metadata={"story_id": str(story_id), "source": "session_zero_canon_seed"},
+            )
+            await anyio.to_thread.run_sync(mongodb_create_memory, params)
+        except Exception as exc:
+            log.warning("preplay.canon_seed_memory_failed", error=str(exc))
+
+    notes = session.setdefault("director_notes", [])
+    if isinstance(notes, list):
+        premise = str(session.get("story_premise") or "").strip()
+        tone = str(session.get("tone") or "").strip()
+        candidates = ([f"Story premise: {premise}"] if premise else []) + (
+            [f"Tone: {tone}"] if tone else []
+        )
+        for note in candidates:
+            if note not in notes:
+                notes.append(note)
+        del notes[:-DIRECTOR_NOTES_CAP]
+
+
 async def finalize_preplay(
     session: dict[str, Any],
     *,
@@ -49,6 +119,8 @@ async def finalize_preplay(
     session["scene_id"] = scene_id
     if not story_id or not scene_id:
         raise RuntimeError(bootstrap_error or "Story/scene bootstrap did not return IDs.")
+
+    await seed_canon_from_session_zero(session)
 
     gm_profile = await _load_gm_profile(session.get("gm_profile_id"))
     intro = session.get("session_intro") or {}
