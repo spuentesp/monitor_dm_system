@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from monitor_agents.narrator.agent import _table_talk_block
-from monitor_agents.loops.scene_loop import SceneLoop, SceneState
+from monitor_agents.loops.scene_loop import SceneState
 
 
 def _pairs(n: int) -> list[dict[str, str]]:

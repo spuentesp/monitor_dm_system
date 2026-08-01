@@ -932,7 +932,10 @@ def _chat_tail(chat_log: Any, *, limit: int = 6) -> list[dict[str, str]]:
         content = str(m.get("content") or "").strip()
         if not content:
             continue
-        meta = m.get("metadata") if isinstance(m.get("metadata"), dict) else {}
+        meta: dict[str, Any] = {}
+        metadata = m.get("metadata")
+        if isinstance(metadata, dict):
+            meta = metadata
         mode = str(m.get("chat_mode") or meta.get("chat_mode") or "ic")
         tail.append({"role": str(m.get("role") or "?"), "mode": mode, "content": content})
     return tail

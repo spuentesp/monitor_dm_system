@@ -8,7 +8,6 @@ from uuid import uuid4
 import pytest
 
 import monitor_data.tools.mongodb_tools as mongo_tools
-from monitor_agents.loops import preplay_finalize
 from monitor_agents.loops.preplay_finalize import seed_canon_from_session_zero
 
 
