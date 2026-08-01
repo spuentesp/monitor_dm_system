@@ -455,6 +455,92 @@ async def _extract_episodic_memories(state: ConversationState) -> list[dict[str,
     return proposals
 
 
+async def _stage_proposal(agent: Any, state: ConversationState, proposal: dict[str, Any]) -> bool:
+    """Stage one proposal as a ProposedChange document. Returns success.
+
+    Stamps scene/story/universe scope and conversation evidence; failures
+    are logged and swallowed so one bad proposal never blocks the rest.
+    """
+    try:
+        params: dict[str, Any] = {
+            "change_type": _normalize_conversation_change_type(proposal.get("change_type", "fact")),
+            "content": proposal.get("content", {}),
+            "confidence": proposal.get("confidence", 0.5),
+            "authority": proposal.get("authority", "system"),
+            "proposer": proposal.get("proposer", "NPCVoice"),
+            "evidence": [{"type": "snippet", "ref_id": str(state.conversation_id)}],
+        }
+        if state.scene_id is not None:
+            params["scene_id"] = str(state.scene_id)
+        if state.story_id is not None:
+            params["story_id"] = str(state.story_id)
+        # Stamp the incarnation's universe on every staged proposal so
+        # CanonKeeper (and downstream readers) can route the change to
+        # the right character-version partition.
+        if state.universe_id is not None:
+            params["universe_id"] = str(state.universe_id)
+            # Also stamp on content if NPCVoice didn't already.
+            content = params.setdefault("content", {})
+            if isinstance(content, dict) and "universe_id" not in content:
+                content["universe_id"] = str(state.universe_id)
+
+        turn_id = proposal.get("turn_id") or proposal.get("content", {}).get("turn_id")
+        if turn_id is not None:
+            params["turn_id"] = str(turn_id)
+
+        await agent.call_tool(
+            "mongodb_create_proposed_change",
+            {"params": params},
+        )
+        return True
+    except Exception:
+        logger.warning(
+            "Failed to stage proposal for conversation %s",
+            state.conversation_id,
+            exc_info=True,
+        )
+        return False
+
+
+async def redistill_episodic_proposals(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """Re-run episodic extraction for a persisted conversation doc and stage
+    the resulting event proposals.
+
+    The transcript in MongoDB is the durable record; episodic proposals are
+    derived from it, so they can always be rebuilt — e.g. after a close-time
+    LLM failure. Returns the staged proposals (empty when nothing salient).
+    """
+    from monitor_agents.npc_voice.agent import NPCVoice
+
+    npc_ids = [UUID(n) for n in (doc.get("npc_ids") or [])]
+    state = ConversationState(
+        conversation_id=UUID(doc["conversation_id"]),
+        universe_id=UUID(doc["universe_id"]),
+        mode=ConversationMode(doc.get("mode", ConversationMode.DIRECT.value)),
+        npc_ids=npc_ids,
+        turns=[
+            {
+                "turn_index": t.get("turn_index", i),
+                "speaker_role": t.get("speaker_role"),
+                "entity_name": t.get("entity_name"),
+                "text": t.get("text", ""),
+            }
+            for i, t in enumerate(doc.get("turns", []))
+        ],
+    )
+
+    proposals = await _extract_episodic_memories(state)
+    if not proposals:
+        return []
+
+    agent = NPCVoice()
+    staged: list[dict[str, Any]] = []
+    for proposal in proposals:
+        if await _stage_proposal(agent, state, proposal):
+            staged.append(proposal)
+    return staged
+
+
 async def close_session(state: ConversationState) -> dict[str, Any]:
     """
     Mark the ConversationSession as completed in MongoDB.
@@ -481,45 +567,7 @@ async def close_session(state: ConversationState) -> dict[str, Any]:
 
     # Stage proposals for CanonKeeper (written to proposed_changes collection)
     for proposal in proposals_to_stage:
-        try:
-            params: dict[str, Any] = {
-                "change_type": _normalize_conversation_change_type(proposal.get("change_type", "fact")),
-                "content": proposal.get("content", {}),
-                "confidence": proposal.get("confidence", 0.5),
-                "authority": proposal.get("authority", "system"),
-                "proposer": proposal.get("proposer", "NPCVoice"),
-                "evidence": [{"type": "snippet", "ref_id": str(state.conversation_id)}],
-            }
-            if state.scene_id is not None:
-                params["scene_id"] = str(state.scene_id)
-            if state.story_id is not None:
-                params["story_id"] = str(state.story_id)
-            # Stamp the incarnation's universe on every staged proposal so
-            # CanonKeeper (and downstream readers) can route the change to
-            # the right character-version partition.
-            if state.universe_id is not None:
-                params["universe_id"] = str(state.universe_id)
-                # Also stamp on content if NPCVoice didn't already.
-                content = params.setdefault("content", {})
-                if isinstance(content, dict) and "universe_id" not in content:
-                    content["universe_id"] = str(state.universe_id)
-
-            turn_id = proposal.get("turn_id") or proposal.get("content", {}).get("turn_id")
-            if turn_id is not None:
-                params["turn_id"] = str(turn_id)
-
-            await agent.call_tool(
-                "mongodb_create_proposed_change",
-                {"params": params},
-            )
-        except Exception:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                "Failed to stage proposal for conversation %s",
-                state.conversation_id,
-                exc_info=True,
-            )
+        await _stage_proposal(agent, state, proposal)
 
     return {"pending_proposals": proposals_to_stage}
 

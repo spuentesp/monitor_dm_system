@@ -674,6 +674,103 @@ class TestCloseSession:
 
 
 # ===========================================================================
+# redistill_episodic_proposals — rebuild episodic proposals from a transcript
+# ===========================================================================
+
+
+class TestRedistillEpisodicProposals:
+    @pytest.mark.asyncio
+    async def test_builds_state_from_doc_and_stages(self):
+        from monitor_agents.loops.conversation_loop import redistill_episodic_proposals
+
+        npc_id = uuid4()
+        universe_id = uuid4()
+        doc = {
+            "conversation_id": str(uuid4()),
+            "universe_id": str(universe_id),
+            "mode": "direct",
+            "npc_ids": [str(npc_id)],
+            "turns": [
+                {"turn_index": 0, "speaker_role": "player", "entity_name": "Player", "text": "join me"},
+                {"turn_index": 1, "speaker_role": "npc", "entity_name": "Kessa", "text": "aye"},
+            ],
+        }
+
+        mock_agent = MagicMock()
+        mock_agent.call_tool = AsyncMock()
+        fake_extractor = MagicMock()
+        fake_extractor.forward = MagicMock(
+            return_value=[{"text": "Kessa accepted the helm.", "importance": 9, "emotional_valence": 0.4}]
+        )
+
+        with (
+            patch("monitor_agents.npc_voice.agent.NPCVoice", return_value=mock_agent),
+            patch(
+                "monitor_agents.extraction.memory_extraction.MemoryExtractor",
+                return_value=fake_extractor,
+            ),
+        ):
+            staged = await redistill_episodic_proposals(doc)
+
+        assert len(staged) == 1
+        stage_calls = [c for c in mock_agent.call_tool.call_args_list if c[0][0] == "mongodb_create_proposed_change"]
+        assert len(stage_calls) == 1
+        params = stage_calls[0][0][1]["params"]
+        assert params["change_type"] == "event"
+        assert params["universe_id"] == str(universe_id)
+        assert params["content"]["description"] == "Kessa accepted the helm."
+        assert params["evidence"][0]["ref_id"] == doc["conversation_id"]
+
+    @pytest.mark.asyncio
+    async def test_empty_extraction_stages_nothing(self):
+        from monitor_agents.loops.conversation_loop import redistill_episodic_proposals
+
+        doc = {
+            "conversation_id": str(uuid4()),
+            "universe_id": str(uuid4()),
+            "mode": "direct",
+            "npc_ids": [str(uuid4())],
+            "turns": [
+                {"turn_index": 0, "speaker_role": "player", "text": "hi"},
+                {"turn_index": 1, "speaker_role": "npc", "text": "yo"},
+            ],
+        }
+
+        mock_agent = MagicMock()
+        mock_agent.call_tool = AsyncMock()
+        fake_extractor = MagicMock()
+        fake_extractor.forward = MagicMock(return_value=[])
+
+        with (
+            patch("monitor_agents.npc_voice.agent.NPCVoice", return_value=mock_agent),
+            patch(
+                "monitor_agents.extraction.memory_extraction.MemoryExtractor",
+                return_value=fake_extractor,
+            ),
+        ):
+            staged = await redistill_episodic_proposals(doc)
+
+        assert staged == []
+        stage_calls = [c for c in mock_agent.call_tool.call_args_list if c[0][0] == "mongodb_create_proposed_change"]
+        assert stage_calls == []
+
+    @pytest.mark.asyncio
+    async def test_short_transcript_stages_nothing(self):
+        from monitor_agents.loops.conversation_loop import redistill_episodic_proposals
+
+        doc = {
+            "conversation_id": str(uuid4()),
+            "universe_id": str(uuid4()),
+            "mode": "direct",
+            "npc_ids": [str(uuid4())],
+            "turns": [{"turn_index": 0, "speaker_role": "player", "text": "hi"}],
+        }
+
+        staged = await redistill_episodic_proposals(doc)
+        assert staged == []
+
+
+# ===========================================================================
 # open_session — params wrapping + conversation_id adoption
 # ===========================================================================
 
