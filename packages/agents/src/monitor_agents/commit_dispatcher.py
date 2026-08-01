@@ -134,6 +134,24 @@ class CommitDispatcherMixin:
         handler_name = self._COMMIT_HANDLERS.get(type_key)
         if handler_name is None:
             logger.warning("Unknown type_key '%s' in _commit_to_neo4j", type_key)
+            from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+            from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+            content = proposal.get("content", {})
+            universe_id_str = (content.get("universe_id") if isinstance(content, dict) else None) or proposal.get(
+                "universe_id"
+            )
+            try:
+                universe_id = UUID(str(universe_id_str)) if universe_id_str else None
+            except (TypeError, ValueError):
+                universe_id = None
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.CANONKEEPER,
+                category=RoleplayErrorCategory.COMMIT_DISPATCHER_UNKNOWN_TYPE,
+                message=f"Unknown type_key '{type_key}' in _commit_to_neo4j",
+                fatal=False,
+                universe_id=universe_id,
+            )
             return
 
         handler = getattr(self, handler_name)

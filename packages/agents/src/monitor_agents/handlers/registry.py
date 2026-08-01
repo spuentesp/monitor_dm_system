@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -206,5 +207,23 @@ class CommitHandlerAdapter:
                 await handler(proposals_coll, proposal_id, proposal, source_id_strs, verdict)
             else:
                 logger.warning("Unknown type_key '%s' in fallback dispatch", type_key)
+                from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+                from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+                content = proposal.get("content", {})
+                universe_id_str = (
+                    content.get("universe_id") if isinstance(content, dict) else None
+                ) or proposal.get("universe_id")
+                try:
+                    universe_id = UUID(str(universe_id_str)) if universe_id_str else None
+                except (TypeError, ValueError):
+                    universe_id = None
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.CANONKEEPER,
+                    category=RoleplayErrorCategory.COMMIT_DISPATCHER_UNKNOWN_TYPE,
+                    message=f"Unknown type_key '{type_key}' in fallback dispatch",
+                    fatal=False,
+                    universe_id=universe_id,
+                )
         else:
             logger.error("Cannot fallback dispatch for non-CanonKeeper agent")

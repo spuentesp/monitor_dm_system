@@ -306,6 +306,14 @@ from monitor_data.schemas.resolutions import (
     RollResult,
     SuccessLevel,
 )
+from monitor_data.schemas.roleplay_errors import (
+    RoleplayError,
+    RoleplayErrorCategory,
+    RoleplayErrorFilter,
+    RoleplayErrorListResponse,
+    RoleplayErrorResponse,
+    RoleplayErrorSource,
+)
 from monitor_data.schemas.universe import (
     MultiverseCreate,
     MultiverseFilter,
@@ -759,4 +767,12 @@ __all__ += [
     # GM Notes (P2.3)
     "GmNoteUpsert",
     "GmNoteResponse",
+]
+__all__ += [
+    "RoleplayError",
+    "RoleplayErrorCategory",
+    "RoleplayErrorFilter",
+    "RoleplayErrorListResponse",
+    "RoleplayErrorResponse",
+    "RoleplayErrorSource",
 ]

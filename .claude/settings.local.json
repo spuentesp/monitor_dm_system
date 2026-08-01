@@ -77,7 +77,11 @@
       "Read(//home/sebastian/.claude/plans/**)",
       "Bash(git *)",
       "Bash(PGPASSWORD='monitor-dev-postgres' psql *)",
-      "Skill(claude-api)"
+      "Skill(claude-api)",
+      "Bash(LOG_LEVEL=WARNING python scripts/e2e_full_loop.py --system vtm --scenario vtm_primogen --character-driver llm --turns-per-scene 4 --scenes 1 --player-model ollama/qwen2.5:latest --output-dir tests/e2e/logs/full_loop/2026-07-28_llm2llm)",
+      "Bash(tee tests/e2e/logs/full_loop/2026-07-28_llm2llm/run.log)",
+      "Bash(NEO4J_PASSWORD=changeme-neo4j MONGODB_PASSWORD=changeme-mongodb docker compose up -d)",
+      "Bash(ps -eo pid,ppid,etime,cmd)"
     ]
   }
 }

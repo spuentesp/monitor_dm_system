@@ -511,8 +511,18 @@ async def send_message(
             {"conversation_id": conversation_id},
             {"$set": {"pending_proposals": list(getattr(loop.state, "pending_proposals", []) or [])}},
         )
-    except Exception:
+    except Exception as exc:
         log.warning("conversation_proposals_persist_failed", conversation_id=conversation_id, exc_info=True)
+        from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+        from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.CHARACTER_CONVERSATION,
+            category=RoleplayErrorCategory.UNKNOWN,
+            message=str(exc),
+            fatal=False,
+            conversation_id=conversation_id,
+        )
 
     # Reset the transient flag so subsequent steps default to strict scope.
     if include_cross_incarnation and getattr(loop, "state", None) is not None:
@@ -587,8 +597,18 @@ async def end_conversation(conversation_id: str, character_id: str | None = None
     try:
         proposals = await loop.finish()
         return {"ended": True, "proposals": len(proposals or [])}
-    except Exception:
+    except Exception as exc:
         log.warning("conversation_finish_failed", conversation_id=conversation_id, exc_info=True)
+        from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+        from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.CHARACTER_CONVERSATION,
+            category=RoleplayErrorCategory.UNKNOWN,
+            message=str(exc),
+            fatal=True,
+            conversation_id=conversation_id,
+        )
         return {"ended": False, "proposals": len(proposals or [])}
     finally:
         pop_loop(conversation_id)

@@ -43,6 +43,7 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
+from uuid import UUID
 
 import dspy
 import structlog
@@ -63,8 +64,19 @@ from monitor_agents.gm_tools.registry import (
     reset_tools,
     set_loop_bridge,
 )
+from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
 log = structlog.get_logger(__name__)
+
+
+def _safe_scene_uuid(scene_id: str) -> UUID | None:
+    """Best-effort UUID parse for error-record correlation. None on failure —
+    never fabricate a UUID that wouldn't correlate to a real scene."""
+    try:
+        return UUID(str(scene_id))
+    except (TypeError, ValueError):
+        return None
 
 
 # Default configuration --------------------------------------------------------
@@ -587,6 +599,13 @@ class GMAgent(BaseAgent):
                     error=str(exc),
                     fallback="gm_awareness_seed",
                 )
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.GM_AGENT,
+                    category=RoleplayErrorCategory.GM_DECISION_FAILED,
+                    message=str(exc),
+                    fatal=False,
+                    scene_id=_safe_scene_uuid(scene_id),
+                )
                 # Fall through to GMAwareness seed.
                 return await self._fallback_via_seed(
                     user_input=user_input,
@@ -599,6 +618,13 @@ class GMAgent(BaseAgent):
                 )
         except Exception as exc:
             log.error("gm_agent.decide.failed", scene_id=str(scene_id), error=str(exc))
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.GM_AGENT,
+                category=RoleplayErrorCategory.GM_DECISION_FAILED,
+                message=str(exc),
+                fatal=True,
+                scene_id=_safe_scene_uuid(scene_id),
+            )
             # Last-resort fallback. Never raise.
             return GMVerdict(
                 intent_type=IntentType.ACTION,
@@ -631,6 +657,12 @@ class GMAgent(BaseAgent):
             return gmverdict_from_awareness(awareness, upstream_action_context=upstream_action_context)
         except Exception as exc:
             log.error("gm_agent.fallback.failed", error=str(exc))
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.GM_AGENT,
+                category=RoleplayErrorCategory.GM_DECISION_FAILED,
+                message=str(exc),
+                fatal=True,
+            )
             return GMVerdict(
                 intent_type=IntentType.ACTION,
                 action_type=ActionType.NONE,

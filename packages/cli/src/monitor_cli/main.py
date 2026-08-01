@@ -54,6 +54,11 @@ from monitor_cli.commands import (
     universe,
 )
 
+# play_errors registers "errors" onto play.app's Typer instance directly
+# (mounted as `monitor play errors`, not a separate top-level group) — the
+# import alone is what triggers its @app.command("errors") registration.
+from monitor_cli.commands import play_errors  # noqa: F401
+
 app.add_typer(state.app, name="state", help="Manage character working state (HP, resources)")
 app.add_typer(rules.app, name="rules", help="Manage game systems (D&D, Vampire, etc.)")
 app.add_typer(mechanics.app, name="mechanics", help="Resolve game mechanics (checks, rolls)")

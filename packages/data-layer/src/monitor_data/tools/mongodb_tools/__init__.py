@@ -20,6 +20,7 @@ Sub-modules:
     party             — Party Inventory + Splits CRUD
     working_state     — Character Working State CRUD
     ingestion_jobs    — Ingestion Job CRUD
+    roleplay_errors   — Roleplay Error record + list
     knowledge_packs   — Knowledge Pack CRUD + apply
     character_sheets  — Character Sheet CRUD
     documents         — Document CRUD + verdicts
@@ -123,6 +124,12 @@ from monitor_data.tools.mongodb_tools.ingestion_jobs import (
     mongodb_get_ingestion_job,
     mongodb_list_ingestion_jobs,
     mongodb_update_ingestion_job,
+)
+
+# Roleplay Error operations
+from monitor_data.tools.mongodb_tools.roleplay_errors import (
+    mongodb_list_roleplay_errors,
+    mongodb_record_roleplay_error,
 )
 
 # Knowledge Pack operations
@@ -457,6 +464,8 @@ __all__ = [
     "mongodb_get_ingestion_job",
     "mongodb_update_ingestion_job",
     "mongodb_list_ingestion_jobs",
+    "mongodb_record_roleplay_error",
+    "mongodb_list_roleplay_errors",
     # Knowledge Packs
     "_convert_knowledge_pack_doc",
     "mongodb_create_knowledge_pack",

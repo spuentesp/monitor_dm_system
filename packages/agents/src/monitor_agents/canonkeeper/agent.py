@@ -51,8 +51,21 @@ from monitor_agents.canonkeeper.canonkeeper import (
     CanonKeeperReasoningModule,
     PolicyCheckModule,
 )
+from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_uuid(value: Any) -> UUID | None:
+    """Best-effort UUID parse for error-record correlation. None on failure —
+    never fabricate a UUID that wouldn't correlate to a real record."""
+    if not value:
+        return None
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _axiom_authority_for_domain(domain: str) -> str:
@@ -535,6 +548,13 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 rejected_ids = await self._batch_contradiction_check(ordered, universe_id)
             except Exception as exc:
                 logger.warning("Batched contradiction check failed (committing anyway): %s", exc)
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.CANONKEEPER,
+                    category=RoleplayErrorCategory.CANONKEEPER_WRITE_FAILED,
+                    message=str(exc),
+                    fatal=False,
+                    universe_id=universe_id,
+                )
 
         committed = 0
         rejected = 0
@@ -833,6 +853,13 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             except Exception as exc:
                 logger.warning("Failed to write mechanic nodes: %s", exc)
                 errors.append(f"mechanic_nodes: {exc}")
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.CANONKEEPER,
+                    category=RoleplayErrorCategory.CANONKEEPER_WRITE_FAILED,
+                    message=str(exc),
+                    fatal=False,
+                    universe_id=_safe_uuid(pack_doc.get("universe_id")) if pack_doc else None,
+                )
 
         return {
             "proposals_created": proposals_created,
@@ -938,6 +965,13 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             except Exception as exc:
                 logger.warning("Failed to write mechanic nodes: %s", exc)
                 errors.append(f"mechanic_nodes: {exc}")
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.CANONKEEPER,
+                    category=RoleplayErrorCategory.CANONKEEPER_WRITE_FAILED,
+                    message=str(exc),
+                    fatal=False,
+                    universe_id=_safe_uuid(pack_doc.get("universe_id")) if pack_doc else None,
+                )
 
         # Mark pack as APPLIED once all accepted proposals are committed
         mongodb.get_collection("knowledge_packs").update_one(
@@ -1081,6 +1115,16 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 )
         except Exception as exc:
             logger.warning("CanonKeeper.end_scene: fact write failed (non-fatal): %s", exc)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.CANONKEEPER,
+                category=RoleplayErrorCategory.CANONKEEPER_WRITE_FAILED,
+                message=str(exc),
+                fatal=False,
+                universe_id=universe_id,
+                story_id=story_id,
+                scene_id=scene_id,
+                entity_id=actor_id,
+            )
         return {
             "scene_id": str(scene_id),
             "story_id": str(story_id),
@@ -1207,6 +1251,15 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
 
         if "error" in result:
             logger.error(f"Failed to create replacement fact: {result['error']}")
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.CANONKEEPER,
+                category=RoleplayErrorCategory.CANONKEEPER_WRITE_FAILED,
+                message=str(result["error"]),
+                fatal=False,
+                universe_id=_safe_uuid(new_fact_params.get("universe_id")),
+                scene_id=scene_id,
+                entity_id=old_fact_id,
+            )
             return result
 
         new_fact_id = result.get("id")
@@ -1227,6 +1280,15 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             logger.info(f"Replaced fact {old_fact_id} with {new_fact_id} (scene: {scene_id}, reason: {reason})")
         except Exception as e:
             logger.warning(f"Failed to tombstone old fact {old_fact_id}: {e}")
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.CANONKEEPER,
+                category=RoleplayErrorCategory.CANONKEEPER_WRITE_FAILED,
+                message=str(e),
+                fatal=False,
+                universe_id=_safe_uuid(new_fact_params.get("universe_id")),
+                scene_id=scene_id,
+                entity_id=old_fact_id,
+            )
 
         # Track replacement in MongoDB for audit trail
         await self._track_fact_replacement(
@@ -2581,6 +2643,12 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
 
         if not universe_id_str:
             logger.warning(f"Proposal {proposal.get('proposal_id')} has no universe_id, skipping contradiction check")
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.CANONKEEPER,
+                category=RoleplayErrorCategory.CANONKEEPER_MISSING_UNIVERSE_ID,
+                message=f"Proposal {proposal.get('proposal_id')} has no universe_id, skipping contradiction check",
+                fatal=False,
+            )
             return None
 
         proposal_id = proposal.get("proposal_id", "unknown")

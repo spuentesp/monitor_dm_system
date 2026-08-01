@@ -910,6 +910,33 @@ class TestResolveCheck:
         assert result["success"] is True
         assert result["total"] == 3  # 3 successes
 
+    @pytest.mark.asyncio
+    async def test_unexpected_exception_records_roleplay_error(self, resolver):
+        """A genuine exception (not a controlled not-found early-return) must
+        be recorded as a structured RoleplayError, not just logged — this is
+        the resolver.py:~1580 `except Exception` catch-all."""
+        entity_uuid = uuid4()
+
+        async def _tool(tool_name: str, params: dict):
+            raise RuntimeError("neo4j connection reset")
+
+        resolver.call_tool = _tool
+
+        with patch(
+            "monitor_agents.resolver.RoleplayErrorRecorder.record", new_callable=AsyncMock
+        ) as mock_record:
+            result = await resolver.resolve_check(str(entity_uuid), "Strength")
+
+        assert "error" in result
+        mock_record.assert_awaited_once()
+        _, kwargs = mock_record.call_args
+        from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+        assert kwargs["source"] == RoleplayErrorSource.RESOLVER
+        assert kwargs["category"] == RoleplayErrorCategory.RESOLVER_CHECK_FAILED
+        assert kwargs["fatal"] is True
+        assert kwargs["entity_id"] == entity_uuid
+
 
 # ===========================================================================
 # Roll-necessity routing (semantic classifier — UC-GM-6)

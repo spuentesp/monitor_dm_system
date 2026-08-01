@@ -15,6 +15,8 @@ from monitor_agents.loops.scene_support import (
     normalise_resource_value,
     seed_actor_state,
 )
+from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +114,24 @@ class PersistenceService:
                 created_ids.append(res.memory_id)
             except Exception as e:
                 logger.warning("Failed to persist memory for entity %s: %s", entity_id, e)
+                # mongodb_create_memory raises ValueError specifically for its
+                # not-found validation checks (entity/scene/linked-fact) — any
+                # other exception type is a genuinely different failure mode.
+                category = (
+                    RoleplayErrorCategory.MEMORY_PERSIST_NOT_FOUND
+                    if isinstance(e, ValueError)
+                    else RoleplayErrorCategory.UNKNOWN
+                )
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.SCENE_LOOP,
+                    category=category,
+                    message=str(e),
+                    fatal=False,
+                    universe_id=universe_id,
+                    story_id=story_id,
+                    scene_id=scene_id,
+                    entity_id=entity_id,
+                )
 
         return created_ids
 

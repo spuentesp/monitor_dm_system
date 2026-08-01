@@ -288,6 +288,39 @@ async def test_decide_never_raises() -> None:
 
 
 @pytest.mark.asyncio
+async def test_decide_records_roleplay_errors_on_react_and_fallback_failure() -> None:
+    """Both the react.failed and fallback.failed catch blocks must record a
+    structured RoleplayError — not just log — so the failure is queryable
+    afterward instead of only existing as a log line."""
+    agent = GMAgent()
+    agent._react_module = MagicMock(side_effect=RuntimeError("boom"))
+
+    async def _also_fail(*_args, **_kwargs):
+        raise RuntimeError("seed also failed")
+
+    with (
+        patch("monitor_agents.gm_agent.check_gm_awareness", side_effect=_also_fail),
+        patch(
+            "monitor_agents.gm_agent.RoleplayErrorRecorder.record", new_callable=AsyncMock
+        ) as mock_record,
+    ):
+        await agent.decide(
+            scene_id="scene-1",
+            user_input="anything",
+            scene_context={"entities": [], "turns": []},
+        )
+
+    assert mock_record.await_count == 2
+    categories = {call.kwargs["category"] for call in mock_record.await_args_list}
+    from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory
+
+    assert categories == {RoleplayErrorCategory.GM_DECISION_FAILED}
+    fatal_flags = {call.kwargs["fatal"] for call in mock_record.await_args_list}
+    # react.failed is non-fatal (falls through to seed); fallback.failed is fatal.
+    assert fatal_flags == {False, True}
+
+
+@pytest.mark.asyncio
 async def test_decide_propagates_subsystem_hint_from_upstream() -> None:
     """When ReAct returns subsystem_hint='none', fall back to upstream_action_context."""
     agent = GMAgent()

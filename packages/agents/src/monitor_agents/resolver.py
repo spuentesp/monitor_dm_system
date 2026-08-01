@@ -30,6 +30,7 @@ import logging
 import re
 from contextlib import suppress
 from typing import Any, Optional
+from uuid import UUID
 
 from monitor_data.utils.dice import calculate_modifier, roll_dice
 
@@ -43,6 +44,8 @@ from monitor_agents.gm_awareness import (
     CausalityAction,
     check_gm_awareness,
 )
+from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
 # Snapshot of the original check_gm_awareness — used to detect when a test
 # has patched it (the patched function will differ from this reference).
@@ -1579,4 +1582,15 @@ class Resolver(BaseAgent):
 
         except Exception as e:
             logger.exception("Error resolving check")
+            try:
+                parsed_entity_id: UUID | None = UUID(str(entity_id))
+            except (TypeError, ValueError):
+                parsed_entity_id = None
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.RESOLVER,
+                category=RoleplayErrorCategory.RESOLVER_CHECK_FAILED,
+                message=str(e),
+                fatal=True,
+                entity_id=parsed_entity_id,
+            )
             return {"error": str(e)}
