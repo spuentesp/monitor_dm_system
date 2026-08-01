@@ -1,6 +1,6 @@
 """Auto-extracted MongoDB tools sub-module."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -13,6 +13,54 @@ from monitor_data.schemas.memories import (
     MemoryResponse,
     MemoryUpdate,
 )
+
+
+def mongodb_increment_memory_access(
+    memory_ids: list[UUID], *, increment_by: int = 1
+) -> int:
+    """Batch increment `access_count` for the given memories (single update_many).
+
+    Returns the count actually modified. No-op (returns 0) on empty input.
+    Existing `mongodb_get_memory` already increments on single read; this is
+    the bulk equivalent used by ContextAssembly after batch retrieval.
+    """
+    if not memory_ids:
+        return 0
+    mongo_client = get_mongodb_client()
+    coll = mongo_client.get_collection("character_memories")
+    result = coll.update_many(
+        {"memory_id": {"$in": [str(m) for m in memory_ids]}},
+        {"$inc": {"access_count": int(increment_by)}},
+    )
+    return int(getattr(result, "modified_count", 0))
+
+
+def mongodb_forget_stale_memories(
+    *,
+    story_id: UUID,
+    min_age_scenes: int = 10,
+    max_importance: float = 0.1,
+    max_access_count: int = 0,
+) -> int:
+    """Delete memories that are stale (≥ min_age_scenes * 30 min old), low
+    importance (≤ max_importance), and never recalled (≤ max_access_count).
+
+    Story-scoped so other stories' memories are untouched. The age heuristic
+    is intentionally simple (avg scene ≈ 30 min) — see plan Task 8 for caveats.
+    """
+    if not story_id:
+        return 0
+    mongo_client = get_mongodb_client()
+    coll = mongo_client.get_collection("character_memories")
+    cutoff = datetime.now(UTC) - timedelta(minutes=30 * min_age_scenes)
+    filt: dict[str, Any] = {
+        "story_id": str(story_id),
+        "importance": {"$lte": float(max_importance)},
+        "access_count": {"$lte": int(max_access_count)},
+        "created_at": {"$lt": cutoff},
+    }
+    result = coll.delete_many(filt)
+    return int(getattr(result, "deleted_count", 0))
 
 # =============================================================================
 # CHARACTER MEMORY OPERATIONS

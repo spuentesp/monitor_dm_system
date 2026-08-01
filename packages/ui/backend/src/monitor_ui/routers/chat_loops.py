@@ -6,6 +6,7 @@ Extracted from chat.py to isolate turn execution from the HTTP/WebSocket router.
 
 from __future__ import annotations
 
+import anyio
 import asyncio
 import logging
 import uuid
@@ -655,6 +656,19 @@ async def run_end_scene(
 
             metadata["scene_status"] = "completed"
             metadata["scene_summary"] = summary
+
+            # Task 8: memory hygiene — drop stale, low-importance, never-recalled
+            # memories. Best-effort; failure must not break scene transition.
+            try:
+                from monitor_data.tools.mongodb_tools import mongodb_forget_stale_memories
+                forget_count = await anyio.to_thread.run_sync(
+                    mongodb_forget_stale_memories,
+                    story_id=uuid.UUID(story_id),
+                )
+                if forget_count:
+                    logger.info("run_end_scene: forgot %d stale memories", forget_count)
+            except Exception as exc:
+                logger.warning("run_end_scene: memory hygiene failed: %s", exc)
 
             if story_result.get("current_scene_id"):
                 new_scene_id = str(story_result["current_scene_id"])

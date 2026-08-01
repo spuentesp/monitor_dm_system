@@ -725,6 +725,14 @@ class ContextAssembly(BaseAgent):
             return []
         memories = _unwrap_search_results(raw)
         memories = await self._hydrate_memory_texts(memories)
+        # Task 8: bump access_count for the memories we just returned.
+        try:
+            ids = [UUID(str(m["memory_id"])) for m in memories if m.get("memory_id")]
+            if ids:
+                from monitor_data.tools.mongodb_tools import mongodb_increment_memory_access
+                await anyio.to_thread.run_sync(mongodb_increment_memory_access, ids)
+        except Exception as exc:
+            logger.debug("_search_memories: access_count increment failed: %s", exc)
         self._cache_set_json(cache_key, memories, ttl=self._ttl(short=True))
         return memories
 
@@ -818,6 +826,14 @@ class ContextAssembly(BaseAgent):
             return []
         memories = _unwrap_search_results(raw)
         memories = await self._hydrate_memory_texts(memories)
+        # Task 8: bump access_count for the memories we just returned.
+        try:
+            ids = [UUID(str(m["memory_id"])) for m in memories if m.get("memory_id")]
+            if ids:
+                from monitor_data.tools.mongodb_tools import mongodb_increment_memory_access
+                await anyio.to_thread.run_sync(mongodb_increment_memory_access, ids)
+        except Exception as exc:
+            logger.debug("_fetch_memories: access_count increment failed: %s", exc)
         self._cache_set_json(cache_key, memories, ttl=self._ttl(short=True))
         return memories
 

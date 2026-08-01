@@ -139,6 +139,12 @@ from monitor_data.tools.mongodb_tools.foreshadowing import (
     mongodb_mark_foreshadowing_paid,
 )
 
+# Memory access + hygiene (Task 8)
+from monitor_data.tools.mongodb_tools.memories import (
+    mongodb_increment_memory_access,
+    mongodb_forget_stale_memories,
+)
+
 # Knowledge Pack operations
 from monitor_data.tools.mongodb_tools.knowledge_packs import (
     _convert_knowledge_pack_doc,
@@ -476,6 +482,8 @@ __all__ = [
     "mongodb_create_foreshadowing",
     "mongodb_list_open_foreshadowing",
     "mongodb_mark_foreshadowing_paid",
+    "mongodb_increment_memory_access",
+    "mongodb_forget_stale_memories",
     # Knowledge Packs
     "_convert_knowledge_pack_doc",
     "mongodb_create_knowledge_pack",
