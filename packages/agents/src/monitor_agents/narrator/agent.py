@@ -106,6 +106,29 @@ class AgentToolAdapter:
         return result or tag
 
 
+def _table_talk_block(ooc_exchanges: Any, *, cap: int = 8, max_chars: int = 300) -> str:
+    """Render OOC Q&A pairs as a labeled, capped context block ("" when empty)."""
+    if not isinstance(ooc_exchanges, list) or not ooc_exchanges:
+        return ""
+    lines = ""
+    count = 0
+    for pair in ooc_exchanges[-cap:]:
+        if not isinstance(pair, dict):
+            continue
+        q = str(pair.get("question") or "")[:max_chars].strip()
+        a = str(pair.get("answer") or "")[:max_chars].strip()
+        if not q and not a:
+            continue
+        lines += f"Q: {q}\nA: {a}\n"
+        count += 1
+    if not count:
+        return ""
+    return (
+        "\n\nTABLE TALK (out-of-character discussion — background only; "
+        "never reference this channel in fiction):\n" + lines
+    )
+
+
 class Narrator(BaseAgent):
     """
     Generates GM narrative prose and extracts world-state change proposals.
@@ -423,6 +446,9 @@ class Narrator(BaseAgent):
             for fact in established_facts[-20:]:  # cap at 20 most recent
                 facts_block += f"- {fact}\n"
             profile_context += facts_block
+
+        # Inject OOC table talk (player questions + GM answers) as background.
+        profile_context += _table_talk_block(context.get("ooc_exchanges"))
 
         # Inject turn context for spatial/situational awareness
         turn_ctx = context.get("turn_context")

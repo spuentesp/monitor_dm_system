@@ -174,6 +174,8 @@ class SceneState(BaseModel):
     suggested_actions: list[str] = Field(default_factory=list)
     # Established facts extracted from narration (for continuity tracking).
     established_facts: list[str] = Field(default_factory=list)
+    # OOC table talk (Q&A pairs) from the session, rendered by the Narrator.
+    ooc_exchanges: list[dict[str, Any]] = Field(default_factory=list)
     # Consistency violations detected by check_consistency node.
     consistency_violations: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -437,6 +439,7 @@ async def narrate(state: SceneState) -> dict[str, Any]:
             "context_summary": state.context_summary,
             "turn_context": state.turn_context,
             "established_facts": state.established_facts,
+            "ooc_exchanges": state.ooc_exchanges,
             "agreements": {
                 "lines": list(state.agreements_lines or []),
                 "veils": list(state.agreements_veils or []),
@@ -1053,6 +1056,7 @@ class SceneLoop:
         agreements_lines: list[str] | None = None,
         agreements_veils: list[str] | None = None,
         director_notes: list[str] | None = None,
+        ooc_exchanges: list[dict[str, Any]] | None = None,
     ) -> None:
         self.scene_id = scene_id
         self.story_id = story_id
@@ -1077,6 +1081,9 @@ class SceneLoop:
         # Kept as a REFERENCE to the session's list so notes recorded after
         # this loop was cached still show up on the next turn.
         self.director_notes = director_notes if director_notes is not None else []
+        # OOC Q&A exchanges — REFERENCE to the session's list (same pattern
+        # as director_notes) so answers given mid-scene show up next turn.
+        self.ooc_exchanges = ooc_exchanges if ooc_exchanges is not None else []
         self._graph = build_scene_graph()
 
     async def run(
@@ -1122,6 +1129,7 @@ class SceneLoop:
                 # player's director notes so the GMAgent and Narrator treat
                 # them as established truth instead of improvising settings.
                 established_facts=list(getattr(self, "director_notes", []) or []),
+                ooc_exchanges=list(getattr(self, "ooc_exchanges", []) or []),
                 resolution=resolution_override,
             )
             # Add pre-loaded gm_profile to state if available

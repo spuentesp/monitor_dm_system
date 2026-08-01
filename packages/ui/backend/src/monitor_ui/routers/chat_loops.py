@@ -256,6 +256,9 @@ def get_scene_loop(
         # Shared reference: OOC director notes appended after this loop is
         # cached must be visible on the next turn.
         director_notes=session.setdefault("director_notes", []),
+        # Shared reference: OOC answers appended after this loop is cached
+        # must be visible on the next turn.
+        ooc_exchanges=session.setdefault("ooc_exchanges", []),
     )
     _SCENE_LOOPS[session_id] = (signature, loop)
     _SCENE_LOOPS.move_to_end(session_id)
