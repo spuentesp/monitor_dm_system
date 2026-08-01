@@ -19,6 +19,52 @@ from monitor_agents.extraction.narrative_entity_extraction import (
 logger = logging.getLogger(__name__)
 
 
+_ARTICLES = {"the", "a", "an"}
+
+
+def _significant_words(s: str) -> list[str]:
+    """Lower-case split, drop common English articles and very short tokens."""
+    return [
+        w for w in (s or "").lower().split()
+        if w and w not in _ARTICLES and len(w) >= 3
+    ]
+
+
+def _is_partial_match(new_name: str, known_names: list[str]) -> bool:
+    """Heuristic: does `new_name` likely refer to a known entity?
+
+    True when:
+      - the new name is a substring of a known name (new_name >= 3 chars, known >= 4), or
+      - the new name's significant words (articles dropped) overlap with the
+        significant words of a known name.
+
+    The asymmetric threshold keeps short-but-specific new names (e.g. "Vex")
+    matching while preventing false positives on common titles like "Sir"
+    against unrelated entities.
+    """
+    n = (new_name or "").strip().lower()
+    if len(n) < 3:
+        return False
+    n_significant = _significant_words(n)
+    for known in known_names:
+        if known is None:
+            continue
+        k = (known or "").strip().lower()
+        if not k or len(k) < 4:
+            continue
+        if n in k or k in n:
+            return True
+        k_significant = _significant_words(k)
+        # Match when at least one significant word from `new_name` is in the
+        # known's significant words (article-dropped). Catches "the captain" ≈
+        # "Captain Vex" (captain is significant in both).
+        if n_significant and k_significant and any(
+            w in k_significant for w in n_significant
+        ):
+            return True
+    return False
+
+
 class ExtractionAgent(BaseAgent):
     """
     Agent responsible for extracting entities, memories, and facts from narrative text.
@@ -86,6 +132,9 @@ class ExtractionAgent(BaseAgent):
             if not name:
                 continue
             if name.lower() in [n.lower() for n in known_names]:
+                continue
+            if _is_partial_match(name, known_names):
+                logger.debug("extract_new_entities: dropping %r (partial match of known)", name)
                 continue
 
             proposal: dict[str, Any] = {
