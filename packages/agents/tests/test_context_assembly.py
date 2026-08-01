@@ -169,6 +169,50 @@ class TestSearchMemories:
 
         assert result == []
 
+    @pytest.mark.asyncio
+    async def test_hydrates_memory_text_from_mongodb(self):
+        """Qdrant memory hits carry no text by design — campaign recall must
+        hydrate from MongoDB the same way NPCVoice does."""
+        agent = ContextAssembly.__new__(ContextAssembly)
+        memory_id = str(uuid4())
+        envelope = {
+            "results": [
+                {"id": memory_id, "score": 0.9, "payload": {"memory_id": memory_id, "entity_id": str(uuid4())}}
+            ]
+        }
+
+        async def _call(name: str, params: dict) -> object:
+            if name == "qdrant_search":
+                return envelope
+            if name == "mongodb_get_memory":
+                assert params["memory_id"] == memory_id
+                return {"memory_id": memory_id, "text": "The party spared the goblin scout."}
+            raise AssertionError(f"unexpected tool call: {name}")
+
+        agent.call_tool = AsyncMock(side_effect=_call)
+        result = await agent._search_memories("goblin scout", story_id=uuid4())
+
+        assert result[0]["text"] == "The party spared the goblin scout."
+
+    @pytest.mark.asyncio
+    async def test_hydration_failure_keeps_hit(self):
+        agent = ContextAssembly.__new__(ContextAssembly)
+        memory_id = str(uuid4())
+        envelope = {"results": [{"id": memory_id, "score": 0.8, "payload": {"memory_id": memory_id}}]}
+
+        async def _call(name: str, params: dict) -> object:
+            if name == "qdrant_search":
+                return envelope
+            if name == "mongodb_get_memory":
+                raise RuntimeError("mongo down")
+            raise AssertionError(f"unexpected tool call: {name}")
+
+        agent.call_tool = AsyncMock(side_effect=_call)
+        result = await agent._search_memories("anything", story_id=uuid4())
+
+        assert len(result) == 1
+        assert "text" not in result[0]
+
 
 # ===========================================================================
 # _search_snippets

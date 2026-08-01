@@ -724,6 +724,7 @@ class ContextAssembly(BaseAgent):
             self._cache_set_json(cache_key, [], ttl=self._ttl(short=True))
             return []
         memories = _unwrap_search_results(raw)
+        memories = await self._hydrate_memory_texts(memories)
         self._cache_set_json(cache_key, memories, ttl=self._ttl(short=True))
         return memories
 
@@ -816,7 +817,30 @@ class ContextAssembly(BaseAgent):
             self._cache_set_json(cache_key, [], ttl=self._ttl(short=True))
             return []
         memories = _unwrap_search_results(raw)
+        memories = await self._hydrate_memory_texts(memories)
         self._cache_set_json(cache_key, memories, ttl=self._ttl(short=True))
+        return memories
+
+    async def _hydrate_memory_texts(self, memories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Fill in memory text from MongoDB for Qdrant hits that lack it.
+
+        The memories collection stores vectors only (``text`` is not in the
+        payload by design), so search hits arrive contentless — hydrate them
+        the same way NPCVoice does. Best-effort: a failed fetch leaves the
+        item as-is rather than breaking retrieval.
+        """
+        for item in memories:
+            if item.get("text") or item.get("content"):
+                continue
+            memory_id = item.get("memory_id") or item.get("id")
+            if not memory_id:
+                continue
+            try:
+                doc = await self.call_tool("mongodb_get_memory", {"memory_id": str(memory_id)})
+            except Exception:
+                continue
+            if isinstance(doc, dict) and doc.get("text"):
+                item["text"] = doc["text"]
         return memories
 
     async def _fetch_recent_conversation_turns(
