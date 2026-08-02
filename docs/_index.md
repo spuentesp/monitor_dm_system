@@ -38,11 +38,13 @@ Welcome to the MONITOR Agent Documentation. This structure is designed to be hig
 - [Story Loop](./3_loops_and_systems/story_loop.md): Campaign progression.
 - [Conversation Loop](./3_loops_and_systems/conversation_loop.md): NPC dialogue logic.
 - [World Building Loop](./3_loops_and_systems/world_building_loop.md): Collaborative creation.
+- [Image Generation](./3_loops_and_systems/image_generation.md): Canon-anchored image generation — asset lifecycle, provider capabilities, scope budgets, moderation, and loop suggestions.
 
 ## 4. Ontology (Data Models)
 - [Fact Canon Levels](./4_ontology/fact_canon_levels.md): How truth is managed.
 - [Entity Types](./4_ontology/entity_types.md): Archetypes vs Instances.
 - [Graph Relationships](./4_ontology/graph_relationships.md): How Neo4j nodes connect.
+- [Visual Identity](./4_ontology/visual_identity.md): Structured, canon-aware appearance description — anchor shapes, precedence, incarnation isolation, and the CanonKeeper boundary.
 
 ## 5. Infrastructure (DevOps & Env)
 - [Database Cluster](./5_infrastructure/database_cluster.md): The docker-compose setup.
