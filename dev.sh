@@ -352,6 +352,105 @@ cmd_start() {
     echo
 }
 
+# ── LAN helpers ──────────────────────────────────────────────────────────────
+
+# Detect the primary non-loopback IPv4 address on the host. Tries the
+# common utilities in order so the script works on Linux, macOS, and
+# inside a container with `ip` available. Returns empty on failure so
+# the caller can fall back to --lan-ip.
+detect_lan_ip() {
+    local ip=""
+    if command -v hostname >/dev/null 2>&1; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    if [[ -z "$ip" ]] && command -v ip >/dev/null 2>&1; then
+        ip=$(ip -4 addr show scope global 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+    fi
+    if [[ -z "$ip" ]] && command -v ifconfig >/dev/null 2>&1; then
+        ip=$(ifconfig 2>/dev/null | awk '/inet / && !/127.0.0.1/{print $2}' | head -1)
+    fi
+    if [[ -z "$ip" ]] && command -v ipconfig >/dev/null 2>&1; then
+        # macOS WiFi
+        ip=$(ipconfig getifaddr en0 2>/dev/null)
+    fi
+    echo "$ip"
+}
+
+# Augment the CORS allowlist with the LAN frontend origin so the bundled
+# Next.js page on a phone/laptop can call the backend. Doesn't replace
+# whatever the user already had in UI_CORS_ORIGINS — it appends.
+add_lan_cors_origin() {
+    local lan_ip="$1"
+    local lan_origin="http://${lan_ip}:${FRONTEND_PORT:-3000}"
+    local current="${UI_CORS_ORIGINS:-http://localhost:3000}"
+    if [[ ",$current," == *",$lan_origin,"* ]]; then
+        return
+    fi
+    UI_CORS_ORIGINS="$current,$lan_origin"
+    export UI_CORS_ORIGINS
+}
+
+# ── arg parser ───────────────────────────────────────────────────────────────
+
+# Accept flags before/around the positional command. Sets NEEDS_RESTART
+# to the command and LAN/LAN_IP/LAN_ON to the LAN config.
+NEEDS_RESTART=""
+LAN_ON="0"
+LAN_IP=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        start|stop|shutdown|down|restart|status)
+            if [[ -n "$NEEDS_RESTART" ]]; then
+                err "Multiple commands: '$NEEDS_RESTART' and '$1'"
+                exit 1
+            fi
+            NEEDS_RESTART="$1"
+            shift
+            ;;
+        --lan)
+            LAN_ON="1"
+            shift
+            ;;
+        --lan-ip)
+            shift
+            if [[ $# -eq 0 ]]; then
+                err "--lan-ip requires an argument"
+                exit 1
+            fi
+            LAN_IP="$1"
+            LAN_ON="1"
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 [--lan [--lan-ip IP]] [start|stop|restart|status]"
+            exit 0
+            ;;
+        *)
+            err "Unknown argument: $1"
+            echo "Usage: $0 [--lan [--lan-ip IP]] [start|stop|restart|status]"
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "$LAN_ON" == "1" ]]; then
+    if [[ -z "$LAN_IP" ]]; then
+        LAN_IP=$(detect_lan_ip)
+        if [[ -z "$LAN_IP" ]]; then
+            err "Could not auto-detect a non-loopback IPv4 address. Pass --lan-ip <ip>."
+            exit 1
+        fi
+    fi
+    # Backend port used for both URLs; matches the existing default.
+    backend_port="${UI_PORT:-8000}"
+    frontend_port="${FRONTEND_PORT:-3000}"
+    export NEXT_PUBLIC_API_URL="http://${LAN_IP}:${backend_port}"
+    export BACKEND_URL="http://${LAN_IP}:${backend_port}"
+    add_lan_cors_origin "$LAN_IP"
+    ok "LAN mode — services will be reachable at http://${LAN_IP}:${frontend_port} and http://${LAN_IP}:${backend_port}"
+fi
+
 # ── dispatch ──────────────────────────────────────────────────────────────────
 
 case "${NEEDS_RESTART}" in
@@ -370,7 +469,7 @@ case "${NEEDS_RESTART}" in
         cmd_start
         ;;
     *)
-        echo "Usage: $0 [start|stop|shutdown|down|restart|status]"
+        echo "Usage: $0 [--lan [--lan-ip IP]] [start|stop|restart|status]"
         exit 1
         ;;
 esac
