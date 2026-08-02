@@ -27,7 +27,77 @@ from monitor_data.schemas.lorebook import LorebookEntryCreate, LorebookScanConfi
 from .entities_schemas import CharacterCreate
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_ZIP_SIGNATURE = b"PK\x03\x04"
 _CARD_KEYWORDS = ("chara", "ccv3")
+_EMBEDED_URI_PREFIX = "embeded://"  # sic — the misspelling is in the CharX spec
+
+
+def extract_charx_card(data: bytes) -> dict[str, Any]:
+    """Read ``card.json`` out of a CharX (RisuAI) zip archive."""
+    import io
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            card_name = next(
+                (n for n in zf.namelist() if n == "card.json" or n.endswith("/card.json")),
+                None,
+            )
+            if card_name is None:
+                raise ValueError("CharX archive has no card.json.")
+            return json.loads(zf.read(card_name).decode("utf-8", "ignore"))  # type: ignore
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"CharX file is not a valid zip archive: {exc}") from exc
+
+
+def extract_charx_assets(data: bytes) -> dict[str, bytes]:
+    """Return the asset files of a CharX archive as ``{zip_path: bytes}``."""
+    import io
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            return {
+                name: zf.read(name)
+                for name in zf.namelist()
+                if name.startswith("assets/") and not name.endswith("/")
+            }
+    except zipfile.BadZipFile:
+        return {}
+
+
+def resolve_charx_icon(card: dict[str, Any], assets: dict[str, bytes]) -> bytes | None:
+    """Pick the icon asset bytes from a CharX archive.
+
+    Resolution order: the ``data.assets`` entry of type ``icon`` (matched by
+    its ``embeded://`` uri, then by ``name.ext`` against zip paths), then any
+    asset under an ``icon/`` directory. Returns None when no icon is found.
+    """
+    if not assets:
+        return None
+
+    card_data = card.get("data") if isinstance(card.get("data"), dict) else card
+    declared = card_data.get("assets") if isinstance(card_data, dict) else None
+    if isinstance(declared, list):
+        for entry in declared:
+            if not isinstance(entry, dict) or entry.get("type") != "icon":
+                continue
+            uri = str(entry.get("uri") or "")
+            if uri.startswith(_EMBEDED_URI_PREFIX):
+                path = uri[len(_EMBEDED_URI_PREFIX):].lstrip("/")
+                if path in assets:
+                    return assets[path]
+            name, ext = str(entry.get("name") or ""), str(entry.get("ext") or "")
+            if name:
+                suffix = f"{name}.{ext}" if ext else name
+                for path, blob in assets.items():
+                    if path.endswith(suffix):
+                        return blob
+
+    for path, blob in assets.items():
+        if "/icon/" in path or path.startswith("assets/icon"):
+            return blob
+    return None
 
 
 def _extract_card_from_png(data: bytes) -> dict[str, Any]:
@@ -66,7 +136,15 @@ def _extract_card_from_png(data: bytes) -> dict[str, Any]:
 
 
 def _load_card_dict(raw: bytes, *, content_type: str = "", filename: str = "") -> dict[str, Any]:
-    """Load the raw card bytes into a dict, handling PNG extraction."""
+    """Load the raw card bytes into a dict, handling PNG/CharX extraction."""
+    is_charx = (
+        raw.startswith(_ZIP_SIGNATURE)
+        or filename.lower().endswith(".charx")
+        or content_type == "application/zip"
+    )
+    if is_charx:
+        return extract_charx_card(raw)
+
     is_png = raw.startswith(_PNG_SIGNATURE) or content_type == "image/png" or filename.lower().endswith(".png")
     if is_png:
         return _extract_card_from_png(raw)
@@ -75,6 +153,28 @@ def _load_card_dict(raw: bytes, *, content_type: str = "", filename: str = "") -
         return cast(dict[str, Any], json.loads(raw.decode("utf-8", "ignore")))
     except json.JSONDecodeError as exc:
         raise ValueError(f"Card is not valid JSON: {exc}") from exc
+
+
+def is_charx_file(raw: bytes, *, content_type: str = "", filename: str = "") -> bool:
+    """Public predicate so routers can decide whether to extract assets."""
+    return (
+        raw.startswith(_ZIP_SIGNATURE)
+        or filename.lower().endswith(".charx")
+        or content_type == "application/zip"
+    )
+
+
+def sniff_image_type(blob: bytes) -> tuple[str, str]:
+    """Sniff (content_type, extension) from image magic bytes. Defaults to PNG."""
+    if blob.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png", "png"
+    if blob.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg", "jpg"
+    if blob.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif", "gif"
+    if blob[:4] == b"RIFF" and blob[8:12] == b"WEBP":
+        return "image/webp", "webp"
+    return "image/png", "png"
 
 
 def parse_character_card_with_book(

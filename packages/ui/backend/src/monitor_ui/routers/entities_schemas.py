@@ -338,6 +338,13 @@ class ConversationStartRequest(BaseModel):
             "character hasn't been expanded into this universe yet."
         ),
     )
+    persona_character_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional persona card (a character with is_ooc_persona=true) to "
+            "play as. Its name resolves {{user}} when card text is rendered."
+        ),
+    )
 
 
 class ConversationStartResponse(BaseModel):

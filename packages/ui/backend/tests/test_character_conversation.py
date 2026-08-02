@@ -889,3 +889,82 @@ class TestCardMacros:
             out = asyncio.run(cc.start_conversation("char-1"))
 
         assert out["opening"] == "Maeve sizes up User and nods."
+
+    def test_persona_binds_user_name(self):
+        from uuid import uuid4
+
+        card = {
+            "id": "char-1",
+            "name": "Maeve",
+            "first_message": "{{char}} eyes {{user}} warily.",
+        }
+        persona = {"id": "persona-1", "name": "Kael", "is_ooc_persona": True}
+        fake_loop = SimpleNamespace(state=SimpleNamespace(conversation_id="conv-p"))
+
+        def _get(cid):
+            return {"char-1": card, "persona-1": persona}.get(cid)
+
+        with (
+            patch.object(cc, "get_character", side_effect=_get),
+            patch.object(
+                cc,
+                "ensure_character_backed",
+                new=AsyncMock(
+                    return_value={
+                        "entity_id": str(uuid4()),
+                        "universe_id": str(uuid4()),
+                        "version_id": str(uuid4()),
+                    }
+                ),
+            ) as mock_backed,
+            patch(
+                "monitor_agents.loops.conversation_loop.ConversationLoop.start",
+                new=AsyncMock(return_value=fake_loop),
+            ),
+        ):
+            out = asyncio.run(cc.start_conversation("char-1", persona_character_id="persona-1"))
+
+        assert out["opening"] == "Maeve eyes Kael warily."
+        assert mock_backed.await_args.kwargs["user_name"] == "Kael"
+
+    def test_non_persona_card_rejected(self):
+        card = {"id": "char-1", "name": "Maeve"}
+        not_persona = {"id": "char-2", "name": "Aldric", "is_ooc_persona": False}
+
+        def _get(cid):
+            return {"char-1": card, "char-2": not_persona}.get(cid)
+
+        with patch.object(cc, "get_character", side_effect=_get), pytest.raises(ValueError, match="not a persona"):
+            asyncio.run(cc.start_conversation("char-1", persona_character_id="char-2"))
+
+    def test_missing_persona_rejected(self):
+        with patch.object(cc, "get_character", return_value=None), pytest.raises(ValueError):
+            asyncio.run(cc.start_conversation("char-1", persona_character_id="ghost"))
+
+    def test_provisioning_uses_persona_name(self):
+        card = {
+            "id": "char-pn",
+            "name": "Elara",
+            "versions": [],
+            "description": "{{char}} watches {{user}}.",
+        }
+        fake_gen = MagicMock()
+        fake_gen.forward.return_value = {"triggers": []}
+
+        with (
+            patch.object(cc, "get_character", return_value=card),
+            patch.object(
+                cc,
+                "ensure_conversatory_universe",
+                new=AsyncMock(return_value="uni-conv"),
+            ),
+            patch(
+                "monitor_agents.character_creator.npc_profile_gen.NPCProfileGenerator",
+                return_value=fake_gen,
+            ),
+            patch.object(cc, "_provision_entity_and_profile", return_value="ent-new"),
+            patch.object(cc, "add_version", return_value={"version_id": "vp"}),
+        ):
+            asyncio.run(cc.ensure_character_backed("char-pn", user_name="Kael"))
+
+        assert fake_gen.forward.call_args[0][1] == "Elara watches Kael."

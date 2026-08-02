@@ -30,6 +30,11 @@ promotion is a separate, opt-in pipeline.
   also tolerated.
 - **PNG-embedded cards** — the `chara` / `ccv3` keywords in `tEXt`/`zTXt`
   chunks, base64-encoded JSON (the TavernAI/SillyTavern packaging).
+- **CharX archives** (`.charx`, RisuAI) — the zip's `card.json` is parsed
+  like any CCv3 card, and the icon asset (resolved from the `data.assets`
+  declaration, with an `assets/icon/` fallback) is uploaded to MinIO and
+  bound as the character's avatar. Non-icon assets (emotions, backgrounds)
+  are not imported yet.
 
 Field mapping: `description`/`char_persona` → description, `personality` →
 personality, `first_mes`/`char_greeting` → first message, and
@@ -74,8 +79,12 @@ faithful. Substitution happens:
   (description, personality, GM notes), and
 - when the opening `first_message` is rendered.
 
-No persona is bound in light-RP yet, so `{{user}}` falls back to `"User"`
-(the SillyTavern default) until persona cards land.
+`{{user}}` resolves to the bound persona's name:
+`POST /characters/{id}/conversations` accepts an optional
+`persona_character_id` pointing at a character with `is_ooc_persona=true`;
+without one it falls back to `"User"` (the SillyTavern default). Persona
+resolution is name-only for now — the persona's description is not yet
+injected into the voice prompt.
 
 ## Lorebook directives
 
@@ -95,9 +104,10 @@ Two directive mechanisms are supported:
 
 ## Known gaps
 
-- **CharX zip containers** (`.charx` with `embeded://` assets) — not parsed;
-  PNG/JSON only.
-- **Persona binding** — `{{user}}` has no per-user persona yet (Phase 5).
+- **CharX non-icon assets** — emotion/background images are not imported
+  (only the icon becomes the avatar).
+- **Persona depth** — persona binding resolves `{{user}}`'s name only; the
+  persona's description/personality is not injected into prompts yet.
 - **Group chat** — no multi-character speaker selection.
 - **Inbound OpenAI-compatible endpoint** — RisuAI/SillyTavern cannot yet
   point at MONITOR as a `/v1/chat/completions` backend.

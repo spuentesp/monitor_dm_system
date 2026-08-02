@@ -371,3 +371,104 @@ class TestMutationKillers:
         card = {"name": "PrimaryName", "char_name": "ShouldBeIgnored"}
         parsed = parse_character_card(json.dumps(card).encode())
         assert parsed.name == "PrimaryName"
+
+
+# ---------------------------------------------------------------------------
+# CharX (RisuAI zip containers)
+# ---------------------------------------------------------------------------
+
+
+def _charx_bytes(card: dict, assets: dict[str, bytes] | None = None) -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("card.json", json.dumps(card))
+        for path, blob in (assets or {}).items():
+            zf.writestr(path, blob)
+    return buf.getvalue()
+
+
+_PNG_ICON = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+class TestCharX:
+    def test_charx_card_json_parses_like_plain_json(self):
+        card = {"spec": "chara_card_v3", "data": {"name": "Rin", "description": "A fox."}}
+        raw = _charx_bytes(card, {"assets/icon/main.png": _PNG_ICON})
+        parsed = parse_character_card(raw, filename="rin.charx")
+        assert parsed.name == "Rin"
+        assert parsed.description == "A fox."
+
+    def test_charx_detected_by_zip_magic_even_without_extension(self):
+        card = {"data": {"name": "Rin"}}
+        raw = _charx_bytes(card)
+        parsed = parse_character_card(raw)
+        assert parsed.name == "Rin"
+
+    def test_charx_missing_card_json_raises(self):
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("assets/icon/main.png", _PNG_ICON)
+        with pytest.raises(ValueError, match="card.json"):
+            parse_character_card(buf.getvalue(), filename="broken.charx")
+
+    def test_charx_bad_zip_raises(self):
+        with pytest.raises(ValueError, match="zip"):
+            parse_character_card(b"PK\x03\x04" + b"garbage", filename="broken.charx")
+
+    def test_extract_charx_assets_skips_card_and_dirs(self):
+        from monitor_ui.routers.character_cards import extract_charx_assets
+
+        raw = _charx_bytes({"data": {"name": "Rin"}}, {"assets/icon/main.png": _PNG_ICON})
+        assets = extract_charx_assets(raw)
+        assert assets == {"assets/icon/main.png": _PNG_ICON}
+
+    def test_resolve_icon_via_declared_embeded_uri(self):
+        from monitor_ui.routers.character_cards import resolve_charx_icon
+
+        card = {
+            "data": {
+                "name": "Rin",
+                "assets": [
+                    {"type": "icon", "name": "main", "ext": "png",
+                     "uri": "embeded://assets/icon/main.png"}
+                ],
+            }
+        }
+        assets = {"assets/icon/main.png": _PNG_ICON, "assets/emotion/happy.png": b"\xff\xd8\xffxx"}
+        assert resolve_charx_icon(card, assets) == _PNG_ICON
+
+    def test_resolve_icon_via_name_ext_suffix(self):
+        from monitor_ui.routers.character_cards import resolve_charx_icon
+
+        card = {"data": {"name": "Rin", "assets": [{"type": "icon", "name": "portrait", "ext": "png"}]}}
+        assets = {"assets/icon/portrait.png": _PNG_ICON}
+        assert resolve_charx_icon(card, assets) == _PNG_ICON
+
+    def test_resolve_icon_falls_back_to_icon_directory(self):
+        from monitor_ui.routers.character_cards import resolve_charx_icon
+
+        assets = {"assets/icon/anything.png": _PNG_ICON}
+        assert resolve_charx_icon({}, assets) == _PNG_ICON
+
+    def test_resolve_icon_none_when_absent(self):
+        from monitor_ui.routers.character_cards import resolve_charx_icon
+
+        assert resolve_charx_icon({}, {"assets/emotion/happy.png": b"x"}) is None
+        assert resolve_charx_icon({}, {}) is None
+
+
+class TestSniffImageType:
+    def test_magic_bytes(self):
+        from monitor_ui.routers.character_cards import sniff_image_type
+
+        assert sniff_image_type(b"\x89PNG\r\n\x1a\n....") == ("image/png", "png")
+        assert sniff_image_type(b"\xff\xd8\xff\xe0....") == ("image/jpeg", "jpg")
+        assert sniff_image_type(b"GIF89a....") == ("image/gif", "gif")
+        assert sniff_image_type(b"RIFF\x00\x00\x00\x00WEBP....") == ("image/webp", "webp")
+        assert sniff_image_type(b"unknown") == ("image/png", "png")

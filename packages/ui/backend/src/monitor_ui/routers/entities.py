@@ -10,7 +10,9 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
+
+import structlog
 
 from monitor_data.schemas.entities import LevelUpResponse, LevelUpRequest, DowntimeResponse
 from monitor_agents.services.entity_service import EntityProgressionService
@@ -106,6 +108,8 @@ from .entities_schemas import (
     SkillInfo,
 )
 from .ingest_shared import validate_uuid
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 _settings = get_settings()
@@ -1021,15 +1025,22 @@ async def create_character_endpoint(body: CharacterCreate) -> CharacterDetail:
 
 @router.post("/characters/import-card", response_model=CharacterDetail, status_code=201)
 async def import_character_card(file: UploadFile = File(...)) -> CharacterDetail:
-    """Import a SillyTavern/Tavern character card (chara_card_v2 JSON or PNG).
+    """Import a SillyTavern/Tavern character card (chara_card_v2 JSON, PNG, or CharX).
 
-    Also imports any embedded ``character_book`` lorebook entries.
+    Also imports any embedded ``character_book`` lorebook entries. For CharX
+    archives, the icon asset is uploaded to MinIO and bound as the avatar.
     """
     from monitor_data.tools.mongodb_tools.lorebook_tools import (
         mongodb_bulk_create_lorebook_entries,
         mongodb_save_scan_config,
     )
-    from .character_cards import parse_character_card_with_book
+    from .character_cards import (
+        extract_charx_assets,
+        is_charx_file,
+        parse_character_card_with_book,
+        resolve_charx_icon,
+        sniff_image_type,
+    )
 
     raw = await file.read()
     if not raw:
@@ -1042,6 +1053,25 @@ async def import_character_card(file: UploadFile = File(...)) -> CharacterDetail
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # CharX: lift the icon asset into MinIO and bind it as the avatar.
+    if is_charx_file(raw, content_type=file.content_type or "", filename=file.filename or ""):
+        try:
+            from monitor_data.db.minio import get_minio_client
+
+            from .character_cards import extract_charx_card
+
+            card = extract_charx_card(raw)
+            icon = resolve_charx_icon(card, extract_charx_assets(raw))
+            if icon:
+                content_type, ext = sniff_image_type(icon)
+                key = f"assets/avatar/imported/{uuid4()}.{ext}"
+                await get_minio_client().upload(key, icon, content_type=content_type)
+                create.avatar_url = key
+        except Exception as exc:
+            # Asset extraction is best-effort: a card without its icon is
+            # still a valid import.
+            logger.warning("charx asset extraction failed, importing without avatar: %s", exc)
 
     doc = _create_character_doc(create.model_dump())
     character_id = doc.get("id") or doc.get("_id")
@@ -1358,8 +1388,13 @@ async def start_character_conversation(
     if not _get_character_doc(character_id):
         raise HTTPException(status_code=404, detail="Character not found")
     target_universe = body.universe_id if body else None
+    persona_id = body.persona_character_id if body else None
     try:
-        result = await cc.start_conversation(character_id, target_universe)
+        result = await cc.start_conversation(
+            character_id, target_universe, persona_character_id=persona_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Could not start conversation: {exc}")
     return ConversationStartResponse(**result)

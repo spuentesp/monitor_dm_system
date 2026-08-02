@@ -132,3 +132,78 @@ def test_import_card_png_with_embedded_chara_parses(fake_create):
 
     assert resp.status_code == 201, resp.text
     assert resp.json()["name"] == "Sister Veil"
+
+
+def _charx_bytes(card: dict, assets: dict) -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("card.json", json.dumps(card))
+        for path, blob in assets.items():
+            zf.writestr(path, blob)
+    return buf.getvalue()
+
+
+def test_import_charx_binds_icon_as_avatar(fake_create):
+    """A CharX upload uploads the icon asset to MinIO and passes avatar_url to create."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    png_icon = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    card = {
+        "spec": "chara_card_v3",
+        "data": {
+            "name": "Rin",
+            "description": "A fox.",
+            "assets": [
+                {"type": "icon", "name": "main", "ext": "png",
+                 "uri": "embeded://assets/icon/main.png"}
+            ],
+        },
+    }
+    raw = _charx_bytes(card, {"assets/icon/main.png": png_icon})
+
+    fake_minio = MagicMock()
+    fake_minio.upload = AsyncMock()
+
+    with fake_create as mock_create_doc, patch(
+        "monitor_data.db.minio.get_minio_client", return_value=fake_minio
+    ):
+        resp = client.post(
+            "/api/entities/characters/import-card",
+            files={"file": ("rin.charx", raw, "application/zip")},
+        )
+
+    assert resp.status_code == 201, resp.text
+    fake_minio.upload.assert_awaited_once()
+    key, blob = fake_minio.upload.await_args.args[:2]
+    assert key.startswith("assets/avatar/imported/")
+    assert key.endswith(".png")
+    assert blob == png_icon
+    created_payload = mock_create_doc.call_args.args[0]
+    assert created_payload["avatar_url"] == key
+    assert created_payload["name"] == "Rin"
+
+
+def test_import_charx_without_icon_still_imports(fake_create):
+    """No icon asset → card imports fine, avatar stays None, no MinIO call."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    card = {"spec": "chara_card_v3", "data": {"name": "Rin", "description": "A fox."}}
+    raw = _charx_bytes(card, {"assets/emotion/happy.png": b"\xff\xd8\xffxx"})
+
+    fake_minio = MagicMock()
+    fake_minio.upload = AsyncMock()
+
+    with fake_create as mock_create_doc, patch(
+        "monitor_data.db.minio.get_minio_client", return_value=fake_minio
+    ):
+        resp = client.post(
+            "/api/entities/characters/import-card",
+            files={"file": ("rin.charx", raw, "application/zip")},
+        )
+
+    assert resp.status_code == 201, resp.text
+    fake_minio.upload.assert_not_awaited()
+    assert mock_create_doc.call_args.args[0]["avatar_url"] is None

@@ -213,7 +213,9 @@ def _provision_entity_and_profile(universe_id: str, char: dict[str, Any], fields
     return entity_id    # type: ignore
 
 
-async def ensure_character_backed(character_id: str, universe_id: str | None = None) -> dict[str, Any]:
+async def ensure_character_backed(
+    character_id: str, universe_id: str | None = None, *, user_name: str | None = None
+) -> dict[str, Any]:
     """Ensure the character has an incarnation in the requested universe.
 
     Resolution:
@@ -280,12 +282,14 @@ async def ensure_character_backed(character_id: str, universe_id: str | None = N
     from monitor_data.interop.card_macros import substitute_card_macros
 
     # Resolve {{char}}/{{user}} placeholders at render time — the stored card
-    # stays raw so an export round-trip remains faithful. No persona is bound
-    # in light-RP yet, so {{user}} falls back to the ST default ("User").
+    # stays raw so an export round-trip remains faithful. {{user}} resolves to
+    # the bound persona's name, or the ST default ("User") when none is bound.
     char_rendered = {
         **char,
         **{
-            field: substitute_card_macros(str(char.get(field) or ""), char_name=char["name"])
+            field: substitute_card_macros(
+                str(char.get(field) or ""), char_name=char["name"], user_name=user_name
+            )
             for field in ("description", "personality", "gm_notes")
         },
     }
@@ -385,12 +389,20 @@ def pop_loop(conversation_id: str) -> None:
     _LOOPS.pop(conversation_id, None)
 
 
-async def start_conversation(character_id: str, universe_id: str | None = None) -> dict[str, Any]:
+async def start_conversation(
+    character_id: str,
+    universe_id: str | None = None,
+    *,
+    persona_character_id: str | None = None,
+) -> dict[str, Any]:
     """Expand-if-needed, open a DIRECT ConversationLoop, return opening + id.
 
     universe_id picks the incarnation (Character Version). If omitted, the
     character's default incarnation is used. Pass a new universe_id to
     create an additional incarnation for that universe on the fly.
+
+    persona_character_id binds a persona card (is_ooc_persona=true): its
+    name resolves {{user}} in rendered card text.
     """
     from monitor_agents.loops.conversation_loop import (
         ConversationLoop,
@@ -401,7 +413,18 @@ async def start_conversation(character_id: str, universe_id: str | None = None) 
     if not char:
         raise ValueError(f"Character {character_id} not found")
 
-    backing = await ensure_character_backed(character_id, universe_id=universe_id)
+    user_name: str | None = None
+    if persona_character_id:
+        persona = get_character(persona_character_id)
+        if not persona:
+            raise ValueError(f"Persona {persona_character_id} not found")
+        if not persona.get("is_ooc_persona"):
+            raise ValueError(
+                f"Character {persona_character_id} is not a persona (is_ooc_persona=false)"
+            )
+        user_name = str(persona.get("name") or "").strip() or None
+
+    backing = await ensure_character_backed(character_id, universe_id=universe_id, user_name=user_name)
 
     loop = await ConversationLoop.start(
         universe_id=uuid.UUID(backing["universe_id"]),
@@ -426,7 +449,7 @@ async def start_conversation(character_id: str, universe_id: str | None = None) 
     opening_raw = char.get("first_message") or f"{char['name']} turns to face you."
     from monitor_data.interop.card_macros import substitute_card_macros
 
-    opening = substitute_card_macros(opening_raw, char_name=char["name"])
+    opening = substitute_card_macros(opening_raw, char_name=char["name"], user_name=user_name)
     return {
         "conversation_id": conversation_id,
         "character_id": character_id,
