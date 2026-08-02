@@ -114,6 +114,7 @@ class NPCVoice(BaseAgent):
         universe_id: UUID | None = None,
         include_cross_incarnation: bool = False,
         lorebook_context: list[str] | None = None,
+        player_persona: str = "",
     ) -> dict[str, Any]:
         """
         Generate a direct in-character NPC response.
@@ -135,6 +136,8 @@ class NPCVoice(BaseAgent):
             lorebook_context: Contents of lorebook entries triggered for this
                 turn (scanned by the caller, which knows the character id).
                 Injected into the voice module as world facts.
+            player_persona: Rendered "name — description" of the player's
+                persona card, when one is bound to the conversation.
 
         Returns:
             {
@@ -184,6 +187,7 @@ class NPCVoice(BaseAgent):
             profile_context=profile_context,
             lorebook_context="\n".join(lorebook_context or []),
             player_said=player_said,
+            player_persona=player_persona,
         )
 
         # 5. Extract structured fields from prediction

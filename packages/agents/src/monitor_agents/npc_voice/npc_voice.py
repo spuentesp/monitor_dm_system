@@ -74,6 +74,13 @@ class NPCDirectVoiceSignature(dspy.Signature):  # type: ignore[misc]
         )
     )
     player_said: str = dspy.InputField(desc="What the player character just said or did towards this NPC")
+    player_persona: str = dspy.InputField(
+        desc=(
+            "Who the player character is (persona name + description from their card). "
+            "Use it to ground how the NPC perceives and addresses them. "
+            "Empty when no persona is bound."
+        )
+    )
 
     # ── Outputs ─────────────────────────────────────────────────────────────
     npc_response: str = dspy.OutputField(
@@ -179,6 +186,7 @@ class NPCDirectVoiceModule(dspy.Module):  # type: ignore[misc]
         profile_context: str,
         player_said: str,
         lorebook_context: str = "",
+        player_persona: str = "",
     ) -> dspy.Prediction:
         with dspy_context_for("npc_voice", ModelRole.LIGHT):
             return self.speak(
@@ -193,6 +201,7 @@ class NPCDirectVoiceModule(dspy.Module):  # type: ignore[misc]
                 profile_context=profile_context,
                 lorebook_context=lorebook_context,
                 player_said=player_said,
+                player_persona=player_persona,
             )
 
 

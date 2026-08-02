@@ -414,6 +414,7 @@ async def start_conversation(
         raise ValueError(f"Character {character_id} not found")
 
     user_name: str | None = None
+    persona_text: str | None = None
     if persona_character_id:
         persona = get_character(persona_character_id)
         if not persona:
@@ -423,6 +424,9 @@ async def start_conversation(
                 f"Character {persona_character_id} is not a persona (is_ooc_persona=false)"
             )
         user_name = str(persona.get("name") or "").strip() or None
+        if user_name:
+            persona_desc = str(persona.get("description") or "").strip()
+            persona_text = f"{user_name} — {persona_desc}" if persona_desc else user_name
 
     backing = await ensure_character_backed(character_id, universe_id=universe_id, user_name=user_name)
 
@@ -436,9 +440,22 @@ async def start_conversation(
         # Enables per-turn lorebook scanning (imported character_book entries)
         # for this conversation.
         lorebook_character_ids=[character_id],
+        player_persona=persona_text,
     )
     conversation_id = str(loop.state.conversation_id)
     _cache_loop(conversation_id, loop)
+    # Persist the bound persona so a resumed loop (backend restart) keeps
+    # injecting it into the voice prompt.
+    if persona_text:
+        try:
+            from monitor_data.db.mongodb import get_mongodb_client
+
+            get_mongodb_client().get_collection("conversations").update_one(
+                {"conversation_id": conversation_id},
+                {"$set": {"player_persona": persona_text}},
+            )
+        except Exception:
+            log.warning("conversation_persona_persist_failed", exc_info=True)
     # Stamp last_chatted_at on the incarnation so the roster can surface
     # "recently used" versions.
     try:
@@ -508,6 +525,8 @@ async def resume_conversation(character_id: str, conversation_id: str) -> Any | 
     loop.state.turns_count = len(loop.state.turns)
     # Restore the durable proposal outbox written after each turn (crash-safe).
     loop.state.pending_proposals = list(doc.get("pending_proposals") or [])
+    # Restore the bound persona so the voice prompt keeps using it.
+    loop.state.player_persona = str(doc.get("player_persona") or "")
     _cache_loop(conversation_id, loop)
     return loop
 

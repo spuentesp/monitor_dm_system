@@ -116,6 +116,11 @@ class ConversationState(BaseModel):
     # scan). Matched contents are injected into NPCVoice as world facts.
     lorebook_character_ids: list[str] = Field(default_factory=list)
 
+    # Bound persona ("name — description" rendered from the persona card).
+    # Injected into the voice module so the NPC knows who they're talking
+    # to. Empty when no persona is bound.
+    player_persona: str = ""
+
 
 # =============================================================================
 # NODES
@@ -323,6 +328,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     universe_id=state.universe_id,
                     include_cross_incarnation=getattr(state, "include_cross_incarnation", False),
                     lorebook_context=lorebook_context,
+                    player_persona=state.player_persona,
                 )
                 npc_name = state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
                 # Lorebook output directives (@@activate / @@deactivate) are
@@ -661,6 +667,7 @@ class ConversationLoop:
         story_id: UUID | None = None,
         player_entity_id: UUID | None = None,
         lorebook_character_ids: list[str] | None = None,
+        player_persona: str | None = None,
     ) -> None:
         self.state = ConversationState(
             conversation_id=conversation_id,
@@ -671,6 +678,7 @@ class ConversationLoop:
             story_id=story_id,
             player_entity_id=player_entity_id,
             lorebook_character_ids=lorebook_character_ids or [],
+            player_persona=player_persona or "",
         )
         self._graph = build_conversation_graph().compile()
         self._closed = False
@@ -690,6 +698,7 @@ class ConversationLoop:
         story_id: UUID | None = None,
         player_entity_id: UUID | None = None,
         lorebook_character_ids: list[str] | None = None,
+        player_persona: str | None = None,
     ) -> ConversationLoop:
         """Open a new ConversationSession and pre-load NPC context."""
         conversation_id = uuid4()
@@ -702,6 +711,7 @@ class ConversationLoop:
             story_id=story_id,
             player_entity_id=player_entity_id,
             lorebook_character_ids=lorebook_character_ids or [],
+            player_persona=player_persona,
         )
         # Run open_session + load_npc_context nodes
         result = await loop._graph.ainvoke(loop.state.model_dump())

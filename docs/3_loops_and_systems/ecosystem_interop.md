@@ -82,9 +82,10 @@ faithful. Substitution happens:
 `{{user}}` resolves to the bound persona's name:
 `POST /characters/{id}/conversations` accepts an optional
 `persona_character_id` pointing at a character with `is_ooc_persona=true`;
-without one it falls back to `"User"` (the SillyTavern default). Persona
-resolution is name-only for now — the persona's description is not yet
-injected into the voice prompt.
+without one it falls back to `"User"` (the SillyTavern default). A bound
+persona is also injected into the NPC voice prompt as
+`"name — description"` (`player_persona` in the ConversationLoop state),
+persisted on the conversation document so resumed sessions keep it.
 
 ## Lorebook directives
 
@@ -106,8 +107,6 @@ Two directive mechanisms are supported:
 
 - **CharX non-icon assets** — emotion/background images are not imported
   (only the icon becomes the avatar).
-- **Persona depth** — persona binding resolves `{{user}}`'s name only; the
-  persona's description/personality is not injected into prompts yet.
 - **Group chat** — no multi-character speaker selection.
 - **Inbound OpenAI-compatible endpoint** — RisuAI/SillyTavern cannot yet
   point at MONITOR as a `/v1/chat/completions` backend.
