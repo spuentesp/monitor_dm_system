@@ -812,3 +812,80 @@ class TestVersionIsolation:
         assert ok is True
         mock_delete.assert_called_once()
         mock_dv.assert_called_once_with("char-x", uni)
+
+
+# ---------------------------------------------------------------------------
+# Card macros ({{user}}/{{char}})
+# ---------------------------------------------------------------------------
+
+
+class TestCardMacros:
+    def test_provisioning_substitutes_macros(self):
+        """Imported card text reaches the profile generator macro-resolved."""
+        card = {
+            "id": "char-mac",
+            "name": "Elara",
+            "versions": [],
+            "description": "{{char}} is a ranger who watches {{user}}.",
+            "personality": "Wary of {{user}}.",
+            "gm_notes": "Never let {{user}} see the map.",
+        }
+        fake_gen = MagicMock()
+        fake_gen.forward.return_value = {"triggers": []}
+
+        with (
+            patch.object(cc, "get_character", return_value=card),
+            patch.object(
+                cc,
+                "ensure_conversatory_universe",
+                new=AsyncMock(return_value="uni-conv"),
+            ),
+            patch(
+                "monitor_agents.character_creator.npc_profile_gen.NPCProfileGenerator",
+                return_value=fake_gen,
+            ),
+            patch.object(cc, "_provision_entity_and_profile", return_value="ent-new") as prov,
+            patch.object(cc, "add_version", return_value={"version_id": "vm"}),
+        ):
+            asyncio.run(cc.ensure_character_backed("char-mac"))
+
+        args = fake_gen.forward.call_args[0]
+        assert args[1] == "Elara is a ranger who watches User."
+        assert args[2] == "Wary of User."
+        assert args[3] == "Never let User see the map."
+        rendered_char = prov.call_args[0][1]
+        assert rendered_char["description"] == "Elara is a ranger who watches User."
+        # Stored card must stay raw (lossless export round-trip).
+        assert card["description"] == "{{char}} is a ranger who watches {{user}}."
+
+    def test_opening_substitutes_macros(self):
+        from uuid import uuid4
+
+        card = {
+            "id": "char-1",
+            "name": "Maeve",
+            "first_message": "{{char}} sizes up {{user}} and nods.",
+        }
+        fake_loop = SimpleNamespace(state=SimpleNamespace(conversation_id="conv-mac"))
+
+        with (
+            patch.object(cc, "get_character", return_value=card),
+            patch.object(
+                cc,
+                "ensure_character_backed",
+                new=AsyncMock(
+                    return_value={
+                        "entity_id": str(uuid4()),
+                        "universe_id": str(uuid4()),
+                        "version_id": str(uuid4()),
+                    }
+                ),
+            ),
+            patch(
+                "monitor_agents.loops.conversation_loop.ConversationLoop.start",
+                new=AsyncMock(return_value=fake_loop),
+            ),
+        ):
+            out = asyncio.run(cc.start_conversation("char-1"))
+
+        assert out["opening"] == "Maeve sizes up User and nods."

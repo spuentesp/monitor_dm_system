@@ -28,6 +28,12 @@ monolithic orchestrator. Each loop lives in
 ## Content loop
 - **[Ingestion Loop](./ingestion_loop.md)** — multi-modal source → indexed knowledge.
 
+## Interop & media
+- **[Image Generation](./image_generation.md)** — canon-anchored image
+  generation: asset lifecycle, budgets, moderation, loop suggestions.
+- **[Ecosystem Interop](./ecosystem_interop.md)** — SillyTavern/RisuAI card
+  import/export, lorebook runtime semantics, card macros, lorebook directives.
+
 ## How play actually works (read these)
 - **[GM as Authority](../architecture/GM_AS_AUTHORITY.md)** — the GMAgent →
   Narrator → Resolver narration pipeline + `gm_tools` + `GMVerdict`.

@@ -277,17 +277,31 @@ async def ensure_character_backed(character_id: str, universe_id: str | None = N
 
     # 3. New incarnation — generate the profile from the card and provision.
     from monitor_agents.character_creator.npc_profile_gen import NPCProfileGenerator
+    from monitor_data.interop.card_macros import substitute_card_macros
+
+    # Resolve {{char}}/{{user}} placeholders at render time — the stored card
+    # stays raw so an export round-trip remains faithful. No persona is bound
+    # in light-RP yet, so {{user}} falls back to the ST default ("User").
+    char_rendered = {
+        **char,
+        **{
+            field: substitute_card_macros(str(char.get(field) or ""), char_name=char["name"])
+            for field in ("description", "personality", "gm_notes")
+        },
+    }
 
     generator = NPCProfileGenerator()
     fields = await asyncio.to_thread(
         generator.forward,
-        char["name"],
-        char.get("description", "") or "",
-        char.get("personality", "") or "",
-        char.get("gm_notes", "") or "",
+        char_rendered["name"],
+        char_rendered.get("description", "") or "",
+        char_rendered.get("personality", "") or "",
+        char_rendered.get("gm_notes", "") or "",
     )
 
-    entity_id = await asyncio.to_thread(_provision_entity_and_profile, universe_id, char, fields)
+    entity_id = await asyncio.to_thread(
+        _provision_entity_and_profile, universe_id, char_rendered, fields
+    )
     added = add_version(character_id, universe_id, entity_id)
     log.info(
         "character_expanded",
@@ -409,7 +423,10 @@ async def start_conversation(character_id: str, universe_id: str | None = None) 
     except Exception:
         pass
 
-    opening = char.get("first_message") or f"{char['name']} turns to face you."
+    opening_raw = char.get("first_message") or f"{char['name']} turns to face you."
+    from monitor_data.interop.card_macros import substitute_card_macros
+
+    opening = substitute_card_macros(opening_raw, char_name=char["name"])
     return {
         "conversation_id": conversation_id,
         "character_id": character_id,

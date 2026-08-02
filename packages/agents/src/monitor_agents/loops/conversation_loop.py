@@ -325,11 +325,33 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     lorebook_context=lorebook_context,
                 )
                 npc_name = state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
+                # Lorebook output directives (@@activate / @@deactivate) are
+                # runtime commands, not prose: strip them from the visible
+                # text and toggle the targeted entries. Best-effort.
+                npc_text = result["npc_response"]
+                if state.lorebook_character_ids and isinstance(npc_text, str):
+                    try:
+                        from monitor_agents.lorebook_directives import (
+                            apply_lorebook_directives,
+                            parse_output_directives,
+                        )
+
+                        npc_text, directives = parse_output_directives(npc_text)
+                        if directives:
+                            await apply_lorebook_directives(
+                                agent, state.lorebook_character_ids, directives
+                            )
+                    except Exception:
+                        logger.warning(
+                            "conversation_loop: lorebook directives failed, continuing",
+                            exc_info=True,
+                        )
+                        npc_text = result["npc_response"]
                 responses.append(
                     {
                         "npc_id": str(npc_id),
                         "npc_name": npc_name,
-                        "text": result["npc_response"],
+                        "text": npc_text,
                         "emotional_state": result["emotional_state_after"],
                         "social_read": result.get("social_read", {}),
                         "relationship_snapshot": result.get("relationship_snapshot", {}),
@@ -342,7 +364,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                         "speaker_role": "npc",
                         "entity_id": str(npc_id),
                         "entity_name": npc_name,
-                        "text": result["npc_response"],
+                        "text": npc_text,
                     }
                 )
 

@@ -181,3 +181,69 @@ class TestBuildStLorebook:
         book = build_character_book([entry], name="Card Book")
         assert "entries" in book
         assert book["scan_depth"] == LorebookScanConfig().scan_depth
+
+
+class TestContentDecorators:
+    def test_position_and_depth_decorators_applied_and_stripped(self):
+        from monitor_data.interop.sillytavern_lorebook import parse_st_lorebook_entry
+
+        out = parse_st_lorebook_entry(
+            {
+                "content": "@@position 4\n@@depth 2\nThe hidden lore.",
+                "keys": ["lore"],
+            }
+        )
+        assert out["position"] == 4
+        assert out["depth"] == 2
+        assert out["content"] == "The hidden lore."
+
+    def test_named_position(self):
+        from monitor_data.interop.sillytavern_lorebook import parse_st_lorebook_entry
+
+        out = parse_st_lorebook_entry({"content": "@@position at_depth\nBody.", "keys": ["x"]})
+        assert out["position"] == 4
+        assert out["content"] == "Body."
+
+    def test_probability_and_order_decorators(self):
+        from monitor_data.interop.sillytavern_lorebook import parse_st_lorebook_entry
+
+        out = parse_st_lorebook_entry(
+            {"content": "@@probability 50\n@@order 7\nBody.", "keys": ["x"]}
+        )
+        assert out["probability"] == 50
+        assert out["order"] == 7
+        assert out["content"] == "Body."
+
+    def test_decorator_overrides_structured_field(self):
+        from monitor_data.interop.sillytavern_lorebook import parse_st_lorebook_entry
+
+        out = parse_st_lorebook_entry(
+            {"content": "@@depth 9\nBody.", "keys": ["x"], "depth": 3}
+        )
+        assert out["depth"] == 9
+
+    def test_unknown_decorator_preserved_and_stops_block(self):
+        from monitor_data.interop.sillytavern_lorebook import parse_st_lorebook_entry
+
+        out = parse_st_lorebook_entry(
+            {"content": "@@role system\n@@depth 2\nBody.", "keys": ["x"]}
+        )
+        # Unknown directive ends the leading block; everything stays verbatim.
+        assert out["content"] == "@@role system\n@@depth 2\nBody."
+        assert out["depth"] == 4  # schema default, decorator not applied
+
+    def test_no_decorators_untouched(self):
+        from monitor_data.interop.sillytavern_lorebook import parse_st_lorebook_entry
+
+        out = parse_st_lorebook_entry({"content": "Plain lore, no directives.", "keys": ["x"]})
+        assert out["content"] == "Plain lore, no directives."
+        assert out["position"] == 1  # import default
+
+    def test_mid_content_at_lines_not_treated_as_decorators(self):
+        from monitor_data.interop.sillytavern_lorebook import parse_st_lorebook_entry
+
+        out = parse_st_lorebook_entry(
+            {"content": "First line.\n@@depth 2\nBody.", "keys": ["x"]}
+        )
+        assert out["content"].startswith("First line.")
+        assert out["depth"] == 4

@@ -39,6 +39,7 @@ Welcome to the MONITOR Agent Documentation. This structure is designed to be hig
 - [Conversation Loop](./3_loops_and_systems/conversation_loop.md): NPC dialogue logic.
 - [World Building Loop](./3_loops_and_systems/world_building_loop.md): Collaborative creation.
 - [Image Generation](./3_loops_and_systems/image_generation.md): Canon-anchored image generation — asset lifecycle, provider capabilities, scope budgets, moderation, and loop suggestions.
+- [Ecosystem Interop](./3_loops_and_systems/ecosystem_interop.md): SillyTavern/RisuAI character card import/export, lorebook runtime semantics, card macros, and lorebook directives.
 
 ## 4. Ontology (Data Models)
 - [Fact Canon Levels](./4_ontology/fact_canon_levels.md): How truth is managed.

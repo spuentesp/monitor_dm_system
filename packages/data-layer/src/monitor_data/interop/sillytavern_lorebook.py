@@ -14,6 +14,7 @@ are preserved in ``st_extensions`` so an export back to ST stays lossless.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -128,6 +129,74 @@ def _snip(value: str, max_len: int) -> str:
     return value[:max_len] if len(value) > max_len else value
 
 
+# ---------------------------------------------------------------------------
+# Content decorators (SillyTavern `@@` directives at the top of entry content)
+# ---------------------------------------------------------------------------
+
+# Integer-valued decorators we honor at import time. Unknown `@@` lines are
+# left in the content untouched, so a round-trip back to ST stays lossless.
+_CONTENT_INT_DECORATORS: dict[str, tuple[str, int, int]] = {
+    # decorator -> (LorebookEntryCreate field, min, max)
+    "position": ("position", 0, 4),
+    "depth": ("depth", 0, 100),
+    "probability": ("probability", 0, 100),
+    "order": ("order", 0, 10000),
+}
+
+_POSITION_NAMES = {
+    "before_char": 0,
+    "before": 0,
+    "after_char": 1,
+    "after": 1,
+    "an_top": 2,
+    "an_bottom": 3,
+    "at_depth": 4,
+    "@depth": 4,
+}
+
+_CONTENT_DIRECTIVE_PATTERN = re.compile(r"^@@(?P<key>[A-Za-z_]+)[ \t]+(?P<value>\S+)[ \t]*$")
+
+
+def _apply_content_decorators(out: dict[str, Any]) -> None:
+    """Parse leading `@@` decorator lines from an entry's content.
+
+    SillyTavern (1.12+) lets authors put directives like ``@@position 4`` /
+    ``@@depth 2`` / ``@@probability 50`` at the top of an entry's content;
+    they override the entry's structured fields and are not shown to the
+    model. Recognized decorators are applied to ``out`` and stripped from the
+    content; the first unrecognized or non-directive line ends the block and
+    is preserved verbatim.
+    """
+    content = out.get("content") or ""
+    if not content.startswith("@@"):
+        return
+
+    lines = content.split("\n")
+    consumed = 0
+    for line in lines:
+        match = _CONTENT_DIRECTIVE_PATTERN.match(line)
+        if not match:
+            break
+        key = match.group("key").lower()
+        spec = _CONTENT_INT_DECORATORS.get(key)
+        if spec is None:
+            # Unknown decorator (e.g. @@role, @@is_greeting): preserve it.
+            break
+        field, low, high = spec
+        raw_value = match.group("value")
+        if field == "position" and not raw_value.lstrip("-").isdigit():
+            named = _POSITION_NAMES.get(raw_value.lower())
+            if named is None:
+                break
+            out[field] = named
+        else:
+            out[field] = _coerce_int(raw_value, default=out.get(field, 0), low=low, high=high)
+        consumed += 1
+
+    if consumed:
+        out["content"] = "\n".join(lines[consumed:]).strip()
+
+
 def parse_st_lorebook_entry(entry: dict[str, Any]) -> dict[str, Any]:
     """Convert a single ST World Info entry into a ``LorebookEntryCreate``-compatible dict.
 
@@ -202,6 +271,10 @@ def parse_st_lorebook_entry(entry: dict[str, Any]) -> dict[str, Any]:
     out.setdefault("probability", 100)
     out.setdefault("selective_logic", SelectiveLogic.AND_ANY)
     out.setdefault("is_active", True)
+
+    # Content decorators (@@position / @@depth / ...) override structured
+    # fields, per ST semantics, and are stripped from the stored content.
+    _apply_content_decorators(out)
 
     return out
 
