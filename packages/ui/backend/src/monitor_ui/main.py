@@ -19,6 +19,7 @@ from monitor_ui.routers import (
     architect,
     canon_review,
     change_log,
+    character_promotion,
     chat,
     databases,
     entities,
@@ -284,6 +285,8 @@ def create_app() -> FastAPI:
     # OpenAI-compatible /v1/chat/completions — points RisuAI / SillyTavern /
     # LiteLLM at MONITOR. v1 is non-streaming + stateless.
     app.include_router(openai_compat.router, prefix="/api", tags=["openai-compat"])
+    # Character → canon promotion (light-RP history → ProposedChange batch).
+    app.include_router(character_promotion.router, prefix="/api/entities", tags=["character-promotion"])
 
     @app.get("/api/health")
     async def health(deep: bool = False) -> dict:  # type: ignore

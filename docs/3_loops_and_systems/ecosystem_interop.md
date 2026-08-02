@@ -138,6 +138,45 @@ The `model` field is accepted for client compatibility; plain-mode calls
 are routed through `LLMRegistry` at the `STANDARD` role (the configured
 default chat model). The response echoes the request value.
 
+## Canon promotion (v1)
+
+`POST /api/entities/characters/{id}/promote` is the lever that turns a
+light-RP session into canonical proposals. The route finds the active
+conversation (or one explicitly by id), runs ``SessionListenerModule`` on
+its turns, and writes each event / lore item / active thread to the
+``proposed_changes`` collection with the conversation id anchored in
+``content`` and the proposer tagged ``character_promotion:<character_id>``.
+
+The response is a ``PromotionPreview`` with per-kind counts and the list
+of proposal ids:
+
+```json
+{
+  "character_id": "char-1",
+  "conversation_id": "conv-1",
+  "events_proposed": 2,
+  "lore_proposed": 1,
+  "threads_proposed": 0,
+  "proposal_ids": ["..."],
+  "skipped": []
+}
+```
+
+Status pending; the user commits them via the existing CanonKeeper flow
+(``POST /api/canon-review/...``). Entity resolution via Qdrant and the
+user-facing diff view are the next tightening pass.
+
+**v1 deliberately skips:**
+
+- Qdrant entity dedup (no "is imported Elara the same as the ranger of
+  the eastern woods?" gate). The promotion writes everything; CanonKeeper
+  + a future review step resolve duplicates.
+- The "is this a conflict?" verdict. CanonKeeper evaluates each proposal
+  individually when committed.
+- A 1:1 mirror of the funnel doc's full promotion UX. The
+  ``PromotionPreview`` is the small surface; a real diff UI lives behind
+  it.
+
 ## Known gaps
 
 - **CharX non-icon assets** — emotion/background images are not imported
@@ -146,6 +185,9 @@ default chat model). The response echoes the request value.
 - **OpenAI session-mode streaming** — `stream=true` is rejected in session
   mode because the conversation loop has no streaming surface. A future
   pass would extend `NPCVoice` to stream the LLM call.
+- **Canon promotion dedup + conflict UX** — the v1 promotion writes
+  proposals directly; Qdrant semantic dedup and the "3 conflicts, pick
+  per item" diff view are the next layer.
 - **Inbound OpenAI-compatible endpoint** — RisuAI/SillyTavern cannot yet
   point at MONITOR as a `/v1/chat/completions` backend.
 - **Canon promotion of imported cards** — imports land in the light-RP
