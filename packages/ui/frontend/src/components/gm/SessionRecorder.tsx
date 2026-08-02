@@ -27,6 +27,7 @@ import remarkGfm from "remark-gfm";
 import { chatApi, gmApi, storiesApi } from "@/lib/api";
 import type { CaptureInsight, Contradiction, Message, Session, StoryThread } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { uuid } from "@/lib/uuid";
 import { RecapModal } from "@/components/play/RecapModal";
 import { WrapUpModal } from "@/components/gm/WrapUpModal";
 import { CanonReviewPanel } from "@/components/canon/CanonReviewPanel";
@@ -128,7 +129,7 @@ export function SessionRecorder({
     setWaiting(true);
 
     const optimistic: Message = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       session_id: activeId,
       role: "player",
       content: text,

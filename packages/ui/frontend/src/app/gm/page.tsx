@@ -29,6 +29,7 @@ import { entitiesApi, ingestApi, universesApi, gmApi, storiesApi } from "@/lib/a
 import type { PlotHook, Contradiction, SessionPrep, Handout, StoryThread } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useDismissRef } from "@/lib/useDismissRef";
+import { uuid } from "@/lib/uuid";
 import { SessionRecorder } from "@/components/gm/SessionRecorder";
 import { AskTheWorldPanel } from "@/components/gm/AskTheWorldPanel";
 import { useGmPanelPrefs, visibleOrderedPanels } from "@/lib/gm-panel-prefs";
@@ -77,7 +78,7 @@ function DiceRoller() {
     mutationFn: (expression: string) => gmApi.rollDice(expression),
     onSuccess: (data) => {
       const entry: RollResult = {
-        id: crypto.randomUUID(),
+        id: uuid(),
         expression: data.expression,
         rolls: data.rolls,
         modifier: data.modifier,

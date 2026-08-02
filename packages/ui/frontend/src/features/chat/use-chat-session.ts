@@ -6,6 +6,7 @@ import { chatApi } from "@/lib/api";
 import { useChatWebSocket } from "@/hooks/use-chat-websocket";
 import type { Message } from "@/lib/types";
 import { PLAY_KEYS } from "@/lib/query-keys";
+import { uuid } from "@/lib/uuid";
 import type {
   ChatStatus,
   DiceRequest,
@@ -340,7 +341,7 @@ export function useChatSession({
 
       if (!opts?.skipEcho) {
         const fake: Message = {
-          id: crypto.randomUUID(),
+          id: uuid(),
           session_id: sessionId,
           role: "player",
           content: trimmed,
@@ -398,7 +399,7 @@ export function useChatSession({
           ? `🎲 **${reason}** — rolled *${spec}*: [${rolls.join(", ")}] = **${value}**`
           : `🎲 **${reason}** — *${spec}* = **${value}** *(manual)*`;
       const playerMsg: Message = {
-        id: crypto.randomUUID(),
+        id: uuid(),
         session_id: sessionId,
         role: "player",
         content: resultContent,
@@ -420,7 +421,7 @@ export function useChatSession({
       if (!sessionId) return;
       setPendingDiceRequest(null);
       const playerMsg: Message = {
-        id: crypto.randomUUID(),
+        id: uuid(),
         session_id: sessionId,
         role: "player",
         content: `🎲 **${reason}** — rolling *${spec}*…`,
