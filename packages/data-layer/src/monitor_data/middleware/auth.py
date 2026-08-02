@@ -373,6 +373,22 @@ AUTHORITY_MATRIX = {
     "mongodb_append_conversation_turn": ["NPCVoice", "Narrator"],
     "mongodb_update_conversation": ["NPCVoice"],
     "mongodb_list_conversations": ["*"],
+    # =========================================================================
+    # MONGODB OPERATIONS - Generated Assets + Visual Identities
+    # =========================================================================
+    "mongodb_create_generated_asset": ["ImageRouter"],
+    "mongodb_get_generated_asset": ["*"],
+    "mongodb_list_generated_assets": ["*"],
+    "mongodb_update_generated_asset": ["ImageRouter"],
+    "mongodb_approve_generated_asset": ["ImageRouter", "CanonKeeper"],
+    "mongodb_reject_generated_asset": ["ImageRouter", "CanonKeeper"],
+    "mongodb_upsert_visual_identity": ["ImageRouter"],
+    "mongodb_get_visual_identity": ["*"],
+    "mongodb_list_visual_identities": ["*"],
+    "mongodb_update_visual_identity_status": ["CanonKeeper"],
+    # Image-generation settings (Task 10) — global UI tunables, local/admin.
+    "mongodb_get_image_generation_settings": ["*"],
+    "mongodb_update_image_generation_settings": ["ImageRouter", "CanonKeeper"],
 }
 
 

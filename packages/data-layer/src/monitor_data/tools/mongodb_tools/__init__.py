@@ -96,6 +96,30 @@ from monitor_data.tools.mongodb_tools.documents import (
     mongodb_update_document,
 )
 
+# Generated Asset operations
+from monitor_data.tools.mongodb_tools.generated_assets import (
+    mongodb_approve_generated_asset,
+    mongodb_create_generated_asset,
+    mongodb_get_generated_asset,
+    mongodb_list_generated_assets,
+    mongodb_reject_generated_asset,
+    mongodb_update_generated_asset,
+)
+
+# Image-generation settings (Task 10)
+from monitor_data.tools.mongodb_tools.image_settings import (
+    mongodb_get_image_generation_settings,
+    mongodb_update_image_generation_settings,
+)
+
+# Visual Identity operations
+from monitor_data.tools.mongodb_tools.visual_identities import (
+    mongodb_get_visual_identity,
+    mongodb_list_visual_identities,
+    mongodb_update_visual_identity_status,
+    mongodb_upsert_visual_identity,
+)
+
 # Game System + Rule Override operations
 from monitor_data.tools.mongodb_tools.game_systems import (
     _ensure_builtin_systems_seeded,
@@ -624,4 +648,19 @@ __all__ = [
     "mongodb_scan_lorebook",
     "mongodb_get_scan_config",
     "mongodb_save_scan_config",
+    # Generated Assets
+    "mongodb_create_generated_asset",
+    "mongodb_get_generated_asset",
+    "mongodb_list_generated_assets",
+    "mongodb_update_generated_asset",
+    "mongodb_approve_generated_asset",
+    "mongodb_reject_generated_asset",
+    # Image-generation settings (Task 10)
+    "mongodb_get_image_generation_settings",
+    "mongodb_update_image_generation_settings",
+    # Visual Identities
+    "mongodb_upsert_visual_identity",
+    "mongodb_get_visual_identity",
+    "mongodb_list_visual_identities",
+    "mongodb_update_visual_identity_status",
 ]

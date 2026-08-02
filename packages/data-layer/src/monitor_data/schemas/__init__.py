@@ -156,6 +156,17 @@ from monitor_data.schemas.game_systems import (
     StartingPackage,
     SuccessType,
 )
+from monitor_data.schemas.generated_assets import (
+    ApprovalStatus,
+    AssetType,
+    GeneratedAsset,
+    GeneratedAssetCreate,
+    GeneratedAssetFilter,
+    GeneratedAssetUpdate,
+    ModerationStatus,
+    ReferenceStatus,
+    TriggerSource,
+)
 from monitor_data.schemas.generated_narratives import (
     GeneratedNarrativeCreate,
     GeneratedNarrativeFilter,
@@ -326,6 +337,14 @@ from monitor_data.schemas.universe import (
     UniverseFilter,
     UniverseResponse,
     UniverseUpdate,
+)
+from monitor_data.schemas.visual_identity import (
+    VisualIdentity,
+    VisualIdentityCreate,
+    VisualIdentitySource,
+    VisualIdentityStatus,
+    VisualIdentityUpdate,
+    transition_visual_identity_status,
 )
 from monitor_data.schemas.vectors import (
     VALID_COLLECTIONS,
@@ -606,6 +625,23 @@ __all__ = [
     "GeneratedNarrativeResponse",
     "GeneratedNarrativeFilter",
     "GeneratedNarrativeListResponse",
+    # Generated asset schemas
+    "AssetType",
+    "ApprovalStatus",
+    "ReferenceStatus",
+    "ModerationStatus",
+    "TriggerSource",
+    "GeneratedAsset",
+    "GeneratedAssetCreate",
+    "GeneratedAssetUpdate",
+    "GeneratedAssetFilter",
+    # Visual identity schemas
+    "VisualIdentitySource",
+    "VisualIdentityStatus",
+    "VisualIdentity",
+    "VisualIdentityCreate",
+    "VisualIdentityUpdate",
+    "transition_visual_identity_status",
     # Ingestion job schemas
     "IngestionStage",
     "IngestionJobCreate",

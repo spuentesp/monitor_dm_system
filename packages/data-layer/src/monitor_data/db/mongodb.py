@@ -198,6 +198,27 @@ class MongoDBClient:
         prompt_collection_versions.create_index([("version_id", ASCENDING)], unique=True)
         prompt_collection_versions.create_index([("collection_id", ASCENDING), ("published_at", DESCENDING)])
 
+        # Generated image assets. Lookup indexes mirror the filters used by
+        # image history/reference selection and keep newest-first scans cheap.
+        generated_assets: Collection = self._db["generated_assets"]
+        generated_assets.create_index([("asset_id", ASCENDING)], unique=True)
+        generated_assets.create_index(
+            [("entity_id", ASCENDING), ("universe_id", ASCENDING), ("created_at", DESCENDING)]
+        )
+        generated_assets.create_index([("character_id", ASCENDING), ("created_at", DESCENDING)])
+        generated_assets.create_index([("scene_id", ASCENDING), ("created_at", DESCENDING)])
+        generated_assets.create_index([("conversation_id", ASCENDING), ("created_at", DESCENDING)])
+
+        # Versioned visual identities, queried by canonical or card anchor.
+        visual_identities: Collection = self._db["visual_identities"]
+        visual_identities.create_index([("identity_id", ASCENDING)], unique=True)
+        visual_identities.create_index(
+            [("entity_id", ASCENDING), ("universe_id", ASCENDING), ("status", ASCENDING)]
+        )
+        visual_identities.create_index(
+            [("character_id", ASCENDING), ("universe_id", ASCENDING), ("status", ASCENDING)]
+        )
+
 
 # =============================================================================
 # MODULE-LEVEL SINGLETON
