@@ -7,7 +7,10 @@ Covers the 2026-07-31 UI redesign (docs/superpowers/specs/2026-07-31-ui-two-tier
     The LLM boundary (ConversationLoop.start/step/finish) is stubbed — LLM
     behaviour is covered elsewhere; this test proves the wiring.
   - Image generation: fake adapter (no network), real folder storage —
-    portrait sets avatar_url to the MinIO key, scene returns a stored image.
+    portrait arrives PENDING; approving it with use_as_avatar sets avatar_url
+    to the MinIO key (the only avatar-mutation path since Task 8).
+  - Asset gallery: list endpoint includes the generated portrait and (after
+    approval) supports filtering by approval_status / reference_status.
 
 Run with::
 
@@ -18,7 +21,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -46,7 +49,20 @@ class _FakeLoop:
 
 
 class _FakeImageAdapter:
+    def capabilities(self):
+        from monitor_data.llm.image_providers import ImageCapabilities
+
+        return ImageCapabilities(
+            provider_id="e2e-fake",
+            model="e2e-image-1",
+            supports_reference_images=False,
+            supported_aspect_ratios=frozenset({"1:1", "16:9", "9:16", "4:3", "3:4"}),
+        )
+
     async def generate_image(self, prompt: str, *, aspect_ratio: str = "1:1") -> bytes:
+        return PNG
+
+    async def generate_image_structured(self, input) -> bytes:
         return PNG
 
 
@@ -110,26 +126,104 @@ class TestTwoTierHub:
                 assert "fox grins" in reply["text"]
                 assert reply["emotional_state"] == "amused"
 
-                client.post(
-                    f"/api/entities/characters/{char_id}/conversations/{conv_id}/end"
-                )
-
                 # ── Image endpoints (fake adapter, real folder storage) ───
+                # Generate → preview (PENDING) → approve with use_as_avatar.
                 res = client.post("/api/image/portrait", json={"character_id": char_id})
                 assert res.status_code == 200, res.text
                 portrait = res.json()
-                assert portrait["key"].startswith(f"portraits/{char_id}/")
+                assert portrait["key"].startswith(
+                    f"assets/portrait/character-{char_id}/"
+                )
                 assert portrait["avatar_url"]  # presigned (or file://) URL
+                # Task 8: generation always produces a PENDING asset and never
+                # mutates the avatar directly.
+                assert UUID(portrait["asset_id"])  # parses as a UUID
+                assert portrait["approval_status"] == "pending"
+                assert isinstance(portrait["prompt_warnings"], list)
 
-                # avatar_url persisted as the object key, not the URL
+                # The avatar is unchanged until the asset is approved.
+                res = client.get(f"/api/entities/characters/{char_id}")
+                assert res.json()["avatar_url"] is None
+
+                # Approving with use_as_avatar is the only avatar-mutation path;
+                # avatar_url is persisted as the object key, not the URL.
+                res = client.post(
+                    f"/api/image/assets/{portrait['asset_id']}/approve",
+                    json={"use_as_avatar": True},
+                )
+                assert res.status_code == 200, res.text
+                assert res.json()["approval_status"] == "approved"
                 res = client.get(f"/api/entities/characters/{char_id}")
                 assert res.json()["avatar_url"] == portrait["key"]
 
                 res = client.get(f"/api/image/avatar/{char_id}", follow_redirects=False)
                 assert res.status_code in (302, 307)
 
-                # Scene image needs turns — the conversation ended, so point at
-                # a fresh fake adapter call with a missing conversation → 404.
+                # ── Asset gallery (Task 6 + Task 8 surface) ───────────────
+                # The default listing excludes rejected assets and surfaces
+                # the just-approved portrait at scope ``character_id``.
+                res = client.get(f"/api/image/assets?character_id={char_id}")
+                assert res.status_code == 200, res.text
+                listing = res.json()
+                listed_ids = {asset["asset_id"] for asset in listing}
+                assert portrait["asset_id"] in listed_ids
+                listed_portrait = next(
+                    a for a in listing if a["asset_id"] == portrait["asset_id"]
+                )
+                assert listed_portrait["approval_status"] == "approved"
+                assert listed_portrait["character_id"] == char_id
+                # Approved portrait (use_as_avatar) — has its key recorded
+                # as the avatar object key (avatar_url is the object key,
+                # not a presigned URL).
+                assert listed_portrait["minio_key"] == portrait["key"]
+
+                # Scene image while the conversation is still active → 200.
+                # Uses the same conversation the portrait step ran against,
+                # proving the scene endpoint renders a real asset (asset_id +
+                # pending status + key prefix), decoupled from the chat loop.
+                #
+                # The conversation API keeps sessions process-local; the scene
+                # endpoint looks the conversation up in Mongo, so we seed a
+                # doc matching the schema ``_load_scene_source`` reads.
+                from monitor_data.db.mongodb import get_mongodb_client
+                mongo = get_mongodb_client()
+                mongo.get_collection("conversations").insert_one(
+                    {
+                        "conversation_id": conv_id,
+                        "character_id": char_id,
+                        "turns": [
+                            {
+                                "turn_index": i,
+                                "role": "user" if i % 2 == 0 else "assistant",
+                                "content": f"Turn {i}",
+                            }
+                            for i in range(3)
+                        ],
+                        "universe_id": None,
+                    }
+                )
+                res = client.post(
+                    "/api/image/scene",
+                    json={"conversation_id": conv_id},
+                )
+                assert res.status_code == 200, res.text
+                scene = res.json()
+                assert scene["key"].startswith("assets/scene/")
+                assert UUID(scene["asset_id"])
+                assert scene["approval_status"] == "pending"
+                assert isinstance(scene["prompt_warnings"], list)
+
+                # Scene asset shows up in the gallery at the conversation scope.
+                res = client.get(f"/api/image/assets?conversation_id={conv_id}")
+                assert res.status_code == 200
+                listed_ids = {asset["asset_id"] for asset in res.json()}
+                assert scene["asset_id"] in listed_ids
+
+                client.post(
+                    f"/api/entities/characters/{char_id}/conversations/{conv_id}/end"
+                )
+
+                # Scene image with a missing conversation → 404 (no spend).
                 res = client.post(
                     "/api/image/scene", json={"conversation_id": str(uuid4())}
                 )

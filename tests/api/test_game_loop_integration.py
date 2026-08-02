@@ -183,11 +183,16 @@ def _get_fake_scene_loop(
     scene_id: str,
     story_id: str,
     actor_context: dict[str, Any] | None = None,
+    chat_log: list[Any] | None = None,
 ) -> _FakeSceneLoop:
     cached = _FAKE_LOOPS.get(session_id)
     if cached:
+        if chat_log is not None:
+            cached.chat_log = chat_log
         return cached
     loop = _FakeSceneLoop(session_id, scene_id, story_id)
+    if chat_log is not None:
+        loop.chat_log = chat_log
     _FAKE_LOOPS[session_id] = loop
     return loop
 

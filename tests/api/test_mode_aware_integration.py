@@ -89,6 +89,44 @@ def _mock_db(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(chat_router, "_bootstrap_story_scene", fake_bootstrap)
     monkeypatch.setattr(chat_router, "purge_chat_runtime_cache", lambda sid: None)
 
+    # Stub the universe→system binding lookup so create_session never
+    # triggers a real Neo4j driver connection (pytest_socket blocks DNS
+    # lookups). The underlying ``neo4j_get_universe`` is imported lazily
+    # inside ``resolve_universe_system_binding``, so we patch the chat
+    # router's already-bound alias instead of trying to setattr on the
+    # source module.
+    monkeypatch.setattr(chat_router, "_resolve_universe_system_binding", lambda uid: {})
+
+    # Stub the preplay turn runners that walk the lore/Neo4j path
+    # (``start_story_agreements`` in particular calls
+    # ``assemble_session_intro`` which queries ``neo4j_get_universe``).
+    async def fake_start_story_agreements(*args, **kwargs):
+        return (
+            "Let's build the world together.",
+            {
+                "type": "story_agreements_start",
+                "phase": "session_zero",
+                "question_number": 1,
+                "total_questions": 3,
+                "category": "tone",
+                "session_intro": {},
+            },
+        )
+
+    async def fake_start_character_interview(*args, **kwargs):
+        return (
+            "Tell me about yourself.",
+            {
+                "type": "character_interview_start",
+                "phase": "character_interview",
+                "question_number": 1,
+                "total_questions": 3,
+            },
+        )
+
+    monkeypatch.setattr(chat_router, "start_story_agreements", fake_start_story_agreements)
+    monkeypatch.setattr(chat_router, "start_character_interview", fake_start_character_interview)
+
     modes_router._ACTIVE.clear()
     modes_router._ACTIVE.update(
         {

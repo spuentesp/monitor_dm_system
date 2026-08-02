@@ -32,7 +32,14 @@ class TestSessionCRUD:
     """Tests for session create, read, update, and delete."""
 
     def test_create_session_minimal(self, ui_client: TestClient) -> None:
-        """POST /api/chat creates a session with defaults."""
+        """POST /api/chat creates a session with defaults.
+
+        With the default ``autonomous_gm`` mode and no character_id, the
+        router schedules Session Zero's character interview and lands in
+        ``character_interview`` (defer_autonomous_preplay branch). The legacy
+        ``awaiting_character`` phase is reserved for non-autonomous modes —
+        see ``test_create_session_world_architect_mode``.
+        """
         response = ui_client.post("/api/chat", json={"title": "Test Session"})
         assert response.status_code == 201
         session = response.json()
@@ -40,7 +47,7 @@ class TestSessionCRUD:
         assert session["title"] == "Test Session"
         assert session["mode"] == "autonomous_gm"
         assert session["tone"] == "dramatic"
-        assert session["phase"] == "awaiting_character"
+        assert session["phase"] == "character_interview"
 
     def test_create_session_full(self, ui_client: TestClient) -> None:
         """POST /api/chat accepts all optional fields."""

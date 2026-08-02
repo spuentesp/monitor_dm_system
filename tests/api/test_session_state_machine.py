@@ -108,6 +108,51 @@ def _mock_db_clients(monkeypatch: pytest.MonkeyPatch) -> None:
     # monkeypatch.setattr(chat_router, "_pop_conversation_loop", lambda sid: None)
     # monkeypatch.setattr(chat_router, "_pop_scene_loop", lambda sid: None)
 
+    # Stub bootstrap so create_session does not hit Neo4j
+    def fake_bootstrap(session):
+        return (str(uuid4()), str(uuid4()), None)
+
+    monkeypatch.setattr(chat_router, "_bootstrap_story_scene", fake_bootstrap)
+
+    # Stub the universe→system binding lookup so create_session never triggers
+    # a real Neo4j driver connection (which would do a DNS lookup blocked by
+    # pytest_socket). The underlying ``neo4j_get_universe`` is imported lazily
+    # inside ``resolve_universe_system_binding``, so we patch the chat router's
+    # already-bound alias instead of trying to setattr on the source module.
+    monkeypatch.setattr(chat_router, "_resolve_universe_system_binding", lambda uid: {})
+
+    # Stub the preplay turn runners that internally walk the lore/Neo4j path;
+    # these are pulled into chat.py's module namespace at import time so they
+    # can be monkeypatched directly. ``start_story_agreements`` in particular
+    # calls ``assemble_session_intro`` which queries ``neo4j_get_universe`` —
+    # blocking pytest_socket — so we return canned output here.
+    async def fake_start_story_agreements(*args, **kwargs):
+        return (
+            "Let's build the world together.",
+            {
+                "type": "story_agreements_start",
+                "phase": "session_zero",
+                "question_number": 1,
+                "total_questions": 3,
+                "category": "tone",
+                "session_intro": {},
+            },
+        )
+
+    async def fake_start_character_interview(*args, **kwargs):
+        return (
+            "Tell me about yourself.",
+            {
+                "type": "character_interview_start",
+                "phase": "character_interview",
+                "question_number": 1,
+                "total_questions": 3,
+            },
+        )
+
+    monkeypatch.setattr(chat_router, "start_story_agreements", fake_start_story_agreements)
+    monkeypatch.setattr(chat_router, "start_character_interview", fake_start_character_interview)
+
     modes_router._ACTIVE.clear()
     modes_router._ACTIVE.update(
         {
@@ -140,6 +185,13 @@ def _create_session(client: TestClient, **overrides) -> dict:
     payload = {
         "title": "G-10 State Test",
         "phase": "active_play",
+        # Use ``world_architect`` mode here — the SessionCreate schema's default
+        # mode is ``autonomous_gm`` which triggers defer_autonomous_preplay and
+        # overrides the phase to ``session_zero``. The state-machine tests are
+        # about explicit phase transitions, so we want the simplest path
+        # through create_session (phase set from the payload, no Neo4j/lore
+        # walks).
+        "mode": "world_architect",
         "universe_id": str(uuid4()),
         "character_id": str(uuid4()),
     }
