@@ -1,7 +1,7 @@
 "use client";
 
 import { StatusDot } from "@/components/StatusDot";
-import { chatApi, dbApi, llmApi, performanceApi, promptsApi } from "@/lib/api";
+import { chatApi, dbApi, imageApi, llmApi, performanceApi, promptsApi } from "@/lib/api";
 import { SETTINGS_KEYS, PLAY_KEYS, BENCHMARK_KEYS } from "@/lib/query-keys";
 import { useLLMProviders, useLLMAssignments } from "@/hooks/use-llm";
 import { useDatabases } from "@/hooks/use-databases";
@@ -46,6 +46,7 @@ import {
     RotateCcw,
     Server,
     Settings,
+    ShieldCheck,
     Sparkles,
     Star,
     Terminal,
@@ -55,7 +56,8 @@ import {
     X,
     Zap,
     Gauge,
-    Palette
+    Palette,
+    ImagePlus,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -69,6 +71,7 @@ const SETTINGS_TABS = [
   { id: "testbed", label: "Benchmark Testbed", icon: FlaskConical },
   { id: "databases", label: "Databases", icon: Database },
   { id: "tone", label: "Tone", icon: Palette },
+  { id: "image", label: "Image Generation", icon: ImagePlus },
   { id: "performance", label: "Performance", icon: Gauge },
 ] as const;
 
@@ -2078,6 +2081,7 @@ export default function SettingsPage() {
             {tab === "testbed" && <BenchmarkTestbedTab />}
             {tab === "databases" && <DatabasesTab />}
             {tab === "tone" && <ToneTabLink />}
+            {tab === "image" && <ImageGenTab />}
             {tab === "performance" && <PerformanceTab />}
           </motion.div>
         </AnimatePresence>
@@ -2105,6 +2109,237 @@ function ToneTabLink() {
       >
         Open Forge → Style
       </Link>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  IMAGE GENERATION TAB (Task 10)
+// ═══════════════════════════════════════════════════════════════
+
+interface ImageGenerationSettings {
+  image_moderation_mode: "provider_default" | "lines_and_veils";
+  image_max_per_scene: number;
+  image_max_per_conversation: number;
+  image_max_per_actor_hour: number;
+  image_suggestions_enabled: boolean;
+}
+
+function ImageGenTab() {
+  const qc = useQueryClient();
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
+  const { data: settings, isLoading } = useQuery<ImageGenerationSettings>({
+    queryKey: ["image-generation-settings"],
+    queryFn: imageApi.getImageGenerationSettings,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const update = useMutation({
+    mutationFn: imageApi.updateImageGenerationSettings,
+    onSuccess: (next) => {
+      qc.setQueryData(["image-generation-settings"], next);
+      setUpdateError(null);
+    },
+    onError: (err: Error) => {
+      setUpdateError(err.message);
+    },
+  });
+
+  // Each PATCH is a single-field save (PUT-with-partial). The server
+  // validates bounds (Pydantic 422 surfaces as a thrown fetch error).
+  const patch = (changes: Partial<ImageGenerationSettings>) => {
+    update.mutate(changes);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-bold text-slate-100 flex items-center gap-3">
+            Image Generation
+          </h2>
+          <p className="text-sm text-slate-500 mt-1">
+            Policy and budget controls for canon-anchored portrait and scene imagery.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6 items-start">
+        <div className="space-y-6">
+          <div className="glass rounded-2xl border border-white/8 p-5 space-y-4">
+            <div className="flex items-center gap-2 text-slate-200">
+              <ShieldCheck className="w-4 h-4 text-cyan-400" />
+              <h3 className="text-sm font-semibold">Moderation policy</h3>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="image-moderation-mode" className="text-xs text-slate-500">
+                Mode
+              </label>
+              <select
+                id="image-moderation-mode"
+                aria-label="Moderation mode"
+                value={settings?.image_moderation_mode ?? "provider_default"}
+                disabled={isLoading || update.isPending}
+                onChange={(e) =>
+                  patch({
+                    image_moderation_mode: e.target.value as
+                      | "provider_default"
+                      | "lines_and_veils",
+                  })
+                }
+                className="input-cyber w-full"
+              >
+                <option value="provider_default">Provider default — pass-through</option>
+                <option value="lines_and_veils">Lines and veils — block violations</option>
+              </select>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                <strong>Provider default</strong> lets the provider's safety filter handle
+                everything. <strong>Lines and veils</strong> blocks prompts that directly
+                violate the active campaign's <code className="font-mono">agreements_lines</code>{" "}
+                or <code className="font-mono">agreements_veils</code> before the provider
+                is invoked. Light RP with no agreements uses the provider policy only.
+              </p>
+            </div>
+          </div>
+
+          <div className="glass rounded-2xl border border-white/8 p-5 space-y-4">
+            <div className="flex items-center gap-2 text-slate-200">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <h3 className="text-sm font-semibold">Generation budgets</h3>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Hard caps per scope. Set a value to <code className="font-mono">0</code> to
+              disable that scope. Exceeding a cap returns HTTP 429 with retry guidance.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <BudgetField
+                id="image-max-per-scene"
+                label="Per scene"
+                ariaLabel="Per scene"
+                help="Hard cap per scene."
+                min={0}
+                max={100}
+                value={settings?.image_max_per_scene ?? 0}
+                disabled={isLoading || update.isPending}
+                onChange={(image_max_per_scene) => patch({ image_max_per_scene })}
+              />
+              <BudgetField
+                id="image-max-per-conversation"
+                label="Per conversation"
+                ariaLabel="Per conversation"
+                help="Hard cap per conversation / session."
+                min={0}
+                max={100}
+                value={settings?.image_max_per_conversation ?? 0}
+                disabled={isLoading || update.isPending}
+                onChange={(image_max_per_conversation) => patch({ image_max_per_conversation })}
+              />
+              <BudgetField
+                id="image-max-per-actor-hour"
+                label="Per actor per hour"
+                ariaLabel="Per actor per hour"
+                help="Hard cap per actor per hour."
+                min={0}
+                max={1000}
+                value={settings?.image_max_per_actor_hour ?? 0}
+                disabled={isLoading || update.isPending}
+                onChange={(image_max_per_actor_hour) => patch({ image_max_per_actor_hour })}
+              />
+            </div>
+          </div>
+
+          <div className="glass rounded-2xl border border-white/8 p-5 space-y-4">
+            <div className="flex items-center gap-2 text-slate-200">
+              <Sparkles className="w-4 h-4 text-fuchsia-400" />
+              <h3 className="text-sm font-semibold">Suggestion chips</h3>
+            </div>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                aria-label="Image suggestions"
+                checked={settings?.image_suggestions_enabled ?? false}
+                disabled={isLoading || update.isPending}
+                onChange={(e) => patch({ image_suggestions_enabled: e.target.checked })}
+                className="w-4 h-4 accent-fuchsia-400"
+              />
+              <span className="text-sm text-slate-200">
+                Show image suggestion chips during play
+              </span>
+            </label>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              When this is on, the scene loop emits "location change / new NPC / climax"
+              chips after a deterministic cadence. The user still has to click to
+              generate — chips never auto-generate.
+            </p>
+          </div>
+
+          {updateError && (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400 flex items-center gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+              {updateError}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-6">
+          <div className="glass rounded-xl border border-amber-500/10 bg-amber-500/5 p-4 space-y-2">
+            <div className="flex items-center gap-2 text-amber-300">
+              <AlertCircle className="w-3.5 h-3.5" />
+              <p className="text-[10px] font-bold uppercase tracking-wider">
+                Provider safety rules still apply
+              </p>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              MONITOR cannot override provider-level moderation. Every provider
+              (MiniMax image, Google Gemini, etc.) runs its own safety filter
+              on the prompt bytes MONITOR sends — selecting{" "}
+              <strong>lines and veils</strong> here only adds a client-side
+              pre-filter for the table's agreements. The provider's safety
+              classifier still wins on the final image.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface BudgetFieldProps {
+  id: string;
+  label: string;
+  ariaLabel: string;
+  help: string;
+  min: number;
+  max: number;
+  value: number;
+  disabled: boolean;
+  onChange: (value: number) => void;
+}
+
+function BudgetField({ id, label, ariaLabel, help, min, max, value, disabled, onChange }: BudgetFieldProps) {
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="text-xs text-slate-500">
+        {label}
+      </label>
+      <input
+        id={id}
+        type="number"
+        aria-label={ariaLabel}
+        min={min}
+        max={max}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => {
+          const parsed = Number(e.target.value);
+          if (Number.isFinite(parsed)) {
+            onChange(parsed);
+          }
+        }}
+        className="input-cyber w-full"
+      />
+      <p className="text-[10px] text-slate-600">{help}</p>
     </div>
   );
 }

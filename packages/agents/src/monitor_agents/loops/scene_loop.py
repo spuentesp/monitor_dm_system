@@ -35,6 +35,12 @@ from pydantic import BaseModel, Field
 from monitor_agents.agent_factory import get_agent_factory
 
 # Pure helpers extracted into a separate module for testability
+from monitor_agents.image_suggestions import (
+    ImageSuggestion,
+    compute_image_suggestions,
+    derive_turn_signals,
+    resolution_flags_appearance_change,
+)
 from monitor_agents.loops.scene_support import (
     coerce_uuid,
     map_action_type,
@@ -70,6 +76,35 @@ def _timed_node(fn):
 # =============================================================================
 # STATE SCHEMA
 # =============================================================================
+
+
+# Task 9 (fix round 1): module-level registry of durable suggestion histories
+# keyed by ``scene_id``. ``state.image_suggestions`` resets on every
+# ``SceneLoop.run`` (LangGraph checkpoints the channel but the per-call seed
+# is empty), so this registry is the in-memory cross-turn store. Entries are
+# inserted when ``SceneLoop`` is constructed and removed when
+# ``pop_scene_loop`` evicts the cached loop. On process restart the registry
+# is empty; the cap is relaxed for that one first turn (see the call site
+# in ``narrate``), which is acceptable because the underlying checkpointer
+# also restores ``state.image_suggestions`` and we union the two sources.
+_IMAGE_SUGGESTION_HISTORY: dict[UUID, list[ImageSuggestion]] = {}
+
+
+def _first_location_entity(entity_context: Any) -> dict[str, Any] | None:
+    """Return the first location-typed entity in ``entity_context``, or None.
+
+    Used by ``narrate`` to derive ``location_name`` for the location_change
+    trigger when ``state.turn_context`` is not populated.
+    """
+    if not isinstance(entity_context, (list, tuple)):
+        return None
+    for entity in entity_context:
+        if not isinstance(entity, dict):
+            continue
+        etype = str(entity.get("entity_type") or entity.get("type") or "").lower()
+        if etype in {"location", "place", "region"}:
+            return entity
+    return None
 
 
 class SceneState(BaseModel):
@@ -114,6 +149,15 @@ class SceneState(BaseModel):
 
     # Dice roll mode for this turn — normal, advantage, or disadvantage
     roll_mode: str = Field(default="normal")
+
+    # Task 9 (fix round 1): durable scene turn count. ``turns_count`` resets
+    # per ``SceneLoop.run`` call because LangGraph checkpoints the channel
+    # value rather than incrementing it, so anything that needs a stable
+    # across-call cadence (suggestion windows, pacing phase for the climax
+    # trigger) must read this field instead. Populated in ``load_context``
+    # from ``mongodb_get_recent_turns`` (best-effort; defaults to
+    # ``turns_count`` when the Mongo read fails).
+    durable_turn_count: int = 0
 
     # Current turn
     user_input: str | None = None
@@ -183,6 +227,11 @@ class SceneState(BaseModel):
     pending_roll: dict[str, Any] | None = None
     # Optional next-move suggestions from the Narrator (rendered as chips).
     suggested_actions: list[str] = Field(default_factory=list)
+    # Deterministic "generate an image?" hints (Task 9). Accumulated over the
+    # scene so the heuristics can dedupe and cap; each carries source_turn_id
+    # so the frontend renders only the latest turn's chips. Pure data — the
+    # agents layer never pushes these over a WebSocket itself.
+    image_suggestions: list[ImageSuggestion] = Field(default_factory=list)
     # Established facts extracted from narration (for continuity tracking).
     established_facts: list[str] = Field(default_factory=list)
     # OOC table talk (Q&A pairs) from the session, rendered by the Narrator.
@@ -363,6 +412,22 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     except Exception as exc:
         logger.debug("load_context: foreshadowing fetch failed: %s", exc)
 
+    # Task 9 (fix round 1): compute the durable scene turn count from Mongo
+    # so cadence and pacing don't reset when ``state.turns_count`` is rebuilt
+    # fresh on each ``SceneLoop.run`` call. Best-effort: falls back to
+    # ``state.turns_count`` when the read fails.
+    durable_turn_count = int(state.turns_count or 0)
+    try:
+        from monitor_data.tools.mongodb_tools import mongodb_get_recent_turns
+
+        durable_turns: list[Any] = await run_sync_read(
+            mongodb_get_recent_turns, state.scene_id, 999,
+        )
+        if durable_turns:
+            durable_turn_count = max(durable_turn_count, len(durable_turns))
+    except Exception as exc:  # noqa: BLE001 — best-effort, see comment above
+        logger.debug("load_context: durable turn count fetch failed: %s", exc)
+
     return {
         "entity_context": context.get("entities", []),
         "memory_context": context.get("memories", []),
@@ -376,7 +441,8 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         "temporal_mode": temporal_mode,
         "time_ref": time_ref,
         "context_summary": context.get("summary", ""),
-        "pacing": compute_pacing(state.turns_count, len(state.pending_proposals or [])),
+        "pacing": compute_pacing(durable_turn_count, len(state.pending_proposals or [])),
+        "durable_turn_count": durable_turn_count,
         "npc_profiles": npc_profiles,
         "scene_foreshadowing_open": open_foreshadowing,
     }
@@ -512,13 +578,114 @@ async def narrate(state: SceneState) -> dict[str, Any]:
     narrative_text = result.get("narrative_text", "")
     minutes = result.get("minutes_elapsed", 0)
 
+    # Task 9 (fix round 1): durable cross-turn bookkeeping. ``turn_number`` is
+    # the 1-based position of THIS turn in the scene. We use
+    # ``state.durable_turn_count`` (populated in load_context from Mongo) as
+    # the primary source so cadence keeps working when ``state.turns_count``
+    # resets per ``SceneLoop.run``. Previous-turns is the fallback when the
+    # Mongo read failed.
+    turn_number = max(
+        int(state.durable_turn_count or 0),
+        len(state.previous_turns or []),
+        int(state.turns_count or 0),
+    ) + 1
+
+    # Derive the heuristic's location_name and npcs_present from data narrate
+    # actually has (entity_context + npc_profiles). ``state.turn_context`` is
+    # never populated by any node today (no build_turn_context exists), so
+    # building these signals here is what makes the location_change /
+    # npc_entry triggers fire in production. ``derive_turn_signals`` is the
+    # shared helper that does the entity-context derivation; npc_profiles
+    # augments it with the resolved NPC names the heuristics need.
+    derived_turn_context: dict[str, Any] = derive_turn_signals(
+        state.entity_context,
+        actor_id=state.actor_id,
+    )
+    if state.npc_profiles:
+        # Prefer resolved NPC names from npc_profiles when available; only
+        # append NPCs not already covered by the entity-context derivation.
+        present_ids = {str(n.get("entity_id")) for n in derived_turn_context["npcs_present"]}
+        for entity_id, profile in state.npc_profiles.items():
+            if str(entity_id) == str(state.actor_id or ""):
+                continue
+            if str(entity_id) in present_ids:
+                continue
+            derived_turn_context["npcs_present"].append(
+                {"entity_id": str(entity_id), "name": str(profile.get("name") or "")}
+            )
+    # If state.turn_context has explicit values, let them win (allows future
+    # build_turn_context nodes to override the derived signals).
+    if isinstance(state.turn_context, dict):
+        for key in ("location_name", "npcs_present"):
+            if key in state.turn_context:
+                derived_turn_context[key] = state.turn_context[key]
+
+    # Phase override: if the durable count is high enough that the climax
+    # heuristic should fire, prefer the durable-derived phase over whatever
+    # ``compute_pacing`` returned for ``turns_count`` (which resets per run
+    # and always reports ``"setup"`` in production).
+    effective_pacing: dict[str, Any] = dict(state.pacing or {})
+    pending_proposal_count = len(state.pending_proposals or [])
+    if (
+        turn_number >= 3
+        and pending_proposal_count >= 1
+        and float(effective_pacing.get("tempo") or 0.0) >= 0.7
+    ):
+        effective_pacing["phase"] = "peak"
+
+    # Union the in-memory registry (survives the per-run state reset) with
+    # the checkpoint-restored channel, deduplicating by suggestion_id.
+    registry_prior = _IMAGE_SUGGESTION_HISTORY.get(state.scene_id, [])
+    seen_ids: set = set()
+    prior_suggestions: list[ImageSuggestion] = []
+    for s in [*registry_prior, *state.image_suggestions]:
+        sid = getattr(s, "suggestion_id", None)
+        if sid is None and isinstance(s, dict):
+            sid = s.get("suggestion_id")
+        if sid in seen_ids:
+            continue
+        seen_ids.add(sid)
+        prior_suggestions.append(
+            s if isinstance(s, ImageSuggestion) else ImageSuggestion.model_validate(s)
+        )
+
+    new_suggestions = compute_image_suggestions(
+        turn_id=str(result.get("turn_id") or ""),
+        turn_number=turn_number,
+        pacing=effective_pacing,
+        turn_context=derived_turn_context,
+        entity_context=state.entity_context,
+        actor_id=state.actor_id,
+        appearance_state_changed=resolution_flags_appearance_change(state.resolution),
+        prior_suggestions=prior_suggestions,
+    )
+
+    # Persist the new suggestions into the in-memory registry so subsequent
+    # turns in this process see them even when the per-run state seed is
+    # empty. Capped at a safe upper bound to avoid unbounded growth across
+    # long sessions (the per-scene cap inside the heuristic is the real cap).
+    if new_suggestions:
+        registry = _IMAGE_SUGGESTION_HISTORY.setdefault(state.scene_id, [])
+        existing = {s.suggestion_id for s in registry}
+        for s in new_suggestions:
+            if s.suggestion_id not in existing:
+                registry.append(s)
+                existing.add(s.suggestion_id)
+        if len(registry) > 64:
+            del registry[:-64]
+
     return {
         "narrative_text": narrative_text,
         "pending_proposals": state.pending_proposals + proposals,
         "turns_count": state.turns_count + 1,
+        "durable_turn_count": turn_number,
         "turn_id": result.get("turn_id"),
         "total_minutes_passed": state.total_minutes_passed + minutes,
         "suggested_actions": result.get("suggested_actions", []),
+        "image_suggestions": [
+            *[s.model_dump(mode="json") for s in state.image_suggestions],
+            *[s.model_dump(mode="json") for s in new_suggestions],
+        ],
         "degraded": result.get("degraded"),
     }
 
@@ -1357,6 +1524,10 @@ class SceneLoop:
         self.chat_log = chat_log
         # Optional one-line recap from the previous scene (Task 7).
         self.opening_recap = opening_recap
+        # Task 9 (fix round 1): register an empty history so narrate can
+        # append suggestions across calls within this process. The list is a
+        # single shared object reference — narrate mutates it.
+        _IMAGE_SUGGESTION_HISTORY.setdefault(scene_id, [])
         self._graph = build_scene_graph()
 
     async def run(
@@ -1452,6 +1623,10 @@ class SceneLoop:
 
         Triggers canonization of all pending proposals.
         """
+        # Task 9 (fix round 1): release the in-memory suggestion history
+        # associated with this scene so the registry doesn't grow unbounded
+        # across many scenes.
+        _IMAGE_SUGGESTION_HISTORY.pop(self.scene_id, None)
         with MongoDBSaver.from_conn_string(settings.mongodb_uri) as checkpointer:
             compiled = self._graph.compile(checkpointer=checkpointer)
             thread_id = str(self.scene_id)

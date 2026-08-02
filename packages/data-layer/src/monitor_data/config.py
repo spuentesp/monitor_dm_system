@@ -205,6 +205,41 @@ class Settings(BaseSettings):
         alias="ENTITY_TYPES",
     )
 
+    # -------------------------------------------------------------------------
+    # Image Generation (Task 10 — used as defaults by UI settings)
+    # -------------------------------------------------------------------------
+    image_moderation_mode: str = Field(
+        default="provider_default",
+        alias="IMAGE_MODERATION_MODE",
+        description="Default image moderation policy: provider_default or lines_and_veils.",
+    )
+    image_max_per_scene: int = Field(
+        default=4,
+        ge=0,
+        le=100,
+        alias="IMAGE_MAX_PER_SCENE",
+        description="Default per-scene generation cap; 0 disables.",
+    )
+    image_max_per_conversation: int = Field(
+        default=8,
+        ge=0,
+        le=100,
+        alias="IMAGE_MAX_PER_CONVERSATION",
+        description="Default per-conversation/session generation cap.",
+    )
+    image_max_per_actor_hour: int = Field(
+        default=12,
+        ge=0,
+        le=1000,
+        alias="IMAGE_MAX_PER_ACTOR_HOUR",
+        description="Default per-actor-per-hour generation cap.",
+    )
+    image_suggestions_enabled: bool = Field(
+        default=True,
+        alias="IMAGE_SUGGESTIONS_ENABLED",
+        description="Whether the scene loop may emit image suggestion chips.",
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Bot,
@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { chatApi } from "@/lib/api";
+import { chatApi, imageApi } from "@/lib/api";
 import { PLAY_KEYS } from "@/lib/query-keys";
 import { useWorldContext } from "@/lib/world-context";
 import { workingStateChips } from "@/lib/workingState";
@@ -31,6 +31,8 @@ import {
   useChatSession,
   type QuickAction,
 } from "@/features/chat";
+import type { ImageSuggestionMeta } from "@/features/chat/types";
+import { ImageSuggestionChip } from "@/components/visual/ImageSuggestionChip";
 
 import { CharacterPanel } from "./CharacterPanel";
 import { CombatPanel } from "./CombatPanel";
@@ -77,6 +79,37 @@ export function shouldShowBeginStory(
   latestGmMetadata: Record<string, unknown> | undefined,
 ): boolean {
   return phase === "session_zero" && latestGmMetadata?.type === "story_agreements_summary";
+}
+
+// ─── Image suggestions (Task 9) ────────────────────────────────────
+
+const IMAGE_SUGGESTION_REASONS: ReadonlySet<string> = new Set([
+  "location_change",
+  "npc_entry",
+  "visual_state_change",
+  "climax",
+]);
+
+/**
+ * Extract the current turn's image suggestions from a GM message's metadata.
+ *
+ * The backend accumulates `image_suggestions` over the scene (rate-limit
+ * bookkeeping), so entries from earlier turns are filtered out via
+ * `source_turn_id === metadata.turn_id` — chips always belong to the turn
+ * that produced them. Malformed entries are dropped rather than thrown.
+ */
+export function extractTurnImageSuggestions(
+  metadata: Record<string, unknown> | undefined,
+): ImageSuggestionMeta[] {
+  if (!metadata || !Array.isArray(metadata.image_suggestions)) return [];
+  const turnId = typeof metadata.turn_id === "string" ? metadata.turn_id : null;
+  return (metadata.image_suggestions as unknown[]).filter((s): s is ImageSuggestionMeta => {
+    if (!s || typeof s !== "object") return false;
+    const c = s as Partial<ImageSuggestionMeta>;
+    if (typeof c.suggestion_id !== "string" || typeof c.source_turn_id !== "string") return false;
+    if (typeof c.reason !== "string" || !IMAGE_SUGGESTION_REASONS.has(c.reason)) return false;
+    return turnId === null || c.source_turn_id === turnId;
+  });
 }
 
 // ─── Tone / mode labels (Play-specific) ─────────────────────────────
@@ -230,6 +263,17 @@ export default function PlayConsole() {
     queryFn: () => chatApi.getSessionState(activeSessionId!),
     enabled: !!activeSessionId,
   });
+
+  // Image-generation settings (Task 10): gates the suggestion chips and
+  // pulled independently of the page so the chip visibility reacts to
+  // SETTINGS_KEYS-style flips. Default true on first paint — the same
+  // default the backend / Settings UI ships with.
+  const { data: imageSettings } = useQuery({
+    queryKey: ["image-generation-settings"],
+    queryFn: imageApi.getImageGenerationSettings,
+    staleTime: 5 * 60 * 1000,
+  });
+  const suggestionsEnabled = imageSettings?.image_suggestions_enabled ?? true;
 
   // ─── Composer local state ────────────────────────────────────────
   const [inputValue, setInputValue] = useState("");
@@ -396,6 +440,22 @@ export default function PlayConsole() {
   // Rendered as fill-chips so they beat blank-page paralysis without railroading
   // the player — tap to place in the input, then send or edit.
   const lastGmMsg = [...chat.messages].reverse().find((m) => m.role === "gm");
+
+  // Image suggestions from the latest GM turn (Task 9). Chips never generate
+  // on their own — a click fires the scene/portrait endpoint; dismiss or an
+  // approve/reject decision settles the chip and removes it locally.
+  const [settledSuggestionIds, setSettledSuggestionIds] = useState<ReadonlySet<string>>(new Set());
+  const settleImageSuggestion = useCallback((id: string) => {
+    setSettledSuggestionIds((prev) => new Set(prev).add(id));
+  }, []);
+  useEffect(() => setSettledSuggestionIds(new Set()), [activeSessionId]);
+  const visibleImageSuggestions = useMemo(
+    () =>
+      extractTurnImageSuggestions(lastGmMsg?.metadata as Record<string, unknown> | undefined).filter(
+        (s) => !settledSuggestionIds.has(s.suggestion_id),
+      ),
+    [lastGmMsg, settledSuggestionIds],
+  );
   const rawSuggestions = (lastGmMsg?.metadata as { suggested_actions?: unknown } | undefined)
     ?.suggested_actions;
   const suggestionChips: QuickAction[] = (
@@ -669,6 +729,19 @@ export default function PlayConsole() {
                     disabled={chat.isTyping || !!chat.streamingMsg}
                     onChoose={(opt) => chat.send(opt, sendOptions)}
                   />
+                )}
+                {activeSessionId && suggestionsEnabled && visibleImageSuggestions.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 pt-2" data-testid="image-suggestions">
+                    {visibleImageSuggestions.map((s) => (
+                      <ImageSuggestionChip
+                        key={s.suggestion_id}
+                        suggestion={s}
+                        sessionId={activeSessionId}
+                        characterId={selectedCharacter?.id ?? null}
+                        onSettled={settleImageSuggestion}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
 

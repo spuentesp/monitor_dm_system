@@ -17,6 +17,8 @@ from uuid import uuid4
 
 import pytest
 
+from monitor_agents.image_suggestions import ImageSuggestion
+
 # ---------------------------------------------------------------------------
 # Import the module under test (lazy to avoid settings validation at import time)
 # ---------------------------------------------------------------------------
@@ -1708,3 +1710,330 @@ class TestExtractMemoriesNodeResilience:
 
         assert result == {"memories_to_persist": []}
         mock_forward.assert_not_called()
+
+
+# ===========================================================================
+# narrate node — image suggestions (Task 9)
+# ===========================================================================
+# Suggestions are computed by the pure heuristics in
+# monitor_agents.image_suggestions and travel as DATA on SceneState → narrate
+# result → done-frame metadata. The agents package never imports or calls UI
+# WebSocket functions (layer direction); scripts/check_layer_dependencies.py
+# is the enforcement gate.
+# ===========================================================================
+
+
+class TestNarrateImageSuggestions:
+    def test_scene_state_has_image_suggestions_field(self):
+        (SceneState, *_) = _import_scene_loop()
+        assert "image_suggestions" in SceneState.model_fields
+        state = SceneState(scene_id=uuid4(), story_id=uuid4())
+        assert state.image_suggestions == []
+
+    @pytest.mark.asyncio
+    async def test_narrate_returns_image_suggestions_key(self):
+        (SceneState, _, _, _, narrate, *_) = _import_scene_loop()
+        with patch(
+            "monitor_agents.narrator.agent.Narrator.narrate_turn",
+            new_callable=AsyncMock,
+            return_value={"narrative_text": "...", "proposals": [], "turn_id": "turn-1"},
+        ):
+            state = SceneState(scene_id=uuid4(), story_id=uuid4(), user_input="I wait.")
+            result = await narrate(state)
+
+        assert "image_suggestions" in result
+        assert result["image_suggestions"] == []
+
+    @pytest.mark.asyncio
+    async def test_narrate_populates_suggestion_on_location_trigger(self):
+        """Third turn + a current location → one location_change suggestion,
+        sourced from this turn's id."""
+        (SceneState, _, _, _, narrate, *_) = _import_scene_loop()
+        loc_id = uuid4()
+        with patch(
+            "monitor_agents.narrator.agent.Narrator.narrate_turn",
+            new_callable=AsyncMock,
+            return_value={"narrative_text": "...", "proposals": [], "turn_id": "turn-123"},
+        ):
+            state = SceneState(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                user_input="I step inside.",
+                turns_count=2,  # this narrate produces turn 3 — a cadence window
+                turn_context={"location_name": "The Rusted Flagon"},
+                entity_context=[{"id": str(loc_id), "entity_type": "location", "name": "The Rusted Flagon"}],
+            )
+            result = await narrate(state)
+
+        suggestions = result["image_suggestions"]
+        assert len(suggestions) == 1
+        s = suggestions[0]
+        assert s["reason"] == "location_change"
+        assert s["asset_type"] == "location"
+        assert s["subject_entity_ids"] == [str(loc_id)]
+        assert s["source_turn_id"] == "turn-123"
+
+    @pytest.mark.asyncio
+    async def test_narrate_uses_previous_turns_for_turn_number(self):
+        """In production each run starts with turns_count=0 (the checkpoint is
+        re-initialized per run), so the cadence turn number must also account
+        for the MongoDB-backed previous_turns window."""
+        (SceneState, _, _, _, narrate, *_) = _import_scene_loop()
+        with patch(
+            "monitor_agents.narrator.agent.Narrator.narrate_turn",
+            new_callable=AsyncMock,
+            return_value={"narrative_text": "...", "proposals": [], "turn_id": "turn-3"},
+        ):
+            state = SceneState(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                user_input="I look around.",
+                turns_count=0,
+                previous_turns=[{"turn_id": "t1"}, {"turn_id": "t2"}],  # → turn 3, a window
+                turn_context={"location_name": "Ashmarket"},
+                entity_context=[],
+            )
+            result = await narrate(state)
+
+        assert len(result["image_suggestions"]) == 1
+        assert result["image_suggestions"][0]["reason"] == "location_change"
+
+    @pytest.mark.asyncio
+    async def test_narrate_accumulates_prior_suggestions(self):
+        (SceneState, _, _, _, narrate, *_) = _import_scene_loop()
+        prior = {
+            "suggestion_id": str(uuid4()),
+            "asset_type": "scene",
+            "subject_entity_ids": [],
+            "reason": "climax",
+            "aspect_ratio": "16:9",
+            "source_turn_id": "turn-old",
+        }
+        with patch(
+            "monitor_agents.narrator.agent.Narrator.narrate_turn",
+            new_callable=AsyncMock,
+            return_value={"narrative_text": "...", "proposals": [], "turn_id": "turn-3"},
+        ):
+            state = SceneState(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                user_input="I step inside.",
+                turns_count=2,
+                turn_context={"location_name": "Ashmarket"},
+                image_suggestions=[prior],
+            )
+            result = await narrate(state)
+
+        # Prior retained first, the new location suggestion appended.
+        assert result["image_suggestions"][0]["suggestion_id"] == prior["suggestion_id"]
+        assert len(result["image_suggestions"]) == 2
+        assert result["image_suggestions"][1]["reason"] == "location_change"
+
+    @pytest.mark.asyncio
+    async def test_narrate_respects_scene_cap(self):
+        (SceneState, _, _, _, narrate, *_) = _import_scene_loop()
+
+        def _prior(reason: str, subject: str) -> dict:
+            return {
+                "suggestion_id": str(uuid4()),
+                "asset_type": "portrait",
+                "subject_entity_ids": [subject],
+                "reason": reason,
+                "aspect_ratio": "1:1",
+                "source_turn_id": "turn-old",
+            }
+
+        with patch(
+            "monitor_agents.narrator.agent.Narrator.narrate_turn",
+            new_callable=AsyncMock,
+            return_value={"narrative_text": "...", "proposals": [], "turn_id": "turn-9"},
+        ):
+            state = SceneState(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                user_input="I step inside.",
+                turns_count=8,
+                turn_context={"location_name": "Ashmarket"},
+                image_suggestions=[_prior("npc_entry", str(uuid4())), _prior("climax", str(uuid4()))],
+            )
+            result = await narrate(state)
+
+        # Cap of 2 per scene reached — nothing new appended.
+        assert len(result["image_suggestions"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_narrate_appearance_change_in_resolution_triggers_portrait(self):
+        (SceneState, _, _, _, narrate, *_) = _import_scene_loop()
+        actor_id = uuid4()
+        with patch(
+            "monitor_agents.narrator.agent.Narrator.narrate_turn",
+            new_callable=AsyncMock,
+            return_value={"narrative_text": "...", "proposals": [], "turn_id": "turn-3"},
+        ):
+            state = SceneState(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                user_input="I tear off the disguise.",
+                turns_count=2,
+                actor_id=actor_id,
+                resolution={"effects": ["appearance_changed: disguise discarded"]},
+            )
+            result = await narrate(state)
+
+        suggestions = result["image_suggestions"]
+        assert len(suggestions) == 1
+        assert suggestions[0]["reason"] == "visual_state_change"
+        assert suggestions[0]["asset_type"] == "portrait"
+        assert suggestions[0]["subject_entity_ids"] == [str(actor_id)]
+
+    @pytest.mark.asyncio
+    async def test_narrate_ordinary_dialogue_turn_suggests_nothing(self):
+        (SceneState, _, _, _, narrate, *_) = _import_scene_loop()
+        with patch(
+            "monitor_agents.narrator.agent.Narrator.narrate_turn",
+            new_callable=AsyncMock,
+            return_value={"narrative_text": '"Not today," she says.', "proposals": [], "turn_id": "turn-3"},
+        ):
+            state = SceneState(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                user_input='"Why not?" I ask.',
+                turns_count=2,
+                turn_context={"location_name": "", "npcs_present": []},
+                pacing={"tempo": 0.5, "phase": "rising"},
+            )
+            result = await narrate(state)
+
+        assert result["image_suggestions"] == []
+
+    @pytest.mark.asyncio
+    async def test_narrate_fires_location_change_without_turn_context(self):
+        """Fix round 1: turn_context is never populated in production, so the
+        location_name signal must be derived from entity_context inside narrate.
+        """
+        (SceneState, _, _, _, narrate, *_) = _import_scene_loop()
+        loc_id = uuid4()
+        with patch(
+            "monitor_agents.narrator.agent.Narrator.narrate_turn",
+            new_callable=AsyncMock,
+            return_value={"narrative_text": "...", "proposals": [], "turn_id": "turn-3"},
+        ):
+            state = SceneState(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                user_input="I step inside.",
+                turns_count=2,
+                turn_context=None,  # production never populates this
+                entity_context=[{"id": str(loc_id), "entity_type": "location", "name": "The Rusted Flagon"}],
+            )
+            result = await narrate(state)
+
+        suggestions = result["image_suggestions"]
+        assert len(suggestions) == 1
+        assert suggestions[0]["reason"] == "location_change"
+        assert suggestions[0]["subject_entity_ids"] == [str(loc_id)]
+
+    @pytest.mark.asyncio
+    async def test_narrate_fires_npc_entry_from_npc_profiles_without_turn_context(self):
+        """Fix round 1: npcs_present must come from npc_profiles when turn_context
+        is empty, so first-time NPC entrances still trigger portrait suggestions.
+        """
+        (SceneState, _, _, _, narrate, *_) = _import_scene_loop()
+        actor_id = uuid4()
+        npc_id = uuid4()
+        with patch(
+            "monitor_agents.narrator.agent.Narrator.narrate_turn",
+            new_callable=AsyncMock,
+            return_value={"narrative_text": "...", "proposals": [], "turn_id": "turn-3"},
+        ):
+            state = SceneState(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                user_input='"Well met," I say.',
+                turns_count=2,
+                turn_context=None,
+                actor_id=actor_id,
+                npc_profiles={
+                    str(npc_id): {"entity_id": str(npc_id), "name": "Mira"},
+                },
+            )
+            result = await narrate(state)
+
+        suggestions = result["image_suggestions"]
+        assert len(suggestions) == 1
+        assert suggestions[0]["reason"] == "npc_entry"
+        assert suggestions[0]["subject_entity_ids"] == [str(npc_id)]
+
+    @pytest.mark.asyncio
+    async def test_narrate_dedupes_npc_entry_against_scene_loop_instance_history(self):
+        """Fix round 1: dedupe must survive the per-run state reset. The
+        SceneLoop instance's suggestion history is the durable cross-turn store.
+        """
+        (SceneState, _, _, _, narrate, *_) = _import_scene_loop()
+        from monitor_agents.loops.scene_loop import (
+            SceneLoop,
+            _IMAGE_SUGGESTION_HISTORY,
+        )
+
+        scene_id = uuid4()
+        npc_id = uuid4()
+        prior = ImageSuggestion(
+            suggestion_id=uuid4(),
+            asset_type="portrait",
+            subject_entity_ids=[npc_id],
+            reason="npc_entry",
+            aspect_ratio="1:1",
+            source_turn_id="turn-old",
+        )
+        SceneLoop(scene_id=scene_id, story_id=uuid4())
+        _IMAGE_SUGGESTION_HISTORY[scene_id].append(prior)
+        try:
+            with patch(
+                "monitor_agents.narrator.agent.Narrator.narrate_turn",
+                new_callable=AsyncMock,
+                return_value={"narrative_text": "...", "proposals": [], "turn_id": "turn-3"},
+            ):
+                state = SceneState(
+                    scene_id=scene_id,
+                    story_id=uuid4(),
+                    user_input='"Well met again," I say.',
+                    turns_count=2,
+                    turn_context=None,
+                    image_suggestions=[],  # state channel resets; history lives on the loop
+                    npc_profiles={str(npc_id): {"entity_id": str(npc_id), "name": "Mira"}},
+                )
+                result = await narrate(state)
+
+            # No new suggestion — NPC was already suggested, dedupe held.
+            assert result["image_suggestions"] == []
+        finally:
+            _IMAGE_SUGGESTION_HISTORY.pop(scene_id, None)
+
+    @pytest.mark.asyncio
+    async def test_narrate_fires_climax_when_durable_turn_count_meets_pacing(self):
+        """Fix round 1: pacing.phase is always 'setup' from compute_pacing in
+        production because turns_count resets. narrate must compute the climax
+        phase from a durable count instead.
+        """
+        (SceneState, _, _, _, narrate, *_) = _import_scene_loop()
+        with patch(
+            "monitor_agents.narrator.agent.Narrator.narrate_turn",
+            new_callable=AsyncMock,
+            return_value={"narrative_text": "...", "proposals": [], "turn_id": "turn-3"},
+        ):
+            state = SceneState(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                user_input="I charge.",
+                turns_count=0,  # would be "setup" via compute_pacing
+                previous_turns=[{"turn_id": "t1"}, {"turn_id": "t2"}],  # → turn_number = 3
+                durable_turn_count=2,  # confirms 3rd turn is real
+                pending_proposals=[{"proposal_id": "p-1"}],  # required for peak
+                turn_context=None,
+                pacing={"tempo": 0.8, "phase": "setup"},  # tempo high enough; phase wrong
+            )
+            result = await narrate(state)
+
+        suggestions = result["image_suggestions"]
+        assert len(suggestions) == 1
+        assert suggestions[0]["reason"] == "climax"

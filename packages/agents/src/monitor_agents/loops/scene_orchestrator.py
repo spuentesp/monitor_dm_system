@@ -314,6 +314,7 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
         "requires_player_choice": resolution.get("requires_player_choice", False),
         "narrative_pressure": resolution.get("narrative_pressure"),
         "suggested_actions": result.get("suggested_actions", []),
+        "image_suggestions": result.get("image_suggestions", []),
         "turn_id": result.get("turn_id"),
         "resolution_id": result.get("resolution_id"),
         "working_state": result.get("working_state", {}),
