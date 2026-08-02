@@ -34,6 +34,7 @@ from monitor_ui.routers import (
     llm_mgmt,
     lorebook,
     modes,
+    openai_compat,
     pack_library,
     parties,
     performance,
@@ -280,6 +281,9 @@ def create_app() -> FastAPI:
     app.include_router(change_log.router, prefix="/api", tags=["change-log"])
     app.include_router(play_sessions.router, prefix="/api", tags=["play-sessions"])
     app.include_router(architect.router, prefix="/api", tags=["architect"])
+    # OpenAI-compatible /v1/chat/completions — points RisuAI / SillyTavern /
+    # LiteLLM at MONITOR. v1 is non-streaming + stateless.
+    app.include_router(openai_compat.router, prefix="/api", tags=["openai-compat"])
 
     @app.get("/api/health")
     async def health(deep: bool = False) -> dict:  # type: ignore

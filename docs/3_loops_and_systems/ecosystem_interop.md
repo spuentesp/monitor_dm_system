@@ -103,11 +103,37 @@ Two directive mechanisms are supported:
   ST semantics. Unknown decorators (`@@role`, `@@is_greeting`, ...) end the
   block and are preserved verbatim.
 
+## OpenAI-compatible endpoint
+
+`POST /api/v1/chat/completions` accepts an OpenAI-shaped `ChatCompletionRequest`
+(`model`, `messages`, `temperature`, `max_tokens`, `top_p`, `stream`) and
+returns an OpenAI-shaped `ChatCompletion` (`id`, `object`, `created`,
+`model`, `choices[].message`, `usage`). RisuAI / SillyTavern / LiteLLM can
+point at MONITOR as a backend by configuring the URL to
+`http://<monitor-host>:8000/api/v1`.
+
+**v1 scope (deliberately):**
+
+- **Non-streaming.** `stream=true` returns HTTP 400; drop the flag for now.
+- **Stateless.** No MONITOR session or lorebook is threaded per request —
+  the first `system` message is treated as the card text. The streaming
+  + session follow-up is the refinement that turns the endpoint into a
+  fully featured MONITOR surface.
+- **Auth.** Open in v1 (same dev binding as the rest of the UI backend).
+  Front with reverse-proxy auth or add a bearer-token middleware before
+  exposing publicly.
+
+The `model` field is accepted for client compatibility but the call is
+routed through `LLMRegistry` at the `STANDARD` role (the configured default
+chat model). The response echoes the request value.
+
 ## Known gaps
 
 - **CharX non-icon assets** — emotion/background images are not imported
   (only the icon becomes the avatar).
 - **Group chat** — no multi-character speaker selection.
+- **OpenAI endpoint streaming + session** — the v1 surface is non-streaming
+  and stateless; both are the next tightening pass.
 - **Inbound OpenAI-compatible endpoint** — RisuAI/SillyTavern cannot yet
   point at MONITOR as a `/v1/chat/completions` backend.
 - **Canon promotion of imported cards** — imports land in the light-RP
