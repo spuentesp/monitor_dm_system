@@ -6,6 +6,7 @@ import { ArrowLeft, Send, Heart, ShieldAlert, Sparkles, ImagePlus, Loader2 } fro
 import { entitiesApi, imageApi } from "@/lib/api";
 import type { StandaloneCharacter } from "@/lib/types";
 import { useNotify } from "@/components/NotificationProvider";
+import { PendingAssetPreview } from "@/components/visual/AssetGallery";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "@/lib/errors";
 
@@ -16,6 +17,9 @@ type ChatMessage = {
   emotional_state?: string | null;
   snapshot?: Record<string, unknown>;
   image_url?: string;
+  // Pending generated asset awaiting approval (Task 8 approval workflow).
+  asset_id?: string;
+  image_pending?: boolean;
 };
 
 function num(snapshot: Record<string, unknown> | undefined, key: string): number {
@@ -102,7 +106,9 @@ export function CharacterChat({
     }
   }
 
-  /** Summarise the recent chat into a scene illustration (never blocks chat). */
+  /** Summarise the recent chat into a scene illustration (never blocks chat).
+   *  The generated image arrives PENDING and renders inline with approve /
+   *  reject actions; rejecting removes it from the chat. */
   async function generateScene() {
     if (!conversationId || sceneBusy) return;
     setSceneBusy(true);
@@ -110,7 +116,14 @@ export function CharacterChat({
       const res = await imageApi.generateScene({ conversation_id: conversationId, last_n: 12 });
       setMessages((m) => [
         ...m,
-        { id: `img-${Date.now()}`, role: "char", text: "", image_url: res.image_url },
+        {
+          id: `img-${Date.now()}`,
+          role: "char",
+          text: "",
+          image_url: res.image_url,
+          asset_id: res.asset_id,
+          image_pending: res.approval_status === "pending",
+        },
       ]);
     } catch (e) {
       notify("error", `Scene image failed: ${errorMessage(e)}`);
@@ -169,14 +182,31 @@ export function CharacterChat({
                       : "glass text-fg-secondary rounded-bl-sm",
                   )}
                 >
-                  {m.image_url && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={m.image_url}
-                      alt="Scene illustration"
-                      className="mb-1 max-w-full rounded-lg"
-                    />
-                  )}
+                  {m.image_url &&
+                    (m.image_pending && m.asset_id ? (
+                      <PendingAssetPreview
+                        assetId={m.asset_id}
+                        imageUrl={m.image_url}
+                        alt="Scene illustration"
+                        className="mb-1"
+                        onDecided={(status) => {
+                          if (status === "rejected") {
+                            setMessages((prev) => prev.filter((x) => x.id !== m.id));
+                          } else {
+                            setMessages((prev) =>
+                              prev.map((x) => (x.id === m.id ? { ...x, image_pending: false } : x)),
+                            );
+                          }
+                        }}
+                      />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={m.image_url}
+                        alt="Scene illustration"
+                        className="mb-1 max-w-full rounded-lg"
+                      />
+                    ))}
                   {m.text}
                   {m.role === "char" && m.emotional_state && (
                     <div className="mt-1 text-[10px] uppercase tracking-wide text-fg-dim">

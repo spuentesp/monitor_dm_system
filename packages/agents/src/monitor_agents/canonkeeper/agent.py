@@ -470,6 +470,8 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             )
             if verdict.decision == CanonKeeperDecision.ACCEPTED:
                 await self._commit_to_neo4j(verdict, proposal)
+            elif verdict.decision == CanonKeeperDecision.REJECTED:
+                await self._record_visual_identity_rejection(proposal, verdict)
             await self._record_verdict(scene_id, verdict)
 
         if not proposals:
@@ -490,6 +492,8 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             # Commit immediately on ACCEPT so partial batches are durable
             if verdict.decision == CanonKeeperDecision.ACCEPTED:
                 await self._commit_to_neo4j(verdict, proposal)
+            elif verdict.decision == CanonKeeperDecision.REJECTED:
+                await self._record_visual_identity_rejection(proposal, verdict)
 
             # Record verdict in MongoDB for audit trail
             await self._record_verdict(scene_id, verdict)
@@ -1639,6 +1643,12 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
     ) -> None:
         payload = proposal.get("payload", {}) or proposal.get("content", {}) or {}
 
+        # Canon-anchored visual identity edits (staged by the UI router) merge
+        # into an EXISTING entity's properties — never the new-entity branch.
+        if payload.get("operation") == "set_visual_identity":
+            await self._commit_set_visual_identity(proposals_coll, proposal_id, payload)
+            return
+
         # Social/profile updates are durable Mongo changes, not new Neo4j entities.
         profile_updates = dict(payload.get("profile_updates", {}) or {})
         if payload.get("field") and "new_value" in payload:
@@ -1682,6 +1692,81 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         )
         self._check_tool_error(result_text, "neo4j_create_entity")
         self._store_neo4j_id_on_proposal(proposals_coll, str(proposal_id), result_text)
+
+    async def _commit_set_visual_identity(
+        self,
+        proposals_coll: Any,
+        proposal_id: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Canonize a UI-staged visual identity onto an existing entity.
+
+        Reads the current entity via the read-only ``neo4j_get_entity`` tool,
+        merges the compact visual identity into ``properties["visual_identity"]``
+        (preserving all unrelated properties), and writes through the
+        CanonKeeper-authorized ``neo4j_update_entity`` tool. On success the
+        staged identity version is marked ``approved`` with provenance back to
+        the deciding proposal.
+        """
+        entity_id = str(payload.get("entity_id") or "")
+        visual_identity = payload.get("visual_identity") or {}
+
+        raw = await self.call_tool("neo4j_get_entity", {"entity_id": entity_id})
+        self._check_tool_error(raw, "neo4j_get_entity")
+        entity = self._parse_tool_result(raw)
+        if not entity:
+            raise RuntimeError(f"set_visual_identity: entity {entity_id} not found")
+
+        properties = dict(entity.get("properties") or {})
+        properties["visual_identity"] = visual_identity
+        result_text = await self.call_tool(
+            "neo4j_update_entity",
+            {"entity_id": entity_id, "params": {"properties": properties}},
+        )
+        self._check_tool_error(result_text, "neo4j_update_entity")
+        # Feed the audit/back-link path like every other commit branch: stash
+        # the entity id for _audit_commit and link it back on the proposal doc.
+        self._store_neo4j_id_on_proposal(proposals_coll, str(proposal_id), result_text)
+
+        identity_id = visual_identity.get("identity_id")
+        if identity_id:
+            status_result = await self.call_tool(
+                "mongodb_update_visual_identity_status",
+                {
+                    "identity_id": str(identity_id),
+                    "status": "approved",
+                    "decision_proposal_id": str(proposal_id) or None,
+                },
+            )
+            self._check_tool_error(status_result, "mongodb_update_visual_identity_status")
+
+    async def _record_visual_identity_rejection(
+        self,
+        proposal: dict[str, Any],
+        verdict: CanonKeeperVerdict,
+    ) -> None:
+        """Store the decision reference on a rejected visual-identity version.
+
+        The identity version stays draft; only the provenance back to the
+        deciding proposal is persisted. No-op for any other proposal shape.
+        """
+        payload = proposal.get("payload", {}) or proposal.get("content", {}) or {}
+        if payload.get("operation") != "set_visual_identity":
+            return
+        visual_identity = payload.get("visual_identity") or {}
+        identity_id = visual_identity.get("identity_id")
+        if not identity_id:
+            return
+        decision_ref = str(verdict.proposal_id or proposal.get("proposal_id") or "") or None
+        status_result = await self.call_tool(
+            "mongodb_update_visual_identity_status",
+            {
+                "identity_id": str(identity_id),
+                "status": "draft",
+                "decision_proposal_id": decision_ref,
+            },
+        )
+        self._check_tool_error(status_result, "mongodb_update_visual_identity_status")
 
     async def _commit_axiom(
         self,

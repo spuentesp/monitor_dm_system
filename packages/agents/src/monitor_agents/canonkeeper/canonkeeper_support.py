@@ -126,6 +126,15 @@ def gate_entity_proposals(
             remaining.append(proposal)
             continue
 
+        # UI-staged visual-identity canonization targets an EXISTING canonical
+        # entity — it is not an entity-promotion candidate, so the topology /
+        # anchor / flavor-threshold gates must not pre-decide it (the flavor
+        # gate would garbage-collect it). Route it to the full LLM pipeline.
+        content = proposal.get("content") or {}
+        if isinstance(content, dict) and content.get("operation") == "set_visual_identity":
+            remaining.append(proposal)
+            continue
+
         name = _entity_name(proposal)
         intent = proposal.get("promotion_intent")
         interaction_count = int(proposal.get("interaction_count", 1) or 1)

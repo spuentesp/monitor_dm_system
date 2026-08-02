@@ -85,6 +85,17 @@ import type {
   SnapshotComparison,
   WorldCoverage,
   LorebookScanConfig,
+  GeneratedAsset,
+  GeneratedAssetListFilter,
+  AssetApprovalRequest,
+  AssetRejectRequest,
+  PortraitResponse,
+  SceneResponse,
+  TriggerSource,
+  VisualIdentity,
+  VisualIdentityStatus,
+  VisualIdentityUpdate,
+  ImageGenerationSettings,
 } from "./types";
 
 const RAW_API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -1180,20 +1191,72 @@ export const entitiesApi = {
     }),
 };
 
-// ─── Image generation (portraits & scene illustrations) ───────
+// ─── Image generation, asset approval & visual identities ─────
+// Generation endpoints return PENDING assets — nothing becomes an avatar or
+// reference until approved through the /image/assets endpoints below.
 
 export const imageApi = {
-  generatePortrait: (characterId: string) =>
-    req<{ avatar_url: string; key: string }>("/image/portrait", {
+  generatePortrait: (
+    characterId: string,
+    provenance?: { trigger?: TriggerSource; source_turn_id?: string },
+  ) =>
+    req<PortraitResponse>("/image/portrait", {
       method: "POST",
-      body: JSON.stringify({ character_id: characterId }),
+      body: JSON.stringify({ character_id: characterId, ...provenance }),
       timeout: 120_000, // image generation is slow — mirrors the chat timeouts
     }),
-  generateScene: (data: { conversation_id?: string; session_id?: string; last_n?: number }) =>
-    req<{ image_url: string; key: string }>("/image/scene", {
+  generateScene: (data: {
+    conversation_id?: string;
+    session_id?: string;
+    last_n?: number;
+    trigger?: TriggerSource;
+    source_turn_id?: string;
+  }) =>
+    req<SceneResponse>("/image/scene", {
       method: "POST",
       body: JSON.stringify(data),
       timeout: 120_000,
+    }),
+  // ── Asset gallery / approval (Task 6 endpoints) ──
+  listAssets: (filter?: GeneratedAssetListFilter) =>
+    req<GeneratedAsset[]>("/image/assets", {
+      query: filter as Record<string, string | number | boolean | undefined>,
+    }),
+  getAsset: (assetId: string) => req<GeneratedAsset>(`/image/assets/${assetId}`),
+  /** URL for <img> tags — the backend issues a fresh presigned redirect. */
+  assetFileUrl: (assetId: string) => apiUrl(`/image/assets/${assetId}/file`),
+  approveAsset: (assetId: string, body?: AssetApprovalRequest) =>
+    req<GeneratedAsset>(`/image/assets/${assetId}/approve`, {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
+  rejectAsset: (assetId: string, body?: AssetRejectRequest) =>
+    req<GeneratedAsset>(`/image/assets/${assetId}/reject`, {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
+  // ── Visual identities ──
+  getCurrentVisualIdentity: (anchor: {
+    character_id?: string;
+    entity_id?: string;
+    universe_id?: string;
+    status?: VisualIdentityStatus;
+  }) =>
+    req<VisualIdentity>("/image/visual-identities/current", {
+      query: anchor as Record<string, string | undefined>,
+    }),
+  updateVisualIdentity: (body: VisualIdentityUpdate) =>
+    req<VisualIdentity>("/image/visual-identities/current", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  // ── Image generation settings (Task 10) ──
+  getImageGenerationSettings: () =>
+    req<ImageGenerationSettings>("/image/settings"),
+  updateImageGenerationSettings: (body: Partial<ImageGenerationSettings>) =>
+    req<ImageGenerationSettings>("/image/settings", {
+      method: "PUT",
+      body: JSON.stringify(body),
     }),
 };
 

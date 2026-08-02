@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, MessageCircle, MoreVertical, Sparkles, Trash2 } from "lucide-react";
+import { Brain, Images, MessageCircle, MoreVertical, Palette, Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { apiUrl } from "@/lib/api";
 import { useDismissRef } from "@/lib/useDismissRef";
@@ -15,11 +15,15 @@ export function CharacterCardGrid({
   characters,
   onChat,
   onGeneratePortrait,
+  onEditVisualIdentity,
+  onVisualReferences,
   onDelete,
 }: {
   characters: StandaloneCharacter[];
   onChat: (c: StandaloneCharacter) => void;
   onGeneratePortrait?: (c: StandaloneCharacter) => void;
+  onEditVisualIdentity?: (c: StandaloneCharacter) => void;
+  onVisualReferences?: (c: StandaloneCharacter) => void;
   onDelete: (c: StandaloneCharacter) => void;
 }) {
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -81,6 +85,28 @@ export function CharacterCardGrid({
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-300 hover:bg-white/5"
                 >
                   <Sparkles className="h-3 w-3 text-cyan-300" /> Generate portrait
+                </button>
+              )}
+              {onEditVisualIdentity && (
+                <button
+                  onClick={() => {
+                    setMenuFor(null);
+                    onEditVisualIdentity(c);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-300 hover:bg-white/5"
+                >
+                  <Palette className="h-3 w-3 text-purple-300" /> Edit visual identity
+                </button>
+              )}
+              {onVisualReferences && (
+                <button
+                  onClick={() => {
+                    setMenuFor(null);
+                    onVisualReferences(c);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-300 hover:bg-white/5"
+                >
+                  <Images className="h-3 w-3 text-cyan-300" /> Visual references
                 </button>
               )}
               <button

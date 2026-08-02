@@ -458,3 +458,55 @@ def test_simple_types_optional_with_value_passes_through():
 
     result = validate_tool_input("test_tool", test_tool, {"score": 42})
     assert result["score"] == 42
+
+
+# =============================================================================
+# REAL TOOL: mongodb_update_visual_identity_status WITH MCP-WIRE ARGS
+# =============================================================================
+
+
+def test_validate_update_visual_identity_status_accepts_plain_string_args():
+    """Regression: the stdio MCP transport can only carry JSON strings.
+
+    CanonKeeper calls this tool with ``status="approved"`` / ``"draft"`` as
+    plain strings; the tool signature must accept them (coercing to
+    ``VisualIdentityStatus`` inside) instead of declaring a StrEnum parameter
+    that ``_validate_simple_types`` rejects via ``isinstance``.
+    """
+    from monitor_data.tools.mongodb_tools.visual_identities import (
+        mongodb_update_visual_identity_status,
+    )
+
+    identity_id = uuid4()
+    proposal_id = uuid4()
+
+    result = validate_tool_input(
+        "mongodb_update_visual_identity_status",
+        mongodb_update_visual_identity_status,
+        {
+            "identity_id": str(identity_id),
+            "status": "approved",
+            "decision_proposal_id": str(proposal_id),
+        },
+    )
+
+    assert result["identity_id"] == identity_id
+    assert result["status"] == "approved"
+
+
+def test_validate_update_visual_identity_status_without_optional_arg():
+    """The optional ``decision_proposal_id`` may be omitted over the wire."""
+    from monitor_data.tools.mongodb_tools.visual_identities import (
+        mongodb_update_visual_identity_status,
+    )
+
+    identity_id = uuid4()
+
+    result = validate_tool_input(
+        "mongodb_update_visual_identity_status",
+        mongodb_update_visual_identity_status,
+        {"identity_id": str(identity_id), "status": "draft"},
+    )
+
+    assert result["identity_id"] == identity_id
+    assert result["status"] == "draft"

@@ -76,6 +76,19 @@ def update_character(character_id: str, updates: dict[str, Any]) -> dict[str, An
     return result  # type: ignore
 
 
+def set_character_avatar(character_id: str, minio_key: str) -> dict[str, Any] | None:
+    """Point a character's avatar at a stored MinIO object key.
+
+    Only the matching character document is touched — avatar mutations from
+    the image approval flow (Task 6) always go through here so the stored
+    value is the stable object key, never an expiring presigned URL.
+    """
+    result = update_character(character_id, {"avatar_url": minio_key})
+    if result:
+        log.info("character_avatar_updated", character_id=character_id)
+    return result
+
+
 def delete_character(character_id: str) -> bool:
     """Delete a character. Returns True if deleted."""
     result = _coll().delete_one({"id": character_id})

@@ -2,7 +2,28 @@
 // Wire-format types mirror the FastAPI WebSocket payload at
 // /api/chat/ws/{session_id} (packages/ui/backend/src/monitor_ui/routers/chat.py:901-1093).
 
-import type { Message } from "@/lib/types";
+import type { AssetType, Message } from "@/lib/types";
+
+/** An image suggestion emitted by the scene-loop heuristics (Task 9).
+ *  Mirrors the JSON form of `monitor_agents.image_suggestions.ImageSuggestion`
+ *  — it rides the `done` frame's metadata (key `image_suggestions`), never a
+ *  dedicated WS event. */
+export interface ImageSuggestionMeta {
+  suggestion_id: string;
+  asset_type: AssetType;
+  subject_entity_ids: string[];
+  reason: "location_change" | "npc_entry" | "visual_state_change" | "climax";
+  aspect_ratio: string;
+  source_turn_id: string;
+}
+
+/** Known keys on a `done` frame's metadata. The record stays open — the
+ *  orchestrator adds keys additively and the client must tolerate unknowns. */
+export interface GmTurnMetadata extends Record<string, unknown> {
+  turn_id?: string;
+  suggested_actions?: string[];
+  image_suggestions?: ImageSuggestionMeta[];
+}
 
 /** WS frame types the client understands. Mirrors chat.py:969-1006 +
  *  the new composing / thinking / thinking_end events added in Phase 2. */
@@ -12,7 +33,7 @@ export type WsServerMsg =
   | { type: "thinking"; message_id: string; delta: string }
   | { type: "thinking_end"; message_id: string }
   | { type: "token"; message_id: string; token: string }
-  | { type: "done" | "end"; message_id: string; metadata?: Record<string, unknown> }
+  | { type: "done" | "end"; message_id: string; metadata?: GmTurnMetadata }
   | { type: "tool_call"; message_id: string; name: string; args?: Record<string, unknown>; id?: string }
   | { type: "tool_result"; message_id: string; tool_call_id?: string; result?: unknown; error?: string }
   | { type: "pong" }

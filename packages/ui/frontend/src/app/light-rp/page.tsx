@@ -2,14 +2,17 @@
 
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Upload } from "lucide-react";
+import { Images, Palette, Sparkles, Upload } from "lucide-react";
 import { entitiesApi, imageApi } from "@/lib/api";
 import { CharacterChat } from "@/components/characters/CharacterChat";
+import { DialogShell } from "@/components/DialogShell";
 import { CharacterCardGrid } from "@/components/lightrp/CharacterCardGrid";
 import { RecentChatsRail } from "@/components/lightrp/RecentChatsRail";
+import { AssetGallery, PendingAssetPreview } from "@/components/visual/AssetGallery";
+import { VisualIdentityEditor } from "@/components/visual/VisualIdentityEditor";
 import { useNotify } from "@/components/NotificationProvider";
 import { errorMessage } from "@/lib/errors";
-import type { StandaloneCharacter } from "@/lib/types";
+import type { PortraitResponse, StandaloneCharacter } from "@/lib/types";
 
 export default function LightRpPage() {
   const qc = useQueryClient();
@@ -17,6 +20,14 @@ export default function LightRpPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState<StandaloneCharacter | null>(null);
   const [importing, setImporting] = useState(false);
+  // Freshly generated portrait awaiting approval — the card image only
+  // changes when the user approves with "use as avatar".
+  const [portraitPreview, setPortraitPreview] = useState<{
+    character: StandaloneCharacter;
+    result: PortraitResponse;
+  } | null>(null);
+  const [identityFor, setIdentityFor] = useState<StandaloneCharacter | null>(null);
+  const [galleryFor, setGalleryFor] = useState<StandaloneCharacter | null>(null);
 
   const charactersQ = useQuery({
     queryKey: ["standalone-characters"],
@@ -48,9 +59,14 @@ export default function LightRpPage() {
 
   async function generatePortrait(c: StandaloneCharacter) {
     try {
-      await imageApi.generatePortrait(c.id);
-      await qc.invalidateQueries({ queryKey: ["standalone-characters"] });
-      notify("success", `Portrait updated for ${c.name}`);
+      const result = await imageApi.generatePortrait(c.id);
+      if (result.approval_status === "pending") {
+        setPortraitPreview({ character: c, result });
+        notify("info", `Portrait generated for ${c.name} — review and approve to use it.`);
+      } else {
+        await qc.invalidateQueries({ queryKey: ["standalone-characters"] });
+        notify("success", `Portrait updated for ${c.name}`);
+      }
     } catch (e) {
       notify("error", `Portrait failed: ${errorMessage(e)}`);
     }
@@ -114,9 +130,67 @@ export default function LightRpPage() {
             characters={charactersQ.data ?? []}
             onChat={setActive}
             onGeneratePortrait={(c) => void generatePortrait(c)}
+            onEditVisualIdentity={setIdentityFor}
+            onVisualReferences={setGalleryFor}
             onDelete={(c) => void deleteChar(c)}
           />
         </>
+      )}
+
+      {portraitPreview && (
+        <DialogShell
+          title={`New portrait for ${portraitPreview.character.name}`}
+          icon={Sparkles}
+          onClose={() => setPortraitPreview(null)}
+          maxWidthClassName="max-w-lg"
+        >
+          <div className="p-4">
+            <PendingAssetPreview
+              assetId={portraitPreview.result.asset_id}
+              imageUrl={portraitPreview.result.avatar_url}
+              alt={`Portrait preview for ${portraitPreview.character.name}`}
+              allowAvatar
+              onDecided={(status) => {
+                if (status === "approved") {
+                  void qc.invalidateQueries({ queryKey: ["standalone-characters"] });
+                }
+                setPortraitPreview(null);
+              }}
+            />
+          </div>
+        </DialogShell>
+      )}
+
+      {identityFor && (
+        <DialogShell
+          title={`Visual identity — ${identityFor.name}`}
+          icon={Palette}
+          onClose={() => setIdentityFor(null)}
+          maxWidthClassName="max-w-2xl"
+        >
+          <VisualIdentityEditor
+            characterId={identityFor.id}
+            entityId={identityFor.entity_id}
+            universeId={identityFor.default_universe_id}
+          />
+        </DialogShell>
+      )}
+
+      {galleryFor && (
+        <DialogShell
+          title={`Visual references — ${galleryFor.name}`}
+          icon={Images}
+          onClose={() => setGalleryFor(null)}
+          maxWidthClassName="max-w-3xl"
+        >
+          <div className="p-4">
+            <AssetGallery
+              filter={{ character_id: galleryFor.id }}
+              allowAvatar
+              onChanged={() => void qc.invalidateQueries({ queryKey: ["standalone-characters"] })}
+            />
+          </div>
+        </DialogShell>
       )}
     </div>
   );

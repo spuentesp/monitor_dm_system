@@ -529,3 +529,59 @@ describe("useChatSession — REST fallback when WS disconnected", () => {
     sendMessageSpy.mockRestore();
   });
 });
+
+// ─── image suggestions (Task 9) ─────────────────────────────────────
+
+describe("useChatSession — image_suggestions metadata", () => {
+  it("image_suggestions from a done frame are retained on the matching GM message", async () => {
+    const { qc: testQc } = makeWrapper();
+    const spy = vi.spyOn(chatApi, "getMessages").mockImplementation(async () => {
+      return (testQc.getQueryData(["play-messages", SESSION]) ?? []) as Awaited<
+        ReturnType<typeof chatApi.getMessages>
+      >;
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={testQc}>{children}</QueryClientProvider>
+    );
+
+    const seededMessage = {
+      id: MSG_ID,
+      session_id: SESSION,
+      role: "gm",
+      content: "",
+      timestamp: new Date().toISOString(),
+      metadata: {},
+    };
+    testQc.setQueryData(["play-messages", SESSION], [seededMessage]);
+
+    const suggestion = {
+      suggestion_id: "11111111-1111-4111-8111-111111111111",
+      asset_type: "location",
+      subject_entity_ids: ["22222222-2222-4222-8222-222222222222"],
+      reason: "location_change",
+      aspect_ratio: "16:9",
+      source_turn_id: "turn-9",
+    };
+
+    const { result } = renderHook(() => useChatSession({ sessionId: SESSION }), { wrapper });
+    await openWs();
+    act(() => result.current.send("I step into the Ashmarket."));
+    await act(async () => {
+      constructed[0].simulateFrame({ type: "start", message_id: MSG_ID });
+      constructed[0].simulateFrame({ type: "token", message_id: MSG_ID, token: "Stalls crowd the square." });
+      constructed[0].simulateFrame({
+        type: "done",
+        message_id: MSG_ID,
+        metadata: { turn_id: "turn-9", image_suggestions: [suggestion] },
+      });
+    });
+
+    const cached = testQc.getQueryData<Array<{ id: string; metadata?: Record<string, unknown> }>>([
+      "play-messages",
+      SESSION,
+    ]);
+    expect(cached?.[0]?.metadata?.image_suggestions).toEqual([suggestion]);
+    expect(cached?.[0]?.metadata?.turn_id).toBe("turn-9");
+    spy.mockRestore();
+  });
+});

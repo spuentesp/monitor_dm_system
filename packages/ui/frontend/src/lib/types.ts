@@ -1753,3 +1753,172 @@ export interface ArchitectPriorityGap {
   suggestion: string;
   example_prompt: string;
 }
+
+// ─── Generated image assets & visual identities (canon-anchored image gen) ──
+// Mirrors packages/data-layer/src/monitor_data/schemas/generated_assets.py and
+// visual_identity.py, plus the response models of the /api/image routers.
+// Field names match the backend exactly — no frontend-only vocabulary.
+
+export type AssetType = "portrait" | "scene" | "location" | "object";
+export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type ReferenceStatus = "none" | "primary" | "supporting";
+export type ModerationStatus = "provider_default" | "allowed" | "blocked";
+export type TriggerSource = "user" | "loop_suggestion";
+
+/** Persisted generated-asset record (GET /api/image/assets response shape). */
+export interface GeneratedAsset {
+  asset_id: string;
+  asset_type: AssetType;
+  minio_key: string;
+  content_type: string;
+  byte_size: number;
+  character_id: string | null;
+  entity_id: string | null;
+  universe_id: string | null;
+  story_id: string | null;
+  scene_id: string | null;
+  conversation_id: string | null;
+  source_message_ids: string[];
+  visual_identity_id: string | null;
+  visual_identity_version: number | null;
+  canon_fact_ids: string[];
+  prompt: string;
+  negative_prompt: string | null;
+  prompt_warnings: string[];
+  reference_asset_ids: string[];
+  provider_id: string;
+  provider_model: string;
+  provider_capabilities: Record<string, unknown>;
+  trigger: TriggerSource;
+  moderation_status: ModerationStatus;
+  approval_status: ApprovalStatus;
+  reference_status: ReferenceStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+  /** Provider-reported USD cost; the backend serializes Decimal. */
+  estimated_cost_usd: string | number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Query filters for GET /api/image/assets (all exact matches). */
+export interface GeneratedAssetListFilter {
+  character_id?: string;
+  entity_id?: string;
+  universe_id?: string;
+  story_id?: string;
+  scene_id?: string;
+  conversation_id?: string;
+  asset_type?: AssetType;
+  approval_status?: ApprovalStatus;
+  reference_status?: ReferenceStatus;
+  trigger?: TriggerSource;
+  include_rejected?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+/** POST /api/image/assets/{id}/approve body (all optional server-side). */
+export interface AssetApprovalRequest {
+  approved_by?: string;
+  use_as_avatar?: boolean;
+  reference_status?: ReferenceStatus;
+}
+
+/** POST /api/image/assets/{id}/reject body (all optional server-side). */
+export interface AssetRejectRequest {
+  rejected_by?: string;
+}
+
+/** POST /api/image/portrait response. */
+export interface PortraitResponse {
+  avatar_url: string;
+  key: string;
+  asset_id: string;
+  approval_status: ApprovalStatus;
+  prompt_warnings: string[];
+}
+
+/** POST /api/image/scene response. */
+export interface SceneResponse {
+  image_url: string;
+  key: string;
+  asset_id: string;
+  approval_status: ApprovalStatus;
+  prompt_warnings: string[];
+}
+
+/** Image-generation policy / budget settings (Task 10). Mirrors
+ *  packages/data-layer/src/monitor_data/schemas/image_settings.py.
+ *
+ *  `image_moderation_mode` selects the policy applied before the
+ *  provider is invoked. `provider_default` is a pass-through; the
+ *  provider's own safety filter still applies. `lines_and_veils`
+ *  blocks prompts that directly violate an active campaign's
+ *  agreements — MONITOR cannot override provider-level moderation.
+ *
+ *  All numeric caps are 0..max; 0 disables the scope.
+ */
+export type ImageModerationMode = "provider_default" | "lines_and_veils";
+
+export interface ImageGenerationSettings {
+  image_moderation_mode: ImageModerationMode;
+  image_max_per_scene: number;
+  image_max_per_conversation: number;
+  image_max_per_actor_hour: number;
+  image_suggestions_enabled: boolean;
+}
+
+export type VisualIdentitySource = "manual" | "card_import" | "canon" | "ai_extracted";
+export type VisualIdentityStatus = "draft" | "approved" | "superseded";
+
+/** Persisted VisualIdentity record (GET /api/image/visual-identities* shape). */
+export interface VisualIdentity {
+  identity_id: string;
+  character_id: string | null;
+  entity_id: string | null;
+  universe_id: string | null;
+  version: number;
+  description: string;
+  species_or_type: string | null;
+  apparent_age: string | null;
+  build: string | null;
+  hair: string | null;
+  eyes: string | null;
+  skin_or_surface: string | null;
+  signature_attire: string | null;
+  distinguishing_features: string[];
+  palette: string[];
+  style_hint: string | null;
+  source: VisualIdentitySource;
+  approved_reference_asset_ids: string[];
+  status: VisualIdentityStatus;
+  decision_proposal_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * PUT /api/image/visual-identities/current body. ``identity_id`` +
+ * ``expected_version`` are optimistic-lock metadata (409 on mismatch).
+ * When the identity has an entity anchor the backend stages a CanonKeeper
+ * proposal; card-default identities save directly.
+ */
+export interface VisualIdentityUpdate {
+  identity_id: string;
+  expected_version: number;
+  description?: string | null;
+  species_or_type?: string | null;
+  apparent_age?: string | null;
+  build?: string | null;
+  hair?: string | null;
+  eyes?: string | null;
+  skin_or_surface?: string | null;
+  signature_attire?: string | null;
+  distinguishing_features?: string[] | null;
+  palette?: string[] | null;
+  style_hint?: string | null;
+  source?: VisualIdentitySource | null;
+  approved_reference_asset_ids?: string[] | null;
+  status?: VisualIdentityStatus | null;
+}
