@@ -112,28 +112,40 @@ returns an OpenAI-shaped `ChatCompletion` (`id`, `object`, `created`,
 point at MONITOR as a backend by configuring the URL to
 `http://<monitor-host>:8000/api/v1`.
 
-**v1 scope (deliberately):**
+**Routing modes (chosen by the request body):**
 
-- **Non-streaming.** `stream=true` returns HTTP 400; drop the flag for now.
-- **Stateless.** No MONITOR session or lorebook is threaded per request —
-  the first `system` message is treated as the card text. The streaming
-  + session follow-up is the refinement that turns the endpoint into a
-  fully featured MONITOR surface.
-- **Auth.** Open in v1 (same dev binding as the rest of the UI backend).
-  Front with reverse-proxy auth or add a bearer-token middleware before
-  exposing publicly.
+- **Plain OpenAI** (no session fields): one LM call via `LLMRegistry`.
+  Supports streaming (SSE, OpenAI `chat.completion.chunk` shape) and
+  non-streaming. `stream_text` on `LLMClient` bridges
+  `chat.completions.create(stream=True)` for OpenAI-compatible providers
+  and `messages.stream(...)` for Anthropic / MiniMax.
+- **Session mode** (`monitor_session_id` or `character_id`): the request
+  is routed through the light-RP conversation loop, so the response
+  benefits from persona binding, lorebook scanning, and NPC memory.
+  `stream=true` is rejected (HTTP 400) — the conversation loop is
+  non-streaming today; reply is one assistant message.
 
-The `model` field is accepted for client compatibility but the call is
-routed through `LLMRegistry` at the `STANDARD` role (the configured default
-chat model). The response echoes the request value.
+**Card binding:** session mode threads a `persona_character_id` through
+`start_conversation` for the same `{{user}}` / voice-prompt depth that the
+native light-RP surface has. The character card itself rides on
+`character_id` (server looks it up and provisions the incarnation).
+
+**Auth:** open in v2 (same dev binding as the rest of the UI backend).
+Front with reverse-proxy auth or add a bearer-token middleware before
+exposing publicly.
+
+The `model` field is accepted for client compatibility; plain-mode calls
+are routed through `LLMRegistry` at the `STANDARD` role (the configured
+default chat model). The response echoes the request value.
 
 ## Known gaps
 
 - **CharX non-icon assets** — emotion/background images are not imported
   (only the icon becomes the avatar).
 - **Group chat** — no multi-character speaker selection.
-- **OpenAI endpoint streaming + session** — the v1 surface is non-streaming
-  and stateless; both are the next tightening pass.
+- **OpenAI session-mode streaming** — `stream=true` is rejected in session
+  mode because the conversation loop has no streaming surface. A future
+  pass would extend `NPCVoice` to stream the LLM call.
 - **Inbound OpenAI-compatible endpoint** — RisuAI/SillyTavern cannot yet
   point at MONITOR as a `/v1/chat/completions` backend.
 - **Canon promotion of imported cards** — imports land in the light-RP

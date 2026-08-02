@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, TypeVar, cast
 
@@ -139,6 +140,54 @@ class LLMClient:
         if isinstance(content, list):
             return "\n".join(str(part) for part in content).strip()
         return str(content or "").strip()
+
+    async def stream_text(
+        self,
+        messages: list[dict[str, Any]],
+        **override_params: Any,
+    ) -> AsyncIterator[str]:
+        """Yield text fragments as the provider streams them.
+
+        Provider branching:
+          - Anthropic / MiniMax: ``messages.stream(...)`` event stream;
+            we yield ``.text`` from every event that carries it.
+          - OpenAI and OpenAI-compatible: ``chat.completions.create(stream=True)``;
+            we yield ``.choices[0].delta.content`` from each chunk.
+
+        Provider-specific edge cases (tool calls, reasoning tokens, refusal
+        events) are ignored — this is a plain-text stream surface.
+        """
+        params = {**self.params, **override_params}
+        if self.provider in (LLMProviderType.ANTHROPIC, LLMProviderType.MINIMAX):
+            async def _anthropic_stream() -> AsyncIterator[str]:
+                async with self._raw_client.messages.stream(
+                    model=self.model,
+                    messages=messages,
+                    **params,
+                ) as event_stream:
+                    async for event in event_stream:
+                        text = getattr(event, "text", None)
+                        if text:
+                            yield text
+
+            return _anthropic_stream()
+
+        async def _openai_stream() -> AsyncIterator[str]:
+            response = await self._raw_client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                stream=True,
+                **params,
+            )
+            async for chunk in response:
+                if not getattr(chunk, "choices", None):
+                    continue
+                delta = chunk.choices[0].delta
+                piece = getattr(delta, "content", None)
+                if piece:
+                    yield piece
+
+        return _openai_stream()
 
 
 # =============================================================================
