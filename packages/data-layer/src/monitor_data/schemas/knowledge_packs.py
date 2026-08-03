@@ -38,6 +38,7 @@ from monitor_data.schemas.entity_subtypes import (
     coerce_group_subtype,
     coerce_place_subtype,
 )
+from monitor_data.schemas.relationships import RelationshipType
 from monitor_data.schemas.game_systems import (
     ActionEconomy,
     AdvancementModel,
@@ -320,7 +321,16 @@ class ExtractedRelationship(BaseModel):
 
     from_entity: Trimmed200 = Field(max_length=200)
     to_entity: Trimmed200 = Field(max_length=200)
-    rel_type: str = Field(default="related_to", max_length=100, description="e.g., 'allied_with', 'enemy_of'")
+    rel_type: str = Field(
+        default="related_to",
+        max_length=100,
+        description=(
+            "Game-system-agnostic canonical relationship type (e.g. "
+            "'MEMBER_OF_GROUP', 'GRANTS_POWER'). LLM-side aliases "
+            "like 'member_of_clan' are normalised to the canonical "
+            "form. Unknown values are preserved unchanged."
+        ),
+    )
     description: TrimmedCoerce500 = Field(default="", max_length=500)
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
     properties: dict[str, Any] = Field(
@@ -335,6 +345,134 @@ class ExtractedRelationship(BaseModel):
         default_factory=list,
         description="Source snippets/sections backing this relationship",
     )
+
+    @field_validator("rel_type", mode="before")
+    @classmethod
+    def _normalise_rel_type(cls, value: Any) -> str:
+        """Normalise LLM-emitted rel_type to the canonical RelationshipType.
+
+        Steps:
+          1. If empty/None, return the default ``related_to``.
+          2. Strip whitespace, lowercase, replace spaces and dashes with
+             underscores. This makes ``"Member Of Clan"`` and
+             ``"member-of-clan"`` both match the alias key.
+          3. If the normalised string is in ``_REL_TYPE_ALIASES``,
+             return the canonical value (e.g. ``"member_of_clan"`` →
+             ``"MEMBER_OF_GROUP"``).
+          4. Otherwise check if the value (case-preserved) is already a
+             valid ``RelationshipType`` and return it as-is. This lets
+             the LLM emit canonical uppercase values directly.
+          5. Otherwise return the original (un-normalised) value. Unknown
+             terms pass through so the canonkeeper can decide what to
+             do with them (e.g. log and skip, or surface as a new alias
+             candidate for the next enum update).
+        """
+        if not value:
+            return "related_to"
+        original = str(value)
+        normalised = (
+            original.strip()
+            .lower()
+            .replace(" ", "_")
+            .replace("-", "_")
+        )
+        if normalised in _REL_TYPE_ALIASES:
+            return _REL_TYPE_ALIASES[normalised]
+        # Already-canonical values (uppercase enum) pass through.
+        try:
+            RelationshipType(original)
+            return original
+        except ValueError:
+            return original
+
+
+# Aliases that the LLM is most likely to emit. Each value maps to the
+# canonical RelationshipType. Add to this dict as new game systems
+# are tested. Keys are case-insensitive after whitespace/dash
+# normalisation; values must be a valid RelationshipType value.
+_REL_TYPE_ALIASES: dict[str, str] = {
+    # Group membership aliases
+    "member_of": "MEMBER_OF_GROUP",
+    "member_of_sect": "MEMBER_OF_GROUP",
+    "member_of_clan": "MEMBER_OF_GROUP",
+    "member_of_faction": "MEMBER_OF_GROUP",
+    "member_of_organization": "MEMBER_OF_GROUP",
+    "member_of_party": "MEMBER_OF_GROUP",
+    "member_of_race": "MEMBER_OF_GROUP",
+    "member_of_team": "MEMBER_OF_GROUP",
+    "member_of_crew": "MEMBER_OF_GROUP",
+    "member_of_house": "MEMBER_OF_GROUP",
+    "member_of_tribe": "MEMBER_OF_GROUP",
+    "member_of_brood": "MEMBER_OF_GROUP",
+    "member_of_coven": "MEMBER_OF_GROUP",
+    "member_of_cult": "MEMBER_OF_GROUP",
+    "member_of_band": "MEMBER_OF_GROUP",
+    "member_of_gang": "MEMBER_OF_GROUP",
+    "member_of_dynasty": "MEMBER_OF_GROUP",
+    "member_of_cabal": "MEMBER_OF_GROUP",
+    "member_of_fellowship": "MEMBER_OF_GROUP",
+    "member_of_alliance": "MEMBER_OF_GROUP",
+    "belongs_to": "MEMBER_OF_GROUP",
+    "belongs_to_clan": "MEMBER_OF_GROUP",
+    "belongs_to_sect": "MEMBER_OF_GROUP",
+    "serves_in": "MEMBER_OF_GROUP",
+    "is_a_member_of": "MEMBER_OF_GROUP",
+    "of_clan": "MEMBER_OF_GROUP",
+    "of_sect": "MEMBER_OF_GROUP",
+    "of_faction": "MEMBER_OF_GROUP",
+    # Sub-group aliases
+    "subgroup_of": "SUBGROUP_OF_GROUP",
+    "subclan_of": "SUBGROUP_OF_GROUP",
+    "subfaction_of": "SUBGROUP_OF_GROUP",
+    "house_of": "SUBGROUP_OF_GROUP",
+    "under_sect": "SUBGROUP_OF_GROUP",
+    # Leadership aliases
+    "leads": "LEADS_GROUP",
+    "leads_sect": "LEADS_GROUP",
+    "leads_clan": "LEADS_GROUP",
+    "leads_faction": "LEADS_GROUP",
+    "commands": "LEADS_GROUP",
+    "rules_over": "LEADS_GROUP",
+    "founded": "FOUNDED_GROUP",
+    "created": "FOUNDED_GROUP",
+    "controls": "CONTROLS_GROUP",
+    "allied_with": "ALLIED_WITH_GROUP",
+    "enemy_of": "HOSTILE_TO_GROUP",
+    "hostile_to": "HOSTILE_TO_GROUP",
+    "rivals": "HOSTILE_TO_GROUP",
+    # Power aliases
+    "grants": "GRANTS_POWER",
+    "grants_power": "GRANTS_POWER",
+    "gives": "GRANTS_POWER",
+    "has_power": "PRACTICES_DISCIPLINE",
+    "practices": "PRACTICES_DISCIPLINE",
+    "uses_power": "PRACTICES_DISCIPLINE",
+    "learns": "PRACTICES_DISCIPLINE",
+    "knows_power": "PRACTICES_DISCIPLINE",
+    "has_discipline": "PRACTICES_DISCIPLINE",
+    "has_ability": "PRACTICES_DISCIPLINE",
+    "affected_by": "AFFECTED_BY",
+    "cursed_by": "AFFECTED_BY",
+    "blessed_by": "AFFECTED_BY",
+    "has_background": "IS_BACKGROUND",
+    "has_merit": "IS_BACKGROUND",
+    "has_flaw": "IS_BACKGROUND",
+    "has_edge": "IS_BACKGROUND",
+    "has_hindrance": "IS_BACKGROUND",
+    "has_touchstone": "IS_TOUCHSTONE",
+    "has_conviction": "IS_TOUCHSTONE",
+    "has_tenet": "IS_TOUCHSTONE",
+    "has_resource": "IS_RESOURCE",
+    # Place aliases
+    "located_in": "LOCATED_IN_PLACE",
+    "based_in": "LOCATED_IN_PLACE",
+    "found_in": "LOCATED_IN_PLACE",
+    "in_city": "LOCATED_IN_PLACE",
+    "in_world": "LOCATED_IN_PLACE",
+    "in_region": "LOCATED_IN_PLACE",
+    "contains": "CONTAINS_PLACE",
+    "within": "LOCATED_IN_PLACE",
+}
 
 
 class ExtractedTopology(BaseModel):
