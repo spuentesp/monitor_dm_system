@@ -730,7 +730,7 @@ def test_materialize_social_entities_adds_membership_and_multi_role_support():
     assert "Camarilla" in by_name
     assert {"organization", "taxonomy_member", "multi_role"}.issubset(set(by_name["House Tremere"].entity_roles))
     assert any(
-        rel.from_entity == "House Tremere" and rel.rel_type == "member_of" and rel.to_entity == "Camarilla"
+        rel.from_entity == "House Tremere" and rel.rel_type == "MEMBER_OF_GROUP" and rel.to_entity == "Camarilla"
         for rel in inferred_relationships
     )
 

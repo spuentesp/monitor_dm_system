@@ -17,6 +17,12 @@ from monitor_data.schemas.entities import (
     EntityUpdate,
     StateTagsUpdate,
 )
+from monitor_data.schemas.entity_subtypes import (
+    GroupType,
+    PlaceType,
+    coerce_group_subtype,
+    coerce_place_subtype,
+)
 from monitor_data.tools.neo4j_tools._helpers import verify_node_exists
 
 # =============================================================================
@@ -82,6 +88,35 @@ def neo4j_create_entity(params: EntityCreate) -> EntityResponse:
         "created_at": created_at.isoformat(),
     }
 
+    # === Sub-plan 1: Sub-hierarchy second labels ===
+    # When the entity is an organization, add the :Group second label
+    # so graph queries can match any collective generically with
+    # `MATCH (n:Group)`. When the entity is a location, add the
+    # :Place second label (and additionally :World, :Region, or
+    # :Structure based on the PlaceType). The group_type / place_type
+    # properties are also stored on the node so generic retrieval
+    # queries (e.g. "find all clans in this universe") can filter
+    # without parsing the free-text sub_type field.
+    extra_labels: list[str] = []
+    group_type: GroupType | None = None
+    place_type: PlaceType | None = None
+    if params.entity_type.value == "organization":
+        group_type = coerce_group_subtype(params.sub_type)
+        extra_labels.append(":Group")
+        if group_type != GroupType.OTHER:
+            extra_labels.append(f":{group_type.value.title().replace('_', '')}")
+    elif params.entity_type.value == "location":
+        place_type = coerce_place_subtype(params.sub_type)
+        extra_labels.append(":Place")
+        if place_type == PlaceType.WORLD:
+            extra_labels.append(":World")
+        elif place_type == PlaceType.REGION:
+            extra_labels.append(":Region")
+        elif place_type == PlaceType.STRUCTURE or place_type == PlaceType.BUILDING:
+            extra_labels.append(":Structure")
+    entity_props["group_type"] = group_type.value if group_type else None
+    entity_props["place_type"] = place_type.value if place_type else None
+
     # Add state_tags for instances; ensure archetypes also have an explicit (empty) list
     if not params.is_archetype:
         entity_props["state_tags"] = params.state_tags
@@ -90,9 +125,10 @@ def neo4j_create_entity(params: EntityCreate) -> EntityResponse:
         entity_props["state_tags"] = []
 
     # Build creation query
-    create_query = """
-    MATCH (u:Universe {id: $universe_id})
-    CREATE (e:Entity $entity_props)
+    extra_labels_str = "".join(extra_labels)
+    create_query = f"""
+    MATCH (u:Universe {{id: $universe_id}})
+    CREATE (e:Entity{extra_labels_str} $entity_props)
     CREATE (u)-[:HAS_ENTITY]->(e)
     """
 

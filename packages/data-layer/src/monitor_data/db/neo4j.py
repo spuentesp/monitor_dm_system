@@ -280,8 +280,31 @@ _SCHEMA_BOOTSTRAP_QUERIES = (
     "CREATE CONSTRAINT event_id_unique IF NOT EXISTS FOR (e:Event) REQUIRE e.id IS UNIQUE",
     "CREATE CONSTRAINT plot_thread_id_unique IF NOT EXISTS FOR (t:PlotThread) REQUIRE t.id IS UNIQUE",
     "CREATE CONSTRAINT party_id_unique IF NOT EXISTS FOR (p:Party) REQUIRE p.id IS UNIQUE",
+    # === Sub-plan 1: Sub-hierarchy labels for groups and places ===
+    # :Group is the universal collective — clan, sect, organization,
+    # species, faction, party, etc. all carry the :Entity label AND
+    # a :Group label so graph queries can match any collective
+    # generically.
+    # :World, :Region, :Place, :Structure form the location
+    # sub-hierarchy used by spatial scaling (cosmic / planetary /
+    # regional / city / building).
+    "CREATE CONSTRAINT group_id_unique IF NOT EXISTS FOR (n:Group) REQUIRE n.id IS UNIQUE",
+    "CREATE CONSTRAINT world_id_unique IF NOT EXISTS FOR (n:World) REQUIRE n.id IS UNIQUE",
+    "CREATE CONSTRAINT region_id_unique IF NOT EXISTS FOR (n:Region) REQUIRE n.id IS UNIQUE",
+    "CREATE CONSTRAINT place_id_unique IF NOT EXISTS FOR (n:Place) REQUIRE n.id IS UNIQUE",
+    "CREATE CONSTRAINT structure_id_unique IF NOT EXISTS FOR (n:Structure) REQUIRE n.id IS UNIQUE",
+    # :KnowledgeTree is the Source → concept hierarchy root referenced
+    # in packages/data-layer/src/monitor_data/schemas/rpg_ontology/
+    # topology.py. Sub-plan 1 of the coverage plan reifies it as a
+    # first-class Neo4j node (was previously documented but not
+    # writable).
+    "CREATE CONSTRAINT knowledge_tree_id_unique IF NOT EXISTS FOR (n:KnowledgeTree) REQUIRE n.id IS UNIQUE",
     "CREATE INDEX entity_universe_idx IF NOT EXISTS FOR (e:Entity) ON (e.universe_id)",
     "CREATE INDEX entity_type_idx IF NOT EXISTS FOR (e:Entity) ON (e.entity_type)",
+    # === Sub-plan 1: Sub-type indexes for the new group/place taxonomy ===
+    "CREATE INDEX entity_group_type_idx IF NOT EXISTS FOR (e:Entity) ON (e.group_type)",
+    "CREATE INDEX entity_place_type_idx IF NOT EXISTS FOR (e:Entity) ON (e.place_type)",
+    "CREATE INDEX entity_sub_type_idx IF NOT EXISTS FOR (e:Entity) ON (e.sub_type)",
     "CREATE INDEX fact_universe_idx IF NOT EXISTS FOR (f:Fact) ON (f.universe_id)",
     "CREATE INDEX story_universe_idx IF NOT EXISTS FOR (s:Story) ON (s.universe_id)",
     "CREATE INDEX scene_story_idx IF NOT EXISTS FOR (s:Scene) ON (s.story_id)",
