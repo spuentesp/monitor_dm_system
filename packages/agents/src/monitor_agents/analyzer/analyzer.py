@@ -1216,14 +1216,47 @@ class RelationshipInferenceSignature(dspy.Signature):  # type: ignore[misc]
     evidenced in the source text.  Quality over quantity — skip speculative
     or trivially obvious relationships.
 
-    Examples of relationships across different game systems:
-      - "Gangrel" member_of "Camarilla" (VtM: clan belonging to a sect)
-      - "Everest" subtype_of "Frame" (Lancer: mech chassis is a frame type)
-      - "The Chosen" subtype_of "Playbook" (MotW: playbook is a character type)
-      - "Act Under Pressure" subtype_of "Basic Move" (PbtA: move category)
-      - "IPS-N" created_by "Union" (Lancer: manufacturer origin)
-      - "Tenebris" located_in "The Iron Ring" (Death in Space: sector location)
-      - "Aldana Style" subtype_of "Dueling School" (7th Sea: swordplay school)
+    Use the **canonical game-system-agnostic relationship types** below.
+    Every TTRPG has groups (clan / sect / organization / race / species /
+    faction / party), places (world / region / city / building), and powers
+    (discipline / feat / merit / edge / background). The canonical types
+    are universal — emit the canonical value, not the game-system-specific
+    term (e.g. emit MEMBER_OF_GROUP, not member_of_clan or belongs_to_sect).
+
+    Group / membership (any collective — clan, sect, organization, race,
+    species, faction, party, team, crew, house, tribe, brood, coven, cult,
+    band, gang, dynasty, cabal, fellowship, alliance):
+      MEMBER_OF_GROUP      — entity belongs to a group
+      SUBGROUP_OF_GROUP    — group is a sub-group of another group
+      LEADS_GROUP          — entity leads a group
+      FOUNDED_GROUP        — entity founded a group
+      CONTROLS_GROUP       — entity controls a group
+      ALLIED_WITH_GROUP    — group is allied with another group
+      HOSTILE_TO_GROUP     — group is hostile to another group
+
+    Place (any location — world, region, place, building, landmark):
+      LOCATED_IN_PLACE     — entity or group is located in a place
+      CONTAINS_PLACE       — place contains a sub-place
+
+    Power / cost / condition (any benefit, power, track, or status):
+      GRANTS_POWER         — group / role / class grants a power
+      PRACTICES_DISCIPLINE — entity practices a power
+      AFFECTED_BY          — entity affected by a power or condition
+      IS_BACKGROUND        — background / edge / hindrance
+      IS_TOUCHSTONE        — touchstone / conviction / tenet
+      IS_RESOURCE          — tracked resource
+
+    Examples across different game systems:
+      - "Gangrel" MEMBER_OF_GROUP "Camarilla" (VtM: clan belongs to sect)
+      - "Toreador" GRANTS_POWER "Presence" (VtM: clan grants discipline)
+      - "Sabbat" HOSTILE_TO_GROUP "Camarilla" (VtM: sect enemies)
+      - "Carthian" MEMBER_OF_GROUP "Anarch Movement" (VtM: sub-faction)
+      - "Everest" SUBTYPE_OF "Frame" (Lancer: mech chassis)
+      - "The Chosen" SUBTYPE_OF "Playbook" (MotW: playbook is character type)
+      - "Act Under Pressure" SUBTYPE_OF "Basic Move" (PbtA: move category)
+      - "IPS-N" SUBTYPE_OF "Manufacturer" (Lancer: corporation)
+      - "Tenebris" LOCATED_IN_PLACE "The Iron Ring" (Death in Space: sector)
+      - "Aldana Style" SUBTYPE_OF "Dueling School" (7th Sea: swordplay school)
     """
 
     entity_roster: str = dspy.InputField(
@@ -1232,11 +1265,11 @@ class RelationshipInferenceSignature(dspy.Signature):  # type: ignore[misc]
             "'<name> (<entity_type>[/<sub_type>][, parent=<parent>])[: <description>][ | <key>:<val>, ...]'. "
             "Use the description and property traits as evidence when inferring relationships. "
             "Example:\n"
-            "Gangrel (character/clan, parent=Vampire): Feral vampires who commune with beasts "
+            "Gangrel (organization/clan, parent=Vampire): Feral vampires who commune with beasts "
             "| sect:Camarilla, disciplines:Protean Animalism Fortitude\n"
-            "Everest (object/frame): Standard-issue GMS mech frame for all licensed pilots "
+            "Everest (concept/frame): Standard-issue GMS mech frame for all licensed pilots "
             "| manufacturer:GMS, size:1, armor:0\n"
-            "The Chosen (character/playbook): A hunter destined to fight the big bad "
+            "The Chosen (concept/playbook): A hunter destined to fight the big bad "
             "| moves:Destiny_Fulfilled+The_Big_Entrance\n"
             "Tenebris (location/sector): A dark region of space in the Iron Ring "
             "| hazard:void_corruption, population:sparse"
@@ -1250,8 +1283,8 @@ class RelationshipInferenceSignature(dspy.Signature):  # type: ignore[misc]
     relationships_reasoning: str = dspy.OutputField(
         desc=(
             "Step-by-step reasoning: "
-            "(1) Review entity types — factions may have members, locations may be controlled, "
-            "character types may serve organizations. "
+            "(1) Review entity types — groups may have members, places may contain other places, "
+            "powers may be granted by groups to members. "
             "(2) For each candidate relationship, verify it is supported by the source material. "
             "Do NOT re-emit relationships already listed in the Known structure block. "
             "(3) List the relationships you will emit, with justification for each."
@@ -1268,7 +1301,10 @@ class RelationshipInferenceSignature(dspy.Signature):  # type: ignore[misc]
             "'n/a', 'null', or any other filler. A missing relationship is better than "
             "a wrong one. "
             "(3) `from_entity` and `to_entity` must be different names — never link an "
-            "entity to itself."
+            "entity to itself. "
+            "(4) Use the **canonical game-system-agnostic rel_type** values listed in the "
+            "signature docstring. If the source text says 'Toreador grants Presence', emit "
+            "rel_type='GRANTS_POWER', not 'grants' or 'grants_power' or 'gives_power'."
         )
     )
 
