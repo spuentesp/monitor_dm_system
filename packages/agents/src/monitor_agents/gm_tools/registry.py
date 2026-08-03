@@ -136,12 +136,7 @@ def _build_default_tools() -> list[Any]:
         gm_tool_check_conditions,
         gm_tool_list_active_conditions,
     )
-    from .dice import (
-        gm_tool_roll_dice,
-        gm_tool_vtm_contested_pool,
-        gm_tool_vtm_rouse_check,
-        gm_tool_vtm_willpower_reroll,
-    )
+    from .dice import gm_tool_contested_check, gm_tool_roll_dice
     from .oracle import gm_tool_resolve_oracle
     from .scene_state import (
         gm_tool_evaluate_scenery,
@@ -159,9 +154,7 @@ def _build_default_tools() -> list[Any]:
         gm_tool_list_active_conditions(),
         # Dice + oracle (mechanical ground truth)
         gm_tool_roll_dice(),
-        gm_tool_vtm_contested_pool(),
-        gm_tool_vtm_rouse_check(),
-        gm_tool_vtm_willpower_reroll(),
+        gm_tool_contested_check(),
         gm_tool_resolve_oracle(),
     ]
 

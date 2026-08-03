@@ -18,6 +18,7 @@ The protocol is intentionally small (one method, ``resolve_check``)
 so engines are easy to implement. Other methods (reroll, spend) are
 optional via default implementations.
 """
+
 from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
@@ -27,8 +28,8 @@ from typing import Any, Protocol, runtime_checkable
 class DiceEngine(Protocol):
     """Protocol every game-system-specific dice engine implements.
 
-    Concrete engines (e.g. ``VtMV20Engine``) implement these methods
-    for one specific game system. Engines are stateless — they take
+    Concrete engines (e.g. ``PoolDiceEngine``) implement these methods
+    for one mechanic class. Engines are stateless — they take
     all context as input and return a typed result.
     """
 
@@ -63,7 +64,7 @@ class DiceEngine(Protocol):
 class DiceEngineRegistry:
     """Maps a game system name to its DiceEngine.
 
-    Engines register themselves on import (e.g. ``VtMV20Engine`` calls
+    Engines register themselves on import (e.g. ``PoolDiceEngine`` calls
     ``default_dice_registry.register(engine)`` at module load). The
     resolver picks the right engine by looking up
     ``scene_state.game_system``.
@@ -97,7 +98,6 @@ class _FallbackEngine:
     name = "generic"
 
     def resolve_check(self, **_kwargs: Any) -> Any:
-        from monitor_data.utils.dice import roll_dice
 
         class _GenericResult:
             def __init__(self) -> None:

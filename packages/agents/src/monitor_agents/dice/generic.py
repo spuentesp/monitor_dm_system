@@ -3,6 +3,7 @@ Generic dice engine — a thin wrapper over ``monitor_data.utils.dice``
 that handles plain ``1d20 + mod`` checks. Used as the fallback when
 no game-system-specific engine is registered.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
