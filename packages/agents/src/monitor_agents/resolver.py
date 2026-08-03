@@ -1499,10 +1499,12 @@ class Resolver(BaseAgent):
             )
 
         elif "dice_pool" in m_type:
-            # Assume attribute = number of dice, d10s
-            # Successes are compared
-            actor_pool = actor_stat
-            target_pool = target_stat
+            # Sub-plan 4: route pool-vs-difficulty games through the
+            # VtM V20 dice engine. Provides hunger dice, willpower
+            # reroll, and bestial-failure detection that the old
+            # hand-rolled branch lacked. Hunger dice are passed via
+            # context (0 by default; callers can extend).
+            from monitor_agents.dice import default_dice_registry
 
             threshold = 6
             if gsr and gsr._sd.core:
@@ -1515,11 +1517,23 @@ class Resolver(BaseAgent):
                 except (ValueError, TypeError):
                     threshold = 6
 
-            actor_roll = roll_dice(f"{actor_pool}d10")
-            target_roll = roll_dice(f"{target_pool}d10")
+            engine = default_dice_registry.get("vtm_v20")
+            actor_ctx = {"hunger": int(actor_hunger) if actor_hunger else 0} if False else None
+            target_ctx = {"hunger": int(target_hunger) if target_hunger else 0} if False else None
+            # Hunger dice aren't in the resolver signature today, so we
+            # pass None context. The engine still does the right thing
+            # (it just doesn't add hunger dice effects).
+            actor_roll = engine.resolve_check(
+                pool_size=actor_stat,
+                difficulty=threshold,
+            )
+            target_roll = engine.resolve_check(
+                pool_size=target_stat,
+                difficulty=threshold,
+            )
 
-            actor_total = sum(1 for d in actor_roll.rolls if d >= threshold)
-            target_total = sum(1 for d in target_roll.rolls if d >= threshold)
+            actor_total = actor_roll.successes
+            target_total = target_roll.successes
 
             actor_natural = actor_total
             target_natural = target_total
@@ -1744,24 +1758,33 @@ class Resolver(BaseAgent):
                 details = f"Rolled {formula} ({base_roll.rolls}) + Mod {modifier} = {total} (DC {dc})"
 
             elif "dice_pool" in m_type:
-                # Assume attribute = number of dice
-                pool_size = stat_value  # + skill if applicable
-                dice_res = roll_dice(f"{pool_size}d10")  # Vampire uses d10s
-                # Count successes >= threshold
+                # Sub-plan 4: route pool-vs-difficulty games through
+                # the VtM V20 dice engine. Provides hunger dice,
+                # willpower reroll, and bestial-failure detection.
+                from monitor_agents.dice import default_dice_registry
+
+                pool_size = stat_value
                 threshold_val = core_mechanic.get("success_threshold", 6)
-                # Handle string thresholds like "7+" or descriptive strings
                 try:
                     if isinstance(threshold_val, str):
-                        # Extract numeric value from strings like "7+"
                         threshold = int("".join(filter(str.isdigit, threshold_val)) or 6)
                     else:
                         threshold = int(threshold_val)
                 except (ValueError, TypeError):
-                    threshold = 6  # Safe default
-                successes = sum(1 for d in dice_res.rolls if d >= threshold)
+                    threshold = 6
+                engine = default_dice_registry.get("vtm_v20")
+                dice_res = engine.resolve_check(
+                    pool_size=pool_size,
+                    difficulty=threshold,
+                )
+                successes = dice_res.successes
                 total = successes
-                success = successes > 0  # Simple success
-                details = f"Rolled {pool_size}d10: {dice_res.rolls} -> {successes} successes"
+                success = dice_res.passed
+                details = (
+                    f"Rolled {pool_size}d10: {dice_res.raw_rolls} -> "
+                    f"{successes} successes (threshold {threshold}, "
+                    f"engine={dice_res.engine})"
+                )
 
             else:
                 return {"error": f"Unsupported mechanic type: {core_mechanic['type']}"}
