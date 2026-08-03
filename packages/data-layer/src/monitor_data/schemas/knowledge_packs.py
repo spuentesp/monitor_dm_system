@@ -472,6 +472,64 @@ _REL_TYPE_ALIASES: dict[str, str] = {
     "in_region": "LOCATED_IN_PLACE",
     "contains": "CONTAINS_PLACE",
     "within": "LOCATED_IN_PLACE",
+
+    # === Aliases observed in the live VtM ingest (2026-08-02) ===
+    # The LLM doesn't always use the canonical vocabulary from the
+    # prompt; it also invents lowercase game-system-specific terms.
+    # These aliases are added based on what the LLM actually emitted
+    # so the next canonicalisation picks them up.
+
+    # "power_of" / "powers" — LLM tends to write "Discipline is the
+    # power_of Blood Pool" or "Blood Pool powers Discipline". Both
+    # are AFFECTED_BY (the discipline is affected by the resource).
+    "power_of": "AFFECTED_BY",
+    "powers": "AFFECTED_BY",
+    "powered_by": "AFFECTED_BY",
+    "has_power_source": "AFFECTED_BY",
+    "granted_by": "GRANTS_POWER",
+    "grants_access_to": "GRANTS_POWER",
+
+    # "is_example_of" / "has_example" / "example_of" — example-of
+    # is a taxonomic relationship (an example is a subtype).
+    "is_example_of": "SUBTYPE_OF",
+    "has_example": "SUBTYPE_OF",
+    "example_of": "SUBTYPE_OF",
+
+    # "has_member" / "possesses" — generic "has" for groups/entities.
+    # Maps to MEMBER_OF_GROUP (the canonical way to express
+    # "X is a member of Y" or "X has Y as a member").
+    "has_member": "MEMBER_OF_GROUP",
+    "possesses": "MEMBER_OF_GROUP",
+
+    # "works_with" — collaboration, mapped to ALLIED_WITH_GROUP.
+    "works_with": "ALLIED_WITH_GROUP",
+
+    # "defined_by" / "causes" / "subject_to" / "involved_in" / "leads_to"
+    # — generic causal / affected relationships. Map to AFFECTED_BY
+    # which is the universal "X is affected by Y" type.
+    "defined_by": "AFFECTED_BY",
+    "causes": "AFFECTED_BY",
+    "subject_to": "AFFECTED_BY",
+    "involved_in": "AFFECTED_BY",
+    "leads_to": "AFFECTED_BY",
+
+    # "uses" / "used_by" / "used_in" / "uses_ability" / "applies_to" /
+    # "available_to" — generic "X uses Y" relationship, mapped to
+    # PRACTICES_DISCIPLINE (X practices a power Y).
+    "uses": "PRACTICES_DISCIPLINE",
+    "used_by": "PRACTICES_DISCIPLINE",
+    "used_in": "PRACTICES_DISCIPLINE",
+    "uses_ability": "PRACTICES_DISCIPLINE",
+    "applies_to": "PRACTICES_DISCIPLINE",
+    "available_to": "PRACTICES_DISCIPLINE",
+
+    # "leader_of" — leadership, maps to LEADS_GROUP.
+    "leader_of": "LEADS_GROUP",
+
+    # "also_known_as" — alias relationship. Map to SUBTYPE_OF
+    # (an alias is a kind of name-substitution; semantically closest
+    # available in our enum). Future: add an ALIAS_OF type.
+    "also_known_as": "SUBTYPE_OF",
 }
 
 

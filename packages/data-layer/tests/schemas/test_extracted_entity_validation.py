@@ -185,3 +185,46 @@ def test_relationship_rel_type_normalises_whitespace_and_case():
         rel_type="  Member Of Clan  ",
     )
     assert r.rel_type == "MEMBER_OF_GROUP"
+
+
+def test_relationship_rel_type_normalises_live_ingest_aliases():
+    """Aliases the LLM actually emitted during the VtM 20th Anniversary
+    ingest (2026-08-02) get normalised to the canonical game-system-
+    agnostic types. Captures the empirical coverage gap that the
+    next ingest needs to close."""
+    cases = [
+        ("power_of", "AFFECTED_BY"),
+        ("powers", "AFFECTED_BY"),
+        ("powered_by", "AFFECTED_BY"),
+        ("granted_by", "GRANTS_POWER"),
+        ("grants_access_to", "GRANTS_POWER"),
+        ("is_example_of", "SUBTYPE_OF"),
+        ("has_example", "SUBTYPE_OF"),
+        ("example_of", "SUBTYPE_OF"),
+        ("has_member", "MEMBER_OF_GROUP"),
+        ("possesses", "MEMBER_OF_GROUP"),
+        ("works_with", "ALLIED_WITH_GROUP"),
+        ("defined_by", "AFFECTED_BY"),
+        ("causes", "AFFECTED_BY"),
+        ("subject_to", "AFFECTED_BY"),
+        ("involved_in", "AFFECTED_BY"),
+        ("leads_to", "AFFECTED_BY"),
+        ("uses", "PRACTICES_DISCIPLINE"),
+        ("used_by", "PRACTICES_DISCIPLINE"),
+        ("used_in", "PRACTICES_DISCIPLINE"),
+        ("uses_ability", "PRACTICES_DISCIPLINE"),
+        ("applies_to", "PRACTICES_DISCIPLINE"),
+        ("available_to", "PRACTICES_DISCIPLINE"),
+        ("leader_of", "LEADS_GROUP"),
+        ("also_known_as", "SUBTYPE_OF"),
+    ]
+    for llm_emitted, expected_canonical in cases:
+        r = ExtractedRelationship(
+            from_entity="X",
+            to_entity="Y",
+            rel_type=llm_emitted,
+        )
+        assert r.rel_type == expected_canonical, (
+            f"LLM-emitted '{llm_emitted}' should normalise to "
+            f"'{expected_canonical}', got '{r.rel_type}'"
+        )
