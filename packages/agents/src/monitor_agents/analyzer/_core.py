@@ -3070,7 +3070,7 @@ class Analyzer(BaseAgent):
         """
         Post-extraction pass: infer entity-to-entity relationships.
 
-        Batching strategy (three call types, all run concurrently):
+        Batching strategy (four call types, all run concurrently):
 
         1. **Family batches** — one call per container *that has children*.
            Each call sees the container + its direct children.  Produces
@@ -3084,8 +3084,16 @@ class Analyzer(BaseAgent):
            chunked at _REL_BATCH_SIZE.  Catches standalone characters and
            objects that relate to known groups.
 
-        Keeping each batch ≤ _REL_BATCH_SIZE entities keeps token budgets
-        predictable and prevents the single-call timeouts we saw before.
+        4. **Global neighborhood batch** (Sub-plan 2 Task 1) — for each
+           real container, one call that includes the container + its
+           `entity_type` siblings + entities of related types.  This
+           gives the LLM the cross-cutting context it needs to infer
+           edges like "Toreador → grants → Presence" (clan → discipline)
+           that family batches miss because the family batch only sees
+           the container and its direct children.
+
+        Keeping each batch ≤ _GLOBAL_NEIGHBORHOOD_SIZE keeps token
+        budgets predictable.
         """
         if not entities:
             return []
@@ -3134,6 +3142,57 @@ class Analyzer(BaseAgent):
             orphans[start : start + self._REL_BATCH_SIZE] for start in range(0, len(orphans), self._REL_BATCH_SIZE)
         )
 
+        # ── Global neighborhood batches (Sub-plan 2 Task 1) ───────────────
+        # For each real container, build a focused batch that includes
+        # the container + its children + its entity_type siblings +
+        # entities of related types. This is the structural fix for
+        # "Toreador doesn't see Presence" — the family batch for "Clan"
+        # only includes Clan children (Toreador, Ventrue, Brujah) and
+        # doesn't see the disciplines (concepts) those clans grant.
+        # The neighborhood batch gives the LLM the cross-cutting view
+        # it needs to emit Toreador → grants → Presence.
+        _GLOBAL_NEIGHBORHOOD_SIZE = 50
+        for container in real_containers:
+            container_type = container.entity_type
+            # Children of this container (always included — they're the
+            # entities most likely to have cross-cutting edges with
+            # related-type entities).
+            children = children_by_parent.get(container.name, [])
+            # Siblings: entities of the same entity_type that are NOT
+            # children of this container and NOT the container itself.
+            children_names = {c.name.lower().strip() for c in children}
+            siblings = [
+                e for e in entities
+                if e.entity_type == container_type
+                and e.name.lower().strip() != container.name.lower().strip()
+                and e.name.lower().strip() not in children_names
+            ]
+            # Related types: the entity_types that the LLM most often
+            # needs to cross-link to. A Clan (organization) relates to
+            # Discipline (concept) and Path (concept). We use a small
+            # static map of "container_type → related_types" to keep
+            # the batch size manageable.
+            RELATED_TYPES_MAP: dict[str, list[str]] = {
+                "organization": ["concept", "location"],
+                "faction": ["concept", "location"],
+                "concept": ["organization", "faction"],
+                "location": ["organization", "faction"],
+                "character": ["organization", "concept"],
+            }
+            related_types = RELATED_TYPES_MAP.get(container_type, [])
+            related_entities = [
+                e for e in entities
+                if e.entity_type in related_types
+                and e.name.lower().strip() != container.name.lower().strip()
+            ]
+            # Build the neighborhood: container + children + siblings +
+            # related entities. Children come first so the LLM sees the
+            # "Toreador, Brujah, ..." of the clan before the disciplines.
+            # Cap at _GLOBAL_NEIGHBORHOOD_SIZE.
+            neighborhood = [container] + children + siblings + related_entities
+            if len(neighborhood) >= 2:
+                batches.append(neighborhood[:_GLOBAL_NEIGHBORHOOD_SIZE])
+
         # Remove duplicate / single-entity batches (no rels can be inferred
         # from a single entity).
         seen_ids: set[frozenset[str]] = set()
@@ -3166,6 +3225,20 @@ class Analyzer(BaseAgent):
         async def _run_batch(batch: list[ExtractedEntityArchetype]) -> list[ExtractedRelationship]:
             roster_lines = [self._build_entity_roster_line(e) for e in batch]
             entity_roster = "\n".join(roster_lines)
+            # The neighborhood batch is focused on a single container —
+            # label the prompt so the LLM knows the focus.
+            if any(e in real_containers for e in batch) and len(batch) < _GLOBAL_NEIGHBORHOOD_SIZE:
+                # Likely a neighborhood batch (small, has a container).
+                focus = next((e for e in batch if e in real_containers), None)
+                if focus is not None:
+                    entity_roster = (
+                        f"# Focus entity: {focus.name} ({focus.entity_type})\n"
+                        f"# Infer ALL meaningful relationships between "
+                        f"{focus.name} and the entities below. "
+                        f"Pay particular attention to group membership, "
+                        f"place containment, and power relationships.\n\n"
+                        f"{entity_roster}"
+                    )
             full_roster = (
                 f"# Known structure (do not re-emit these as REL lines):\n{known_snapshot}\n\n"
                 f"# Entities to analyse:\n{entity_roster}"
