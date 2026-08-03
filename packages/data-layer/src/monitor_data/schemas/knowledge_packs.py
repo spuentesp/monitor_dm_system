@@ -18,7 +18,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from monitor_data.schemas.agendas import ExtractedAgenda
 from monitor_data.schemas.base import (
@@ -31,6 +31,12 @@ from monitor_data.schemas.base import (
     Trimmed1000,
     TrimmedCoerce500,
     TrimmedCoerce1000,
+)
+from monitor_data.schemas.entity_subtypes import (
+    GroupType,
+    PlaceType,
+    coerce_group_subtype,
+    coerce_place_subtype,
 )
 from monitor_data.schemas.game_systems import (
     ActionEconomy,
@@ -148,6 +154,33 @@ class ExtractedEntityArchetype(BaseModel):
         description="Arbitrary key-value pairs (e.g. {'habitat': 'mountains'})",
     )
 
+    # === Sub-plan 1: Cross-validated sub_type enums ===
+    # When entity_type == "organization", group_type is auto-populated
+    # from sub_type via the GroupType enum (clan/sect/organization/race/
+    # species/faction/party/team/crew/house/tribe/brood/coven/cult/band/
+    # gang/dynasty/cabal/fellowship/alliance/other). When entity_type
+    # == "location", place_type is auto-populated from sub_type via the
+    # PlaceType enum (world/plane/dimension/continent/region/kingdom/
+    # country/city/town/district/neighborhood/structure/building/room/
+    # landmark/dungeon/wilderness/other). Use these fields for graph
+    # queries; sub_type retains the original string.
+    group_type: GroupType | None = Field(
+        default=None,
+        description=(
+            "Set automatically when entity_type == 'organization'. "
+            "Coerced from sub_type via GroupType. Use this field "
+            "for graph queries; sub_type retains the original string."
+        ),
+    )
+    place_type: PlaceType | None = Field(
+        default=None,
+        description=(
+            "Set automatically when entity_type == 'location'. "
+            "Coerced from sub_type via PlaceType. Use this field "
+            "for graph queries; sub_type retains the original string."
+        ),
+    )
+
     @field_validator("properties", mode="before")
     @classmethod
     def _coerce_properties(cls, value: Any) -> dict[str, Any]:
@@ -173,6 +206,48 @@ class ExtractedEntityArchetype(BaseModel):
         if isinstance(value, (list, tuple)):
             return {f"item_{i}": v for i, v in enumerate(value)}
         return {"value": value}
+
+    @model_validator(mode="after")
+    def _populate_group_and_place_type(self) -> "ExtractedEntityArchetype":
+        """Cross-field: when entity_type is organization/location,
+        coerce sub_type to GroupType/PlaceType. Preserves the original
+        sub_type string and stores it in properties['_original_sub_type']
+        when it differs from the canonical enum value, so the LLM can
+        emit game-system-specific labels without breaking the schema.
+        """
+        if self.entity_type == "organization":
+            coerced = coerce_group_subtype(self.sub_type)
+            if coerced != GroupType.OTHER and self.sub_type != coerced.value:
+                # LLM used a known group term but in a non-canonical
+                # case (e.g. "Clan" or "CLAN" raw). Normalise to
+                # the lowercase enum value.
+                self.sub_type = coerced.value
+            elif coerced == GroupType.OTHER and self.sub_type:
+                # Unknown term — preserve original for auditability.
+                if self.properties is None:
+                    self.properties = {}
+                self.properties.setdefault(
+                    "_original_sub_type", self.sub_type
+                )
+            self.group_type = coerced
+        elif self.entity_type == "location":
+            coerced = coerce_place_subtype(self.sub_type)
+            if coerced != PlaceType.OTHER and self.sub_type != coerced.value:
+                self.sub_type = coerced.value
+            elif coerced == PlaceType.OTHER and self.sub_type:
+                if self.properties is None:
+                    self.properties = {}
+                self.properties.setdefault(
+                    "_original_sub_type", self.sub_type
+                )
+            self.place_type = coerced
+        else:
+            # For character/faction/object/concept, group/place_type
+            # stay None. The cross-field invariant is: only
+            # organizations and locations carry group/place_type.
+            self.group_type = None
+            self.place_type = None
+        return self
 
     parent_archetype: Trimmed200 | None = Field(
         None,
