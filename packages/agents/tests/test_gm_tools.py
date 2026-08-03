@@ -221,3 +221,62 @@ def test_gmverdict_to_dict_is_json_serializable() -> None:
     assert parsed["roll_necessity"] == "contested"
     assert parsed["subsystem_hint"] == "combat"
     assert parsed["tool_call_count"] == 2
+
+
+class TestVtMDiceTools:
+    """Sub-plan 4 Task 4: the VtM V20 dice engine is exposed to the
+    GMAgent as MCP tools. This test pins the new tools: tool name,
+    args, and JSON output shape."""
+
+    def test_vtm_contested_pool_in_registry(self):
+        names = {t.name for t in get_tools_list()}
+        assert "vtm_contested_pool" in names
+
+    def test_vtm_rouse_check_in_registry(self):
+        names = {t.name for t in get_tools_list()}
+        assert "vtm_rouse_check" in names
+
+    def test_vtm_willpower_reroll_in_registry(self):
+        names = {t.name for t in get_tools_list()}
+        assert "vtm_willpower_reroll" in names
+
+    def test_vtm_contested_pool_tool_contract(self):
+        """The tool's call function returns JSON with the expected keys."""
+        import json
+        from monitor_agents.gm_tools.dice import gm_tool_vtm_contested_pool
+        tool = gm_tool_vtm_contested_pool()
+        # Call the underlying function via the tool's internal func.
+        result_json = tool.func(pool_size=5, difficulty=6, hunger=0)
+        result = json.loads(result_json)
+        assert result["engine"] == "vtm_v20"
+        assert result["pool_size"] == 5
+        assert result["difficulty"] == 6
+        assert "successes" in result
+        assert "raw_rolls" in result
+        assert "passed" in result
+        assert isinstance(result["raw_rolls"], list)
+        assert len(result["raw_rolls"]) == 5
+
+    def test_vtm_rouse_check_tool_contract(self):
+        import json
+        from monitor_agents.gm_tools.dice import gm_tool_vtm_rouse_check
+        tool = gm_tool_vtm_rouse_check()
+        result = json.loads(tool.func())
+        assert result["engine"] == "vtm_v20"
+        assert result["roll_type"] == "rouse_check"
+        assert 1 <= result["roll"] <= 10
+        assert result["success"] is True
+
+    def test_vtm_willpower_reroll_tool_contract(self):
+        import json
+        from monitor_agents.gm_tools.dice import gm_tool_vtm_willpower_reroll
+        tool = gm_tool_vtm_willpower_reroll()
+        # 2 failures + 3 successes at DC 6.
+        result = json.loads(tool.func("[3, 4, 6, 7, 8]", 6))
+        assert "rolls" in result
+        assert len(result["rolls"]) == 5
+        # First two were failures; should be rerolled. The original 6, 7, 8
+        # should be preserved.
+        assert result["rolls"][2] == 6
+        assert result["rolls"][3] == 7
+        assert result["rolls"][4] == 8
