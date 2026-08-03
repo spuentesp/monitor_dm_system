@@ -221,3 +221,87 @@ def test_gmverdict_to_dict_is_json_serializable() -> None:
     assert parsed["roll_necessity"] == "contested"
     assert parsed["subsystem_hint"] == "combat"
     assert parsed["tool_call_count"] == 2
+
+
+class TestContestedCheckTool:
+    """The generic ``contested_check`` tool (no VtM in the name) is the
+    GMAgent's interface to the pool dice engine. The tool takes a
+    pool_size and difficulty (which the resolver/GMAgent should pull
+    from the world's core_mechanic, not from hardcoded values) and
+    returns a JSON blob the narrator can narrate from.
+
+    This is the generic surface the user asked for: the dice system
+    is driven by the rules in the seed/PDF, and the tool is the
+    engine that applies them. There's no VtM-specific naming or
+    behaviour — the engine reads its parameters from the world
+    config (the PDF's core_mechanic) and the caller is responsible
+    for passing them.
+    """
+
+    def test_contested_check_in_registry(self):
+        from monitor_agents.gm_tools import GM_TOOLS
+        names = {t.name for t in GM_TOOLS()}
+        assert "contested_check" in names
+        # The old VtM-specific names must NOT be in the registry.
+        assert "vtm_contested_pool" not in names
+        assert "vtm_rouse_check" not in names
+        assert "vtm_willpower_reroll" not in names
+
+    def test_contested_check_tool_contract(self):
+        import json
+        from monitor_agents.gm_tools.dice import gm_tool_contested_check
+        tool = gm_tool_contested_check()
+        result_json = tool.func(pool_size=5, difficulty=6)
+        result = json.loads(result_json)
+        # The tool returns the engine's typed result as JSON.
+        assert "successes" in result
+        assert "raw_rolls" in result
+        assert "passed" in result
+        assert result["pool_size"] == 5
+        assert result["difficulty"] == 6
+        assert len(result["raw_rolls"]) == 5
+        # The engine name is the generic "pool", not "vtm_v20".
+        assert result["engine"] == "pool"
+
+    def test_contested_check_uses_difficulty_from_seed(self):
+        """The test_pool_engine_uses_seed_mechanics test in
+        tests/dice/test_pool_engine.py already proves the end-to-end
+        round-trip from the seed JSON to the engine. Here we pin the
+        GM-tool surface: the tool is what the GMAgent actually calls
+        during play, and it must use whatever difficulty the world's
+        core_mechanic provides — not a hardcoded value."""
+        import json
+        from pathlib import Path
+        from unittest.mock import patch
+        from monitor_agents.gm_tools.dice import gm_tool_contested_check
+
+        # Load the seed: the world config provides difficulty=6
+        # (from core_mechanic.success_threshold = "6"). The test file
+        # is at packages/agents/tests/test_gm_tools.py, so 3 .parent
+        # calls reach the repo root (tests → agents → packages).
+        repo_root = Path(__file__).resolve().parents[3]
+        seed_path = (
+            repo_root / "packages" / "data-layer" / "src"
+            / "monitor_data" / "defaults" / "systems" / "vampire.json"
+        )
+        with open(seed_path) as f:
+            seed = json.load(f)
+        seed_threshold = int(seed["core_mechanic"]["success_threshold"])
+
+        tool = gm_tool_contested_check()
+
+        # Patch the random rolls so the test is deterministic. Five
+        # 8s at DC 6 = 5 successes.
+        rolls_iter = iter([8, 8, 8, 8, 8])
+        import random as _r
+        original_randint = _r.randint
+        _r.randint = lambda a, b: next(rolls_iter)
+        try:
+            result = json.loads(tool.func(pool_size=5, difficulty=seed_threshold))
+        finally:
+            _r.randint = original_randint
+
+        # The tool's difficulty matches the seed's threshold exactly.
+        assert result["difficulty"] == seed_threshold
+        assert result["successes"] == 5
+        assert result["passed"] is True
