@@ -265,6 +265,7 @@ class ContextAssembly(BaseAgent):
             {
                 "entities":    [...],
                 "memories":    [...],
+                "knowledge":   [...], # sub-plan 3 task 4: world rules + axioms
                 "turns":       [...],
                 "game_system": {...},  # compact game system rules/stats for narrator & resolver
                 "summary":     str,   # only if player_action is provided
@@ -313,6 +314,14 @@ class ContextAssembly(BaseAgent):
 
         memories = await self._fetch_memories(
             scene_id, story_id, memory_query, entity_id=actor_id, universe_id=universe_id
+        )
+        # Sub-plan 3 Task 4: also pull world rules + axioms from the
+        # Qdrant `knowledge` collection so the narrator and resolver
+        # see the canon (VtM rules, paths, etc.) relevant to the
+        # current player action. Uses the same expanded query as
+        # memories so the two streams stay topically aligned.
+        knowledge = await self._fetch_knowledge(
+            memory_query, universe_id=universe_id, limit=8,
         )
         logger.info("SCENE_SPAN embed=%.0fms", (time.perf_counter() - t_embed) * 1000)
 
@@ -380,6 +389,7 @@ class ContextAssembly(BaseAgent):
         result: dict[str, Any] = {
             "entities": entities,
             "memories": memories,
+            "knowledge": knowledge,
             "turns": turns,
             "game_system": game_system,
             "source_profile": source_profile,
@@ -678,6 +688,61 @@ class ContextAssembly(BaseAgent):
             return []
         self._cache_set_json(cache_key, entities, ttl=self._ttl(short=True))
         return cast(list[dict[str, Any]], entities)
+
+    async def _fetch_knowledge(
+        self,
+        query: str,
+        *,
+        universe_id: str | None = None,
+        limit: int = 8,
+    ) -> list[dict[str, Any]]:
+        """Sub-plan 3 Task 4: Pull world rules + axioms + facts from the
+        Qdrant `knowledge` collection so the narrator and resolver
+        see the canon (VtM rules, paths, etc.) relevant to the
+        current player action.
+
+        Returns a list of dicts with at least ``text`` (the
+        statement / axiom / fact), ``node_type`` (axiom / fact /
+        etc.), and the source metadata. Falls back to an empty list
+        on any retrieval error (the rest of the scene context still
+        works without knowledge hits).
+        """
+        if not query:
+            return []
+        cache_key = self._cache_key(
+            "scene_knowledge",
+            universe_id or "all",
+            query,
+        )
+        cached = self._cache_get_json(cache_key)
+        if isinstance(cached, list):
+            return cast(list[dict[str, Any]], cached)
+
+        filter_dict: dict[str, Any] = {}
+        if universe_id:
+            filter_dict["universe_id"] = str(universe_id)
+
+        try:
+            raw = await self.call_tool(
+                "qdrant_search",
+                {
+                    "collection": "knowledge",
+                    "query_text": query,
+                    "limit": limit,
+                    "filter": filter_dict,
+                },
+            )
+        except Exception as exc:
+            logger.debug("_fetch_knowledge: qdrant_search failed: %s", exc)
+            self._cache_set_json(cache_key, [], ttl=self._ttl(short=True))
+            return []
+        if not raw:
+            self._cache_set_json(cache_key, [], ttl=self._ttl(short=True))
+            return []
+
+        hits = _unwrap_search_results(raw)
+        self._cache_set_json(cache_key, hits, ttl=self._ttl(short=True))
+        return hits
 
     async def _fetch_memories(
         self,

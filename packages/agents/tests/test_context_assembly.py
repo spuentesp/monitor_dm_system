@@ -1568,3 +1568,52 @@ class TestCheckAndCompressIfNeeded:
         result = await agent.check_and_compress_if_needed(large_context, player_action="I look around")
         assert result.get("_compressed") is None
         assert result["memories"] == []
+
+
+class TestFetchKnowledge:
+    """Sub-plan 3 Task 4: Context assembly now also pulls the world
+    rules + axioms + facts from the Qdrant `knowledge` collection.
+    This test pins the new _fetch_knowledge method: empty query is
+    safe, parsing returns parsed hits, retrieval errors don't crash."""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_for_empty_query(self):
+        from monitor_agents.context_assembly.agent import ContextAssembly
+        agent = ContextAssembly.__new__(ContextAssembly)
+        agent.call_tool = AsyncMock()
+        result = await agent._fetch_knowledge("")
+        assert result == []
+        agent.call_tool.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_parsed_knowledge_hits(self):
+        from monitor_agents.context_assembly.agent import ContextAssembly
+        agent = ContextAssembly.__new__(ContextAssembly)
+        hits = [
+            {"node_id": "n1", "text": "The Beast is the monster within.", "node_type": "axiom"},
+            {"node_id": "n2", "text": "Camarilla is a sect.", "node_type": "fact"},
+        ]
+        agent.call_tool = AsyncMock(return_value=json.dumps(hits))
+        result = await agent._fetch_knowledge("the Beast")
+        assert result == hits
+
+    @pytest.mark.asyncio
+    async def test_scopes_knowledge_to_universe(self):
+        from monitor_agents.context_assembly.agent import ContextAssembly
+        agent = ContextAssembly.__new__(ContextAssembly)
+        agent.call_tool = AsyncMock(return_value=json.dumps([]))
+        await agent._fetch_knowledge(
+            "the Beast", universe_id="11111111-1111-1111-1111-111111111111",
+        )
+        # Confirm the call was made with the universe filter.
+        call = agent.call_tool.call_args
+        filter_passed = call.kwargs.get("filter") or call.args[1].get("filter", {})
+        assert filter_passed.get("universe_id") == "11111111-1111-1111-1111-111111111111"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_retrieval_error(self):
+        from monitor_agents.context_assembly.agent import ContextAssembly
+        agent = ContextAssembly.__new__(ContextAssembly)
+        agent.call_tool = AsyncMock(side_effect=Exception("qdrant down"))
+        result = await agent._fetch_knowledge("the Beast")
+        assert result == []
