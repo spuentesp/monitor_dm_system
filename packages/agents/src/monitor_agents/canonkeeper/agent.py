@@ -221,6 +221,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
     # Relationship type normalization (maps aliases → Neo4j rel type)
     # ------------------------------------------------------------------
     _REL_TYPE_MAP = {
+        # Legacy mappings (kept for backward compatibility)
         "member_of": "MEMBER_OF",
         "part_of": "PART_OF",
         "subgroup_of": "SUBGROUP_OF",
@@ -243,15 +244,106 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         "instance_of": "INSTANCE_OF",
         "subtype_of": "SUBTYPE_OF",
         "worships": "REVERES",
+        "reveres": "REVERES",
         "participates_in": "PARTICIPATES_IN",
         "knows": "KNOWS",
         "related_to": "RELATED_TO",
+
+        # === Sub-plan 1: Game-system-agnostic group/place/power types ===
+        # The LLM may emit these canonical names directly, in which case
+        # we pass them through (lowercase → uppercase conversion).
+        "member_of_group": "MEMBER_OF_GROUP",
+        "subgroup_of_group": "SUBGROUP_OF_GROUP",
+        "leads_group": "LEADS_GROUP",
+        "founded_group": "FOUNDED_GROUP",
+        "controls_group": "CONTROLS_GROUP",
+        "allied_with_group": "ALLIED_WITH_GROUP",
+        "hostile_to_group": "HOSTILE_TO_GROUP",
+        "affected_by": "AFFECTED_BY",
+        "grants_power": "GRANTS_POWER",
+        "practices_discipline": "PRACTICES_DISCIPLINE",
+        "located_in_place": "LOCATED_IN_PLACE",
+        "contains_place": "CONTAINS_PLACE",
+        "is_background": "IS_BACKGROUND",
+        "is_touchstone": "IS_TOUCHSTONE",
+        "is_resource": "IS_RESOURCE",
+        # Aliases the LLM commonly emits (game-system-specific terms).
+        # Each one resolves to the canonical game-system-agnostic type.
+        "member_of_sect": "MEMBER_OF_GROUP",
+        "member_of_clan": "MEMBER_OF_GROUP",
+        "member_of_faction": "MEMBER_OF_GROUP",
+        "member_of_organization": "MEMBER_OF_GROUP",
+        "member_of_party": "MEMBER_OF_GROUP",
+        "member_of_race": "MEMBER_OF_GROUP",
+        "member_of_team": "MEMBER_OF_GROUP",
+        "member_of_crew": "MEMBER_OF_GROUP",
+        "member_of_house": "MEMBER_OF_GROUP",
+        "member_of_tribe": "MEMBER_OF_GROUP",
+        "member_of_brood": "MEMBER_OF_GROUP",
+        "member_of_coven": "MEMBER_OF_GROUP",
+        "member_of_cult": "MEMBER_OF_GROUP",
+        "member_of_band": "MEMBER_OF_GROUP",
+        "member_of_gang": "MEMBER_OF_GROUP",
+        "member_of_dynasty": "MEMBER_OF_GROUP",
+        "member_of_cabal": "MEMBER_OF_GROUP",
+        "member_of_fellowship": "MEMBER_OF_GROUP",
+        "member_of_alliance": "MEMBER_OF_GROUP",
+        "belongs_to": "MEMBER_OF_GROUP",
+        "belongs_to_clan": "MEMBER_OF_GROUP",
+        "belongs_to_sect": "MEMBER_OF_GROUP",
+        "serves_in": "MEMBER_OF_GROUP",
+        "is_a_member_of": "MEMBER_OF_GROUP",
+        "of_clan": "MEMBER_OF_GROUP",
+        "of_sect": "MEMBER_OF_GROUP",
+        "of_faction": "MEMBER_OF_GROUP",
+        # Sub-group aliases
+        "subclan_of": "SUBGROUP_OF_GROUP",
+        "subfaction_of": "SUBGROUP_OF_GROUP",
+        "house_of": "SUBGROUP_OF_GROUP",
+        "under_sect": "SUBGROUP_OF_GROUP",
+        # Leadership aliases
+        "leads_sect": "LEADS_GROUP",
+        "leads_clan": "LEADS_GROUP",
+        "leads_faction": "LEADS_GROUP",
+        "commands": "LEADS_GROUP",
+        "rules_over": "LEADS_GROUP",
+        "founded": "FOUNDED_GROUP",
+        "created": "FOUNDED_GROUP",
+        # Power aliases
+        "grants": "GRANTS_POWER",
+        "gives": "GRANTS_POWER",
+        "has_power": "PRACTICES_DISCIPLINE",
+        "practices": "PRACTICES_DISCIPLINE",
+        "uses_power": "PRACTICES_DISCIPLINE",
+        "learns": "PRACTICES_DISCIPLINE",
+        "knows_power": "PRACTICES_DISCIPLINE",
+        "has_discipline": "PRACTICES_DISCIPLINE",
+        "has_ability": "PRACTICES_DISCIPLINE",
+        "cursed_by": "AFFECTED_BY",
+        "blessed_by": "AFFECTED_BY",
+        "has_background": "IS_BACKGROUND",
+        "has_merit": "IS_BACKGROUND",
+        "has_flaw": "IS_BACKGROUND",
+        "has_edge": "IS_BACKGROUND",
+        "has_hindrance": "IS_BACKGROUND",
+        "has_touchstone": "IS_TOUCHSTONE",
+        "has_conviction": "IS_TOUCHSTONE",
+        "has_tenet": "IS_TOUCHSTONE",
+        "has_resource": "IS_RESOURCE",
+        # Place aliases
+        "based_in": "LOCATED_IN_PLACE",
+        "found_in": "LOCATED_IN_PLACE",
+        "in_city": "LOCATED_IN_PLACE",
+        "in_world": "LOCATED_IN_PLACE",
+        "in_region": "LOCATED_IN_PLACE",
+        "within": "LOCATED_IN_PLACE",
     }
 
     # Neo4j rel_type → RelationshipCategory value. neo4j_create_relationship
     # requires `category`; without it every entity_relationship commit fails
     # validation ("params.category: Field required").
     _REL_CATEGORY_MAP = {
+        # Legacy mappings (kept for backward compatibility)
         "MEMBER_OF": "membership",
         "PART_OF": "membership",
         "SUBGROUP_OF": "membership",
@@ -272,6 +364,27 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         "SUBTYPE_OF": "taxonomic",
         "PARTICIPATES_IN": "temporal",
         "RELATED_TO": "generic",
+        # === Sub-plan 1: Game-system-agnostic group/place/power types ===
+        # Group types — all map to "membership" so graph queries can
+        # find every group relationship generically.
+        "MEMBER_OF_GROUP": "membership",
+        "SUBGROUP_OF_GROUP": "membership",
+        "LEADS_GROUP": "membership",
+        "FOUNDED_GROUP": "membership",
+        "CONTROLS_GROUP": "membership",
+        "ALLIED_WITH_GROUP": "membership",
+        "HOSTILE_TO_GROUP": "membership",
+        # Place types — all map to "spatial".
+        "LOCATED_IN_PLACE": "spatial",
+        "CONTAINS_PLACE": "spatial",
+        # Power/cost/condition types — all map to "taxonomic" so they
+        # sit alongside SUBTYPE_OF / INSTANCE_OF for graph traversals.
+        "AFFECTED_BY": "taxonomic",
+        "GRANTS_POWER": "taxonomic",
+        "PRACTICES_DISCIPLINE": "taxonomic",
+        "IS_BACKGROUND": "taxonomic",
+        "IS_TOUCHSTONE": "taxonomic",
+        "IS_RESOURCE": "taxonomic",
     }
 
     # LLM extraction over garbled/OCR'd source text occasionally emits a
