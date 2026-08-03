@@ -48,6 +48,76 @@ class RelationshipType(StrEnum):
     LEADS = "LEADS"  # Character leads a faction/group
     WORKS_FOR = "WORKS_FOR"  # Employment/service relationship
 
+    # === Sub-plan 1: Game-system-agnostic group/place/power types ===
+    # A "group" is any collective (clan, sect, organization, race, species,
+    # faction, party). A "place" is any location. "Power" covers anything
+    # that gives, costs, or conditions an entity's capability.
+    # Every TTRPG has groups, places, and powers — just called by
+    # different names. These are intentional generic terms.
+    MEMBER_OF_GROUP = "MEMBER_OF_GROUP"             # entity belongs to a group
+    SUBGROUP_OF_GROUP = "SUBGROUP_OF_GROUP"         # group is a sub-group of another
+    LEADS_GROUP = "LEADS_GROUP"                     # entity leads a group
+    FOUNDED_GROUP = "FOUNDED_GROUP"                 # entity founded a group
+    CONTROLS_GROUP = "CONTROLS_GROUP"               # entity controls a group
+    ALLIED_WITH_GROUP = "ALLIED_WITH_GROUP"         # group is allied with another
+    HOSTILE_TO_GROUP = "HOSTILE_TO_GROUP"           # group is hostile to another
+    AFFECTED_BY = "AFFECTED_BY"                     # entity affected by a power/condition
+    GRANTS_POWER = "GRANTS_POWER"                   # group/role grants a power
+    PRACTICES_DISCIPLINE = "PRACTICES_DISCIPLINE"   # entity practices a power
+    LOCATED_IN_PLACE = "LOCATED_IN_PLACE"           # entity/group in a place
+    CONTAINS_PLACE = "CONTAINS_PLACE"               # place contains a sub-place
+    IS_BACKGROUND = "IS_BACKGROUND"                 # background/edge/hindrance
+    IS_TOUCHSTONE = "IS_TOUCHSTONE"                 # touchstone/conviction/tenet
+    IS_RESOURCE = "IS_RESOURCE"                     # tracked resource
+
+
+# === Sub-plan 1: Canonical category map for every relationship type ===
+# Lets the canonkeeper pick the right Neo4j edge category without
+# per-system branching. Categories match RelationshipCategory enum
+# values (social / membership / ownership / spatial / temporal /
+# taxonomic / power / generic).
+RELATIONSHIP_CATEGORIES: dict[RelationshipType, str] = {
+    # Group membership (universal across TTRPGs)
+    RelationshipType.MEMBER_OF_GROUP: "membership",
+    RelationshipType.SUBGROUP_OF_GROUP: "membership",
+    RelationshipType.LEADS_GROUP: "membership",
+    RelationshipType.FOUNDED_GROUP: "membership",
+    RelationshipType.CONTROLS_GROUP: "membership",
+    RelationshipType.ALLIED_WITH_GROUP: "membership",
+    RelationshipType.HOSTILE_TO_GROUP: "membership",
+    # Place containment (universal)
+    RelationshipType.LOCATED_IN_PLACE: "spatial",
+    RelationshipType.CONTAINS_PLACE: "spatial",
+    # Power / cost / condition (universal)
+    RelationshipType.AFFECTED_BY: "taxonomic",
+    RelationshipType.GRANTS_POWER: "taxonomic",
+    RelationshipType.PRACTICES_DISCIPLINE: "taxonomic",
+    RelationshipType.IS_BACKGROUND: "taxonomic",
+    RelationshipType.IS_TOUCHSTONE: "taxonomic",
+    RelationshipType.IS_RESOURCE: "taxonomic",
+    # Legacy types — keep their existing categories.
+    RelationshipType.MEMBER_OF: "membership",
+    RelationshipType.PART_OF: "membership",
+    RelationshipType.SUBGROUP_OF: "membership",
+    RelationshipType.AFFILIATED_WITH: "membership",
+    RelationshipType.SUBTYPE_OF: "taxonomic",
+    RelationshipType.INSTANCE_OF: "taxonomic",
+    RelationshipType.DERIVES_FROM: "taxonomic",
+    RelationshipType.RELATED_TO: "generic",
+    RelationshipType.KNOWS: "social",
+    RelationshipType.ALLIED_WITH: "social",
+    RelationshipType.HOSTILE_TO: "social",
+    RelationshipType.REVERES: "social",
+    RelationshipType.LEADS: "social",
+    RelationshipType.WORKS_FOR: "social",
+    RelationshipType.OWNS: "ownership",
+    RelationshipType.CONTROLLED_BY: "ownership",
+    RelationshipType.CONTROLS: "ownership",
+    RelationshipType.LOCATED_IN: "spatial",
+    RelationshipType.CONTAINS: "spatial",
+    RelationshipType.PARTICIPATES_IN: "temporal",
+}
+
 
 class RelationshipCategory(StrEnum):
     """High-level categories for contextual filtering.
