@@ -950,3 +950,80 @@ def test_infer_relationships_generates_global_neighborhood_batches():
     # (The captured roster should mention "Focus entity: Clan".)
     # This is implicit in the test design — if the label is missing,
     # the test will catch it via the captured roster inspection.
+
+
+def test_infer_relationships_orphan_rescue_pass():
+    """Sub-plan 2 Task 2: After the main batches, entities with no
+    outgoing edges that aren't containers/children get a focused
+    rescue batch. The LLM is told these are orphans and asked to
+    infer what they should relate to."""
+    import asyncio
+    from types import SimpleNamespace
+    from monitor_agents.analyzer._core import Analyzer
+    from monitor_data.schemas.knowledge_packs import ExtractedEntityArchetype
+
+    # 3 entities. Brujah and Toreador are in a family batch
+    # (they're children of Clan). Animalism is a sibling concept
+    # that should have outgoing edges (e.g. "Brujah practices
+    # Animalism") but the main batches might not catch this.
+    entities = [
+        ExtractedEntityArchetype(
+            name="Clan", entity_type="organization", sub_type="clan",
+            description="A vampire bloodline.",
+        ),
+        ExtractedEntityArchetype(
+            name="Brujah", entity_type="organization", sub_type="clan",
+            description="Rebel clan.",
+            parent_entity_name="Clan",
+        ),
+        ExtractedEntityArchetype(
+            name="Animalism", entity_type="concept", sub_type="discipline",
+            description="A vampire discipline of beast communion.",
+        ),
+    ]
+
+    analyzer = Analyzer()
+    call_count = {"family": 0, "rescue": 0}
+    rescued_rels = []
+
+    async def fake_call_module(module, *, stage, batch_id, **kwargs):
+        roster = kwargs.get("entity_roster", "")
+        # The rescue batch has a different stage label.
+        if "orphan_rescue" in stage:
+            call_count["rescue"] += 1
+            # Simulate the LLM inferring that Animalism is a discipline
+            # of the Brujah clan.
+            rescued_rels.append(SimpleNamespace(
+                from_entity="Animalism",
+                to_entity="Brujah",
+                rel_type="AFFECTED_BY",
+                description="Animalism is commonly associated with the Brujah clan.",
+                confidence=0.8,
+            ))
+            return SimpleNamespace(relationships=rescued_rels)
+        call_count["family"] += 1
+        # Main batches return empty.
+        return SimpleNamespace(relationships=[])
+
+    analyzer._call_module = fake_call_module  # type: ignore[method-assign]
+
+    result = asyncio.run(analyzer._infer_relationships(
+        entities=entities,
+        source_name="test-orphan-rescue",
+    ))
+
+    # The rescue pass should have been called at least once
+    # because Animalism has 0 outgoing edges after the main
+    # inference (the main batches return empty).
+    assert call_count["rescue"] >= 1, (
+        f"Orphan rescue pass should have been invoked, got {call_count}"
+    )
+    # The rescued relationship should be in the result.
+    found_animalism = any(
+        r.from_entity == "Animalism" and r.to_entity == "Brujah"
+        for r in result
+    )
+    assert found_animalism, (
+        f"Orphan rescue should have produced Animalism → Brujah, "
+        f"got result: {result}"
+    )

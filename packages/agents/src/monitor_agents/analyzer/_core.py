@@ -3264,6 +3264,83 @@ class Analyzer(BaseAgent):
         all_rels: list[ExtractedRelationship] = []
         for rels in batch_results:
             all_rels.extend(rels)
+
+        # === Sub-plan 2 Task 2: Orphan rescue pass =====================
+        # After the main batches, identify entities that have no outgoing
+        # edges and aren't top-level containers / taxonomy roots. These
+        # are "orphans" — concepts that should relate to other entities
+        # but the main batches didn't catch. The main batches miss them
+        # because they focus on containers (family, cross-family,
+        # neighborhood) and the orphan batch only handles root nodes
+        # with no parent. A concept that's deeply nested but should
+        # have outgoing edges (e.g. a discipline that should "be
+        # practiced by" certain clans) doesn't get its outgoing edges
+        # in any batch.
+        #
+        # Build one rescue batch with all orphans + the full roster as
+        # context. The LLM is told these entities have no edges and is
+        # asked to infer what they should relate to. Cap at 30 entities
+        # to keep the prompt focused.
+        all_rels_keys = {(r.from_entity, r.to_entity) for r in all_rels}
+        outgoing_keys = {r.from_entity for r in all_rels}
+        container_names = {c.name.lower().strip() for c in real_containers}
+        children_names_all = {n for c in children_by_parent.values() for n in {x.name.lower().strip() for x in c}}
+        rescue: list[ExtractedEntityArchetype] = []
+        for e in entities:
+            if e.name in outgoing_keys:
+                continue
+            if e.name.lower().strip() in container_names:
+                continue  # top-level container, no outgoing expected
+            if e.name.lower().strip() in children_names_all:
+                continue  # already handled by family/neighborhood batches
+            rescue.append(e)
+        if len(rescue) >= 1:
+            rescue_names = {e.name for e in rescue}
+            rescue_context = entities  # Full roster as context
+            rescue_lines = [self._build_entity_roster_line(e) for e in rescue]
+            rescue_roster = "\n".join(rescue_lines)
+            full_rescue_roster = (
+                f"# Orphan rescue: these entities have NO outgoing edges "
+                f"after the main inference pass.\n"
+                f"# The entities below may be a discipline, path, location, "
+                f"or concept that should relate to other entities in the "
+                f"known roster (see the context roster). Infer ONLY meaningful "
+                f"outgoing relationships FROM each orphan — i.e. where the "
+                f"orphan is the `from_entity`. Skip self-references and "
+                f"placeholder targets like 'none' or 'unknown'.\n\n"
+                f"# Orphan entities to analyse:\n{rescue_roster}"
+            )
+            # Use the full roster as context but cap at 200 entities
+            # to keep the prompt size reasonable.
+            context_roster = "\n".join(
+                self._build_entity_roster_line(e) for e in rescue_context[:200]
+            )
+            full_rescue_roster += (
+                f"\n\n# Context roster (full universe, capped at 200):\n{context_roster}"
+            )
+            logger.info(
+                "Orphan rescue pass: %d entities with no outgoing edges",
+                len(rescue),
+            )
+            try:
+                rescue_result = await self._call_module(
+                    self._rel_inferer,
+                    stage="relationship_inference_orphan_rescue",
+                    batch_id=f"{len(rescue)}-orphans",
+                    entity_roster=full_rescue_roster,
+                    source_name=source_name,
+                    source_profile_context=source_profile_context,
+                )
+                rescued = rescue_result.relationships or []
+                # Deduplicate against the main batch results.
+                for r in rescued:
+                    key = (r.from_entity, r.to_entity)
+                    if key not in all_rels_keys and r.from_entity in rescue_names:
+                        all_rels.append(r)
+                        all_rels_keys.add(key)
+            except Exception as exc:
+                logger.warning("Orphan rescue pass failed for '%s': %s", source_name, exc)
+
         return all_rels
 
     async def _save_game_system(
