@@ -93,6 +93,14 @@ PAYLOAD_INDEX_CONFIGS: dict[str, dict[str, Any]] = {
         "is_archetype": PayloadSchemaType.BOOL,
         "detail_level": PayloadSchemaType.KEYWORD,
         "timestamp": PayloadSchemaType.DATETIME,
+        # === Sub-plan 1: Sub-type payload indexes ===
+        # The retrieval layer can filter entities by their canonical
+        # group/place sub-type (e.g. "find all clans in this universe")
+        # or by the raw sub_type string (for game-system-specific terms
+        # that fell into the OTHER bucket).
+        "sub_type": PayloadSchemaType.KEYWORD,
+        "group_type": PayloadSchemaType.KEYWORD,
+        "place_type": PayloadSchemaType.KEYWORD,
     },
     "knowledge": {
         "node_id": PayloadSchemaType.UUID,
@@ -101,6 +109,8 @@ PAYLOAD_INDEX_CONFIGS: dict[str, dict[str, Any]] = {
         "domain": PayloadSchemaType.KEYWORD,
         "canon_level": PayloadSchemaType.KEYWORD,
         "timestamp": PayloadSchemaType.DATETIME,
+        # === Sub-plan 1: Sub-type payload index for the knowledge collection ===
+        "sub_type": PayloadSchemaType.KEYWORD,
     },
 }
 
