@@ -2141,14 +2141,28 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         return {}
 
     async def _resolve_name_to_uuid(self, name: str, universe_id: str) -> str | None:
-        """Resolve an entity name to its Neo4j UUID, or None if not found."""
+        """Resolve an entity name to its Neo4j UUID, or None if not found.
+
+        Uses case-insensitive EXACT name match. Does not rely on the fuzzy
+        fulltext index that ``neo4j_list_entities`` activates when a ``name``
+        filter is supplied — a partial-token match there was resolving
+        ``from_entity`` and ``to_entity`` of SUBTYPE_OF proposals to the
+        same node, which Neo4j then rejected as a self-loop. Fetching all
+        entities in the universe and matching in Python keeps the resolution
+        deterministic at the cost of one extra round-trip per relationship.
+        """
+        if not name or not name.strip():
+            return None
+        target = name.strip().lower()
         result = await self.call_tool(
             "neo4j_list_entities",
-            {"filters": {"name": name, "universe_id": universe_id, "limit": 1}},
+            {"filters": {"universe_id": universe_id, "limit": 200}},
         )
         data = self._parse_tool_result(result)
-        entities = data.get("entities", [])
-        return entities[0]["id"] if entities else None
+        for entity in data.get("entities", []):
+            if (entity.get("name") or "").strip().lower() == target:
+                return entity["id"]
+        return None
 
     def _store_runtime_ref_on_proposal(
         self,

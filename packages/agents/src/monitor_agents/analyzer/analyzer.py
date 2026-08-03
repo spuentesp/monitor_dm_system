@@ -1258,7 +1258,18 @@ class RelationshipInferenceSignature(dspy.Signature):  # type: ignore[misc]
         )
     )
     relationships: list[ExtractedRelationship] = dspy.OutputField(
-        desc="Inferred entity-to-entity relationships supported by the source text"
+        desc=(
+            "Inferred entity-to-entity relationships supported by the source text. "
+            "CRITICAL RULES: "
+            "(1) Both `from_entity` and `to_entity` MUST be exact names of entities "
+            "already present in the input `entity_roster`. Do NOT invent a target name. "
+            "(2) If the relationship's target entity is not in the roster, OMIT the "
+            "relationship entirely — do NOT emit a placeholder like 'none', 'unknown', "
+            "'n/a', 'null', or any other filler. A missing relationship is better than "
+            "a wrong one. "
+            "(3) `from_entity` and `to_entity` must be different names — never link an "
+            "entity to itself."
+        )
     )
 
 
