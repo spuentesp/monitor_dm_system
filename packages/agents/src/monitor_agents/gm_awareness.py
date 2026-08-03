@@ -106,6 +106,7 @@ class IntentType(StrEnum):
     QUERY = "query"  # world-truth question ("Is the door locked?")
     DIALOGUE = "dialogue"  # speech or social interaction
     ACTION = "action"  # physical or mental action in the world
+    LOOKUP = "lookup"  # explanation question ("What is the Beast?", "Explain Auspex")
 
 
 class ActionType(StrEnum):
@@ -459,6 +460,11 @@ def _parse_intent_type(value: str) -> IntentType:
         "speech": "dialogue",
         "talk": "dialogue",
         "act": "action",
+        "explanation": "lookup",
+        "explain": "lookup",
+        "what_is": "lookup",
+        "tell_me_about": "lookup",
+        "lore_recall": "lookup",
     }
     normalized = aliases.get(normalized, normalized)
     try:

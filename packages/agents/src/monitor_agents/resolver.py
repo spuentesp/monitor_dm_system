@@ -272,6 +272,45 @@ def _is_world_truth_question(text: str) -> bool:
     return any(stripped.startswith(s) for s in starters)
 
 
+# Lookup-question starters — questions that ask "what is X" / "explain X"
+# and need a RAG-based answer rather than a yes/no oracle response.
+# These are detected by the LLM-side intent classifier (IntentType.LOOKUP)
+# but this regex lets the resolver fall back to a LOOKUP routing when the
+# LLM signal is unavailable.
+_LOOKUP_STARTERS = (
+    "what is",
+    "what are",
+    "what was",
+    "what were",
+    "who is",
+    "who are",
+    "who was",
+    "who were",
+    "tell me about",
+    "tell us about",
+    "explain",
+    "describe",
+    "define",
+    "what does",
+    "what do",
+    "how is",
+    "how are",
+    "how does",
+    "how do",
+)
+
+
+def _is_lookup_question(text: str) -> bool:
+    """Coarse check used by the LOOKUP branch. Matches "what is X" /
+    "explain X" patterns. The LLM verdict's intent_type is the
+    authoritative signal for routing; this regex only kicks in when
+    the LLM signal is missing or the verdict is unavailable."""
+    stripped = _strip_ooc_wrappers(text).lower().rstrip("?.! ")
+    if not stripped:
+        return False
+    return any(stripped.startswith(s) for s in _LOOKUP_STARTERS)
+
+
 _LIKELIHOOD_MARKER_MAP = {
     "certain": "certain",
     "nearly certain": "nearly_certain",
@@ -396,6 +435,147 @@ class Resolver(BaseAgent):
             gm_agent = default_gm_agent()
         self._gm_agent = gm_agent
 
+    async def _handle_lookup(
+        self,
+        question: str,
+        universe_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Sub-plan 3 Task 2: RAG-based explanation handler for LOOKUP
+        questions. Searches the entities, knowledge, and snippets
+        Qdrant collections for the most relevant passages, then
+        composes a structured answer with citations.
+
+        Returns a resolution dict compatible with `_attach_gm_verdict`
+        (so it flows through the same downstream contract), or None
+        if the lookup could not be answered (in which case the caller
+        falls through to the normal flow).
+
+        The handler is deliberately conservative: it returns a structured
+        answer with the top-3 hits from each collection, joined
+        together. It does NOT call an LLM to compose the prose — the
+        hits are presented as bullet points with citations, and the
+        front-end (or a downstream narrator pass) can summarise.
+        """
+        from monitor_data.db.qdrant import get_qdrant_client
+        from monitor_data.retrieval.service import RetrievalService
+
+        question_clean = (question or "").strip().rstrip("?.! ")
+        if not question_clean:
+            return None
+
+        # Try to identify the focal entity by extracting the noun phrase
+        # after the lookup starter (e.g. "What is the Beast?" → "the Beast").
+        focal = question_clean
+        for starter in _LOOKUP_STARTERS:
+            if question_clean.lower().startswith(starter):
+                focal = question_clean[len(starter):].strip()
+                break
+        # Strip leading articles / determiners for better matching.
+        for prefix in ("the ", "a ", "an "):
+            if focal.lower().startswith(prefix):
+                focal = focal[len(prefix):]
+                break
+
+        # Search across entities, knowledge, and snippets in parallel.
+        # The retrieval service handles embedding + Qdrant search.
+        try:
+            retrieval = RetrievalService()
+            filters = (
+                {"universe_id": universe_id} if universe_id else None
+            )
+            entity_hits = await retrieval.retrieve(
+                "entities", question_clean, filters=filters, limit=3,
+            )
+            knowledge_hits = await retrieval.retrieve(
+                "knowledge", question_clean, filters=filters, limit=3,
+            )
+            snippet_hits = await retrieval.retrieve(
+                "snippets", question_clean, filters=filters, limit=3,
+            )
+        except Exception as exc:
+            # Don't break the resolver if retrieval is unavailable; the
+            # caller will fall through to the normal flow.
+            return None
+
+        # Compose a structured answer. Each citation carries enough
+        # metadata for the GM assistant UI to render it.
+        answer_lines = [f"# {question.strip().rstrip('?.!')}", ""]
+        citations: list[dict[str, Any]] = []
+
+        if entity_hits:
+            answer_lines.append("## Entities")
+            for hit in entity_hits[:3]:
+                payload = hit.payload or {}
+                name = payload.get("name", "?")
+                desc = payload.get("description", "")
+                sub_type = payload.get("sub_type", "")
+                group_type = payload.get("group_type", "")
+                place_type = payload.get("place_type", "")
+                meta_bits = [b for b in (sub_type, group_type, place_type) if b]
+                meta = f" ({', '.join(meta_bits)})" if meta_bits else ""
+                if desc:
+                    answer_lines.append(f"- **{name}**{meta} — {desc}")
+                else:
+                    answer_lines.append(f"- **{name}**{meta}")
+                citations.append({
+                    "source": "entity",
+                    "name": name,
+                    "sub_type": sub_type,
+                    "score": hit.score,
+                })
+            answer_lines.append("")
+
+        if knowledge_hits:
+            answer_lines.append("## Rules & facts")
+            for hit in knowledge_hits[:3]:
+                payload = hit.payload or {}
+                text = payload.get("text", payload.get("statement", ""))
+                node_type = payload.get("node_type", "")
+                if text:
+                    suffix = f" _{node_type}_" if node_type else ""
+                    answer_lines.append(f"- {text}{suffix}")
+                citations.append({
+                    "source": "knowledge",
+                    "node_type": node_type,
+                    "score": hit.score,
+                })
+            answer_lines.append("")
+
+        if snippet_hits:
+            answer_lines.append("## Source passages")
+            for hit in snippet_hits[:3]:
+                payload = hit.payload or {}
+                text = payload.get("text", "")
+                section = payload.get("section_path") or payload.get("section") or ""
+                page = payload.get("page_number", "")
+                ref = f" ({section}, p. {page})" if page else (f" ({section})" if section else "")
+                if text:
+                    snippet = text[:240] + ("…" if len(text) > 240 else "")
+                    answer_lines.append(f"- {snippet}{ref}")
+                citations.append({
+                    "source": "snippet",
+                    "section": section,
+                    "page": page,
+                    "score": hit.score,
+                })
+
+        if not (entity_hits or knowledge_hits or snippet_hits):
+            return None
+
+        return {
+            "scene_id": None,
+            "action_type": "lookup",
+            "intent_type": "lookup",
+            "resolution_type": "rag_lookup",
+            "answer": "\n".join(answer_lines),
+            "focal_entity": focal,
+            "citations": citations,
+            "narrative_pressure": "stable",
+            "proposals": [],
+            "success": True,
+            "success_level": "n/a",
+        }
+
     async def run(self) -> None:
         pass
 
@@ -513,6 +693,21 @@ class Resolver(BaseAgent):
         # only fill the gap with a coarse shape-based default.
         initial_action_type = "action"
         intent_type = _infer_intent_type(user_input or "", initial_action_type)
+
+        # Sub-plan 3 Task 1: LOOKUP routing. "What is X?" / "Explain X"
+        # questions need a RAG-based answer, not a yes/no oracle. The
+        # LLM verdict's intent_type is the authoritative signal; we
+        # additionally fall back to a regex when the LLM signal is
+        # missing or the verdict is unavailable.
+        if intent_type == "lookup" or (
+            intent_type != "query" and _is_lookup_question(user_input or "")
+        ):
+            lookup_res = await self._handle_lookup(
+                question=user_input or "",
+                universe_id=universe_id,
+            )
+            if lookup_res is not None:
+                return self._attach_gm_verdict(lookup_res)
 
         # P-18: Oracle check for world-truth questions. The LLM verdict's
         # intent_type is the authoritative signal; we additionally gate on a
