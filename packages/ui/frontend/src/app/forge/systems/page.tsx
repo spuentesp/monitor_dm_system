@@ -73,19 +73,19 @@ function SystemItem({
           <p className={cn("text-sm font-medium truncate", active ? "text-cyan-200" : "text-slate-300")}>
             {system.name}
           </p>
-          <div className="flex items-center gap-2 mt-0.5">
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             {system.version && (
-              <span className="text-[10px] text-slate-600">{system.version}</span>
+              <span className="text-[10px] text-slate-600 whitespace-nowrap">{system.version}</span>
             )}
             {system.is_builtin && (
-              <span className="text-[10px] tag-amber">built-in</span>
+              <span className="text-[10px] tag-amber whitespace-nowrap">built-in</span>
             )}
             {system.needs_review && (
-              <span className="text-[10px] tag-red" title={system.degenerate_reason ?? undefined}>
+              <span className="text-[10px] tag-red whitespace-nowrap" title={system.degenerate_reason ?? undefined}>
                 needs review
               </span>
             )}
-            <span className="text-[10px] text-slate-700">
+            <span className="text-[10px] text-slate-700 whitespace-nowrap">
               {system.attributes.length} attrs · {system.rules.length} rules
             </span>
           </div>

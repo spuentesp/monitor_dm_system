@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, Images, MessageCircle, MoreVertical, Palette, Sparkles, Trash2 } from "lucide-react";
+import { Brain, Images, MessageCircle, MoreVertical, Palette, Sparkles, Trash2, Upload } from "lucide-react";
 import { useState } from "react";
 import { apiUrl } from "@/lib/api";
 import { useDismissRef } from "@/lib/useDismissRef";
@@ -33,8 +33,28 @@ export function CharacterCardGrid({
 
   if (characters.length === 0) {
     return (
-      <div className="glass rounded-xl px-6 py-10 text-center text-sm text-slate-500">
-        No characters yet — import a SillyTavern card to get started.
+      <div className="glass flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-purple-500/25 px-6 py-14 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-purple-500/10 border border-purple-500/25 shadow-purple-glow">
+          <Upload className="h-7 w-7 text-purple-400" />
+        </div>
+        <div>
+          <p className="text-base font-semibold text-slate-200">No characters yet</p>
+          <p className="mt-1 text-sm text-slate-500 max-w-sm">
+            Import a SillyTavern card (JSON or PNG) to start chatting. Use the
+            <span className="mx-1 inline-flex items-center gap-1 text-purple-300">
+              <Upload className="h-3 w-3" /> Import card
+            </span>
+            button above.
+          </p>
+        </div>
+        <a
+          href="https://docs.charadex.io/character-cards"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[11px] text-slate-600 hover:text-purple-300 transition-colors"
+        >
+          What is a character card? →
+        </a>
       </div>
     );
   }

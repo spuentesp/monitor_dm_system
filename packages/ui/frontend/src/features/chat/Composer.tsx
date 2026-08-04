@@ -147,14 +147,15 @@ export function Composer({
           onClick={handleSend}
           disabled={!canSend}
           aria-label="Send message"
+          title="Send"
           className={cn(
-            "flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center transition-all duration-150",
+            "flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-150 shadow-sm",
             canSend
-              ? "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/25 hover:shadow-cyan-glow"
-              : "bg-white/4 text-slate-600 border border-white/8 cursor-not-allowed",
+              ? "bg-cyan-500/25 text-cyan-300 border border-cyan-500/50 hover:bg-cyan-500/40 hover:shadow-cyan-glow hover:scale-105 active:scale-95"
+              : "bg-white/5 text-slate-600 border border-white/8 cursor-not-allowed",
           )}
         >
-          <Send className="w-4 h-4" />
+          <Send className="w-5 h-5" />
         </button>
       </div>
       <p className="text-[10px] text-slate-700 mt-2 text-center">

@@ -560,10 +560,10 @@ export default function PlayConsole() {
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end shrink-0 max-w-[60%]">
               {activeSession?.tone && (
                 <div className="relative group">
-                  <button aria-label="Change session tone" className="tag-purple capitalize flex items-center gap-1 cursor-pointer hover:bg-purple-500/20 transition-colors">
+                  <button aria-label="Change session tone" className="tag-purple capitalize flex items-center gap-1 cursor-pointer hover:bg-purple-500/20 transition-colors whitespace-nowrap">
                     {activeSession.tone}
                     <ChevronDown className="w-2.5 h-2.5 opacity-60" />
                   </button>
@@ -590,7 +590,7 @@ export default function PlayConsole() {
                 <div className="relative group">
                   <button
                     aria-label="Change dice roll model"
-                    className="flex items-center gap-1 cursor-pointer rounded-md px-2 py-0.5 text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-colors"
+                    className="flex items-center gap-1 cursor-pointer rounded-md px-2 py-0.5 text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-colors whitespace-nowrap"
                   >
                     <Dices className="w-3 h-3 opacity-70" />
                     {ROLL_MODEL_LABEL[(activeSession.roll_model ?? "tap") as RollModel]}
@@ -616,7 +616,7 @@ export default function PlayConsole() {
                 </div>
               )}
               {activeSession && (
-                <span className="tag-cyan capitalize">
+                <span className="tag-cyan capitalize whitespace-nowrap">
                   {MODE_LABEL[activeSession.mode] ?? activeSession.mode}
                 </span>
               )}
@@ -634,7 +634,7 @@ export default function PlayConsole() {
                     type="button"
                     onClick={() => skipPreplay.mutate()}
                     disabled={skipPreplay.isPending}
-                    className="ml-1 text-[10px] px-2 py-0.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    className="ml-1 text-[10px] px-2 py-0.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition whitespace-nowrap"
                     title="Skip the pre-play interview and start playing"
                   >
                     {skipPreplay.isPending ? "Skipping…" : "Use defaults & begin"}
@@ -651,7 +651,7 @@ export default function PlayConsole() {
                     type="button"
                     onClick={() => beginStory.mutate()}
                     disabled={beginStory.isPending}
-                    className="ml-1 text-[10px] px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    className="ml-1 text-[10px] px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition whitespace-nowrap"
                     title="Confirm the Session Zero agreements and start the story"
                   >
                     {beginStory.isPending ? "Beginning…" : "Begin Story"}
@@ -664,7 +664,7 @@ export default function PlayConsole() {
                 <button
                   onClick={handleEndScene}
                   disabled={endingScene}
-                  className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border border-amber-500/30 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50 transition-all"
+                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-amber-500/50 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 hover:shadow-amber-glow disabled:opacity-50 transition-all whitespace-nowrap"
                   title="Complete the current scene and advance the story"
                 >
                   <Flag className="w-3 h-3" />

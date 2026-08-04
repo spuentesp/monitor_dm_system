@@ -327,10 +327,10 @@ function HierarchyTab() {
           </span>
         )}
         <div className="flex-1" />
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <Link
             href="/forge/worlds/new"
-            className="btn-cyber text-xs py-1.5"
+            className="btn-cyber text-xs py-1.5 whitespace-nowrap"
             title="Open the world-creation wizard (F1-3)"
           >
             <Plus className="w-3.5 h-3.5" /> New world
@@ -338,7 +338,7 @@ function HierarchyTab() {
           <select
             value={createUnderMvId ?? ""}
             onChange={(e) => setCreateUnderMvId(e.target.value || null)}
-            className="input-cyber py-1 text-xs min-w-[150px]"
+            className="input-cyber py-1 text-xs w-[180px] max-w-[220px]"
             title="Create a universe inside this setting"
           >
             <option value="">New universe in…</option>
@@ -346,7 +346,7 @@ function HierarchyTab() {
               <option key={mv.id} value={mv.id}>{mv.name}</option>
             ))}
           </select>
-          <button onClick={() => setShowMvForm((v) => !v)} className="btn-cyber text-xs py-1.5">
+          <button onClick={() => setShowMvForm((v) => !v)} className="btn-cyber text-xs py-1.5 whitespace-nowrap">
             <Plus className="w-3.5 h-3.5" /> New Multiverse
           </button>
         </div>

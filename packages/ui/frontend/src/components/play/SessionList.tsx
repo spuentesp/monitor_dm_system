@@ -68,10 +68,11 @@ export function SessionList({
         </div>
         <button
           onClick={onNew}
-          className="w-7 h-7 flex items-center justify-center rounded border border-cyan-500/25 text-cyan-400 hover:bg-cyan-500/10 transition-all"
+          className="w-8 h-8 flex items-center justify-center rounded-lg border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 hover:border-cyan-500/60 transition-all shadow-sm hover:shadow-cyan-glow"
           title="New session"
+          aria-label="New session"
         >
-          <Plus className="w-3.5 h-3.5" />
+          <Plus className="w-4 h-4" />
         </button>
       </div>
 
@@ -182,17 +183,18 @@ export function SessionList({
                     <div>{formatRelativeTime(s.updated_at)}</div>
                   </div>
                 </button>
-                <div className="absolute top-2.5 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                <div className="absolute top-2.5 right-2 flex items-center gap-0.5 opacity-50 group-hover:opacity-100 transition-all">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setRenamingId(s.id);
                       setRenameValue(s.title);
                     }}
-                    className="w-6 h-6 flex items-center justify-center rounded text-slate-600 hover:text-cyan-300 hover:bg-cyan-500/10"
+                    className="w-7 h-7 flex items-center justify-center rounded-md border border-white/10 text-slate-500 hover:text-cyan-300 hover:border-cyan-500/40 hover:bg-cyan-500/10 bg-slate-900/40"
                     title="Rename session"
+                    aria-label="Rename session"
                   >
-                    <Pencil className="w-3 h-3" />
+                    <Pencil className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={(e) => {
@@ -205,10 +207,11 @@ export function SessionList({
                         onDelete(s.id);
                       }
                     }}
-                    className="w-6 h-6 flex items-center justify-center rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10"
+                    className="w-7 h-7 flex items-center justify-center rounded-md border border-white/10 text-slate-500 hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/10 bg-slate-900/40"
                     title="Delete session"
+                    aria-label="Delete session"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </>

@@ -261,7 +261,7 @@ function WorldSelector({
             <button type="button" onClick={() => setShowNewMv(false)} className="p-1 text-slate-600 hover:text-slate-400"><X className="w-3.5 h-3.5" /></button>
           </form>
         ) : (
-          <button onClick={() => setShowNewMv(true)} className="p-1 rounded text-slate-600 hover:text-purple-400 transition-colors" title="New multiverse"><Plus className="w-3.5 h-3.5" /></button>
+          <button onClick={() => setShowNewMv(true)} className="p-1.5 rounded border border-purple-500/25 text-purple-400 hover:bg-purple-500/10 hover:border-purple-500/40 transition-all" title="New multiverse"><Plus className="w-3.5 h-3.5" /></button>
         )}
       </div>
 
@@ -283,7 +283,7 @@ function WorldSelector({
               <button type="button" onClick={() => setShowNewUv(false)} className="p-1 text-slate-600 hover:text-slate-400"><X className="w-3.5 h-3.5" /></button>
             </form>
           ) : (
-            <button onClick={() => setShowNewUv(true)} className="p-1 rounded text-slate-600 hover:text-cyan-400 transition-colors" title="New universe"><Plus className="w-3.5 h-3.5" /></button>
+            <button onClick={() => setShowNewUv(true)} className="p-1.5 rounded border border-cyan-500/25 text-cyan-400 hover:bg-cyan-500/10 hover:border-cyan-500/40 transition-all" title="New universe"><Plus className="w-3.5 h-3.5" /></button>
           )}
         </div>
       )}
@@ -518,21 +518,22 @@ export default function ArchitectPage() {
           {showRightPanel && (
             <motion.div
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 360, opacity: 1 }}
+              animate={{ width: 420, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
               className="flex-shrink-0 glass border-l border-white/5 flex flex-col overflow-hidden"
             >
-              <div className="flex-1 border-b border-white/5 min-h-0">
-                <div className="px-3 py-2 border-b border-white/5 flex-shrink-0">
+              <div className="h-72 border-b border-white/5 flex-shrink-0 flex flex-col min-h-0">
+                <div className="px-3 py-2 border-b border-white/5 flex-shrink-0 flex items-center justify-between">
                   <span className="text-[10px] font-bold tracking-widest uppercase text-slate-600">World Graph</span>
+                  <span className="text-[10px] text-slate-700">click to inspect</span>
                 </div>
-                <div className="h-[calc(100%-32px)]">
+                <div className="flex-1 min-h-0">
                   <MiniGraph multiverseId={multiverseId} universeId={universeId} selectedNodeId={selectedNodeId} onSelectNode={handleNodeSelect} />
                 </div>
               </div>
 
-              <div className="h-56 flex-shrink-0 overflow-hidden border-b border-white/5">
+              <div className="h-64 flex-shrink-0 overflow-hidden border-b border-white/5">
                 <div className="px-3 py-2 border-b border-white/5 flex-shrink-0">
                   <span className="text-[10px] font-bold tracking-widest uppercase text-slate-600">Properties</span>
                 </div>

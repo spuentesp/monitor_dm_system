@@ -11,6 +11,9 @@ import {
   useNodesState,
   useEdgesState,
   BackgroundVariant,
+  Handle,
+  Position,
+  type NodeProps,
   type Node,
   type Edge,
   type Connection,
@@ -19,24 +22,131 @@ import { toReactFlowNode, toReactFlowEdge, toReactFlowGraph } from "@/features/g
 import "@xyflow/react/dist/style.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Brain,
   Compass,
   Filter,
   GitBranch,
+  Layers,
   Link2,
   Loader2,
+  MapPin,
   Network,
   Pencil,
   Plus,
   RefreshCw,
   Search,
+  Shield,
+  Sparkles,
+  Tag,
   Trash2,
   WifiOff,
   X,
+  Zap,
+  User as UserIcon,
 } from "lucide-react";
 import { DialogFooter, DialogShell } from "@/components/DialogShell";
 import { entitiesApi, graphApi, universesApi } from "@/lib/api";
-import type { EntityRelationship, Multiverse, Universe, WorldGraph } from "@/lib/types";
+import type {
+  EntityRelationship,
+  GraphNodeData,
+  GraphNodeKind,
+  Multiverse,
+  Universe,
+  WorldGraph,
+} from "@/lib/types";
 import { cn, truncate } from "@/lib/utils";
+
+// ─── Node renderer ─────────────────────────────────────────
+//
+// The Explorer was rendering default xyflow nodes — plain white rectangles
+// with no styling, no labels, no entity-type colors. This config + renderer
+// matches the Architect/Worlds WorldNode: colored border + icon + label +
+// subtitle + tags, with selection and connection handles.
+
+const NODE_KIND_CONFIG: Record<
+  GraphNodeKind,
+  { border: string; bg: string; icon: React.ElementType; iconColor: string }
+> = {
+  multiverse: { border: "border-purple-500/40", bg: "bg-purple-500/10", icon: Layers, iconColor: "text-purple-400" },
+  universe:   { border: "border-cyan-500/40",   bg: "bg-cyan-500/10",   icon: Compass, iconColor: "text-cyan-400" },
+  character:  { border: "border-emerald-500/40", bg: "bg-emerald-500/10", icon: UserIcon, iconColor: "text-emerald-400" },
+  location:   { border: "border-amber-500/40",   bg: "bg-amber-500/10",   icon: MapPin,  iconColor: "text-amber-400" },
+  faction:    { border: "border-red-500/40",     bg: "bg-red-500/10",     icon: Shield,  iconColor: "text-red-400" },
+  concept:    { border: "border-violet-500/40",  bg: "bg-violet-500/10",  icon: Brain,   iconColor: "text-violet-400" },
+  axiom:      { border: "border-slate-500/40",   bg: "bg-slate-500/10",   icon: Zap,     iconColor: "text-slate-300" },
+  lore:       { border: "border-teal-500/40",    bg: "bg-teal-500/10",    icon: Tag,     iconColor: "text-teal-400" },
+  rule:       { border: "border-orange-500/40",  bg: "bg-orange-500/10",  icon: Sparkles, iconColor: "text-orange-400" },
+  pack:       { border: "border-pink-500/40",    bg: "bg-pink-500/10",    icon: Layers,  iconColor: "text-pink-400" },
+};
+
+const GraphNodeRenderer = ({ data, selected }: NodeProps) => {
+  const d = data as GraphNodeData;
+  const cfg = NODE_KIND_CONFIG[d.kind] ?? NODE_KIND_CONFIG.concept;
+  const Icon = cfg.icon;
+  const isLarge = d.kind === "multiverse" || d.kind === "universe";
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border transition-all duration-150 cursor-pointer",
+        cfg.border,
+        cfg.bg,
+        selected && "ring-1 ring-white/30 shadow-lg",
+        isLarge ? "px-4 py-3 min-w-[170px]" : "px-3 py-2.5 min-w-[140px]",
+      )}
+    >
+      <Handle type="target" position={Position.Top} className="!border-0 !bg-white/20 !w-2 !h-2" />
+      <div className="flex items-center gap-2">
+        <Icon className={cn("flex-shrink-0", isLarge ? "w-4 h-4" : "w-3.5 h-3.5", cfg.iconColor)} />
+        <span
+          className={cn(
+            "font-medium text-slate-100 leading-tight truncate max-w-[160px]",
+            isLarge ? "text-sm" : "text-xs",
+          )}
+        >
+          {d.label}
+        </span>
+      </div>
+      {d.subtitle && (
+        <p className={cn("text-slate-400 mt-0.5 pl-6 truncate", isLarge ? "text-[11px]" : "text-[10px]")}>
+          {d.subtitle}
+        </p>
+      )}
+      {d.tags && d.tags.length > 0 && (
+        <div className="flex gap-1 mt-1.5 pl-6 flex-wrap">
+          {d.tags.slice(0, 3).map((t) => (
+            <span
+              key={t}
+              className="text-[9px] px-1.5 py-px rounded-full bg-white/5 text-slate-400 border border-white/10"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+      <Handle type="source" position={Position.Bottom} className="!border-0 !bg-white/20 !w-2 !h-2" />
+    </div>
+  );
+};
+
+const nodeTypes = { worldNode: GraphNodeRenderer };
+
+// Node fill for the MiniMap — same colors as the node renderer.
+const nodeFillForKind = (kind: GraphNodeKind | undefined): string => {
+  switch (kind) {
+    case "multiverse": return "rgba(168, 85, 247, 0.7)";
+    case "universe":   return "rgba(0, 212, 255, 0.7)";
+    case "character":  return "rgba(16, 185, 129, 0.7)";
+    case "location":   return "rgba(245, 158, 11, 0.7)";
+    case "faction":    return "rgba(239, 68, 68, 0.7)";
+    case "concept":    return "rgba(139, 92, 246, 0.7)";
+    case "axiom":      return "rgba(148, 163, 184, 0.7)";
+    case "lore":       return "rgba(20, 184, 166, 0.7)";
+    case "rule":       return "rgba(251, 146, 60, 0.7)";
+    case "pack":       return "rgba(236, 72, 153, 0.7)";
+    default:           return "rgba(148, 163, 184, 0.5)";
+  }
+};
 
 const ENTITY_TYPES = [
   { id: "character", label: "Characters" },
@@ -509,6 +619,7 @@ function ExplorerPageInner() {
           <ReactFlow
             nodes={nodes}
             edges={edges}
+            nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeClick={onNodeClick}
@@ -523,14 +634,7 @@ function ExplorerPageInner() {
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             <Controls />
             <MiniMap
-              nodeColor={(n) => {
-                const kind = (n.data as { kind?: string })?.kind;
-                if (kind === "universe") return "#a78bfa";
-                if (kind === "character") return "#22d3ee";
-                if (kind === "location") return "#fbbf24";
-                if (kind === "faction") return "#34d399";
-                return "#94a3b8";
-              }}
+              nodeColor={(n) => nodeFillForKind((n.data as { kind?: GraphNodeKind })?.kind)}
               pannable
               zoomable
             />
