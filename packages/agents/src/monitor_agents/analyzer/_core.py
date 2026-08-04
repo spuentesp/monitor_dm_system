@@ -3162,7 +3162,8 @@ class Analyzer(BaseAgent):
             # children of this container and NOT the container itself.
             children_names = {c.name.lower().strip() for c in children}
             siblings = [
-                e for e in entities
+                e
+                for e in entities
                 if e.entity_type == container_type
                 and e.name.lower().strip() != container.name.lower().strip()
                 and e.name.lower().strip() not in children_names
@@ -3181,9 +3182,9 @@ class Analyzer(BaseAgent):
             }
             related_types = RELATED_TYPES_MAP.get(container_type, [])
             related_entities = [
-                e for e in entities
-                if e.entity_type in related_types
-                and e.name.lower().strip() != container.name.lower().strip()
+                e
+                for e in entities
+                if e.entity_type in related_types and e.name.lower().strip() != container.name.lower().strip()
             ]
             # Build the neighborhood: container + children + siblings +
             # related entities. Children come first so the LLM sees the
@@ -3312,12 +3313,8 @@ class Analyzer(BaseAgent):
             )
             # Use the full roster as context but cap at 200 entities
             # to keep the prompt size reasonable.
-            context_roster = "\n".join(
-                self._build_entity_roster_line(e) for e in rescue_context[:200]
-            )
-            full_rescue_roster += (
-                f"\n\n# Context roster (full universe, capped at 200):\n{context_roster}"
-            )
+            context_roster = "\n".join(self._build_entity_roster_line(e) for e in rescue_context[:200])
+            full_rescue_roster += f"\n\n# Context roster (full universe, capped at 200):\n{context_roster}"
             logger.info(
                 "Orphan rescue pass: %d entities with no outgoing edges",
                 len(rescue),

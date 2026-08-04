@@ -344,9 +344,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
 
                         npc_text, directives = parse_output_directives(npc_text)
                         if directives:
-                            await apply_lorebook_directives(
-                                agent, state.lorebook_character_ids, directives
-                            )
+                            await apply_lorebook_directives(agent, state.lorebook_character_ids, directives)
                     except Exception:
                         logger.warning(
                             "conversation_loop: lorebook directives failed, continuing",
@@ -450,9 +448,7 @@ async def _extract_episodic_memories(state: ConversationState) -> list[dict[str,
             f"{t.get('entity_name') or t.get('speaker_role', '?')}: {t['text']}" for t in turns[-30:]
         )[:8000]
         extractor = MemoryExtractor()
-        memories = await anyio.to_thread.run_sync(
-            extractor.forward, transcript, "conversation", npc_name
-        )
+        memories = await anyio.to_thread.run_sync(extractor.forward, transcript, "conversation", npc_name)
     except Exception:
         logger.warning("episodic memory extraction failed", exc_info=True)
         return []

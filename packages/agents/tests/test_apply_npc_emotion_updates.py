@@ -12,7 +12,9 @@ from monitor_agents.narrator.agent import apply_npc_emotion_updates
 
 
 class _FakeState:
-    def __init__(self, npc_profiles: dict[str, Any], entity_context: list[dict[str, Any]], universe_id: str = "u1") -> None:
+    def __init__(
+        self, npc_profiles: dict[str, Any], entity_context: list[dict[str, Any]], universe_id: str = "u1"
+    ) -> None:
         self.npc_profiles = npc_profiles
         self.entity_context = entity_context
         self.universe_id = universe_id

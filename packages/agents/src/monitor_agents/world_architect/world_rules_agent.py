@@ -17,6 +17,7 @@ class WorldRulesAgent(BaseAgent):
 
     def __init__(self, agent_id: str, model: str | None = None) -> None:
         super().__init__(agent_type="world_rules", agent_id=agent_id, model=model)
+
     async def run(self, *args: Any, **kwargs: Any) -> Any:
         pass
 
@@ -79,14 +80,30 @@ class WorldRulesAgent(BaseAgent):
 
         if expected_genre:
             medieval_terms = [
-                "tavern", "hearth", "corkboard", "ale", "mead",
-                "innkeeper", "sword", "spell", "mage", "dragon",
-                "knight", "castle",
+                "tavern",
+                "hearth",
+                "corkboard",
+                "ale",
+                "mead",
+                "innkeeper",
+                "sword",
+                "spell",
+                "mage",
+                "dragon",
+                "knight",
+                "castle",
             ]
             sci_fi_terms = [
-                "airlock", "corridor", "datapad", "dataslate",
-                "station", "void", "hull", "bulkhead",
-                "recycled air", "salvage",
+                "airlock",
+                "corridor",
+                "datapad",
+                "dataslate",
+                "station",
+                "void",
+                "hull",
+                "bulkhead",
+                "recycled air",
+                "salvage",
             ]
             text_lower = narrative_text.lower()
 

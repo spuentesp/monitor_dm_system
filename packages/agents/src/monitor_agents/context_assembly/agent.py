@@ -321,7 +321,9 @@ class ContextAssembly(BaseAgent):
         # current player action. Uses the same expanded query as
         # memories so the two streams stay topically aligned.
         knowledge = await self._fetch_knowledge(
-            memory_query, universe_id=universe_id, limit=8,
+            memory_query,
+            universe_id=universe_id,
+            limit=8,
         )
         logger.info("SCENE_SPAN embed=%.0fms", (time.perf_counter() - t_embed) * 1000)
 
@@ -347,9 +349,7 @@ class ContextAssembly(BaseAgent):
                 if universe_id:
                     character_ids.append(f"universe:{universe_id}")
 
-                scan_config = await self.call_tool(
-                    "mongodb_get_scan_config", {"character_id": actor_id_str}
-                )
+                scan_config = await self.call_tool("mongodb_get_scan_config", {"character_id": actor_id_str})
                 if not isinstance(scan_config, dict):
                     scan_config = {}
 
@@ -374,10 +374,7 @@ class ContextAssembly(BaseAgent):
 
                 if lorebook_before:
                     profile_context = (
-                        "RELEVANT LOREBOOK ENTRIES:\n"
-                        + "\n".join(lorebook_before)
-                        + "\n\n"
-                        + profile_context
+                        "RELEVANT LOREBOOK ENTRIES:\n" + "\n".join(lorebook_before) + "\n\n" + profile_context
                     )
                 if lorebook_after:
                     profile_context += "\n\nRELEVANT LOREBOOK ENTRIES:\n" + "\n".join(lorebook_after)
@@ -796,6 +793,7 @@ class ContextAssembly(BaseAgent):
             if ids:
                 from monitor_data.tools.mongodb_tools import mongodb_increment_memory_access
                 import anyio
+
                 await anyio.to_thread.run_sync(mongodb_increment_memory_access, ids)
         except Exception as exc:
             logger.debug("_search_memories: access_count increment failed: %s", exc)
@@ -898,6 +896,7 @@ class ContextAssembly(BaseAgent):
             if ids:
                 from monitor_data.tools.mongodb_tools import mongodb_increment_memory_access
                 import anyio
+
                 await anyio.to_thread.run_sync(mongodb_increment_memory_access, ids)
         except Exception as exc:
             logger.debug("_fetch_memories: access_count increment failed: %s", exc)

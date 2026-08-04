@@ -638,11 +638,8 @@ class ResourceEngine:
                 direction = str(threshold.get("direction", "at_or_below"))
                 effect = str(threshold.get("effect", ""))
                 crossed = False
-                if (
-                    (direction == "at_or_below"
-                    and current <= t_value)
-                    or (direction == "at_or_above"
-                    and current >= t_value)
+                if (direction == "at_or_below" and current <= t_value) or (
+                    direction == "at_or_above" and current >= t_value
                 ):
                     crossed = True
                 if crossed:

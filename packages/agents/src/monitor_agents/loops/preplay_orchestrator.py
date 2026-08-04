@@ -558,11 +558,7 @@ async def handle_story_agreements(state: PreplayState) -> dict[str, Any]:
     }
     agreements = result.get("agreements")
     if agreements is not None:
-        agreement_data = (
-            agreements.model_dump(mode="json")
-            if hasattr(agreements, "model_dump")
-            else dict(agreements)
-        )
+        agreement_data = agreements.model_dump(mode="json") if hasattr(agreements, "model_dump") else dict(agreements)
         session["story_agreements"] = agreement_data
         metadata["story_agreements"] = agreement_data
         if agreement_data.get("story_premise"):

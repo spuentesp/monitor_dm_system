@@ -77,9 +77,7 @@ async def seed_canon_from_session_zero(session: dict[str, Any]) -> None:
     if isinstance(notes, list):
         premise = str(session.get("story_premise") or "").strip()
         tone = str(session.get("tone") or "").strip()
-        candidates = ([f"Story premise: {premise}"] if premise else []) + (
-            [f"Tone: {tone}"] if tone else []
-        )
+        candidates = ([f"Story premise: {premise}"] if premise else []) + ([f"Tone: {tone}"] if tone else [])
         for note in candidates:
             if note not in notes:
                 notes.append(note)
@@ -102,9 +100,7 @@ async def finalize_preplay(
 
     agreements = StoryAgreements.model_validate(raw_agreements)
     confirmed_at = datetime.now(UTC)
-    agreements = agreements.model_copy(
-        update={"confirmed": True, "confirmed_at": confirmed_at}
-    )
+    agreements = agreements.model_copy(update={"confirmed": True, "confirmed_at": confirmed_at})
     session["story_agreements"] = agreements.model_dump(mode="json")
     if agreements.story_premise:
         session["story_premise"] = agreements.story_premise

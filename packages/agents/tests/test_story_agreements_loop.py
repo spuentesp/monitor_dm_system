@@ -33,31 +33,21 @@ async def test_compact_interview_asks_three_categories_then_summarizes():
     assert "Tenebris" in started["gm_message"]
     assert "Mara" in started["gm_message"]
 
-    second = await loop.process_player_input(
-        "A salvage mystery where Mara decides whether the station should survive."
-    )
+    second = await loop.process_player_input("A salvage mystery where Mara decides whether the station should survive.")
     assert second["category"] == "themes"
     assert second["question_number"] == 2
 
-    third = await loop.process_player_input(
-        "Isolation and found family, with slow and oppressive pacing."
-    )
+    third = await loop.process_player_input("Isolation and found family, with slow and oppressive pacing.")
     assert third["category"] == "boundaries"
     assert third["question_number"] == 3
 
-    completed = await loop.process_player_input(
-        "No harm to children. Veil explicit sexual content."
-    )
+    completed = await loop.process_player_input("No harm to children. Veil explicit sexual content.")
     assert completed["complete"] is True
     assert completed["awaiting_confirmation"] is True
     agreements = completed["agreements"]
     assert agreements.story_premise.startswith("A salvage mystery")
-    assert agreements.themes == [
-        "Isolation and found family, with slow and oppressive pacing."
-    ]
-    assert agreements.boundary_notes == [
-        "No harm to children. Veil explicit sexual content."
-    ]
+    assert agreements.themes == ["Isolation and found family, with slow and oppressive pacing."]
+    assert agreements.boundary_notes == ["No harm to children. Veil explicit sexual content."]
     assert agreements.needs_review is True
     assert agreements.confirmed is False
     assert "Begin Story" in completed["gm_message"]

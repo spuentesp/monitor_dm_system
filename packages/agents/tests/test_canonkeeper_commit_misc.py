@@ -13,57 +13,60 @@ from monitor_agents.canonkeeper.agent import CanonKeeper
 @pytest.mark.asyncio
 async def test_commit_spatial_topology_missing_locations(monkeypatch: pytest.MonkeyPatch):
     keeper = CanonKeeper()
-    
+
     mock_call_tool = AsyncMock()
     monkeypatch.setattr(keeper, "call_tool", mock_call_tool)
-    
+
     proposal = {"payload": {"from_location": "", "to_location": "B"}}
     await keeper._commit_spatial_topology(MagicMock(), "pid", proposal, [], MagicMock())
-    
+
     mock_call_tool.assert_not_called()
-    
+
+
 @pytest.mark.asyncio
 async def test_commit_spatial_topology_unresolved(monkeypatch: pytest.MonkeyPatch):
     keeper = CanonKeeper()
-    
+
     mock_resolve = AsyncMock(return_value=None)
     monkeypatch.setattr(keeper, "_resolve_name_to_uuid", mock_resolve)
     mock_call_tool = AsyncMock()
     monkeypatch.setattr(keeper, "call_tool", mock_call_tool)
-    
+
     proposal = {"payload": {"from_location": "A", "to_location": "B"}}
     await keeper._commit_spatial_topology(MagicMock(), "pid", proposal, [], MagicMock())
-    
+
     mock_call_tool.assert_not_called()
+
 
 @pytest.mark.asyncio
 async def test_commit_spatial_topology_success(monkeypatch: pytest.MonkeyPatch):
     keeper = CanonKeeper()
-    
+
     uid_a = str(uuid4())
     uid_b = str(uuid4())
-    
+
     async def mock_resolve(name, universe_id):
         if name == "A":
             return uid_a
         if name == "B":
             return uid_b
         return None
-        
+
     monkeypatch.setattr(keeper, "_resolve_name_to_uuid", mock_resolve)
-    
+
     mock_call_tool = AsyncMock(return_value="{}")
     monkeypatch.setattr(keeper, "call_tool", mock_call_tool)
     monkeypatch.setattr(keeper, "_check_tool_error", MagicMock())
-    
+
     proposal = {"payload": {"from_location": "A", "to_location": "B", "description": "test"}}
     await keeper._commit_spatial_topology(MagicMock(), "pid", proposal, [], MagicMock())
-    
+
     mock_call_tool.assert_called_once()
     args = mock_call_tool.call_args[0][1]["params"]
     assert args["from_entity_id"] == uid_a
     assert args["to_entity_id"] == uid_b
     assert args["properties"]["description"] == "test"
+
 
 @pytest.mark.asyncio
 async def test_commit_create_agenda(monkeypatch: pytest.MonkeyPatch):
@@ -250,9 +253,7 @@ async def test_record_visual_identity_rejection_status_tool_error_raises(
         canon_properties={},
         decided_at=datetime.now(UTC),
     )
-    mock_call_tool = AsyncMock(
-        return_value="Validation error: status: Expected VisualIdentityStatus, got str"
-    )
+    mock_call_tool = AsyncMock(return_value="Validation error: status: Expected VisualIdentityStatus, got str")
     monkeypatch.setattr(keeper, "call_tool", mock_call_tool)
 
     with pytest.raises(RuntimeError, match="mongodb_update_visual_identity_status"):
@@ -286,9 +287,7 @@ async def test_rejected_visual_identity_proposal_stays_draft_with_decision_refer
 
     await keeper.evaluate_proposals(uuid4(), [proposal])
 
-    status_calls = [
-        c for c in mock_call_tool.call_args_list if c[0][0] == "mongodb_update_visual_identity_status"
-    ]
+    status_calls = [c for c in mock_call_tool.call_args_list if c[0][0] == "mongodb_update_visual_identity_status"]
     assert len(status_calls) == 1
     params = status_calls[0][0][1]
     assert params["identity_id"] == str(identity_id)

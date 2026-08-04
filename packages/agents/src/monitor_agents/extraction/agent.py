@@ -24,10 +24,7 @@ _ARTICLES = {"the", "a", "an"}
 
 def _significant_words(s: str) -> list[str]:
     """Lower-case split, drop common English articles and very short tokens."""
-    return [
-        w for w in (s or "").lower().split()
-        if w and w not in _ARTICLES and len(w) >= 3
-    ]
+    return [w for w in (s or "").lower().split() if w and w not in _ARTICLES and len(w) >= 3]
 
 
 def _is_partial_match(new_name: str, known_names: list[str]) -> bool:
@@ -58,9 +55,7 @@ def _is_partial_match(new_name: str, known_names: list[str]) -> bool:
         # Match when at least one significant word from `new_name` is in the
         # known's significant words (article-dropped). Catches "the captain" ≈
         # "Captain Vex" (captain is significant in both).
-        if n_significant and k_significant and any(
-            w in k_significant for w in n_significant
-        ):
+        if n_significant and k_significant and any(w in k_significant for w in n_significant):
             return True
     return False
 
@@ -72,6 +67,7 @@ class ExtractionAgent(BaseAgent):
 
     def __init__(self, agent_id: str, model: str | None = None) -> None:
         super().__init__(agent_type="extractor", agent_id=agent_id, model=model)
+
     async def run(self, *args: Any, **kwargs: Any) -> Any:
         pass
 
@@ -240,10 +236,29 @@ class ExtractionAgent(BaseAgent):
         for match in entity_pattern.finditer(narrative_text):
             name = match.group(1).strip()
             if name.lower() in {
-                "the", "a", "an", "i", "you", "he", "she", "it", "they",
-                "your", "his", "her", "its", "their", "this", "that",
-                "roll", "strength", "dexterity", "intelligence",
-                "charisma", "wisdom", "constitution",
+                "the",
+                "a",
+                "an",
+                "i",
+                "you",
+                "he",
+                "she",
+                "it",
+                "they",
+                "your",
+                "his",
+                "her",
+                "its",
+                "their",
+                "this",
+                "that",
+                "roll",
+                "strength",
+                "dexterity",
+                "intelligence",
+                "charisma",
+                "wisdom",
+                "constitution",
             }:
                 continue
             if name not in seen_names:

@@ -96,10 +96,7 @@ def test_strip_multiple_tags_in_one_turn() -> None:
         "[Kira Shadowdancer](entity:anchor) nods to [a bored bartender](entity:flavor) "
         "as [General Puentes](entity:anchor) enters."
     )
-    assert (
-        strip_entity_tags(text)
-        == "Kira Shadowdancer nods to a bored bartender as General Puentes enters."
-    )
+    assert strip_entity_tags(text) == "Kira Shadowdancer nods to a bored bartender as General Puentes enters."
 
 
 def test_strip_no_tags_returns_text_unchanged() -> None:
@@ -134,10 +131,7 @@ def test_strip_preserves_asterisk_action_markup() -> None:
     """The *action* markup convention must survive stripping — only the
     entity-tag brackets are removed."""
     text = "*The door creaks open.* [Kira](entity:anchor) steps through."
-    assert (
-        strip_entity_tags(text)
-        == "*The door creaks open.* Kira steps through."
-    )
+    assert strip_entity_tags(text) == "*The door creaks open.* Kira steps through."
 
 
 def test_strip_preserves_ooc_double_paren_markup() -> None:
@@ -159,10 +153,7 @@ def test_strip_round_trip_with_parse() -> None:
     gets full metadata); strip_entity_tags removes every tag (so the player
     sees clean text). The names from parse match the names that survive
     the strip."""
-    text = (
-        "[Kira Shadowdancer](entity:anchor) greets "
-        "[the bartender](entity:flavor)."
-    )
+    text = "[Kira Shadowdancer](entity:anchor) greets [the bartender](entity:flavor)."
     parsed = parse_entity_tags(text)
     stripped = strip_entity_tags(text)
 

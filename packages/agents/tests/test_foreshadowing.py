@@ -72,10 +72,12 @@ async def test_agent_propose_returns_parsed_dict(monkeypatch: pytest.MonkeyPatch
             )
 
     from monitor_agents.foreshadowing import agent as fs_agent_mod
+
     monkeypatch.setattr(fs_agent_mod, "dspy", dspy)
     # Avoid hitting the real DSPy runtime (network blocked in tests).
     monkeypatch.setattr(
-        fs_agent_mod, "dspy_context_for",
+        fs_agent_mod,
+        "dspy_context_for",
         lambda *a, **k: contextlib.nullcontext(),
     )
     agent = ForeshadowingAgent()

@@ -109,7 +109,9 @@ def test_unseeded_loop_starts_with_character_name():
     loop = _build_loop(seed=None)
     # Don't await start() — load_system + apply are inline; inspect state.
     loop._state = loop._state.model_copy(
-        update=__import__("monitor_agents.loops.character_creation_loop", fromlist=["load_system"]).load_system(loop._state)
+        update=__import__("monitor_agents.loops.character_creation_loop", fromlist=["load_system"]).load_system(
+            loop._state
+        )
     )
     assert loop._state.creation_steps, "load_system must produce creation steps"
     first_step = loop._state.creation_steps[loop._state.current_step_index]
@@ -144,9 +146,7 @@ def test_seeded_loop_seed_is_consumed_after_first_start():
     loop._initial_seed = {}  # mimic the single-use behaviour in .start()
 
     # Subsequent apply with a no-op seed (or any seed) must not reset state.
-    later = loop._state.model_copy(
-        update=_apply_initial_seed(loop._state, _normalise_initial_seed(None))
-    )
+    later = loop._state.model_copy(update=_apply_initial_seed(loop._state, _normalise_initial_seed(None)))
     assert later.current_step_index == loop._state.current_step_index
     assert later.character_name == "Alfred"
 

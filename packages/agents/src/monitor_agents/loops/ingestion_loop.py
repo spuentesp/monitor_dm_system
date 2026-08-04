@@ -65,6 +65,7 @@ class IngestionState(BaseModel):
     extracted_entities: list[dict[str, Any]] = Field(default_factory=list)
     extracted_axioms: list[dict[str, Any]] = Field(default_factory=list)
     extracted_facts: list[dict[str, Any]] = Field(default_factory=list)
+    extracted_mechanics: list[dict[str, Any]] = Field(default_factory=list)
 
     # Status
     status: IngestionStatus = IngestionStatus.PENDING
@@ -101,19 +102,57 @@ async def process_text(state: IngestionState) -> dict[str, Any]:
     analyzer = Analyzer()
 
     # 1. Indexing
+    job_id = state.job_id or uuid4()
     await indexer.index(
         file_bytes=state.file_bytes,  # type: ignore[arg-type]
         filename=state.filename,
         source_name=state.source_title,
         metadata={
             "universe_id": str(state.universe_id),
-            "job_id": str(state.job_id) if state.job_id else str(uuid4()),
+            "job_id": str(job_id),
         },
     )
 
+    # 1.5 Triage & Mechanics Extraction
+    from monitor_data.db.qdrant import get_qdrant_client
+    from monitor_agents.ingestion.triage import TriageAgent
+    from monitor_agents.ingestion.mechanics_architect import MechanicsArchitect
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    
+    triage_agent = TriageAgent()
+    mechanics_architect = MechanicsArchitect()
+    
+    qdrant_client = get_qdrant_client().get_client()
+    try:
+        scroll_res, _ = await qdrant_client.scroll(
+            collection_name="snippets",
+            scroll_filter=Filter(
+                must=[
+                    FieldCondition(key="job_id", match=MatchValue(value=str(job_id)))
+                ]
+            ),
+            limit=1000
+        )
+        
+        extracted_mechanics = []
+        for point in scroll_res:
+            text = point.payload.get("page_content", "") if point.payload else ""
+            if not text:
+                continue
+                
+            tags = triage_agent.triage(text)
+            
+            if "#mechanics" in tags or "#hybrid" in tags:
+                mech_data = mechanics_architect.extract(text)
+                if mech_data:
+                    extracted_mechanics.append(mech_data)
+    except Exception as exc:
+        logger.warning(f"Failed to triage chunks from Qdrant: {exc}")
+        extracted_mechanics = []
+
     # 2. Analysis
     analysis_res = await analyzer.analyze(  # type: ignore[call-arg]
-        job_id=state.job_id or uuid4(),
+        job_id=job_id,
         source_name=state.source_title,
         pack_name=state.pack_name,
         pack_type=state.pack_type,
@@ -126,6 +165,7 @@ async def process_text(state: IngestionState) -> dict[str, Any]:
         "extracted_entities": [e.model_dump() for e in getattr(analysis_res, "entities", [])],
         "extracted_axioms": [a.model_dump() for a in getattr(analysis_res, "axioms", [])],
         "extracted_facts": [f.model_dump() for f in getattr(analysis_res, "lore_facts", [])],
+        "extracted_mechanics": extracted_mechanics,
         "current_stage": "analysis_complete",
     }
 
@@ -226,6 +266,21 @@ async def synthesize_proposals(state: IngestionState) -> dict[str, Any]:
         final_facts.append(fact)
 
     # 1. Create KnowledgePack
+    from monitor_data.schemas.knowledge_packs import EmbeddedGameSystem
+
+    game_system_data = None
+    if state.extracted_mechanics:
+        game_system_data = EmbeddedGameSystem(name=state.pack_name or "Extracted Mechanics")
+        for mech in state.extracted_mechanics:
+            for key, val in mech.items():
+                if isinstance(val, list) and hasattr(game_system_data, key):
+                    current = getattr(game_system_data, key)
+                    if isinstance(current, list):
+                        current.extend(val)
+                elif hasattr(game_system_data, key) and val is not None:
+                    if not getattr(game_system_data, key):
+                        setattr(game_system_data, key, val)
+
     pack = mongodb_create_knowledge_pack(
         KnowledgePackCreate(
             name=state.pack_name,
@@ -234,6 +289,7 @@ async def synthesize_proposals(state: IngestionState) -> dict[str, Any]:
             entities=state.extracted_entities,
             axioms=state.extracted_axioms,
             lore_facts=final_facts,
+            game_system_data=game_system_data,
             status=KnowledgePackStatus.READY,
         )
     )

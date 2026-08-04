@@ -300,9 +300,7 @@ async def test_decide_records_roleplay_errors_on_react_and_fallback_failure() ->
 
     with (
         patch("monitor_agents.gm_agent.check_gm_awareness", side_effect=_also_fail),
-        patch(
-            "monitor_agents.gm_agent.RoleplayErrorRecorder.record", new_callable=AsyncMock
-        ) as mock_record,
+        patch("monitor_agents.gm_agent.RoleplayErrorRecorder.record", new_callable=AsyncMock) as mock_record,
     ):
         await agent.decide(
             scene_id="scene-1",

@@ -70,7 +70,9 @@ class KnowledgePackService:
 
         gsid = getattr(pack, "game_system_id", None)
         embedded = getattr(pack, "game_system_data", None)
-        system_name = getattr(embedded, "name", None) or getattr(pack, "system_name", None) or getattr(pack, "name", None)
+        system_name = (
+            getattr(embedded, "name", None) or getattr(pack, "system_name", None) or getattr(pack, "name", None)
+        )
         pack_source_id = getattr(pack, "id", None) or getattr(pack, "pack_id", None)
 
         update_kwargs: dict[str, object] = {
@@ -91,6 +93,7 @@ class KnowledgePackService:
 
         try:
             from monitor_data.schemas.universe import UniverseUpdate as DLUniverseUpdate
+
             neo4j_update_universe(universe_id, DLUniverseUpdate(**update_kwargs))
         except Exception:
             pass
@@ -242,10 +245,10 @@ class KnowledgePackService:
         pack = mongodb_get_knowledge_pack(pack_uid)
         if not pack:
             raise ValueError("KnowledgePack not found")
-            
+
         if pack.status == KnowledgePackStatus.ARCHIVED:
             raise ValueError("Cannot apply an archived pack")
-            
+
         if pack.status == KnowledgePackStatus.PENDING:
             raise ValueError(f"KnowledgePack '{pack.name}' is still being built.")
 
@@ -325,9 +328,7 @@ class KnowledgePackService:
         a_idx = cls._subset_indices(len(pack.axioms), axiom_indices)
         l_idx = cls._subset_indices(len(pack.lore_facts), lore_indices)
 
-        conflicts, conflicting = cls._detect_pack_world_conflicts(
-            pack, universe_uid, mv_id, e_idx, a_idx, l_idx
-        )
+        conflicts, conflicting = cls._detect_pack_world_conflicts(pack, universe_uid, mv_id, e_idx, a_idx, l_idx)
         request_overrides = None
         if conflicts or entity_indices or axiom_indices or lore_indices:
             request_overrides = {
@@ -335,7 +336,7 @@ class KnowledgePackService:
                 "axiom_indices": [i for i in a_idx if i not in conflicting["axiom"]],
                 "lore_indices": [i for i in l_idx if i not in conflicting["lore"]],
             }
-            
+
         keeper = CanonKeeper()
         result = await keeper.apply_pack_to_universe(
             pack_id=pack_uid,
@@ -473,7 +474,7 @@ class KnowledgePackService:
             for document_id in pack.source_document_ids:
                 if document_id not in source_doc_ids:
                     source_doc_ids.append(document_id)
-        
+
         final_name = merged_name or f"{first.name} (merged)"
 
         new_pack = mongodb_create_knowledge_pack(

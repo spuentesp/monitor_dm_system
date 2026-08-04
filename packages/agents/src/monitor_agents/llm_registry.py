@@ -159,6 +159,7 @@ class LLMClient:
         """
         params = {**self.params, **override_params}
         if self.provider in (LLMProviderType.ANTHROPIC, LLMProviderType.MINIMAX):
+
             async def _anthropic_stream() -> AsyncIterator[str]:
                 async with self._raw_client.messages.stream(
                     model=self.model,

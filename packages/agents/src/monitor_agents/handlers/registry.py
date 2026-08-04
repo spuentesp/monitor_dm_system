@@ -211,9 +211,9 @@ class CommitHandlerAdapter:
                 from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
                 content = proposal.get("content", {})
-                universe_id_str = (
-                    content.get("universe_id") if isinstance(content, dict) else None
-                ) or proposal.get("universe_id")
+                universe_id_str = (content.get("universe_id") if isinstance(content, dict) else None) or proposal.get(
+                    "universe_id"
+                )
                 try:
                     universe_id = UUID(str(universe_id_str)) if universe_id_str else None
                 except (TypeError, ValueError):

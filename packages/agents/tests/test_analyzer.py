@@ -853,39 +853,54 @@ def test_infer_relationships_generates_global_neighborhood_batches():
     # they have children (discipline/path).
     entities = [
         ExtractedEntityArchetype(
-            name="Clan", entity_type="organization", sub_type="clan",
+            name="Clan",
+            entity_type="organization",
+            sub_type="clan",
             description="A vampire bloodline.",
         ),
         ExtractedEntityArchetype(
-            name="Toreador", entity_type="organization", sub_type="clan",
+            name="Toreador",
+            entity_type="organization",
+            sub_type="clan",
             description="Vampire clan of artists and seducers.",
             parent_entity_name="Clan",
         ),
         ExtractedEntityArchetype(
-            name="Ventrue", entity_type="organization", sub_type="clan",
+            name="Ventrue",
+            entity_type="organization",
+            sub_type="clan",
             description="Vampire clan of leaders.",
             parent_entity_name="Clan",
         ),
         ExtractedEntityArchetype(
-            name="Brujah", entity_type="organization", sub_type="clan",
+            name="Brujah",
+            entity_type="organization",
+            sub_type="clan",
             description="Vampire clan of rebels.",
             parent_entity_name="Clan",
         ),
         ExtractedEntityArchetype(
-            name="Presence", entity_type="concept", sub_type="discipline",
+            name="Presence",
+            entity_type="concept",
+            sub_type="discipline",
             description="A vampire discipline of supernatural presence.",
         ),
         ExtractedEntityArchetype(
-            name="Animalism", entity_type="concept", sub_type="discipline",
+            name="Animalism",
+            entity_type="concept",
+            sub_type="discipline",
             description="A vampire discipline of beast communion.",
         ),
         ExtractedEntityArchetype(
-            name="Path of Enlightenment", entity_type="concept",
+            name="Path of Enlightenment",
+            entity_type="concept",
             sub_type="path",
             description="A moral path replacing Humanity.",
         ),
         ExtractedEntityArchetype(
-            name="New York", entity_type="location", sub_type="city",
+            name="New York",
+            entity_type="location",
+            sub_type="city",
             description="A major city in the World of Darkness.",
         ),
     ]
@@ -910,16 +925,19 @@ def test_infer_relationships_generates_global_neighborhood_batches():
         captured_batches.append(names)
         # Return a fake result object.
         from types import SimpleNamespace
+
         return SimpleNamespace(relationships=[])
 
     # Replace the _call_module method.
     analyzer._call_module = fake_call_module  # type: ignore[method-assign]
 
-    asyncio.run(analyzer._infer_relationships(
-        entities=entities,
-        source_name="test-vtm-mini",
-        source_profile_context="VtM corebook. Gothic-Punk horror.",
-    ))
+    asyncio.run(
+        analyzer._infer_relationships(
+            entities=entities,
+            source_name="test-vtm-mini",
+            source_profile_context="VtM corebook. Gothic-Punk horror.",
+        )
+    )
 
     # The batches should include a "neighborhood" batch focused on
     # each real container (Clan, Toreador, Ventrue, Brujah). The
@@ -928,8 +946,7 @@ def test_infer_relationships_generates_global_neighborhood_batches():
     # type = location).
     clan_neighborhoods = [b for b in captured_batches if "Clan" in b]
     assert len(clan_neighborhoods) >= 1, (
-        f"Expected at least one neighborhood batch containing 'Clan', "
-        f"got batches: {captured_batches}"
+        f"Expected at least one neighborhood batch containing 'Clan', got batches: {captured_batches}"
     )
 
     # The Clan neighborhood should include the clan siblings
@@ -968,16 +985,22 @@ def test_infer_relationships_orphan_rescue_pass():
     # Animalism") but the main batches might not catch this.
     entities = [
         ExtractedEntityArchetype(
-            name="Clan", entity_type="organization", sub_type="clan",
+            name="Clan",
+            entity_type="organization",
+            sub_type="clan",
             description="A vampire bloodline.",
         ),
         ExtractedEntityArchetype(
-            name="Brujah", entity_type="organization", sub_type="clan",
+            name="Brujah",
+            entity_type="organization",
+            sub_type="clan",
             description="Rebel clan.",
             parent_entity_name="Clan",
         ),
         ExtractedEntityArchetype(
-            name="Animalism", entity_type="concept", sub_type="discipline",
+            name="Animalism",
+            entity_type="concept",
+            sub_type="discipline",
             description="A vampire discipline of beast communion.",
         ),
     ]
@@ -987,19 +1010,20 @@ def test_infer_relationships_orphan_rescue_pass():
     rescued_rels = []
 
     async def fake_call_module(module, *, stage, batch_id, **kwargs):
-        roster = kwargs.get("entity_roster", "")
         # The rescue batch has a different stage label.
         if "orphan_rescue" in stage:
             call_count["rescue"] += 1
             # Simulate the LLM inferring that Animalism is a discipline
             # of the Brujah clan.
-            rescued_rels.append(SimpleNamespace(
-                from_entity="Animalism",
-                to_entity="Brujah",
-                rel_type="AFFECTED_BY",
-                description="Animalism is commonly associated with the Brujah clan.",
-                confidence=0.8,
-            ))
+            rescued_rels.append(
+                SimpleNamespace(
+                    from_entity="Animalism",
+                    to_entity="Brujah",
+                    rel_type="AFFECTED_BY",
+                    description="Animalism is commonly associated with the Brujah clan.",
+                    confidence=0.8,
+                )
+            )
             return SimpleNamespace(relationships=rescued_rels)
         call_count["family"] += 1
         # Main batches return empty.
@@ -1007,23 +1031,17 @@ def test_infer_relationships_orphan_rescue_pass():
 
     analyzer._call_module = fake_call_module  # type: ignore[method-assign]
 
-    result = asyncio.run(analyzer._infer_relationships(
-        entities=entities,
-        source_name="test-orphan-rescue",
-    ))
+    result = asyncio.run(
+        analyzer._infer_relationships(
+            entities=entities,
+            source_name="test-orphan-rescue",
+        )
+    )
 
     # The rescue pass should have been called at least once
     # because Animalism has 0 outgoing edges after the main
     # inference (the main batches return empty).
-    assert call_count["rescue"] >= 1, (
-        f"Orphan rescue pass should have been invoked, got {call_count}"
-    )
+    assert call_count["rescue"] >= 1, f"Orphan rescue pass should have been invoked, got {call_count}"
     # The rescued relationship should be in the result.
-    found_animalism = any(
-        r.from_entity == "Animalism" and r.to_entity == "Brujah"
-        for r in result
-    )
-    assert found_animalism, (
-        f"Orphan rescue should have produced Animalism → Brujah, "
-        f"got result: {result}"
-    )
+    found_animalism = any(r.from_entity == "Animalism" and r.to_entity == "Brujah" for r in result)
+    assert found_animalism, f"Orphan rescue should have produced Animalism → Brujah, got result: {result}"

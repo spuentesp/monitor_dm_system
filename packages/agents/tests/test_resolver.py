@@ -922,9 +922,7 @@ class TestResolveCheck:
 
         resolver.call_tool = _tool
 
-        with patch(
-            "monitor_agents.resolver.RoleplayErrorRecorder.record", new_callable=AsyncMock
-        ) as mock_record:
+        with patch("monitor_agents.resolver.RoleplayErrorRecorder.record", new_callable=AsyncMock) as mock_record:
             result = await resolver.resolve_check(str(entity_uuid), "Strength")
 
         assert "error" in result
@@ -1327,32 +1325,38 @@ class TestLookupQuestionDetection:
 
     def test_what_is_matches(self):
         from monitor_agents.resolver import _is_lookup_question
+
         assert _is_lookup_question("What is the Beast?")
         assert _is_lookup_question("What is Toreador?")
         assert _is_lookup_question("what is Auspex?")
 
     def test_what_are_matches(self):
         from monitor_agents.resolver import _is_lookup_question
+
         assert _is_lookup_question("What are the Disciplines?")
         assert _is_lookup_question("what are Paths of Enlightenment?")
 
     def test_tell_me_about_matches(self):
         from monitor_agents.resolver import _is_lookup_question
+
         assert _is_lookup_question("Tell me about the Sabbat")
         assert _is_lookup_question("tell me about Humanity")
 
     def test_explain_matches(self):
         from monitor_agents.resolver import _is_lookup_question
+
         assert _is_lookup_question("Explain the Jyhad")
         assert _is_lookup_question("explain Rötschreck")
 
     def test_who_is_matches(self):
         from monitor_agents.resolver import _is_lookup_question
+
         assert _is_lookup_question("Who is Caine?")
         assert _is_lookup_question("who are the Antediluvians?")
 
     def test_describe_matches(self):
         from monitor_agents.resolver import _is_lookup_question
+
         assert _is_lookup_question("Describe the Camarilla")
         assert _is_lookup_question("define Dominate")
 
@@ -1360,6 +1364,7 @@ class TestLookupQuestionDetection:
         """World-truth questions (yes/no) must NOT be classified as
         LOOKUP — they go to the Oracle branch instead."""
         from monitor_agents.resolver import _is_lookup_question
+
         assert not _is_lookup_question("Is the door locked?")
         assert not _is_lookup_question("Does she have a weapon?")
         assert not _is_lookup_question("Can I pick the lock?")
@@ -1367,12 +1372,14 @@ class TestLookupQuestionDetection:
     def test_action_does_not_match(self):
         """In-world actions must NOT be classified as LOOKUP."""
         from monitor_agents.resolver import _is_lookup_question
+
         assert not _is_lookup_question("I attack the ghoul with my sword")
         assert not _is_lookup_question("I sneak into the warehouse")
         assert not _is_lookup_question("I talk to the prince about the investigation")
 
     def test_empty_or_ooc_does_not_match(self):
         from monitor_agents.resolver import _is_lookup_question
+
         assert not _is_lookup_question("")
         assert not _is_lookup_question("I open the door")
         # Trailing punctuation stripped.

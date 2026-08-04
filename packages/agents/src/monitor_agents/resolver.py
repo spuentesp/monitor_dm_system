@@ -456,7 +456,6 @@ class Resolver(BaseAgent):
         hits are presented as bullet points with citations, and the
         front-end (or a downstream narrator pass) can summarise.
         """
-        from monitor_data.db.qdrant import get_qdrant_client
         from monitor_data.retrieval.service import RetrievalService
 
         question_clean = (question or "").strip().rstrip("?.! ")
@@ -468,31 +467,38 @@ class Resolver(BaseAgent):
         focal = question_clean
         for starter in _LOOKUP_STARTERS:
             if question_clean.lower().startswith(starter):
-                focal = question_clean[len(starter):].strip()
+                focal = question_clean[len(starter) :].strip()
                 break
         # Strip leading articles / determiners for better matching.
         for prefix in ("the ", "a ", "an "):
             if focal.lower().startswith(prefix):
-                focal = focal[len(prefix):]
+                focal = focal[len(prefix) :]
                 break
 
         # Search across entities, knowledge, and snippets in parallel.
         # The retrieval service handles embedding + Qdrant search.
         try:
             retrieval = RetrievalService()
-            filters = (
-                {"universe_id": universe_id} if universe_id else None
-            )
+            filters = {"universe_id": universe_id} if universe_id else None
             entity_hits = await retrieval.retrieve(
-                "entities", question_clean, filters=filters, limit=3,
+                "entities",
+                question_clean,
+                filters=filters,
+                limit=3,
             )
             knowledge_hits = await retrieval.retrieve(
-                "knowledge", question_clean, filters=filters, limit=3,
+                "knowledge",
+                question_clean,
+                filters=filters,
+                limit=3,
             )
             snippet_hits = await retrieval.retrieve(
-                "snippets", question_clean, filters=filters, limit=3,
+                "snippets",
+                question_clean,
+                filters=filters,
+                limit=3,
             )
-        except Exception as exc:
+        except Exception:
             # Don't break the resolver if retrieval is unavailable; the
             # caller will fall through to the normal flow.
             return None
@@ -517,12 +523,14 @@ class Resolver(BaseAgent):
                     answer_lines.append(f"- **{name}**{meta} — {desc}")
                 else:
                     answer_lines.append(f"- **{name}**{meta}")
-                citations.append({
-                    "source": "entity",
-                    "name": name,
-                    "sub_type": sub_type,
-                    "score": hit.score,
-                })
+                citations.append(
+                    {
+                        "source": "entity",
+                        "name": name,
+                        "sub_type": sub_type,
+                        "score": hit.score,
+                    }
+                )
             answer_lines.append("")
 
         if knowledge_hits:
@@ -534,11 +542,13 @@ class Resolver(BaseAgent):
                 if text:
                     suffix = f" _{node_type}_" if node_type else ""
                     answer_lines.append(f"- {text}{suffix}")
-                citations.append({
-                    "source": "knowledge",
-                    "node_type": node_type,
-                    "score": hit.score,
-                })
+                citations.append(
+                    {
+                        "source": "knowledge",
+                        "node_type": node_type,
+                        "score": hit.score,
+                    }
+                )
             answer_lines.append("")
 
         if snippet_hits:
@@ -552,12 +562,14 @@ class Resolver(BaseAgent):
                 if text:
                     snippet = text[:240] + ("…" if len(text) > 240 else "")
                     answer_lines.append(f"- {snippet}{ref}")
-                citations.append({
-                    "source": "snippet",
-                    "section": section,
-                    "page": page,
-                    "score": hit.score,
-                })
+                citations.append(
+                    {
+                        "source": "snippet",
+                        "section": section,
+                        "page": page,
+                        "score": hit.score,
+                    }
+                )
 
         if not (entity_hits or knowledge_hits or snippet_hits):
             return None
@@ -699,12 +711,10 @@ class Resolver(BaseAgent):
         # LLM verdict's intent_type is the authoritative signal; we
         # additionally fall back to a regex when the LLM signal is
         # missing or the verdict is unavailable.
-        if intent_type == "lookup" or (
-            intent_type != "query" and _is_lookup_question(user_input or "")
-        ):
+        if intent_type == "lookup" or (intent_type != "query" and _is_lookup_question(user_input or "")):
             lookup_res = await self._handle_lookup(
                 question=user_input or "",
-                universe_id=universe_id,
+                universe_id=context.get("universe_id") if context else None,
             )
             if lookup_res is not None:
                 return self._attach_gm_verdict(lookup_res)
@@ -1279,44 +1289,116 @@ class Resolver(BaseAgent):
         """
         sc_eval = sc_eval or {"cond_modifier": 0, "scenery_modifier": 0, "reasons": []}
 
-        # Select roll formula based on actual_roll_mode
-        if actual_roll_mode == "advantage":
-            roll_formula = "2d20kh1"
-            mode_label = "advantage"
-        elif actual_roll_mode == "disadvantage":
-            roll_formula = "2d20kl1"
-            mode_label = "disadvantage"
-        else:
-            roll_formula = "1d20"
+        m_type = "d20"
+        if gsr and gsr._sd.core:
+            m_type = gsr._sd.core.get("type", "d20").lower()
+
+        explain_parts = []
+        if sc_eval.get("cond_modifier", 0) != 0:
+            explain_parts.append(f"conditions: {sc_eval['cond_modifier']}")
+        if sc_eval.get("scenery_modifier", 0) != 0:
+            reasons_str = f" ({', '.join(sc_eval.get('reasons') or [])})" if sc_eval.get("reasons") else ""
+            explain_parts.append(f"scenery: {sc_eval['scenery_modifier']}{reasons_str}")
+
+        explain_str = ""
+        if explain_parts:
+            explain_str = f" [base: {base_modifier}, " + ", ".join(explain_parts) + "]"
+
+        if "dice_pool" in m_type:
+            from monitor_agents.dice import default_dice_registry
+
+            engine = default_dice_registry.get("pool")
+
+            threshold = 6
+            if gsr and gsr._sd.core:
+                threshold_val = gsr._sd.core.get("success_threshold", 6)
+                try:
+                    if isinstance(threshold_val, str):
+                        threshold = int("".join(filter(str.isdigit, threshold_val)) or 6)
+                    else:
+                        threshold = int(threshold_val)
+                except (ValueError, TypeError):
+                    threshold = 6
+
+            try:
+                pool_size = int(stat_value) + modifier
+            except (ValueError, TypeError):
+                pool_size = 1
+            if pool_size < 1:
+                pool_size = 1
+
+            roll_res = engine.resolve_check(pool_size=pool_size, difficulty=threshold)
+            total = roll_res.successes
+
+            if roll_res.botches > 0 and total == 0:
+                success_level = "critical_failure"
+            elif total >= 1:
+                success_level = "success"
+            else:
+                success_level = "failure"
+
             mode_label = "normal"
+            actual_roll_mode = "normal"
+            roll_formula = f"{pool_size}d10"
+            rolls = roll_res.raw_rolls
+            kept_rolls = roll_res.raw_rolls
 
-        roll = roll_dice(roll_formula)
-        natural = roll.kept_rolls[0] if roll.kept_rolls else (roll.rolls[0] if roll.rolls else roll.total)
-        total = roll.total + modifier
-
-        if _uses_roll_under(gsr):
-            target = dc + modifier
-            if natural == 1:
-                success_level = "critical_success"
-            elif natural == 20:
-                success_level = "critical_failure"
-            elif natural <= target:
-                success_level = "success"
-            elif natural <= target + 2:
-                success_level = "partial_success"
-            else:
-                success_level = "failure"
+            spec = f"{pool_size}d10"
+            roll_breakdown = f"Pool {pool_size} ({rolls}): {total} successes (diff {threshold}){explain_str}"
+            roll_reason = f"{stat_name} check (pool {pool_size}, diff {threshold}){explain_str}"
         else:
-            if natural == 20:
-                success_level = "critical_success"
-            elif natural == 1:
-                success_level = "critical_failure"
-            elif total >= dc:
-                success_level = "success"
-            elif total >= dc - 2:
-                success_level = "partial_success"
+            # Select roll formula based on actual_roll_mode
+            if actual_roll_mode == "advantage":
+                roll_formula = "2d20kh1"
+                mode_label = "advantage"
+            elif actual_roll_mode == "disadvantage":
+                roll_formula = "2d20kl1"
+                mode_label = "disadvantage"
             else:
-                success_level = "failure"
+                roll_formula = "1d20"
+                mode_label = "normal"
+
+            roll = roll_dice(roll_formula)
+            rolls = roll.rolls
+            kept_rolls = roll.kept_rolls if roll.kept_rolls else roll.rolls
+            natural = kept_rolls[0] if kept_rolls else (rolls[0] if rolls else roll.total)
+            total = roll.total + modifier
+
+            if _uses_roll_under(gsr):
+                target = dc + modifier
+                if natural == 1:
+                    success_level = "critical_success"
+                elif natural == 20:
+                    success_level = "critical_failure"
+                elif natural <= target:
+                    success_level = "success"
+                elif natural <= target + 2:
+                    success_level = "partial_success"
+                else:
+                    success_level = "failure"
+            else:
+                if natural == 20:
+                    success_level = "critical_success"
+                elif natural == 1:
+                    success_level = "critical_failure"
+                elif total >= dc:
+                    success_level = "success"
+                elif total >= dc - 2:
+                    success_level = "partial_success"
+                else:
+                    success_level = "failure"
+
+            spec = f"1d20+{modifier}" if modifier >= 0 else f"1d20{modifier}"
+            if actual_roll_mode != "normal":
+                spec = f"{roll_formula}+{modifier}" if modifier >= 0 else f"{roll_formula}{modifier}"
+
+            if _uses_roll_under(gsr):
+                target = dc + modifier
+                roll_breakdown = f"{roll_formula}({natural}) <= {dc} + {modifier} = {target}{explain_str}"
+                roll_reason = f"{stat_name} check (target {target}, roll-under, {mode_label}){explain_str}"
+            else:
+                roll_breakdown = f"{roll_formula}({natural}) + {modifier} = {total} vs DC {dc}{explain_str}"
+                roll_reason = f"{stat_name} check (DC {dc}, {mode_label}){explain_str}"
 
         effects = []
         if success_level in {"success", "critical_success"}:
@@ -1330,30 +1412,6 @@ class Resolver(BaseAgent):
             effects.append("npc_reacts")
         else:
             effects.append("fiction_advances")
-
-        spec = f"1d20+{modifier}" if modifier >= 0 else f"1d20{modifier}"
-        if actual_roll_mode != "normal":
-            spec = f"{roll_formula}+{modifier}" if modifier >= 0 else f"{roll_formula}{modifier}"
-
-        # Build explanation of modifiers
-        explain_parts = []
-        if sc_eval.get("cond_modifier", 0) != 0:
-            explain_parts.append(f"conditions: {sc_eval['cond_modifier']}")
-        if sc_eval.get("scenery_modifier", 0) != 0:
-            reasons_str = f" ({', '.join(sc_eval.get('reasons') or [])})" if sc_eval.get("reasons") else ""
-            explain_parts.append(f"scenery: {sc_eval['scenery_modifier']}{reasons_str}")
-
-        explain_str = ""
-        if explain_parts:
-            explain_str = f" [base: {base_modifier}, " + ", ".join(explain_parts) + "]"
-
-        if _uses_roll_under(gsr):
-            target = dc + modifier
-            roll_breakdown = f"{roll_formula}({natural}) <= {dc} + {modifier} = {target}{explain_str}"
-            roll_reason = f"{stat_name} check (target {target}, roll-under, {mode_label}){explain_str}"
-        else:
-            roll_breakdown = f"{roll_formula}({natural}) + {modifier} = {total} vs DC {dc}{explain_str}"
-            roll_reason = f"{stat_name} check (DC {dc}, {mode_label}){explain_str}"
 
         intent_type = _infer_intent_type(user_input or "", action_type)
         consequence_options = _build_consequence_options(
@@ -1384,8 +1442,8 @@ class Resolver(BaseAgent):
             "roll_detail": {
                 "spec": spec,
                 "total": total,
-                "rolls": roll.rolls,
-                "kept_rolls": roll.kept_rolls if roll.kept_rolls else roll.rolls,
+                "rolls": rolls,
+                "kept_rolls": kept_rolls,
                 "reason": roll_reason,
                 "roll_mode": actual_roll_mode,
             },
@@ -1517,12 +1575,9 @@ class Resolver(BaseAgent):
                 except (ValueError, TypeError):
                     threshold = 6
 
-            engine = default_dice_registry.get("vtm_v20")
-            actor_ctx = {"hunger": int(actor_hunger) if actor_hunger else 0} if False else None
-            target_ctx = {"hunger": int(target_hunger) if target_hunger else 0} if False else None
-            # Hunger dice aren't in the resolver signature today, so we
-            # pass None context. The engine still does the right thing
-            # (it just doesn't add hunger dice effects).
+            engine = default_dice_registry.get("pool")
+            # Resources aren't in the resolver signature today, so we
+            # pass None context. The engine still does the right thing.
             actor_roll = engine.resolve_check(
                 pool_size=actor_stat,
                 difficulty=threshold,
@@ -1772,7 +1827,7 @@ class Resolver(BaseAgent):
                         threshold = int(threshold_val)
                 except (ValueError, TypeError):
                     threshold = 6
-                engine = default_dice_registry.get("vtm_v20")
+                engine = default_dice_registry.get("pool")
                 dice_res = engine.resolve_check(
                     pool_size=pool_size,
                     difficulty=threshold,

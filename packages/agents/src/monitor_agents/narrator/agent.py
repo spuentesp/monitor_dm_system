@@ -260,9 +260,7 @@ def _npc_state_block(
         rows.append(f"- {name}: " + ", ".join(bits))
     if not rows:
         return ""
-    return (
-        "\n\nNPC STATE (use these in dialogue; do not contradict):\n" + "\n".join(rows) + "\n"
-    )
+    return "\n\nNPC STATE (use these in dialogue; do not contradict):\n" + "\n".join(rows) + "\n"
 
 
 def _opening_recap_block(text: str | None, *, max_chars: int = 120) -> str:
@@ -273,9 +271,7 @@ def _opening_recap_block(text: str | None, *, max_chars: int = 120) -> str:
     return f"\n\nLAST SCENE: {truncated}"
 
 
-def _foreshadowing_block(
-    open_items: Any, *, turns_count: int, cap: int = 5, max_chars: int = 200
-) -> str:
+def _foreshadowing_block(open_items: Any, *, turns_count: int, cap: int = 5, max_chars: int = 200) -> str:
     """Render OPEN FORESHADOWING as a labeled narrator block (empty when none)."""
     if not isinstance(open_items, list) or not open_items:
         return ""
@@ -294,10 +290,7 @@ def _foreshadowing_block(
         rows.append(f"- {summary} (target turn {target_turn}){suffix}")
     if not rows:
         return ""
-    return (
-        "\n\nOPEN FORESHADOWING (pay off or reference these where natural):\n"
-        + "\n".join(rows) + "\n"
-    )
+    return "\n\nOPEN FORESHADOWING (pay off or reference these where natural):\n" + "\n".join(rows) + "\n"
 
 
 def _recent_chat_block(recent_chat: Any, *, max_tokens: int = 500) -> str:
@@ -641,9 +634,8 @@ class Narrator(BaseAgent):
         # Inject NPC state (Task 4): per-NPC emotion + relationship + voice.
         profile_context += _npc_state_block(
             context.get("npc_profiles"),
-            universe_id=context.get("universe_id") or (
-                str(getattr(story_state, "universe_id", "")) if story_state else None
-            ),
+            universe_id=context.get("universe_id")
+            or (str(getattr(story_state, "universe_id", "")) if story_state else None),
             player_id=str(actor.get("id")) if isinstance(actor, dict) and actor.get("id") else None,
         )
 
@@ -746,28 +738,14 @@ class Narrator(BaseAgent):
         # anchor so the narrator respects them on every turn.
         agreements = context.get("agreements") if isinstance(context, dict) else None
         if isinstance(agreements, dict):
-            lines = [
-                str(item).strip()
-                for item in (agreements.get("lines") or [])
-                if str(item).strip()
-            ]
-            veils = [
-                str(item).strip()
-                for item in (agreements.get("veils") or [])
-                if str(item).strip()
-            ]
+            lines = [str(item).strip() for item in (agreements.get("lines") or []) if str(item).strip()]
+            veils = [str(item).strip() for item in (agreements.get("veils") or []) if str(item).strip()]
             if lines:
                 lines_listing = "; ".join(lines)
-                setting_parts.append(
-                    "TABLE LINES (never depict, introduce, or make central): "
-                    f"{lines_listing}."
-                )
+                setting_parts.append(f"TABLE LINES (never depict, introduce, or make central): {lines_listing}.")
             if veils:
                 veils_listing = "; ".join(veils)
-                setting_parts.append(
-                    "TABLE VEILS (acknowledge but fade to black without detail): "
-                    f"{veils_listing}."
-                )
+                setting_parts.append(f"TABLE VEILS (acknowledge but fade to black without detail): {veils_listing}.")
         setting_anchor = " | ".join(setting_parts)
 
         # Resolve dynamic model role based on dramatic intensity.

@@ -195,9 +195,7 @@ class TestRecallMemories:
         agent = NPCVoice()
         memory_id = uuid4()
         envelope = {
-            "results": [
-                {"memory_id": str(memory_id), "entity_id": str(npc_id), "text": None, "score": 0.9}
-            ],
+            "results": [{"memory_id": str(memory_id), "entity_id": str(npc_id), "text": None, "score": 0.9}],
             "query": "widow's reef",
             "top_k": 5,
         }

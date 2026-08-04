@@ -196,15 +196,11 @@ class StoryAgreementsLoop:
 def _question_for(state: StoryAgreementsState, category: AgreementCategory) -> str:
     authored_index = AGREEMENT_SEQUENCE.index(category)
     if authored_index < len(state.authored_questions):
-        authored = str(
-            state.authored_questions[authored_index].get("question_text") or ""
-        ).strip()
+        authored = str(state.authored_questions[authored_index].get("question_text") or "").strip()
         if authored:
             return authored
 
-    universe_name = str(
-        state.setting_intro.get("universe_name") or "this setting"
-    ).strip()
+    universe_name = str(state.setting_intro.get("universe_name") or "this setting").strip()
     if category == AgreementCategory.PREMISE:
         return (
             f"In {universe_name}, what kind of story do you want to explore, "
@@ -234,12 +230,8 @@ def _format_summary(agreements: StoryAgreements) -> str:
     if agreements.pacing:
         tone_line += f"; {agreements.pacing} pacing"
     parts.append(f"**Tone:** {tone_line}")
-    parts.append(
-        "**Lines:** " + (", ".join(agreements.lines) if agreements.lines else "None stated")
-    )
-    parts.append(
-        "**Veils:** " + (", ".join(agreements.veils) if agreements.veils else "None stated")
-    )
+    parts.append("**Lines:** " + (", ".join(agreements.lines) if agreements.lines else "None stated"))
+    parts.append("**Veils:** " + (", ".join(agreements.veils) if agreements.veils else "None stated"))
     if agreements.boundary_notes:
         parts.append("**Boundary notes:** " + " ".join(agreements.boundary_notes))
     if agreements.needs_review:

@@ -385,14 +385,13 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     # any failure leaves npc_profiles empty and the NPC STATE block degrades.
     npc_profiles: dict[str, Any] = {}
     try:
-        entity_ids = [
-            UUID(str(e["id"])) for e in state.entity_context
-            if isinstance(e, dict) and e.get("id")
-        ]
+        entity_ids = [UUID(str(e["id"])) for e in state.entity_context if isinstance(e, dict) and e.get("id")]
         if entity_ids:
             from monitor_data.tools.mongodb_tools import mongodb_get_npc_profiles_by_entities
+
             profiles: list = await run_sync_read(
-                mongodb_get_npc_profiles_by_entities, entity_ids,
+                mongodb_get_npc_profiles_by_entities,
+                entity_ids,
             )
             npc_profiles = {str(p.entity_id): p.model_dump(mode="json") for p in profiles}
     except Exception as exc:
@@ -402,6 +401,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     open_foreshadowing: list[dict[str, Any]] = []
     try:
         from monitor_data.tools.mongodb_tools import mongodb_list_open_foreshadowing
+
         items: list = await run_sync_read(
             mongodb_list_open_foreshadowing,
             state.scene_id,
@@ -421,7 +421,9 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         from monitor_data.tools.mongodb_tools import mongodb_get_recent_turns
 
         durable_turns: list[Any] = await run_sync_read(
-            mongodb_get_recent_turns, state.scene_id, 999,
+            mongodb_get_recent_turns,
+            state.scene_id,
+            999,
         )
         if durable_turns:
             durable_turn_count = max(durable_turn_count, len(durable_turns))
@@ -584,11 +586,14 @@ async def narrate(state: SceneState) -> dict[str, Any]:
     # the primary source so cadence keeps working when ``state.turns_count``
     # resets per ``SceneLoop.run``. Previous-turns is the fallback when the
     # Mongo read failed.
-    turn_number = max(
-        int(state.durable_turn_count or 0),
-        len(state.previous_turns or []),
-        int(state.turns_count or 0),
-    ) + 1
+    turn_number = (
+        max(
+            int(state.durable_turn_count or 0),
+            len(state.previous_turns or []),
+            int(state.turns_count or 0),
+        )
+        + 1
+    )
 
     # Derive the heuristic's location_name and npcs_present from data narrate
     # actually has (entity_context + npc_profiles). ``state.turn_context`` is
@@ -626,11 +631,7 @@ async def narrate(state: SceneState) -> dict[str, Any]:
     # and always reports ``"setup"`` in production).
     effective_pacing: dict[str, Any] = dict(state.pacing or {})
     pending_proposal_count = len(state.pending_proposals or [])
-    if (
-        turn_number >= 3
-        and pending_proposal_count >= 1
-        and float(effective_pacing.get("tempo") or 0.0) >= 0.7
-    ):
+    if turn_number >= 3 and pending_proposal_count >= 1 and float(effective_pacing.get("tempo") or 0.0) >= 0.7:
         effective_pacing["phase"] = "peak"
 
     # Union the in-memory registry (survives the per-run state reset) with
@@ -645,9 +646,7 @@ async def narrate(state: SceneState) -> dict[str, Any]:
         if sid in seen_ids:
             continue
         seen_ids.add(sid)
-        prior_suggestions.append(
-            s if isinstance(s, ImageSuggestion) else ImageSuggestion.model_validate(s)
-        )
+        prior_suggestions.append(s if isinstance(s, ImageSuggestion) else ImageSuggestion.model_validate(s))
 
     new_suggestions = compute_image_suggestions(
         turn_id=str(result.get("turn_id") or ""),
@@ -706,6 +705,7 @@ async def extract_new_entities(state: SceneState) -> dict[str, Any]:
         scene_id=state.scene_id,
     )
 
+
 async def extract_memories(state: SceneState) -> dict[str, Any]:
     """
     Task 4: Extract salient character memories from the narrative prose.
@@ -717,6 +717,7 @@ async def extract_memories(state: SceneState) -> dict[str, Any]:
         actor_context=state.actor_context,
         resolution=state.resolution,
     )
+
 
 async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
     """
@@ -1119,6 +1120,7 @@ async def extract_facts(state: SceneState) -> dict[str, Any]:
         scene_id=state.scene_id,
     )
 
+
 async def check_consistency(state: SceneState) -> dict[str, Any]:
     """
     Lightweight consistency check against established facts.
@@ -1132,6 +1134,7 @@ async def check_consistency(state: SceneState) -> dict[str, Any]:
         source_profile=state.source_profile,
         scene_id=state.scene_id,
     )
+
 
 async def check_events(state: SceneState) -> dict[str, Any]:
     """
@@ -1194,10 +1197,7 @@ async def check_foreshadowing(state: SceneState) -> dict[str, Any]:
             logger.debug("check_foreshadowing: plant write failed: %s", exc)
 
     open_items = state.scene_foreshadowing_open or []
-    open_by_summary = {
-        str(o.get("summary") or "").strip().lower(): o
-        for o in open_items if isinstance(o, dict)
-    }
+    open_by_summary = {str(o.get("summary") or "").strip().lower(): o for o in open_items if isinstance(o, dict)}
     paid = 0
     for payoff in proposals.get("payoffs", []):
         summary = str(payoff.get("summary") or "").strip()
@@ -1208,9 +1208,7 @@ async def check_foreshadowing(state: SceneState) -> dict[str, Any]:
             continue
         try:
             await anyio.to_thread.run_sync(
-                lambda fid, turn: mongodb_mark_foreshadowing_paid(
-                    fid, paid_at_turn=turn
-                ),
+                lambda fid, turn: mongodb_mark_foreshadowing_paid(fid, paid_at_turn=turn),
                 UUID(str(match.get("foreshadowing_id"))),
                 state.turns_count,
             )
@@ -1220,9 +1218,8 @@ async def check_foreshadowing(state: SceneState) -> dict[str, Any]:
 
     return {"foreshadowing_planted": planted, "foreshadowing_paid": paid}
 
-async def _lookup_entity_by_name_and_universe(
-    name: str, universe_id: UUID | None
-) -> dict[str, Any] | None:
+
+async def _lookup_entity_by_name_and_universe(name: str, universe_id: UUID | None) -> dict[str, Any] | None:
     """Find a Neo4j entity by (name, universe_id). Returns the entity dict or None.
 
     Best-effort: any failure is swallowed and returns None (the caller skips

@@ -248,7 +248,6 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         "participates_in": "PARTICIPATES_IN",
         "knows": "KNOWS",
         "related_to": "RELATED_TO",
-
         # === Sub-plan 1: Game-system-agnostic group/place/power types ===
         # The LLM may emit these canonical names directly, in which case
         # we pass them through (lowercase → uppercase conversion).
@@ -2073,7 +2072,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             operation = content.get("operation", "create")
             if operation == "create":
                 from monitor_data.schemas.facts import EventCreate
-                
+
                 payload = dict(content)
                 payload.pop("operation", None)
                 create_params = EventCreate(**payload)
@@ -2085,19 +2084,21 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 )
             elif operation == "update":
                 from monitor_data.schemas.facts import EventUpdate
-                
+
                 payload = dict(content)
                 payload.pop("operation", None)
                 event_id = payload.pop("event_id")
                 update_params = EventUpdate(**payload)
-                result = await self.call_tool("neo4j_update_event", {"event_id": event_id, "updates": update_params.model_dump(exclude_unset=True)})
+                result = await self.call_tool(
+                    "neo4j_update_event",
+                    {"event_id": event_id, "updates": update_params.model_dump(exclude_unset=True)},
+                )
                 self._store_neo4j_id_on_proposal(
                     proposals_coll,
                     proposal_id,
                     result.get("id", ""),
                 )
             elif operation == "delete":
-                
                 event_id = content.get("event_id")
                 force = content.get("force", False)
                 await self.call_tool("neo4j_delete_event", {"event_id": event_id, "force": force})

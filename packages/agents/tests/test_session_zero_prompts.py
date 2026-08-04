@@ -639,10 +639,7 @@ class TestUniverseAnchoring:
         result = ground_world_lore(
             [],
             system_name="Vampire: The Masquerade",
-            system_context=(
-                "Backgrounds/Origins: Chasse, Entretien\n"
-                "Creation Steps: Choose Clan, Choose Nature, etc."
-            ),
+            system_context=("Backgrounds/Origins: Chasse, Entretien\nCreation Steps: Choose Clan, Choose Nature, etc."),
         )
 
         assert len(result) == 1

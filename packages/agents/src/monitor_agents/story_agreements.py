@@ -80,7 +80,6 @@ if _DSPY_AVAILABLE:
         lines: list[str] = dspy.OutputField(desc="Hard content exclusions explicitly stated by the player.")
         veils: list[str] = dspy.OutputField(desc="Fade-to-black subjects explicitly stated by the player.")
 
-
     class StoryAgreementsModule(dspy.Module):  # type: ignore[misc]
         def __init__(self) -> None:
             super().__init__()
@@ -111,8 +110,7 @@ async def summarize_story_agreements(
         return _fallback_agreements(default_tone, answers, revision=revision)
 
     transcript = "\n\n".join(
-        f"[{answer.category.value}]\nQ: {answer.question}\nA: {answer.answer}"
-        for answer in answers
+        f"[{answer.category.value}]\nQ: {answer.question}\nA: {answer.answer}" for answer in answers
     )
     try:
         prediction = await _run_summary(

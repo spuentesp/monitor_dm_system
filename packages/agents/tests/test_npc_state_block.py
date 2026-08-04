@@ -43,9 +43,7 @@ def test_block_renders_emotion_and_relationship() -> None:
     prof = _profile(
         "Vex",
         current_emotional_state_by_universe={"u1": "wary"},
-        relationship_states_by_universe={
-            "u1": {"p1": {"disposition": "grudging_respect", "score": 0.4}}
-        },
+        relationship_states_by_universe={"u1": {"p1": {"disposition": "grudging_respect", "score": 0.4}}},
         speech_style="clipped, marine slang",
     )
     block = _npc_state_block({"eid": prof}, universe_id="u1", player_id="p1")
@@ -58,8 +56,7 @@ def test_block_renders_emotion_and_relationship() -> None:
 
 def test_block_caps_characters_and_npcs() -> None:
     profiles = {
-        f"e{i}": _profile(f"NPC {i}", current_emotional_state_by_universe={"u1": "angry" * 200})
-        for i in range(8)
+        f"e{i}": _profile(f"NPC {i}", current_emotional_state_by_universe={"u1": "angry" * 200}) for i in range(8)
     }
     block = _npc_state_block(profiles, universe_id="u1", player_id="p1", cap=4, max_chars=80)
     assert block.count("- NPC") == 4  # cap

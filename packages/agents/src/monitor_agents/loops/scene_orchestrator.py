@@ -33,7 +33,7 @@ class SceneOrchestratorState(BaseModel):
     story_id: str | None = None
     scene_id: str | None = None
     agents_available: bool = True
-    
+
     # Internal routing
     next_node: str = "evaluate_intent"
 
@@ -56,7 +56,7 @@ async def evaluate_intent(state: SceneOrchestratorState) -> SceneOrchestratorSta
         session["phase"] = "active_play"
         session["updated_at"] = callbacks.now_iso()
         callbacks.db_save_session(session)
-    
+
     # 1. Pending consequence choice
     if session.get("pending_consequence") and session["pending_consequence"].get("options"):
         state.next_node = "handle_pending_choice"
@@ -66,7 +66,7 @@ async def evaluate_intent(state: SceneOrchestratorState) -> SceneOrchestratorSta
     if callbacks.is_ooc_question(state.user_content):
         state.next_node = "handle_ooc"
         return state
-        
+
     # 3. Active conversation
     if session.get("conversation_active"):
         if callbacks.is_end_conversation_command(state.user_content):
@@ -74,24 +74,24 @@ async def evaluate_intent(state: SceneOrchestratorState) -> SceneOrchestratorSta
         else:
             state.next_node = "handle_conversation"
         return state
-        
+
     # 4. End scene
     if callbacks.is_end_scene_command(state.user_content):
         state.next_node = "handle_end_scene"
         return state
-        
+
     # 5. Recap
     if callbacks.is_recap_command(state.user_content):
         state.next_node = "handle_recap"
         return state
-        
+
     # 6. Start conversation
     npc_target = callbacks.is_start_conversation_command(state.user_content)
     if npc_target:
         state.npc_target = npc_target
         state.next_node = "handle_start_conversation"
         return state
-        
+
     # 7. Default to core scene loop
     state.next_node = "prepare_core_scene_loop"
     return state
@@ -210,14 +210,14 @@ async def handle_start_conversation(state: SceneOrchestratorState) -> SceneOrche
 async def prepare_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestratorState:
     callbacks = state.callbacks
     session = state.session
-    
+
     resolved_roll = _server_roll_from_pending(session, state.user_content) or _resolved_roll_from_pending(
         session, state.user_content
     )
-    
+
     scene_input = state.user_content
     resolution_override = None
-    
+
     if resolved_roll is not None:
         scene_input, resolution_override = resolved_roll
         session.pop("pending_dice_request", None)
@@ -227,14 +227,14 @@ async def prepare_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchest
         session.pop("pending_dice_request", None)
         session["updated_at"] = callbacks.now_iso()
         callbacks.db_save_session(session)
-        
+
     if (not state.scene_id or not state.story_id) and session.get("universe_id"):
         state.story_id, state.scene_id, _ = callbacks.bootstrap_story_scene(session)
         callbacks.db_save_session(session)
-        
+
     state.scene_input = scene_input
     state.resolution_override = resolution_override
-    
+
     return state
 
 
@@ -243,7 +243,7 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
     session = state.session
     story_id = state.story_id
     scene_id = state.scene_id
-    
+
     if not state.agents_available or not scene_id or not story_id:
         state.response_text = (
             "The narrative engine is standing by…\n\n"
@@ -296,7 +296,7 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
 
     narrative = strip_entity_tags(result.get("narrative_text") or "") or "…"
     resolution = result.get("resolution") or {}
-    
+
     metadata = {
         "type": "scene_turn",
         "degraded": result.get("degraded"),
@@ -338,7 +338,7 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
         }
         session["updated_at"] = callbacks.now_iso()
         callbacks.db_save_session(session)
-        
+
     if metadata.get("working_state"):
         session["latest_working_state"] = metadata["working_state"]
     if metadata.get("scene_checkpoint"):
@@ -399,17 +399,20 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
                 metadata["tension_score"] = getattr(story_state, "tension_score", None)
                 metadata["active_threads"] = getattr(story_state, "active_threads", None)
                 if getattr(callbacks, "set_story_state_cache", None):
-                    callbacks.set_story_state_cache(story_id, {
-                        "story_id": str(getattr(story_state, "story_id", "")),
-                        "universe_id": str(getattr(story_state, "universe_id", "")),
-                        "arc_label": getattr(story_state, "arc_label", None),
-                        "tension_score": getattr(story_state, "tension_score", None),
-                        "active_threads": getattr(story_state, "active_threads", None),
-                        "completed_threads": getattr(story_state, "completed_threads", None),
-                        "in_game_time": in_game_time.isoformat() if in_game_time is not None else None,
-                        "world_ticks": getattr(story_state, "world_ticks", None),
-                        "scenes_completed": getattr(story_state, "scenes_completed", None),
-                    })
+                    callbacks.set_story_state_cache(
+                        story_id,
+                        {
+                            "story_id": str(getattr(story_state, "story_id", "")),
+                            "universe_id": str(getattr(story_state, "universe_id", "")),
+                            "arc_label": getattr(story_state, "arc_label", None),
+                            "tension_score": getattr(story_state, "tension_score", None),
+                            "active_threads": getattr(story_state, "active_threads", None),
+                            "completed_threads": getattr(story_state, "completed_threads", None),
+                            "in_game_time": in_game_time.isoformat() if in_game_time is not None else None,
+                            "world_ticks": getattr(story_state, "world_ticks", None),
+                            "scenes_completed": getattr(story_state, "scenes_completed", None),
+                        },
+                    )
         except Exception as exc:
             logger.debug("Failed to fetch story state for metadata: %s", exc)
 
@@ -466,7 +469,7 @@ class SceneOrchestrator:
                 "handle_recap": "handle_recap",
                 "handle_start_conversation": "handle_start_conversation",
                 "prepare_core_scene_loop": "prepare_core_scene_loop",
-            }
+            },
         )
 
         builder.add_edge("handle_pending_choice", END)
@@ -484,7 +487,7 @@ class SceneOrchestrator:
     async def run(self, state_dict: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         initial_state = SceneOrchestratorState(**state_dict)
         result_state = await self.graph.ainvoke(initial_state)
-        # LangGraph typically returns a dict when invoked with a dict, but when invoked with BaseModel 
+        # LangGraph typically returns a dict when invoked with a dict, but when invoked with BaseModel
         # it might return dict or BaseModel depending on config. Let's handle both.
         if isinstance(result_state, dict):
             return result_state.get("response_text") or "", result_state.get("metadata") or {}

@@ -70,11 +70,7 @@ def bootstrap_story_scene(
         *(session.get("controlled_character_ids") or []),
     ]
     pc_ids = list(
-        dict.fromkeys(
-            character_id
-            for value in character_ids
-            if (character_id := as_uuid(value)) is not None
-        )
+        dict.fromkeys(character_id for value in character_ids if (character_id := as_uuid(value)) is not None)
     )
 
     try:
@@ -82,9 +78,7 @@ def bootstrap_story_scene(
             agreements = session.get("story_agreements") or {}
             agreed_themes = agreements.get("themes") if isinstance(agreements, dict) else []
             theme_parts = [session.get("tone", "dramatic"), *(agreed_themes or [])]
-            theme = " ".join(
-                str(part).strip() for part in theme_parts if str(part).strip()
-            )[:500]
+            theme = " ".join(str(part).strip() for part in theme_parts if str(part).strip())[:500]
             premise = str(
                 (agreements.get("story_premise") if isinstance(agreements, dict) else None)
                 or session.get("story_premise")

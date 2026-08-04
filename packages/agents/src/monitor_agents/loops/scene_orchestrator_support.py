@@ -3,6 +3,7 @@ from typing import Any
 
 _ROLL_REQUEST_MARKER = "[ROLL REQUEST]"
 
+
 def _format_dice_spec(modifier: int, *, roll_under: bool = False) -> str:
     """Return the client dice spec for a pending d20 check."""
     if roll_under:
@@ -12,6 +13,7 @@ def _format_dice_spec(modifier: int, *, roll_under: bool = False) -> str:
     if modifier < 0:
         return f"1d20{modifier}"
     return "1d20"
+
 
 def _dice_request_from_resolution(
     resolution: dict[str, Any],
@@ -44,6 +46,7 @@ def _dice_request_from_resolution(
         "original_action": user_content,
     }
 
+
 def _parse_dice_result_message(content: str) -> dict[str, Any] | None:
     """Extract spec, rolls, and total from the websocket dice-result message."""
     if "[DICE RESULT]" not in content:
@@ -62,6 +65,7 @@ def _parse_dice_result_message(content: str) -> dict[str, Any] | None:
         "rolls": rolls,
         "total": int(match.group("total")),
     }
+
 
 def _success_level_from_roll(
     *,
@@ -102,6 +106,7 @@ def _success_level_from_roll(
         breakdown = f"1d20({natural}) + {modifier} = {total} vs DC {dc}"
 
     return level, level in {"success", "critical_success"}, breakdown
+
 
 def _build_dice_resolution(
     session: dict[str, Any],
@@ -175,6 +180,7 @@ def _build_dice_resolution(
     narrated_input = str(pending.get("original_action") or "The pending action")
     return narrated_input, resolution
 
+
 def _resolved_roll_from_pending(
     session: dict[str, Any],
     content: str,
@@ -196,6 +202,7 @@ def _resolved_roll_from_pending(
         session, pending, spec=parsed["spec"], rolls=rolls, total=total, natural=natural
     )
     return f"{narrated_input}\n\n{content}", resolution
+
 
 def _server_roll_from_pending(
     session: dict[str, Any],

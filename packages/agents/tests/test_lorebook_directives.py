@@ -16,7 +16,7 @@ from monitor_agents.lorebook_directives import (
 
 class TestParseOutputDirectives:
     def test_no_directives_passthrough(self):
-        text = "She nods slowly. \"We leave at dawn.\""
+        text = 'She nods slowly. "We leave at dawn."'
         cleaned, directives = parse_output_directives(text)
         assert cleaned == text
         assert directives == []
@@ -67,32 +67,22 @@ class _FakeAgent:
 
 class TestApplyLorebookDirectives:
     def test_activates_matching_entry_case_insensitive(self):
-        agent = _FakeAgent(
-            {"char-1": [{"id": "e1", "comment": "The Red Hand"}]}
-        )
+        agent = _FakeAgent({"char-1": [{"id": "e1", "comment": "The Red Hand"}]})
         applied = asyncio.run(
-            apply_lorebook_directives(
-                agent, ["char-1"], [LorebookDirective("activate", "the red hand")]
-            )
+            apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "the red hand")])
         )
         assert applied == 1
-        assert agent.updates == [
-            {"entry_id": "e1", "updates": {"is_active": True}}
-        ]
+        assert agent.updates == [{"entry_id": "e1", "updates": {"is_active": True}}]
 
     def test_deactivate_sets_false(self):
         agent = _FakeAgent({"char-1": [{"id": "e1", "comment": "x"}]})
-        applied = asyncio.run(
-            apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("deactivate", "x")])
-        )
+        applied = asyncio.run(apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("deactivate", "x")]))
         assert applied == 1
         assert agent.updates[0]["updates"] == {"is_active": False}
 
     def test_unknown_name_skipped(self):
         agent = _FakeAgent({"char-1": [{"id": "e1", "comment": "x"}]})
-        applied = asyncio.run(
-            apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "ghost")])
-        )
+        applied = asyncio.run(apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "ghost")]))
         assert applied == 0
         assert agent.updates == []
 
@@ -104,9 +94,7 @@ class TestApplyLorebookDirectives:
             }
         )
         applied = asyncio.run(
-            apply_lorebook_directives(
-                agent, ["char-1", "universe:u1"], [LorebookDirective("activate", "b")]
-            )
+            apply_lorebook_directives(agent, ["char-1", "universe:u1"], [LorebookDirective("activate", "b")])
         )
         assert applied == 1
         assert agent.updates[0]["entry_id"] == "e2"
@@ -114,9 +102,7 @@ class TestApplyLorebookDirectives:
     def test_tool_failure_is_swallowed(self):
         agent = _FakeAgent({})
         agent.call_tool = AsyncMock(side_effect=RuntimeError("db down"))
-        applied = asyncio.run(
-            apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "x")])
-        )
+        applied = asyncio.run(apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "x")]))
         assert applied == 0
 
 
@@ -159,9 +145,7 @@ class TestConversationLoopWiring:
                 applied.append(directives)
                 return len(directives)
 
-            mp.setattr(
-                "monitor_agents.lorebook_directives.apply_lorebook_directives", fake_apply
-            )
+            mp.setattr("monitor_agents.lorebook_directives.apply_lorebook_directives", fake_apply)
             out = asyncio.run(cl.generate_npc_responses(state))
 
         responses = out["current_npc_responses"]

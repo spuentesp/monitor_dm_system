@@ -15,9 +15,7 @@ class TestRoleplayErrorRecorder:
     @pytest.mark.asyncio
     async def test_record_calls_mongodb_tool_with_expected_params(self):
         scene_id = uuid4()
-        with patch(
-            "monitor_agents.services.roleplay_error_recorder.mongodb_record_roleplay_error"
-        ) as mock_tool:
+        with patch("monitor_agents.services.roleplay_error_recorder.mongodb_record_roleplay_error") as mock_tool:
             await RoleplayErrorRecorder.record(
                 source=RoleplayErrorSource.GM_AGENT,
                 category=RoleplayErrorCategory.GM_DECISION_FAILED,
@@ -52,9 +50,7 @@ class TestRoleplayErrorRecorder:
 
     @pytest.mark.asyncio
     async def test_message_and_detail_are_truncated(self):
-        with patch(
-            "monitor_agents.services.roleplay_error_recorder.mongodb_record_roleplay_error"
-        ) as mock_tool:
+        with patch("monitor_agents.services.roleplay_error_recorder.mongodb_record_roleplay_error") as mock_tool:
             await RoleplayErrorRecorder.record(
                 source=RoleplayErrorSource.NARRATOR,
                 category=RoleplayErrorCategory.NARRATOR_PARSE_FAILED,

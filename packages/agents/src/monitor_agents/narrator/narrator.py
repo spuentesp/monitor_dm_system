@@ -179,7 +179,7 @@ class NarratorSignature(dspy.Signature):  # type: ignore[misc]
             "they should be carrying after this turn (max 5 words). Use the NPC's "
             "previously established emotion (NPC STATE block or ESTABLISHED FACTS) "
             "as the baseline; only include NPCs whose emotion has clearly shifted. "
-            "Example: '{\"Vex\": \"resolute\", \"Old Tomas\": \"furious\"}'. Empty "
+            'Example: \'{"Vex": "resolute", "Old Tomas": "furious"}\'. Empty '
             "object {} if no NPC present."
         )
     )

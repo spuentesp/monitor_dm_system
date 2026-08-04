@@ -81,9 +81,7 @@ async def apply_lorebook_directives(
         try:
             matched_id: str | None = None
             for cid in character_ids:
-                entries = await agent.call_tool(
-                    "mongodb_get_lorebook_entries", {"character_id": cid}
-                )
+                entries = await agent.call_tool("mongodb_get_lorebook_entries", {"character_id": cid})
                 for entry in entries or []:
                     comment = str(entry.get("comment") or "").strip()
                     if comment and comment.casefold() == target:

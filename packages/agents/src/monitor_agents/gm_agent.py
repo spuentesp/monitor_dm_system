@@ -529,16 +529,8 @@ class GMAgent(BaseAgent):
         if isinstance(scene_context, dict):
             agreements = scene_context.get("agreements") or {}
             if isinstance(agreements, dict):
-                lines = [
-                    str(item).strip()
-                    for item in (agreements.get("lines") or [])
-                    if str(item).strip()
-                ]
-                veils = [
-                    str(item).strip()
-                    for item in (agreements.get("veils") or [])
-                    if str(item).strip()
-                ]
+                lines = [str(item).strip() for item in (agreements.get("lines") or []) if str(item).strip()]
+                veils = [str(item).strip() for item in (agreements.get("veils") or []) if str(item).strip()]
                 if lines or veils:
                     block_parts: list[str] = []
                     if lines:

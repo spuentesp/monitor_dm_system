@@ -980,18 +980,23 @@ class TestSaveGameSystem:
         mock_system = MagicMock()
         mock_system.id = fake_id
 
-        with patch(
-            "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
-            return_value=mock_system,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_attributes",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_skills",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_resources",
-            side_effect=lambda x: x,
+        with (
+            patch(
+                "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
+                return_value=mock_system,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_attributes",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_skills",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_resources",
+                side_effect=lambda x: x,
+            ),
         ):
             sys_id, embedded = await save_game_system(
                 system_name="Test System",
@@ -1003,18 +1008,23 @@ class TestSaveGameSystem:
         assert embedded.name == "Test System"
 
     async def test_returns_none_id_on_mongodb_failure(self):
-        with patch(
-            "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
-            side_effect=Exception("DB down"),
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_attributes",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_skills",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_resources",
-            side_effect=lambda x: x,
+        with (
+            patch(
+                "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
+                side_effect=Exception("DB down"),
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_attributes",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_skills",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_resources",
+                side_effect=lambda x: x,
+            ),
         ):
             sys_id, embedded = await save_game_system(
                 system_name="Broken System",
@@ -1029,18 +1039,23 @@ class TestSaveGameSystem:
         mock_system = MagicMock()
         mock_system.id = uuid4()
 
-        with patch(
-            "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
-            return_value=mock_system,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_attributes",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_skills",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_resources",
-            side_effect=lambda x: x,
+        with (
+            patch(
+                "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
+                return_value=mock_system,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_attributes",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_skills",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_resources",
+                side_effect=lambda x: x,
+            ),
         ):
             _, embedded = await save_game_system(
                 system_name="System",
@@ -1054,18 +1069,23 @@ class TestSaveGameSystem:
         mock_system = MagicMock()
         mock_system.id = uuid4()
 
-        with patch(
-            "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
-            return_value=mock_system,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_attributes",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_skills",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_resources",
-            side_effect=lambda x: x,
+        with (
+            patch(
+                "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
+                return_value=mock_system,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_attributes",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_skills",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_resources",
+                side_effect=lambda x: x,
+            ),
         ):
             _, embedded = await save_game_system(
                 system_name="System",
@@ -1083,18 +1103,23 @@ class TestSaveGameSystem:
         mock_system = MagicMock()
         mock_system.id = uuid4()
 
-        with patch(
-            "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
-            return_value=mock_system,
-        ) as mock_create, patch(
-            "monitor_agents.utils.analyzer_support.filter_player_attributes",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_skills",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_resources",
-            side_effect=lambda x: x,
+        with (
+            patch(
+                "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
+                return_value=mock_system,
+            ) as mock_create,
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_attributes",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_skills",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_resources",
+                side_effect=lambda x: x,
+            ),
         ):
             _, embedded = await save_game_system(
                 system_name="Empty System",
@@ -1114,18 +1139,23 @@ class TestSaveGameSystem:
         mock_system = MagicMock()
         mock_system.id = uuid4()
 
-        with patch(
-            "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
-            return_value=mock_system,
-        ) as mock_create, patch(
-            "monitor_agents.utils.analyzer_support.filter_player_attributes",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_skills",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_resources",
-            side_effect=lambda x: x,
+        with (
+            patch(
+                "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
+                return_value=mock_system,
+            ) as mock_create,
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_attributes",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_skills",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_resources",
+                side_effect=lambda x: x,
+            ),
         ):
             _, embedded = await save_game_system(
                 system_name="Real System",
@@ -1152,21 +1182,25 @@ class TestSaveGameSystem:
         mock_system = MagicMock()
         mock_system.id = uuid4()
 
-        with patch(
-            "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
-            return_value=mock_system,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_attributes",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_skills",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_resources",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_data.tools.mongodb_tools.ingestion_jobs.mongodb_update_ingestion_job"
-        ) as mock_update_job:
+        with (
+            patch(
+                "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
+                return_value=mock_system,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_attributes",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_skills",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_resources",
+                side_effect=lambda x: x,
+            ),
+            patch("monitor_data.tools.mongodb_tools.ingestion_jobs.mongodb_update_ingestion_job") as mock_update_job,
+        ):
             await save_game_system(
                 system_name="Clean System",
                 game_rules=[],
@@ -1184,21 +1218,25 @@ class TestSaveGameSystem:
         mock_system.id = uuid4()
         job_id = uuid4()
 
-        with patch(
-            "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
-            return_value=mock_system,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_attributes",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_skills",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_resources",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_data.tools.mongodb_tools.ingestion_jobs.mongodb_update_ingestion_job"
-        ) as mock_update_job:
+        with (
+            patch(
+                "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
+                return_value=mock_system,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_attributes",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_skills",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_resources",
+                side_effect=lambda x: x,
+            ),
+            patch("monitor_data.tools.mongodb_tools.ingestion_jobs.mongodb_update_ingestion_job") as mock_update_job,
+        ):
             # Pass one valid + one non-dict attribute so _build_attributes
             # records a skip via the skipped list.
             await save_game_system(
@@ -1227,21 +1265,25 @@ class TestSaveGameSystem:
         mock_system = MagicMock()
         mock_system.id = uuid4()
 
-        with patch(
-            "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
-            return_value=mock_system,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_attributes",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_skills",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_agents.utils.analyzer_support.filter_player_resources",
-            side_effect=lambda x: x,
-        ), patch(
-            "monitor_data.tools.mongodb_tools.ingestion_jobs.mongodb_update_ingestion_job"
-        ) as mock_update_job:
+        with (
+            patch(
+                "monitor_agents.analyzer._game_system_persistence.mongodb_create_game_system",
+                return_value=mock_system,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_attributes",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_skills",
+                side_effect=lambda x: x,
+            ),
+            patch(
+                "monitor_agents.utils.analyzer_support.filter_player_resources",
+                side_effect=lambda x: x,
+            ),
+            patch("monitor_data.tools.mongodb_tools.ingestion_jobs.mongodb_update_ingestion_job") as mock_update_job,
+        ):
             # No job_id → must NOT call the update fn
             await save_game_system(
                 system_name="No Job System",

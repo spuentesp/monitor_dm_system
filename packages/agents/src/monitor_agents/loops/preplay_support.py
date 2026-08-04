@@ -23,6 +23,7 @@ def _safe_universe_uuid(session: dict[str, Any]) -> uuid.UUID | None:
     except (TypeError, ValueError):
         return None
 
+
 # ---------------------------------------------------------------------------
 # OOC Detection (moved from chat_support.py)
 # ---------------------------------------------------------------------------
@@ -166,9 +167,28 @@ def session_facts_block(session: dict[str, Any]) -> str:
 _DIRECTOR_NOTES_MAX = 20
 _QUESTION_WORDS = frozenset(
     {
-        "who", "what", "where", "when", "why", "how", "which",
-        "can", "could", "do", "does", "did", "is", "are", "am", "was", "were",
-        "should", "would", "will", "may", "might",
+        "who",
+        "what",
+        "where",
+        "when",
+        "why",
+        "how",
+        "which",
+        "can",
+        "could",
+        "do",
+        "does",
+        "did",
+        "is",
+        "are",
+        "am",
+        "was",
+        "were",
+        "should",
+        "would",
+        "will",
+        "may",
+        "might",
     }
 )
 
@@ -260,6 +280,7 @@ def record_ooc_exchange(session: dict[str, Any], question: str, answer: str) -> 
 # ---------------------------------------------------------------------------
 # Character inference & storage (moved from chat_loops.py / entities.py)
 # ---------------------------------------------------------------------------
+
 
 def infer_character_name_from_text(text: str | None, fallback: str = "Player Character") -> str:
     """Best-effort name guess from a conversational character description."""
@@ -472,17 +493,11 @@ def _build_ooc_signature() -> Any:
         recorded in one or two sentences.
         """
 
-        ooc_message: str = dspy.InputField(
-            desc="The player's OOC message — a meta question or a director note"
-        )
-        session_facts: str = dspy.InputField(
-            desc="Established facts: character, premise, player director notes"
-        )
+        ooc_message: str = dspy.InputField(desc="The player's OOC message — a meta question or a director note")
+        session_facts: str = dspy.InputField(desc="Established facts: character, premise, player director notes")
         world_lore: str = dspy.InputField(desc="Relevant world/system lore (may be empty)")
         mechanical_hint: str = dspy.InputField(desc="Rules hint to include when relevant (may be empty)")
-        answer: str = dspy.OutputField(
-            desc="Short meta answer in ((...)) style — no fiction, 1-4 sentences"
-        )
+        answer: str = dspy.OutputField(desc="Short meta answer in ((...)) style — no fiction, 1-4 sentences")
 
     return OocAnswerSignature
 
@@ -540,8 +555,15 @@ async def _compose_ooc_answer(
             if any(
                 word in lower_q
                 for word in (
-                    "roll", "shoot", "attack", "sneak", "talk",
-                    "convince", "search", "repair", "hack",
+                    "roll",
+                    "shoot",
+                    "attack",
+                    "sneak",
+                    "talk",
+                    "convince",
+                    "search",
+                    "repair",
+                    "hack",
                 )
             ):
                 mechanical_hint = (
@@ -672,6 +694,7 @@ async def _generate_prologue(session: dict[str, Any], summary_text: str) -> str:
         return summary_text + "\n\nThe story begins. What do you do?"
     return "Your character is ready. The story begins — what do you do?"
 
+
 def resolve_authored_questions(
     session: dict[str, Any],
     session_game_system_doc: Any,
@@ -685,13 +708,14 @@ def resolve_authored_questions(
             mongodb_get_prompt_collection,
             mongodb_list_prompt_collections,
         )
+
         _PROMPT_COLLECTIONS_AVAILABLE = True
     except ImportError:
         _PROMPT_COLLECTIONS_AVAILABLE = False
-        
+
     if not _PROMPT_COLLECTIONS_AVAILABLE:
         return []
-    
+
     def _entries_to_questions(collection: Any) -> list[dict[str, Any]]:
         entries = sorted(collection.entries, key=lambda e: e.order)
         return [
@@ -714,7 +738,9 @@ def resolve_authored_questions(
 
         system_id = None
         try:
-            system_doc = session_game_system_doc(session) if callable(session_game_system_doc) else session_game_system_doc
+            system_doc = (
+                session_game_system_doc(session) if callable(session_game_system_doc) else session_game_system_doc
+            )
             if isinstance(system_doc, dict) and system_doc.get("system_id"):
                 system_id = uuid.UUID(str(system_doc["system_id"]))
         except Exception as exc:
@@ -752,12 +778,6 @@ def resolve_authored_session_zero_questions(
         session_game_system_doc,
         category="session_zero",
     )
-    authored_categories = {
-        str(q.get("category") or "").strip().lower() for q in authored
-    }
-    baseline = [
-        dict(q)
-        for q in BASELINE_SESSION_ZERO_QUESTIONS
-        if q["category"] not in authored_categories
-    ]
+    authored_categories = {str(q.get("category") or "").strip().lower() for q in authored}
+    baseline = [dict(q) for q in BASELINE_SESSION_ZERO_QUESTIONS if q["category"] not in authored_categories]
     return baseline + authored

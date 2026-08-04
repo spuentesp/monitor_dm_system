@@ -108,9 +108,7 @@ class TestConversationLoopPersona:
             mp.setattr(npc_agent_mod, "NPCVoice", lambda: fake_voice)
             out = asyncio.run(cl.generate_npc_responses(state))
 
-        assert fake_voice.respond_direct.await_args.kwargs["player_persona"] == (
-            "Kael — a wandering sellsword"
-        )
+        assert fake_voice.respond_direct.await_args.kwargs["player_persona"] == ("Kael — a wandering sellsword")
         assert out["current_npc_responses"][0]["text"] == '"A sellsword, hm?"'
 
     def test_empty_persona_passed_as_empty(self):

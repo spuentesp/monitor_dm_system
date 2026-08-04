@@ -72,6 +72,7 @@ def _language_clause(language: str) -> str:
     )
     return _LANGUAGE_CLAUSES["en"]
 
+
 FALLBACK_LINE = "I take stock of the situation."
 
 

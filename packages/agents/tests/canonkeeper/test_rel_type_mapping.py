@@ -2,6 +2,7 @@
 
 Sub-plan 1 of docs/superpowers/plans/2026-08-02-monitordm-coverage-and-shape.md.
 """
+
 from __future__ import annotations
 
 from monitor_agents.canonkeeper.agent import CanonKeeper
@@ -18,8 +19,7 @@ def test_rel_type_map_covers_every_relationship_type():
         # canonical OR a known alias must be present.
         canonical_lower = t.value.lower()
         assert canonical_lower in CanonKeeper._REL_TYPE_MAP, (
-            f"{t.name}: _REL_TYPE_MAP missing lowercase '{canonical_lower}' "
-            f"(and no alias covers it)"
+            f"{t.name}: _REL_TYPE_MAP missing lowercase '{canonical_lower}' (and no alias covers it)"
         )
         assert CanonKeeper._REL_TYPE_MAP[canonical_lower] == t.value, (
             f"{t.name}: _REL_TYPE_MAP['{canonical_lower}'] = "
@@ -88,6 +88,5 @@ def test_aliases_resolve_to_canonical_type():
     }
     for alias, canonical in alias_expectations.items():
         assert CanonKeeper._REL_TYPE_MAP.get(alias) == canonical, (
-            f"alias '{alias}' should resolve to '{canonical}', "
-            f"got {CanonKeeper._REL_TYPE_MAP.get(alias)!r}"
+            f"alias '{alias}' should resolve to '{canonical}', got {CanonKeeper._REL_TYPE_MAP.get(alias)!r}"
         )

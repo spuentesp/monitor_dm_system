@@ -26,9 +26,7 @@ def test_compute_pacing_matrix(turns, props, expected_tempo_range, expected_phas
 
 
 def test_pace_block_renders_when_non_default() -> None:
-    assert "PACE: tempo=0.62 phase=peak" in _pace_block(
-        {"tempo": 0.62, "phase": "peak"}
-    )
+    assert "PACE: tempo=0.62 phase=peak" in _pace_block({"tempo": 0.62, "phase": "peak"})
 
 
 def test_pace_block_silent_when_default() -> None:

@@ -29,10 +29,7 @@ def _universe(universe_id, **overrides):
 async def test_pack_intro_takes_precedence_without_canon_synthesis(monkeypatch):
     universe_id = uuid4()
     pack_id = uuid4()
-    authored = (
-        "Chicago is a city held by the Camarilla, where every favor creates "
-        "a debt and every domain has a price."
-    )
+    authored = "Chicago is a city held by the Camarilla, where every favor creates a debt and every domain has a price."
     monkeypatch.setattr(si, "neo4j_get_universe", lambda _uid: _universe(universe_id))
     monkeypatch.setattr(
         si,
@@ -51,9 +48,7 @@ async def test_pack_intro_takes_precedence_without_canon_synthesis(monkeypatch):
     monkeypatch.setattr(si, "neo4j_list_facts", should_not_run)
     monkeypatch.setattr(si, "neo4j_list_entities", should_not_run)
 
-    intro = await si.assemble_session_intro(
-        {"universe_id": str(universe_id), "pack_id": str(pack_id)}
-    )
+    intro = await si.assemble_session_intro({"universe_id": str(universe_id), "pack_id": str(pack_id)})
 
     assert intro.source == "pack_intro"
     assert intro.intro_text == authored

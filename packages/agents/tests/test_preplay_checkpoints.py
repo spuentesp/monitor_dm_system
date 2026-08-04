@@ -36,11 +36,26 @@ def test_save_checkpoint_writes_a_versioned_block():
 def test_checkpoint_round_trips_through_cache_eviction():
     class _Loop:
         def __init__(self, index):
-            self._state = type("State", (), {"model_dump": lambda self, mode="json": {"index": index}, "model_validate": classmethod(lambda cls, data: type("State", (), {"index": data["index"]})())})()
+            self._state = type(
+                "State",
+                (),
+                {
+                    "model_dump": lambda self, mode="json": {"index": index},
+                    "model_validate": classmethod(lambda cls, data: type("State", (), {"index": data["index"]})()),
+                },
+            )()
 
     loop = _Loop(index=3)
-    po._save_checkpoint({"preplay_checkpoint": {"schema_version": 1, "stage": "character_interview", "state": {"index": 1}}}, "character_interview", loop)
-    restored = po._restore_loop_state(loop, {"preplay_checkpoint": {"schema_version": 1, "stage": "character_interview", "state": {"index": 7}}}, "character_interview")
+    po._save_checkpoint(
+        {"preplay_checkpoint": {"schema_version": 1, "stage": "character_interview", "state": {"index": 1}}},
+        "character_interview",
+        loop,
+    )
+    restored = po._restore_loop_state(
+        loop,
+        {"preplay_checkpoint": {"schema_version": 1, "stage": "character_interview", "state": {"index": 7}}},
+        "character_interview",
+    )
     assert restored._state.index == 7
 
 

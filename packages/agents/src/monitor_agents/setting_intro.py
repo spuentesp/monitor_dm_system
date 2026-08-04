@@ -70,9 +70,7 @@ async def assemble_session_intro(session: dict[str, Any]) -> SessionIntro:
         return SessionIntro(
             universe_id="",
             universe_name=session.get("universe_label") or "Unknown setting",
-            intro_text=(
-                "The setting has not been identified yet. Establish the world before beginning play."
-            ),
+            intro_text=("The setting has not been identified yet. Establish the world before beginning play."),
             system_name=session.get("system_label"),
             source="universe_description",
             unverified=True,
@@ -80,25 +78,14 @@ async def assemble_session_intro(session: dict[str, Any]) -> SessionIntro:
 
     pack_id = _uuid(session.get("pack_id"))
     universe_task = asyncio.to_thread(neo4j_get_universe, universe_id)
-    pack_task = (
-        asyncio.to_thread(mongodb_get_knowledge_pack, pack_id)
-        if pack_id is not None
-        else _completed_none()
-    )
+    pack_task = asyncio.to_thread(mongodb_get_knowledge_pack, pack_id) if pack_id is not None else _completed_none()
     universe, pack = await asyncio.gather(universe_task, pack_task)
 
-    universe_name = (
-        getattr(universe, "name", None)
-        or session.get("universe_label")
-        or "Unknown setting"
-    )
+    universe_name = getattr(universe, "name", None) or session.get("universe_label") or "Unknown setting"
     description = (getattr(universe, "description", None) or "").strip()
     genre = getattr(universe, "genre", None)
     tone = getattr(universe, "tone", None) or session.get("tone")
-    system_name = (
-        getattr(universe, "default_system_name", None)
-        or session.get("system_label")
-    )
+    system_name = getattr(universe, "default_system_name", None) or session.get("system_label")
     universe_sources = _source_ids(getattr(universe, "source_ids", []))
     anchors: list[SessionIntroAnchor] = []
     if description:
@@ -253,7 +240,7 @@ def _compose_intro_text(
 ) -> str:
     parts = [f"This story takes place in **{universe_name}**."]
     if description:
-        parts.append(description.rstrip("." ) + ".")
+        parts.append(description.rstrip(".") + ".")
 
     supporting = [
         anchor.statement.rstrip(".") + "."

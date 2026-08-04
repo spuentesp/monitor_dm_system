@@ -26,9 +26,7 @@ class ForeshadowingSignature(dspy.Signature):  # type: ignore[misc]
     plants: str = dspy.OutputField(
         desc='JSON array of new plants: [{"summary": str, "target_turn": int}]. Max 2 items. [] if none.'
     )
-    payoffs: str = dspy.OutputField(
-        desc='JSON array of payoffs: [{"summary": str}]. Max 2 items. Empty [] if none.'
-    )
+    payoffs: str = dspy.OutputField(desc='JSON array of payoffs: [{"summary": str}]. Max 2 items. Empty [] if none.')
 
 
 class ForeshadowingAgent:

@@ -8,16 +8,8 @@ def _render_agreements_block(scene_context: dict) -> str:
     agreements = scene_context.get("agreements") if isinstance(scene_context, dict) else None
     if not isinstance(agreements, dict):
         return ""
-    lines = [
-        str(item).strip()
-        for item in (agreements.get("lines") or [])
-        if str(item).strip()
-    ]
-    veils = [
-        str(item).strip()
-        for item in (agreements.get("veils") or [])
-        if str(item).strip()
-    ]
+    lines = [str(item).strip() for item in (agreements.get("lines") or []) if str(item).strip()]
+    veils = [str(item).strip() for item in (agreements.get("veils") or []) if str(item).strip()]
     if not lines and not veils:
         return ""
     parts: list[str] = []
@@ -43,9 +35,7 @@ def test_render_agreements_block_is_empty_when_agreements_absent():
 
 
 def test_render_agreements_block_strips_blank_entries():
-    text = _render_agreements_block(
-        {"agreements": {"lines": ["  ", "a", ""], "veils": ["x"]}}
-    )
+    text = _render_agreements_block({"agreements": {"lines": ["  ", "a", ""], "veils": ["x"]}})
     assert "Lines: a" in text
     assert "Veils: x" in text
     assert "  " not in text

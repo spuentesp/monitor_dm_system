@@ -38,9 +38,7 @@ class EntityProgressionService:
         if request.scene_id:
             try:
                 scene_uuid = UUID(request.scene_id)
-                ws = await anyio.to_thread.run_sync(
-                    lambda: mongodb_get_working_state(character_id, scene_uuid)
-                )
+                ws = await anyio.to_thread.run_sync(lambda: mongodb_get_working_state(character_id, scene_uuid))
                 if ws and getattr(ws, "state", None):
                     current_xp = int(ws.state.xp or 0)
                     current_level = int(ws.state.level or 1)
@@ -81,9 +79,7 @@ class EntityProgressionService:
             raise ValueError("No game system specified and none found on character sheet")
 
         try:
-            system = await anyio.to_thread.run_sync(
-                lambda: mongodb_get_game_system(UUID(system_id_str))
-            )
+            system = await anyio.to_thread.run_sync(lambda: mongodb_get_game_system(UUID(system_id_str)))
         except Exception as exc:
             raise ValueError(f"Game system not found: {exc}") from exc
 
@@ -143,9 +139,7 @@ class EntityProgressionService:
         if scene_id:
             try:
                 scene_uuid = UUID(scene_id)
-                ws = await anyio.to_thread.run_sync(
-                    lambda: mongodb_get_working_state(character_id, scene_uuid)
-                )
+                ws = await anyio.to_thread.run_sync(lambda: mongodb_get_working_state(character_id, scene_uuid))
                 if ws and getattr(ws, "state", None):
                     current_xp = int(ws.state.xp or 0)
                     current_level = int(ws.state.level or 1)

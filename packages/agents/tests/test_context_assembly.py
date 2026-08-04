@@ -176,9 +176,7 @@ class TestSearchMemories:
         agent = ContextAssembly.__new__(ContextAssembly)
         memory_id = str(uuid4())
         envelope = {
-            "results": [
-                {"id": memory_id, "score": 0.9, "payload": {"memory_id": memory_id, "entity_id": str(uuid4())}}
-            ]
+            "results": [{"id": memory_id, "score": 0.9, "payload": {"memory_id": memory_id, "entity_id": str(uuid4())}}]
         }
 
         async def _call(name: str, params: dict) -> object:
@@ -1579,6 +1577,7 @@ class TestFetchKnowledge:
     @pytest.mark.asyncio
     async def test_returns_empty_for_empty_query(self):
         from monitor_agents.context_assembly.agent import ContextAssembly
+
         agent = ContextAssembly.__new__(ContextAssembly)
         agent.call_tool = AsyncMock()
         result = await agent._fetch_knowledge("")
@@ -1588,6 +1587,7 @@ class TestFetchKnowledge:
     @pytest.mark.asyncio
     async def test_returns_parsed_knowledge_hits(self):
         from monitor_agents.context_assembly.agent import ContextAssembly
+
         agent = ContextAssembly.__new__(ContextAssembly)
         hits = [
             {"node_id": "n1", "text": "The Beast is the monster within.", "node_type": "axiom"},
@@ -1600,10 +1600,12 @@ class TestFetchKnowledge:
     @pytest.mark.asyncio
     async def test_scopes_knowledge_to_universe(self):
         from monitor_agents.context_assembly.agent import ContextAssembly
+
         agent = ContextAssembly.__new__(ContextAssembly)
         agent.call_tool = AsyncMock(return_value=json.dumps([]))
         await agent._fetch_knowledge(
-            "the Beast", universe_id="11111111-1111-1111-1111-111111111111",
+            "the Beast",
+            universe_id="11111111-1111-1111-1111-111111111111",
         )
         # Confirm the call was made with the universe filter.
         call = agent.call_tool.call_args
@@ -1613,6 +1615,7 @@ class TestFetchKnowledge:
     @pytest.mark.asyncio
     async def test_returns_empty_on_retrieval_error(self):
         from monitor_agents.context_assembly.agent import ContextAssembly
+
         agent = ContextAssembly.__new__(ContextAssembly)
         agent.call_tool = AsyncMock(side_effect=Exception("qdrant down"))
         result = await agent._fetch_knowledge("the Beast")

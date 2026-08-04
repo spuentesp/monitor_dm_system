@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 class StoryAgent(BaseAgent):
     """Agent responsible for story-level narrative arc and world simulation."""
 
@@ -168,7 +169,7 @@ class StoryAgent(BaseAgent):
         scene_type_hint = state.next_scene_type or "exploration"
 
         from monitor_agents.loops.story_loop import _create_scene
-        
+
         scene_id = await _create_scene(
             state.story_id,
             state.universe_id,

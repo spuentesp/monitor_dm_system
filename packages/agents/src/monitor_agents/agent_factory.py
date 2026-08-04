@@ -51,25 +51,25 @@ class AgentFactory:
         return agent_class(agent_id=agent_id)
 
     def create_context_assembly(self, agent_id: str = "context-assembly-1") -> ContextAssembly:
-        return cast('ContextAssembly', self._create_agent("ContextAssembly", agent_id))
+        return cast("ContextAssembly", self._create_agent("ContextAssembly", agent_id))
 
     def create_resolver(self, agent_id: str = "resolver-1") -> Resolver:
-        return cast('Resolver', self._create_agent("Resolver", agent_id))
+        return cast("Resolver", self._create_agent("Resolver", agent_id))
 
     def create_narrator(self, agent_id: str = "narrator-1") -> Narrator:
-        return cast('Narrator', self._create_agent("Narrator", agent_id))
+        return cast("Narrator", self._create_agent("Narrator", agent_id))
 
     def create_canonkeeper(self, agent_id: str = "canonkeeper-1") -> CanonKeeper:
-        return cast('CanonKeeper', self._create_agent("CanonKeeper", agent_id))
+        return cast("CanonKeeper", self._create_agent("CanonKeeper", agent_id))
 
     def create_extractor(self, agent_id: str = "extractor-1") -> ExtractionAgent:
-        return cast('ExtractionAgent', self._create_agent("ExtractionAgent", agent_id))
+        return cast("ExtractionAgent", self._create_agent("ExtractionAgent", agent_id))
 
     def create_world_rules(self, agent_id: str = "worldrules-1") -> WorldRulesAgent:
-        return cast('WorldRulesAgent', self._create_agent("WorldRulesAgent", agent_id))
+        return cast("WorldRulesAgent", self._create_agent("WorldRulesAgent", agent_id))
 
     def create_story_agent(self, agent_id: str = "story-1") -> StoryAgent:
-        return cast('StoryAgent', self._create_agent("StoryAgent", agent_id))
+        return cast("StoryAgent", self._create_agent("StoryAgent", agent_id))
 
 
 # ----------------------------------------------------------------------
