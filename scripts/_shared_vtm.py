@@ -125,16 +125,34 @@ def make_minimax_player_spec(
             if content:
                 return content
             reasoning = (getattr(msg, "reasoning_content", None) or "").strip()
-            if reasoning:
-                # Strip leading "The user says: ..." preamble the thinking
-                # model often prepends; keep only the final answer lines.
-                lines = [
-                    ln for ln in reasoning.splitlines()
-                    if ln.strip() and not ln.lower().startswith("the user")
-                ]
-                tail = "\n".join(lines[-6:]).strip() if lines else reasoning
-                return tail
-            return ""
+            if not reasoning:
+                return ""
+            # Skip meta-reasoning lines. The thinking model often trails the
+            # actual answer with instructions-to-self ("Wait, looking at the
+            # context...", "Let me respond as the GM..."). Drop any line whose
+            # opening suggests it's the model's own internal narration.
+            skip_prefixes = (
+                "the user", "wait,", "hmm,", "actually,", "let me", "i should",
+                "i need", "looking at", "i think", "given ", "in this response",
+                "this appears", "this looks", "this seems", "i was given",
+                "the scene", "ok,", "okay,", "so the", "but the", "and the",
+                "or maybe", "perhaps", "the user is", "it's possible",
+                "now there's", "wait -", "wait—",
+            )
+            kept: list[str] = []
+            for ln in reasoning.splitlines():
+                s = ln.strip()
+                if not s:
+                    continue
+                low = s.lower()
+                if any(low.startswith(p) for p in skip_prefixes):
+                    continue
+                kept.append(ln)
+            # If filtering removed everything, fall back to the last paragraph.
+            if not kept:
+                tail = reasoning.rsplit("\n\n", 1)[-1].strip()
+                return tail or reasoning[-400:]
+            return "\n".join(kept[-8:]).strip()
 
     return _MiniMaxSpec(
         model=model, temperature=temperature, max_tokens=max_tokens,
