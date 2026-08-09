@@ -123,9 +123,20 @@ async def run_character_creation(player, universe_id: str) -> tuple[str, dict[st
     from monitor_agents.loops.character_creation_loop import CharacterCreationLoop
     from monitor_data.db.mongodb import get_mongodb_client
 
-    gs = get_mongodb_client()["game_systems"].find_one({"system_id": VTM_SYSTEM_ID})
+    # Resolve the VtM system ID dynamically -- several VtM variants exist
+    # and the hardcoded e2e_full_loop_scenarios id may not be seeded.
+    gs = None
+    coll = get_mongodb_client()["game_systems"]
+    candidate = coll.find_one({"system_id": VTM_SYSTEM_ID})
+    if candidate:
+        gs = candidate
+    else:
+        for c in coll.find({"name": {"$regex": "Masquerade", "$options": "i"}}):
+            gs = c
+            log.warning("vtm_system.fallback", system_id=c.get("system_id"), name=c.get("name"))
+            break
     if not gs:
-        raise RuntimeError(f"game system {VTM_SYSTEM_ID} (VtM v5) not seeded")
+        raise RuntimeError("no VtM/Masquerade game system seeded; run scripts/seed_*_systems.py")
 
     cc_loop = CharacterCreationLoop(game_context=gs)
 
@@ -208,10 +219,11 @@ async def run_character_creation(player, universe_id: str) -> tuple[str, dict[st
             description=final_character.get("concept") or "",
         )
     )
+    resolved_system_id = gs.get("system_id") or VTM_SYSTEM_ID
     mongodb_create_character_sheet(
         CharacterSheetCreate(
             entity_id=uuid.UUID(actor_id),
-            game_system_id=uuid.UUID(VTM_SYSTEM_ID),
+            game_system_id=uuid.UUID(resolved_system_id),
             system_name=gs.get("name"),
             stats=attributes,
             skills=final_character.get("skills") or {},
@@ -226,18 +238,26 @@ async def run_character_creation(player, universe_id: str) -> tuple[str, dict[st
         name=final_character.get("name"),
         attrs=list(attributes.keys()),
     )
+    # Stash the resolved system id so later phases don't need to re-resolve.
+    actor_context["_resolved_system_id"] = resolved_system_id
     return actor_id, actor_context
+
+
+def _resolved_system_id(actor_context: dict[str, Any]) -> str:
+    return actor_context.get("_resolved_system_id") or VTM_SYSTEM_ID
 
 
 # --- Phase C: bootstrap story + scene ---------------------------------------
 
-async def bootstrap_session(actor_id: str, universe_id: str) -> tuple[str, str]:
+def bootstrap_session(
+    actor_id: str, universe_id: str, system_id: str,
+) -> tuple[str, str]:
     """Return (story_id, scene_id). Universe must already exist."""
     from monitor_agents.loops.session_bootstrap import bootstrap_story_scene
 
     session_dict = {
         "universe_id": universe_id,
-        "system_id": VTM_SYSTEM_ID,
+        "system_id": system_id,
         "character_id": actor_id,
         "title": "VtM Embrace -- Cassia Vance",
         "mode": "autonomous_gm",
@@ -252,20 +272,20 @@ async def bootstrap_session(actor_id: str, universe_id: str) -> tuple[str, str]:
 
 # --- Phase D: scene loop with multi-scene progression -----------------------
 
-async def _next_scene(story_id: str, universe_id: str, actor_id: str) -> str:
+def _next_scene(story_id: str, universe_id: str, actor_id: str, system_id: str) -> str:
     """Mint a fresh scene under the same story_id."""
     from monitor_agents.loops.session_bootstrap import bootstrap_story_scene
 
     session_dict = {
         "story_id": story_id,
         "universe_id": universe_id,
-        "system_id": VTM_SYSTEM_ID,
+        "system_id": system_id,
         "character_id": actor_id,
         "title": "Continuing Story",
         "mode": "autonomous_gm",
         "tone": "grim",
     }
-    _, scene_id, err = await bootstrap_story_scene(session_dict)
+    _, scene_id, err = bootstrap_story_scene(session_dict)
     if err:
         raise RuntimeError(f"next-scene bootstrap failed: {err}")
     return str(scene_id)
@@ -281,23 +301,18 @@ async def run_scenes(
     """Run 5 scenes x TURNS_PER_SCENE turns; return list of per-turn dicts."""
     from monitor_agents.loops.scene_loop import SceneLoop
 
+    system_id = _resolved_system_id(actor_context)
     transcript: list[dict[str, Any]] = []
     current_scene_id = None
 
     for scene_idx, title in enumerate(SCENE_TITLES):
-        if scene_idx == 0:
-            # First scene was already bootstrapped; reuse the scene_id from bootstrap_session.
-            # We don't have it here, so call bootstrap_session-like helper again. Simpler:
-            # re-bootstrap with story_id to mint scene 1, then continue.
-            current_scene_id = await _next_scene(story_id, universe_id, actor_id)
-        else:
-            current_scene_id = await _next_scene(story_id, universe_id, actor_id)
+        current_scene_id = _next_scene(story_id, universe_id, actor_id, system_id)
 
         loop = SceneLoop(
             scene_id=uuid.UUID(current_scene_id),
             story_id=uuid.UUID(story_id),
             universe_id=uuid.UUID(universe_id),
-            system_id=VTM_SYSTEM_ID,
+            system_id=system_id,
             actor_id=uuid.UUID(actor_id),
             actor_context=actor_context,
             play_mode="dice_game_system",
@@ -437,7 +452,7 @@ async def main() -> None:
     actor_name = actor_context.get("name") or "Cassia Vance"
     log.info("session.character_done", actor_id=actor_id, name=actor_name)
 
-    story_id, scene_id = await bootstrap_session(actor_id, universe_id)
+    story_id, scene_id = bootstrap_session(actor_id, universe_id, _resolved_system_id(actor_context))
     log.info("session.boostrapped", story_id=story_id, scene_id=scene_id, universe_id=universe_id)
 
     transcript = await run_scenes(story_id, universe_id, actor_id, actor_context, player)
