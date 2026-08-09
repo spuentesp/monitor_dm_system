@@ -62,8 +62,11 @@ SCENE_TITLES = [
     "Chapter 4: Court Politics",
     "Chapter 5: The Beast Stirs",
 ]
-TURNS_PER_SCENE = 5
-PER_TURN_TIMEOUT_SECONDS = 90.0
+# Default 5 turns/scene (25 turns total). Override via env for rate-limit-constrained runs:
+#   VTM_TURNS_PER_SCENE=1 uv run python scripts/vtm_embrace_session.py
+import os as _os
+TURNS_PER_SCENE = int(_os.environ.get("VTM_TURNS_PER_SCENE", "5"))
+PER_TURN_TIMEOUT_SECONDS = float(_os.environ.get("VTM_PER_TURN_TIMEOUT", "120"))
 
 TRANSCRIPT_DIR = Path("tests/e2e/logs/vtm_embrace")
 
