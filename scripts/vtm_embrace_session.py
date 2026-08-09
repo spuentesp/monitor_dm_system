@@ -36,40 +36,85 @@ log = structlog.get_logger()
 
 # --- Scenario constants -----------------------------------------------------
 
-VTM_SYSTEM_ID = "a227676a-edab-4a43-80d9-8f76b74ff289"  # VtM v5
+# Scenario pack. Pick via env: SCENARIO=dis_salvage uv run python ...
+import os as _os
 
-PLAYER_CONCEPT = (
-    "Cassia Vance, 24, just Embraced by a Ventrue elder in Los Angeles, 1999. "
-    "Former junior copywriter at a downtown ad agency. Quiet, observant, "
-    "pragmatic -- but the Beast is new and hungry."
-)
-PLAYER_SEED = (
-    "You've woken up in a downtown LA motel room. Your Sire is gone. "
-    "The sun is coming up outside the blackout curtains. The neon sign "
-    "across the street bleeds pink through the gaps."
-)
-PLAYER_GOAL = (
-    "Drive the scene forward; react to the GM's last narration. "
-    "Stay in character as a frightened neonate who is trying not to die."
-)
+SCENARIOS: dict[str, dict[str, Any]] = {
+    "vtm_embrace": {
+        "system_id": "a227676a-edab-4a43-80d9-8f76b74ff289",  # VtM v5 (resolved dynamically if missing)
+        "system_name_hint": "Masquerade",
+        "player_concept": (
+            "Cassia Vance, 24, just Embraced by a Ventrue elder in Los Angeles, 1999. "
+            "Former junior copywriter at a downtown ad agency. Quiet, observant, "
+            "pragmatic -- but the Beast is new and hungry."
+        ),
+        "player_seed": (
+            "You've woken up in a downtown LA motel room. Your Sire is gone. "
+            "The sun is coming up outside the blackout curtains. The neon sign "
+            "across the street bleeds pink through the gaps."
+        ),
+        "player_goal": (
+            "Drive the scene forward; react to the GM's last narration. "
+            "Stay in character as a frightened neonate who is trying not to die."
+        ),
+        "scene_titles": [
+            "Chapter 1: The Motel Room",
+            "Chapter 2: First Hunt",
+            "Chapter 3: The Sheriff's Summons",
+            "Chapter 4: Court Politics",
+            "Chapter 5: The Beast Stirs",
+        ],
+        "transcript_subdir": "vtm_embrace",
+    },
+    "dis_salvage": {
+        "system_id": "8ad46bf1-3cdd-48c9-9c29-b9139fae0a00",  # Death in Space
+        "system_name_hint": "Death in Space",
+        "player_concept": (
+            "Cass Rix, 31, chrome-augmented salvager aboard the Ozymandias, "
+            "a beat-up Scrapper-class hauler. Ten years scraping derelicts in "
+            "the Outer Belt. Cynical, practical, dry-humored -- but the last "
+            "salvage run went sideways and you know it."
+        ),
+        "player_seed": (
+            "You're on the bridge of the Ozymandias, drifting in the shadow of "
+            "a half-decommissioned orbital platform. The hull's been breached "
+            "twice, the captain's missing, and the life-support is bleeding "
+            "oxy at a rate you can't afford."
+        ),
+        "player_goal": (
+            "Drive the scene forward; react to the GM's last narration. "
+            "Stay in character as a hardened salvager making impossible choices."
+        ),
+        "scene_titles": [
+            "Chapter 1: Drift",
+            "Chapter 2: Breach",
+            "Chapter 3: The Derelict",
+            "Chapter 4: Signal in the Black",
+            "Chapter 5: The Airlock",
+        ],
+        "transcript_subdir": "dis_salvage",
+    },
+}
+
+SCENARIO_NAME = _os.environ.get("SCENARIO", "vtm_embrace")
+if SCENARIO_NAME not in SCENARIOS:
+    raise SystemExit(f"unknown SCENARIO={SCENARIO_NAME!r}; choices: {sorted(SCENARIOS)}")
+SCN = SCENARIOS[SCENARIO_NAME]
+
+VTM_SYSTEM_ID = SCN["system_id"]
+PLAYER_CONCEPT = SCN["player_concept"]
+PLAYER_SEED = SCN["player_seed"]
+PLAYER_GOAL = SCN["player_goal"]
 PLAYER_LANGUAGE = "en"
 PLAYER_MODEL = "openai/MiniMax-M2.7"  # MiniMax-M2.7 is a thinking model — see make_minimax_player_spec
 PLAYER_TEMPERATURE = 0.9
+SCENE_TITLES = SCN["scene_titles"]
 
-SCENE_TITLES = [
-    "Chapter 1: The Motel Room",
-    "Chapter 2: First Hunt",
-    "Chapter 3: The Sheriff's Summons",
-    "Chapter 4: Court Politics",
-    "Chapter 5: The Beast Stirs",
-]
-# Default 5 turns/scene (25 turns total). Override via env for rate-limit-constrained runs:
-#   VTM_TURNS_PER_SCENE=1 uv run python scripts/vtm_embrace_session.py
-import os as _os
-TURNS_PER_SCENE = int(_os.environ.get("VTM_TURNS_PER_SCENE", "5"))
-PER_TURN_TIMEOUT_SECONDS = float(_os.environ.get("VTM_PER_TURN_TIMEOUT", "120"))
+# Default 5 turns/scene. Override via env: SCENARIO_TURNS_PER_SCENE=1 uv run ...
+TURNS_PER_SCENE = int(_os.environ.get("SCENARIO_TURNS_PER_SCENE", "5"))
+PER_TURN_TIMEOUT_SECONDS = float(_os.environ.get("SCENARIO_PER_TURN_TIMEOUT", "120"))
 
-TRANSCRIPT_DIR = Path("tests/e2e/logs/vtm_embrace")
+TRANSCRIPT_DIR = Path("tests/e2e/logs") / SCN["transcript_subdir"]
 
 
 # --- Player builder ---------------------------------------------------------
