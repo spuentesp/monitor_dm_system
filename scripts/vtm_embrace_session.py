@@ -26,6 +26,7 @@ import structlog  # noqa: E402
 
 from scripts._shared_vtm import (  # noqa: E402
     format_dice_highlight,
+    make_minimax_player_spec,
     ping_player_model,
     setup_logging,
     utc_timestamp,
@@ -52,7 +53,7 @@ PLAYER_GOAL = (
     "Stay in character as a frightened neonate who is trying not to die."
 )
 PLAYER_LANGUAGE = "en"
-PLAYER_MODEL = "gemini/gemini-2.5-flash"
+PLAYER_MODEL = "openai/MiniMax-M2.7"  # MiniMax-M2.7 is a thinking model — see make_minimax_player_spec
 PLAYER_TEMPERATURE = 0.9
 
 SCENE_TITLES = [
@@ -74,10 +75,10 @@ TRANSCRIPT_DIR = Path("tests/e2e/logs/vtm_embrace")
 # --- Player builder ---------------------------------------------------------
 
 def _build_player():
-    from monitor_agents.players import InstructablePlayer, InstructedSpec, PlayerContext
+    from monitor_agents.players import InstructablePlayer, PlayerContext
 
     return InstructablePlayer(
-        spec=InstructedSpec(
+        spec=make_minimax_player_spec(
             model=PLAYER_MODEL,
             temperature=PLAYER_TEMPERATURE,
             max_tokens=220,
