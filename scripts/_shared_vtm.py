@@ -64,7 +64,11 @@ def setup_logging() -> None:
     )
 
 
-async def ping_player_model(model: str = "gemini/gemini-2.5-flash") -> None:
+async def ping_player_model(
+    model: str = "openai/MiniMax-M2.7",
+    api_key_env: str = "MINIMAX_KEY",
+    api_base: str = "https://api.minimax.io/v1",
+) -> None:
     """Smoke check that the player LLM is reachable. Raises on failure."""
     if litellm is None:
         raise RuntimeError("litellm is not installed")
@@ -72,14 +76,18 @@ async def ping_player_model(model: str = "gemini/gemini-2.5-flash") -> None:
         model=model,
         messages=[{"role": "user", "content": "ping"}],
         max_tokens=5,
+        api_key=os.getenv(api_key_env),
+        api_base=api_base,
     )
     if not resp or not getattr(resp, "choices", None):
         raise RuntimeError(f"Empty response from {model}")
-    content = resp.choices[0].message.content
-    if not content or not content.strip():
+    msg = resp.choices[0].message
+    content = (getattr(msg, "content", None) or "").strip()
+    reasoning = (getattr(msg, "reasoning_content", None) or "").strip()
+    if not content and not reasoning:
         raise RuntimeError(
-            f"Empty content from {model} (got {content!r}). "
-            "Model may be a 'thinking' model that puts reasoning in a separate field."
+            f"Empty content from {model}. Model may be a thinking model "
+            "with both content and reasoning_content empty."
         )
 
 
