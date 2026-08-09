@@ -9,9 +9,18 @@ Provides:
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 import structlog
+from dotenv import load_dotenv
+
+# Load .env / .env.tokens if present, so API keys reach os.environ when this
+# module is imported via `uv run scripts/vtm_*.py`.
+for _env in (Path(__file__).resolve().parent.parent / ".env", Path(__file__).resolve().parent.parent / ".env.tokens"):
+    if _env.exists():
+        load_dotenv(_env, override=False)
 
 try:
     import litellm
