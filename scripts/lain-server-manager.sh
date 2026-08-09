@@ -41,7 +41,7 @@ start_server() {
     ensure_dirs
     
     if is_running; then
-        echo "LAIN server already running on port $PORT (PID: $(cat "$PIDFILE" 2>/dev/null || echo 'unknown'))"
+        echo "LAIN server owner already running on port $PORT (PID: $(cat "$PIDFILE" 2>/dev/null || echo 'unknown'))"
         return 0
     fi
     
@@ -78,7 +78,7 @@ start_server() {
             return 0
         fi
         sleep 0.5
-        ((attempts++))
+        attempts=$((attempts+1))
     done
     
     echo "✗ Failed to start LAIN server (timeout)"
@@ -102,7 +102,7 @@ stop_server() {
         local attempts=0
         while kill -0 "$pid" 2>/dev/null && [[ $attempts -lt 10 ]]; do
             sleep 0.5
-            ((attempts++))
+            attempts=$((attempts+1))
         done
         # Force kill if still running
         if kill -0 "$pid" 2>/dev/null; then
