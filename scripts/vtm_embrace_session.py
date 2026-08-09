@@ -94,36 +94,6 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         ],
         "transcript_subdir": "dis_salvage",
     },
-    "7th_sea_masquerade": {
-        "system_id": "f0e1d2c3-b4a5-4968-9876-543210fedcba",
-        "system_name_hint": "7th Sea",
-        "universe_keywords": ["7th sea", "theah"],
-        "player_concept": (
-            "Donatello, 28, a Vodacce duelist and courtier -- eloquent, vain, "
-            "reckless in love and lethal with a rapier. You were raised on the "
-            "dueling grounds of half a dozen Vodacce city-states. Tonight "
-            "matters."
-        ),
-        "player_seed": (
-            "You are at the masked ball in the Palazzo d'Oro in Venice, the "
-            "first night of Carnevale. The Vodacce fleet dominates the inner "
-            "sea. Somewhere beneath the music and the masks, knives are "
-            "already out."
-        ),
-        "player_goal": (
-            "Drive the scene forward; react to the GM's last narration. "
-            "Speak and act with swashbuckling style; every Raise you spend "
-            "should *look* good. Keep it 1-3 sentences per turn."
-        ),
-        "scene_titles": [
-            "Chapter 1: The Masquerade",
-            "Chapter 2: Three Daggers",
-            "Chapter 3: The Ambassador's Neck",
-            "Chapter 4: The Wax Letter",
-            "Chapter 5: The Second Dance",
-        ],
-        "transcript_subdir": "7th_sea_masquerade",
-    },
 }
 
 SCENARIO_NAME = _os.environ.get("SCENARIO", "vtm_embrace")
