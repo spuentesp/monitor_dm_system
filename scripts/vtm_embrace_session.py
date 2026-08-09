@@ -94,6 +94,36 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         ],
         "transcript_subdir": "dis_salvage",
     },
+    "7th_sea_masquerade": {
+        "system_id": "f0e1d2c3-b4a5-4968-9876-543210fedcba",
+        "system_name_hint": "7th Sea",
+        "universe_keywords": ["7th sea", "theah"],
+        "player_concept": (
+            "Donatello, 28, a Vodacce duelist and courtier -- eloquent, vain, "
+            "reckless in love and lethal with a rapier. You were raised on the "
+            "dueling grounds of half a dozen Vodacce city-states. Tonight "
+            "matters."
+        ),
+        "player_seed": (
+            "You are at the masked ball in the Palazzo d'Oro in Venice, the "
+            "first night of Carnevale. The Vodacce fleet dominates the inner "
+            "sea. Somewhere beneath the music and the masks, knives are "
+            "already out."
+        ),
+        "player_goal": (
+            "Drive the scene forward; react to the GM's last narration. "
+            "Speak and act with swashbuckling style; every Raise you spend "
+            "should *look* good. Keep it 1-3 sentences per turn."
+        ),
+        "scene_titles": [
+            "Chapter 1: The Masquerade",
+            "Chapter 2: Three Daggers",
+            "Chapter 3: The Ambassador's Neck",
+            "Chapter 4: The Wax Letter",
+            "Chapter 5: The Second Dance",
+        ],
+        "transcript_subdir": "7th_sea_masquerade",
+    },
 }
 
 SCENARIO_NAME = _os.environ.get("SCENARIO", "vtm_embrace")
@@ -141,22 +171,34 @@ def _build_player():
 # --- Phase B: character creation --------------------------------------------
 
 async def _ensure_universe() -> str:
-    """Find an existing VtM-themed universe, or create one. Return universe_id."""
-    from monitor_data.tools.neo4j_tools.core import neo4j_list_universes
-    from monitor_data.schemas.universe import UniverseCreate
-    from monitor_data.tools.neo4j_tools.core import neo4j_create_universe
+    """Find an existing universe matching this scenario, or create one. Return universe_id."""
+    from monitor_data.tools.neo4j_tools.core import (
+        neo4j_list_universes, neo4j_create_universe,
+        neo4j_list_multiverses, neo4j_create_multiverse,
+    )
+    from monitor_data.schemas.universe import UniverseCreate, MultiverseCreate
 
+    # Scenario-specific keywords; fall back to scenario name
+    keywords = SCN.get("universe_keywords") or [SCN["system_name_hint"].lower()]
     universes = neo4j_list_universes()
     for u in universes:
-        if u.name and ("vampire" in u.name.lower() or "vtm" in u.name.lower() or "masquerade" in u.name.lower()):
-            log.info("universe.found", universe_id=str(u.id), name=u.name)
+        if not u.name:
+            continue
+        ln = u.name.lower()
+        if any(k in ln for k in keywords):
+            log.info("universe.found", universe_id=str(u.id), name=u.name, keywords=keywords)
             return str(u.id)
+
+    mvs = neo4j_list_multiverses()
+    multiverse_id = mvs[0].id if mvs else neo4j_create_multiverse(
+        MultiverseCreate(name="MONITOR Sandbox Multiverse")
+    ).id
 
     new = neo4j_create_universe(
         UniverseCreate(
-            name="VtM Embrace Sandbox",
-            description="Sandbox universe for Vampire: the Masquerade v5 sessions.",
-            multiverse_id=None,
+            multiverse_id=multiverse_id,
+            name=f"{SCN['system_name_hint']} Sandbox",
+            description=f"Sandbox universe for {SCN['system_name_hint']} sessions.",
         )
     )
     log.info("universe.created", universe_id=str(new.id))
@@ -180,12 +222,16 @@ async def run_character_creation(player, universe_id: str) -> tuple[str, dict[st
     if candidate:
         gs = candidate
     else:
-        for c in coll.find({"name": {"$regex": "Masquerade", "$options": "i"}}):
+        hint = SCN["system_name_hint"]
+        for c in coll.find({"name": {"$regex": hint, "$options": "i"}}):
             gs = c
-            log.warning("vtm_system.fallback", system_id=c.get("system_id"), name=c.get("name"))
+            log.warning("system.fallback", system_id=c.get("system_id"), name=c.get("name"))
             break
     if not gs:
-        raise RuntimeError("no VtM/Masquerade game system seeded; run scripts/seed_*_systems.py")
+        raise RuntimeError(
+            f"no '{SCN['system_name_hint']}' game system seeded; "
+            "run the scenario's bootstrap script first."
+        )
 
     cc_loop = CharacterCreationLoop(game_context=gs)
 
