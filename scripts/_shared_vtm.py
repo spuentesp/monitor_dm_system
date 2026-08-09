@@ -4,7 +4,7 @@ Provides:
     format_dice_highlight  -- inline dice string for transcript
     utc_timestamp          -- YYYYMMDDTHHMMSSZ for filenames
     setup_logging          -- structlog config
-    ping_minimax_player_model -- startup smoke check for the player LLM
+    ping_player_model -- startup smoke check for the player LLM
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def setup_logging() -> None:
     )
 
 
-async def ping_minimax_player_model(model: str = "minimax/MiniMax-M2.7") -> None:
+async def ping_player_model(model: str = "gemini/gemini-2.5-flash") -> None:
     """Smoke check that the player LLM is reachable. Raises on failure."""
     if litellm is None:
         raise RuntimeError("litellm is not installed")
@@ -66,3 +66,9 @@ async def ping_minimax_player_model(model: str = "minimax/MiniMax-M2.7") -> None
     )
     if not resp or not getattr(resp, "choices", None):
         raise RuntimeError(f"Empty response from {model}")
+    content = resp.choices[0].message.content
+    if not content or not content.strip():
+        raise RuntimeError(
+            f"Empty content from {model} (got {content!r}). "
+            "Model may be a 'thinking' model that puts reasoning in a separate field."
+        )

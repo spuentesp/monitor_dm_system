@@ -5,7 +5,7 @@ Run from repo root:
     uv run python scripts/vtm_embrace_session.py
 
 Drives the existing CharacterCreationLoop and SceneLoop with an LLM player
-(InstructablePlayer over MiniMax M2.7 via litellm). Writes a markdown +
+(InstructablePlayer over Gemini 2.5 Flash via litellm). Writes a markdown +
 JSON transcript to tests/e2e/logs/vtm_embrace/.
 """
 
@@ -26,7 +26,7 @@ import structlog  # noqa: E402
 
 from scripts._shared_vtm import (  # noqa: E402
     format_dice_highlight,
-    ping_minimax_player_model,
+    ping_player_model,
     setup_logging,
     utc_timestamp,
 )
@@ -52,7 +52,7 @@ PLAYER_GOAL = (
     "Stay in character as a frightened neonate who is trying not to die."
 )
 PLAYER_LANGUAGE = "en"
-PLAYER_MODEL = "minimax/MiniMax-M2.7"
+PLAYER_MODEL = "gemini/gemini-2.5-flash"
 PLAYER_TEMPERATURE = 0.9
 
 SCENE_TITLES = [
@@ -429,7 +429,7 @@ async def main() -> None:
     ts = utc_timestamp()
     log.info("session.start", ts=ts)
 
-    await ping_minimax_player_model(PLAYER_MODEL)
+    await ping_player_model(PLAYER_MODEL)
 
     player = _build_player()
     universe_id = await _ensure_universe()
