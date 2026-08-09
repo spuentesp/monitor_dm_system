@@ -129,16 +129,23 @@ def make_minimax_player_spec(
                 return ""
             # Skip meta-reasoning lines. The thinking model often trails the
             # actual answer with instructions-to-self ("Wait, looking at the
-            # context...", "Let me respond as the GM..."). Drop any line whose
-            # opening suggests it's the model's own internal narration.
+            # context...", "Let me respond as the GM...", "1. The GM said...",
+            # "As Cassia, I should..."). Drop any line whose opening suggests
+            # it's the model's own internal narration.
+            import re
+
             skip_prefixes = (
                 "the user", "wait,", "hmm,", "actually,", "let me", "i should",
                 "i need", "looking at", "i think", "given ", "in this response",
                 "this appears", "this looks", "this seems", "i was given",
                 "the scene", "ok,", "okay,", "so the", "but the", "and the",
                 "or maybe", "perhaps", "the user is", "it's possible",
-                "now there's", "wait -", "wait—",
+                "now there's", "wait -", "wait—", "as cassia", "as the ",
+                "as cass", "the gm", "the user message", "user message",
+                "as a player", "as player", "she would", "i was given",
+                "the last", "the response", "the message", "the text",
             )
+            list_item_re = re.compile(r"^\s*\d+[\.\)]\s")
             kept: list[str] = []
             for ln in reasoning.splitlines():
                 s = ln.strip()
@@ -146,6 +153,8 @@ def make_minimax_player_spec(
                     continue
                 low = s.lower()
                 if any(low.startswith(p) for p in skip_prefixes):
+                    continue
+                if list_item_re.match(s):
                     continue
                 kept.append(ln)
             # If filtering removed everything, fall back to the last paragraph.
