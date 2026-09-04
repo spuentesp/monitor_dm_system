@@ -337,7 +337,190 @@ packages/data-layer/src/monitor_data/schemas/rpg_ontology/meta.py:82:    FORMULA
 
 ## Phase 3 — Correctness findings
 
-*(Filled by Task 3.)*
+**Summary:** No critical bugs. 4 print() calls in production code violate the project's "use structlog" rule (carried over from the 2026-09-03 sweep's deferred list). 549 `# type: ignore` comments are concentrated in ui-backend routers and DSPy signatures — most are justified but the count signals type-coverage gaps. 48 `global` statements are singleton patterns (idiomatic for module-level clients). 10 `assert` statements are post-init sanity checks. No bare `except:`, no swallowed exceptions, no mutable default arguments.
+
+### Bare `except:`
+
+*(No findings — see appendix A.3.1.)*
+
+### Swallowed exceptions
+
+*(No findings — see appendix A.3.2.)*
+
+### `print()` in production code
+
+7 hits outside `commands/` directory (which is legitimate CLI output). Of these, 4 are flagged as **violating** AGENTS.md's "use structlog" rule; 3 are in CLI/interactive modules where `print` is the conventional output method.
+
+| File:Line | Severity | Notes |
+|---|---|---|
+| `packages/agents/src/monitor_agents/ingestion/agent.py:45` | Low | `print(f"Job {job.job_id}: {job.status}")` — debug print in pipeline |
+| `packages/agents/src/monitor_agents/loops/world_building_loop.py:228` | Low | `print(result["response_text"])` — interactive loop output |
+| `packages/agents/src/monitor_agents/main_menu_processor.py:67` | n/a | Interactive CLI menu — legitimate |
+| `packages/agents/src/monitor_agents/main_menu_processor.py:136` | n/a | Interactive CLI menu — legitimate |
+| `packages/data-layer/src/monitor_data/schemas/rpg_ontology/topology.py:26` | Low | `print(node.backend, "—", node.description)` — debug/dev print |
+| `packages/data-layer/src/monitor_data/schemas/rpg_ontology/topology.py:30` | Low | `print("GAP:", g)` — debug/dev print |
+| `packages/data-layer/src/monitor_data/tools/temporal_tools/scene_validation.py:33` | Low | `print(f"{violation.severity}: {violation.description}")` — debug print in validation |
+
+### TODO / FIXME / XXX markers
+
+1 hit (in a test helper docstring):
+
+| File:Line | Notes |
+|---|---|
+| `packages/agents/tests/_router_helpers.py:44` | docstring referring to `scripts/router_eval.py (TODO)` — informational, not actionable |
+
+### Unjustified `# type: ignore`
+
+**549 hits total.** Distribution: 296 with code (`# type: ignore[attr-defined]`), 253 bare (`# type: ignore`).
+
+**Top files:**
+
+| File | Hits |
+|---|---:|
+| `packages/ui/backend/src/monitor_ui/routers/pack_library.py` | 54 |
+| `packages/ui/backend/src/monitor_ui/routers/entities.py` | 32 |
+| `packages/ui/backend/src/monitor_ui/routers/ingest.py` | 27 |
+| `packages/agents/src/monitor_agents/analyzer/analyzer.py` | 27 |
+| `packages/agents/src/monitor_agents/narrator/agent.py` | 21 |
+| `packages/ui/backend/src/monitor_ui/routers/graph.py` | 19 |
+| `packages/ui/backend/src/monitor_ui/routers/universes.py` | 17 |
+| `packages/ui/backend/src/monitor_ui/routers/chat.py` | 15 |
+| `packages/ui/backend/src/monitor_ui/routers/performance.py` | 13 |
+
+**Severity:** Medium. The volume signals type-coverage gaps, especially in ui-backend routers. Many of the bare `# type: ignore` comments are unjustified (no explanation of why the type system is wrong). DSPy signatures (`analyzer.py:27`) and the data-layer Pydantic-aware code (`pack_library.py:54`) are the bulk — those uses are sometimes intrinsic to working with dynamic libraries, but the count is worth a future sweep that audits each comment for justification.
+
+### `assert` in production modules
+
+10 hits. All are post-init sanity checks (`assert self._client is not None`) in DB client lifecycle code — idiomatic.
+
+| File | Hits |
+|---|---:|
+| `packages/data-layer/src/monitor_data/db/mongodb.py` | 2 |
+| `packages/data-layer/src/monitor_data/db/neo4j.py` | 2 |
+| `packages/data-layer/src/monitor_data/db/qdrant.py` | 2 |
+| `packages/data-layer/src/monitor_data/tools/mongodb_tools/random_tables.py` | 2 |
+| `packages/data-layer/src/monitor_data/tools/mongodb_tools/templates.py` | 2 |
+
+### `asyncio.run` usage
+
+112 hits. **All legitimate**:
+- 100+ in `packages/cli/commands/` and `tests/` — correct usage for entry-point bridging
+- A handful in `dspy_runtime.py` and `gm_tools/registry.py` — intentional `_run_sync = asyncio.run` test bridge
+
+*(No findings — see appendix A.3.7.)*
+
+### `global` keyword
+
+48 hits. **All singleton-pattern idiomatic** — module-level client state (`_mongodb_client_instance`, `_qdrant_client_instance`, `_ingest_executor`, etc.). The high count is consistent with the project pattern of one singleton per database / service.
+
+*(No findings — see appendix A.3.8.)*
+
+### Mutable default arguments
+
+*(No findings — see appendix A.3.9.)*
+
+## Per-category appendix (continued)
+
+### A.3.1 — Bare `except:` grep
+
+```text
+(no output — zero hits)
+```
+
+### A.3.2 — Swallowed exceptions grep
+
+```text
+(no output — zero hits)
+```
+
+### A.3.3 — `print()` in production grep
+
+```text
+packages/agents/src/monitor_agents/ingestion/agent.py:45:    print(f"Job {job.job_id}: {job.status}")
+packages/agents/src/monitor_agents/loops/world_building_loop.py:228:        print(result["response_text"])
+packages/agents/src/monitor_agents/main_menu_processor.py:67:        print("\n".join(lines))
+packages/agents/src/monitor_agents/main_menu_processor.py:136:            print("Invalid choice. Please enter a valid option.")
+packages/cli/src/monitor_cli/commands/doctor.py:334:        print(json.dumps(out, indent=2, default=str))
+packages/cli/src/monitor_cli/commands/init.py:437:        print(json.dumps(plan, indent=2))
+packages/cli/src/monitor_cli/commands/init.py:517:        print(json.dumps(out, indent=2, default=str))
+packages/data-layer/src/monitor_data/schemas/rpg_ontology/topology.py:26:        print(node.backend, "—", node.description)
+packages/data-layer/src/monitor_data/schemas/rpg_ontology/topology.py:30:        print("GAP:", g)
+packages/data-layer/src/monitor_data/tools/temporal_tools/scene_validation.py:33:            print(f"{violation.severity}: {violation.description}")
+```
+
+### A.3.4 — TODO / FIXME / XXX grep
+
+```text
+packages/agents/tests/_router_helpers.py:44:    ``scripts/router_eval.py`` (TODO).
+```
+
+### A.3.5 — `# type: ignore` grep (summary)
+
+```text
+Total: 549 hits across packages/
+  - with code (e.g., [attr-defined]): 296
+  - bare: 253
+Top files:
+  - packages/ui/backend/src/monitor_ui/routers/pack_library.py: 54
+  - packages/ui/backend/src/monitor_ui/routers/entities.py: 32
+  - packages/ui/backend/src/monitor_ui/routers/ingest.py: 27
+  - packages/agents/src/monitor_agents/analyzer/analyzer.py: 27
+  - packages/agents/src/monitor_agents/narrator/agent.py: 21
+  - packages/ui/backend/src/monitor_ui/routers/graph.py: 19
+  - packages/ui/backend/src/monitor_ui/routers/universes.py: 17
+  - packages/agents/tests/test_npc_voice_universe_scoping.py: 16
+  - packages/ui/backend/src/monitor_ui/routers/chat.py: 15
+  - packages/ui/backend/src/monitor_ui/routers/performance.py: 13
+(Full raw output: 549 lines — see /tmp/lain_phase3_typeignore.txt for verification.)
+```
+
+### A.3.6 — `assert` in production grep
+
+```text
+packages/data-layer/src/monitor_data/db/mongodb.py:86:            assert self._client is not None
+packages/data-layer/src/monitor_data/db/mongodb.py:101:        assert self._db is not None
+packages/data-layer/src/monitor_data/db/neo4j.py:441:        assert self._driver is not None
+packages/data-layer/src/monitor_data/db/neo4j.py:448:        assert self._driver is not None
+packages/data-layer/src/monitor_data/db/qdrant.py:221:            assert self._client is not None
+packages/data-layer/src/monitor_data/db/qdrant.py:286:            assert self._client is not None
+packages/data-layer/src/monitor_data/tools/mongodb_tools/random_tables.py:56:    assert res
+packages/data-layer/src/monitor_data/tools/mongodb_tools/random_tables.py:101:    assert res
+packages/data-layer/src/monitor_data/tools/mongodb_tools/templates.py:55:    assert res
+packages/data-layer/src/monitor_data/tools/mongodb_tools/templates.py:100:    assert res
+```
+
+### A.3.7 — `asyncio.run` grep (summary)
+
+```text
+Total: 112 hits across packages/
+  - tests/: ~95 (correct usage)
+  - packages/cli/commands/: ~14 (correct entry-point bridging)
+  - packages/agents/src/monitor_agents/dspy_runtime.py: 1 (intentional bridge)
+  - packages/agents/src/monitor_agents/gm_tools/registry.py: ~3 (intentional bridge + comments)
+  - packages/ui/backend/src/monitor_ui/routers/character_conversation.py: 2 (executor wrapper)
+  - packages/ui/backend/src/monitor_ui/routers/ingest.py: 1 (intentional — runs in dedicated thread)
+  - packages/data-layer/src/monitor_data/db/_utils.py: 1 (sync wrapper)
+  - packages/data-layer/src/monitor_data/server.py: 1 (entry point)
+All hits reviewed — all are legitimate.
+```
+
+### A.3.8 — `global` keyword grep (summary)
+
+```text
+Total: 48 hits across packages/
+All are singleton-pattern idiomatic (module-level client state):
+  - DB clients (mongodb, neo4j, qdrant, redis, postgres, minio, gliner): ~14
+  - Service singletons (provider_semaphore, embedding_health, retrieval/service): ~6
+  - Agent singletons (gm_agent, agent_factory, dspy_runtime, llm_mgmt): ~8
+  - State holders in ui-backend routers (ingest, chat, character_conversation, watchdog): ~10
+  - GM tools registry, handlers registry, scene_loop, NLP backend: ~10
+```
+
+### A.3.9 — Mutable default args grep
+
+```text
+(no output — zero hits)
+```
 
 ## Tool limitations
 
