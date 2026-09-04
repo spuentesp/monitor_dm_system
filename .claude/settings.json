@@ -1,8 +1,14 @@
 {
   "mcpServers": {
     "lain": {
-      "command": "/Users/spuentesp/.lain/bin/lain",
-      "args": ["--workspace", "/Users/spuentesp/personal/monitor_dm_system", "--embedding-model", "/Users/spuentesp/personal/monitor_dm_system/.lain/models/model.onnx", "--transport", "stdio"]
+      "command": "lain",
+      "args": [
+        "mcp",
+        "--workspace",
+        "/home/sebastian/orca/monitor_dm_system",
+        "--embedding-model",
+        "/home/sebastian/orca/monitor_dm_system/.lain/models"
+      ]
     }
   },
   "worktree": {

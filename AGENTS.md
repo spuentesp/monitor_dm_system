@@ -108,44 +108,54 @@ Quick Links:
 
 ## MCP Tools (Lain)
 
-Lain is configured as an MCP server in `.vscode/settings.json` via a proxy script:
+Lain is configured as an MCP server in [`.claude/settings.json`](.claude/settings.json)
+on stdio (no HTTP proxy — Lain 0.6+ dropped the combined stdio+http mode):
+
 ```json
 {
-  "mcp": {
-    "servers": {
-      "lain": {
-        "type": "stdio",
-        "command": "scripts/lain-mcp-proxy.sh",
-        "env": {
-          "LAIN_PORT": "9999"
-        }
-      }
+  "mcpServers": {
+    "lain": {
+      "command": "lain",
+      "args": [
+        "mcp",
+        "--workspace", "/home/sebastian/orca/monitor_dm_system",
+        "--embedding-model", "/home/sebastian/orca/monitor_dm_system/.lain/models/model.onnx"
+      ]
     }
   }
 }
 ```
 
-The proxy wraps the Lain binary and exposes it as an MCP server. The proxy
-starts the underlying Lain HTTP server (if not already running) and bridges
-stdio MCP traffic to HTTP. This allows the Lain process to be shared between
-the MCP transport and curl-based health checks.
+Lain binary: `~/.local/lain/lain` (v0.7.2, MCP protocol 2025-11-25).
+Installed via the [official installer](https://raw.githubusercontent.com/spuentesp/lain/main/install.sh)
+from [spuentesp/lain](https://github.com/spuentesp/lain/releases/tag/v0.7.2).
+ONNX model: `BGE-small-en-v1.5` at `/home/sebastian/orca/monitor_dm_system/.lain/models/model.onnx`
+(see [setup recipe](https://github.com/spuentesp/lain#optional-semantic-search)).
 
-Lain binary: `~/.local/lain/lain` (v0.1.5 with MCP protocol 2025-11-25)
-ONNX model: `<workspace>/.lain/models/model.onnx`
+`LAIN_EMBEDDING_MODEL` is exported in `~/.bashrc` for ad-hoc CLI usage. The MCP
+config pins the model path explicitly so it does not depend on the env var.
 
 Use Lain for:
 - Blast radius analysis (`get_blast_radius`)
 - Dependency traces (`trace_dependency`, `get_call_chain`)
 - Dead code detection (`find_dead_code`)
-- Semantic search (`semantic_search`)
+- Semantic search (`semantic_search`) — requires the ONNX model above
 - Architectural exploration (`explore_architecture`, `find_anchors`)
 - Build/test integration (`run_build`, `run_tests`, `run_clippy`)
 
-Health check:
+Health checks (no HTTP listener in stdio mode):
 ```bash
-curl -s -X POST http://localhost:9999/mcp -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_health","arguments":{}},"id":1}'
+# Binary + version
+~/.local/lain/lain --version
+# Installation sanity (binary, hooks, registered MCP server)
+~/.local/lain/lain doctor
+# Spinning the MCP server against this workspace: start a tool-calling session
+# in this agent and call get_health, or use the oneshot helper:
+~/.local/lain/lain oneshot get_health --workspace /home/sebastian/orca/monitor_dm_system
 ```
+
+The legacy `scripts/lain-mcp-proxy.sh` and `scripts/lain-server-manager.sh`
+pattern is no longer used; you can `git rm` them if you want a clean tree.
 
 ## File Locations Quick Reference
 
