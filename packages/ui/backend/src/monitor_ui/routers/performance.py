@@ -134,7 +134,7 @@ async def get_query_patterns(
     limit: int = Query(default=20, ge=1, le=100, description="Maximum results to return"),
     sort_by: str = Query(
         default="count",
-        regex="^(count|avg_time|max_time|slow_count)$",
+        pattern="^(count|avg_time|max_time|slow_count)$",
         description="Sort field: count, avg_time, max_time, or slow_count",
     ),
     min_count: int = Query(default=1, ge=1, description="Minimum query count to include"),
@@ -407,7 +407,7 @@ async def get_alerts(
     limit: int = Query(default=50, ge=1, le=200, description="Maximum alerts to return"),
     severity: str | None = Query(
         default=None,
-        regex="^(info|warning|error|critical)$",
+        pattern="^(info|warning|error|critical)$",
         description="Filter by severity",
     ),
     alert_type: str | None = Query(
