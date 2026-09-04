@@ -79,27 +79,24 @@ fut = loop.run_in_executor(
     executor,
     lambda: _run_ingest_in_thread(...)
 )
-fut.add_done_callback(_ingest_futures.pop(queue_token, _noop))
+fut.add_done_callback(lambda f: _ingest_futures.pop(queue_token, None))
 _ingest_futures[queue_token] = fut
 ```
 
-Plus module-level:
+Plus module-level near the existing `_ingest_pending_requests` / `_ingest_active_requests` state holders:
 
 ```python
 _ingest_futures: dict[str, concurrent.futures.Future] = {}
-
-def _noop(_fut):  # discard callback return
-    return None
 ```
 
-And on FastAPI shutdown (or via the existing cancel endpoint if one exists in this file): iterate `_ingest_futures` and call `.cancel()` on each. If no shutdown hook exists in the module, add one at module bottom registered via `app.on_event("shutdown")` — but only if a real handler isn't already present elsewhere.
+A FastAPI shutdown handler **is** required because the FastAPI app's lifespan is what bounds the executor. Register it at module import time using the standard `@asynccontextmanager` lifespan pattern if one exists in this app, otherwise via `app.on_event("shutdown")` — and only if not already registered elsewhere. The handler iterates `_ingest_futures` and calls `.cancel()` on each Future. Cancellation is best-effort: if a thread is already mid-`asyncio.run(_run())`, the Future's underlying thread cannot be interrupted from outside (Python limitation), but `.cancel()` is a no-op for already-running work and succeeds for not-yet-started work — both safe outcomes.
 
-Error handling: `_run_ingest_in_thread`'s internal `try/except TimeoutError` and `try/except Exception` stay; the lambda still calls `asyncio.run(_run())` and the existing logging paths are unchanged. The Future being tracked is a `concurrent.futures.Future`, not a coroutine — `fut.exception()` returns the inner exception if any, but we don't await it inline (fire-and-forget by design).
+Error handling: `_run_ingest_in_thread`'s internal `try/except TimeoutError` and `try/except Exception` stay; the lambda still calls `asyncio.run(_run())` and the existing logging paths are unchanged. The Future being tracked is a `concurrent.futures.Future`, not a coroutine — `fut.exception()` returns the inner exception if any, but we don't await it inline (fire-and-forget by design). The done-callback above pops the entry on completion so the registry stays bounded.
 
 Verification:
 - `uv run pytest packages/ui/backend -q` still green (793 passed today).
 - The "coroutine never awaited" RuntimeWarning from `test_list_providers_seed_full` no longer appears in test output.
-- If a shutdown handler is added, smoke-test it: start the server, kick off an ingest, close — no hang.
+- Manual smoke: boot the FastAPI server (`uv run monitor-ui-backend`), POST to the ingest endpoint, immediately send SIGTERM, confirm the process exits within 5s (proves the shutdown handler runs and completes).
 
 ### W4 — Migrate `regex=` → `pattern=` in `performance.py`
 
