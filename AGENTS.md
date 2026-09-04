@@ -119,7 +119,7 @@ on stdio (no HTTP proxy — Lain 0.6+ dropped the combined stdio+http mode):
       "args": [
         "mcp",
         "--workspace", "/home/sebastian/orca/monitor_dm_system",
-        "--embedding-model", "/home/sebastian/orca/monitor_dm_system/.lain/models/model.onnx"
+        "--embedding-model", "/home/sebastian/orca/monitor_dm_system/.lain/models"
       ]
     }
   }
