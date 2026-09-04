@@ -78,6 +78,11 @@ _ingest_active_title: str | None = None
 _ingest_active_job_id: str | None = None  # tracks the current job for cancellation
 _ingest_active_requests: dict[str, dict[str, Any]] = {}
 _ingest_pending_requests: list[dict[str, Any]] = []
+# Futures returned by loop.run_in_executor(...) for in-flight ingests, keyed by
+# queue_token. Drains on completion via a done-callback so this stays bounded
+# at "currently running ingests". The thread-executor + asyncio.run model is
+# preserved — only observability + a shutdown hook are added.
+_ingest_futures: dict[str, concurrent.futures.Future] = {}
 
 # Overall job timeout (seconds). Set MONITOR_INGEST_TIMEOUT to override.
 # Default: 45 minutes — enough for the largest PDFs on modest hardware.
@@ -140,6 +145,11 @@ def _interrupt_ingest_runtime(reason: str, *, close_executor: bool) -> dict[str,
         logger.warning("Could not mark stale ingestion jobs failed during runtime cleanup: %s", exc)
 
     if close_executor and _ingest_executor is not None:
+        # Cancel the Futures we registered via loop.run_in_executor(...) so
+        # the worker threads finish promptly when the executor shuts down.
+        for fut in _ingest_futures.values():
+            fut.cancel()
+        _ingest_futures.clear()
         executor = _ingest_executor
         _ingest_executor = None
         executor.shutdown(wait=False, cancel_futures=True)
@@ -777,7 +787,7 @@ async def upload_source(
                 executor = _ingest_executor
                 if executor is None:
                     raise RuntimeError("Ingest executor is unavailable during shutdown")
-                loop.run_in_executor(
+                fut = loop.run_in_executor(
                     executor,
                     lambda: _run_ingest_in_thread(
                         queue_token=queue_token,  # type: ignore
@@ -790,6 +800,8 @@ async def upload_source(
                         content_type=file.content_type,
                     ),
                 )
+                fut.add_done_callback(lambda f: _ingest_futures.pop(queue_token, None))
+                _ingest_futures[queue_token] = fut
             except Exception as exc:
                 raise HTTPException(500, f"Could not queue ingestion pipeline: {exc}") from exc
         else:
@@ -1060,7 +1072,7 @@ async def rescan_source(
             executor = _ingest_executor
             if executor is None:
                 raise RuntimeError("Ingest executor is unavailable during shutdown")
-            loop.run_in_executor(
+            fut = loop.run_in_executor(
                 executor,
                 lambda: _run_ingest_in_thread(
                     queue_token=queue_token,
@@ -1075,6 +1087,8 @@ async def rescan_source(
                     reuse_doc_id=doc.doc_id,
                 ),
             )
+            fut.add_done_callback(lambda f: _ingest_futures.pop(queue_token, None))
+            _ingest_futures[queue_token] = fut
         except Exception as exc:
             raise HTTPException(500, f"Could not queue rescan pipeline: {exc}") from exc
 
