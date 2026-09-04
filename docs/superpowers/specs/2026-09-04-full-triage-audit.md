@@ -233,7 +233,107 @@ Error: Not found: Missing required argument: module_a
 
 ## Phase 2 — Security findings
 
-*(Filled by Task 2.)*
+**Summary:** No security vulnerabilities found. All 8 grep patterns returned either zero hits or hits that are intentional, sandboxed, or informational.
+
+### Hardcoded secrets
+
+*(No findings — see appendix A.2.1.)*
+
+### Wildcard CORS
+
+*(No findings — see appendix A.2.2.)*
+
+### JWT / auth bypass
+
+*(No findings — see appendix A.2.3.)*
+
+### `eval` / `exec`
+
+7 hits. **All are intentional, sandboxed formula evaluation**, not vulnerabilities.
+
+| File:Line | Use | Sandbox |
+|---|---|---|
+| `packages/agents/src/monitor_agents/game_system/_advanced_systems.py:254` | `int(eval(resolved, {"__builtins__": {}}, {}))` | `__builtins__` disabled, empty globals |
+| `packages/agents/src/monitor_agents/game_system/_char_generation.py:298` | same pattern | same sandbox |
+| `packages/agents/src/monitor_agents/game_system/_tracks_conditions.py:381` | same pattern | same sandbox |
+| `packages/data-layer/src/monitor_data/schemas/rpg_ontology/factory.py:99` | `eval(expr, _SANDBOX_GLOBALS, ctx)` | `_SANDBOX_GLOBALS` constant |
+| `packages/data-layer/src/monitor_data/utils/dice.py:137` | `eval(formula, _SANDBOX_GLOBALS, local_env)` | `_SANDBOX_GLOBALS` + `local_env` |
+| `packages/data-layer/src/monitor_data/utils/dice.py:24` | `_SANDBOX_BLOCKED = ("import", "__", "exec", "eval(", ...)` | blocklist constant |
+| `packages/data-layer/src/monitor_data/schemas/rpg_ontology/meta.py:82` | `FORMULA = "formula"` | constant string, not a call |
+
+**Severity (informational):** Low. These are correct implementations of formula evaluation for RPG dice. Risk surface is non-trivial (custom `eval` with restricted builtins), but the implementation follows a standard pattern and the sandbox is explicit. A future hardening pass could replace `eval` with a parsed AST evaluator (e.g., `simpleeval` or `asteval`), but it's not urgent.
+
+### `shell=True`
+
+*(No findings — see appendix A.2.5.)*
+
+### Debug endpoints
+
+*(No findings — see appendix A.2.6.)*
+
+### Unvalidated request input
+
+*(No findings — see appendix A.2.7.)*
+
+### Path traversal
+
+*(No findings — see appendix A.2.8.)*
+
+## Per-category appendix (continued)
+
+### A.2.1 — Hardcoded secrets grep
+
+```text
+(no output — zero hits)
+```
+
+### A.2.2 — Wildcard CORS grep
+
+```text
+(no output — zero hits)
+```
+
+### A.2.3 — JWT / auth bypass grep
+
+```text
+(no output — zero hits)
+```
+
+### A.2.4 — `eval` / `exec` grep
+
+```text
+packages/agents/src/monitor_agents/game_system/_advanced_systems.py:254:                max_val = int(eval(resolved, {"__builtins__": {}}, {}))
+packages/agents/src/monitor_agents/game_system/_char_generation.py:298:            value = int(eval(resolved, {"__builtins__": {}}, {}))
+packages/agents/src/monitor_agents/game_system/_tracks_conditions.py:381:            return int(eval(str(max_formula), {"__builtins__": {}}, {}))
+packages/data-layer/src/monitor_data/schemas/rpg_ontology/factory.py:99:        return eval(expr, _SANDBOX_GLOBALS, ctx)
+packages/data-layer/src/monitor_data/utils/dice.py:24:_SANDBOX_BLOCKED = ("import", "__", "exec", "eval(", "open", "os.", "sys.")
+packages/data-layer/src/monitor_data/utils/dice.py:137:        result = eval(formula, _SANDBOX_GLOBALS, local_env)
+packages/data-layer/src/monitor_data/schemas/rpg_ontology/meta.py:82:    FORMULA = "formula"  # field == eval(expr)
+```
+
+### A.2.5 — `shell=True` grep
+
+```text
+(no output — zero hits)
+```
+
+### A.2.6 — Debug endpoints grep
+
+```text
+(no output — zero hits)
+```
+
+### A.2.7 — Unvalidated request input grep
+
+```text
+(no output — zero hits)
+```
+
+### A.2.8 — Path traversal grep
+
+```text
+(no output — zero hits)
+```
 
 ## Phase 3 — Correctness findings
 
