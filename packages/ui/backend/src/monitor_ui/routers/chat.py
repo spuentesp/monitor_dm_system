@@ -66,6 +66,8 @@ from .chat_loops import (
 from .chat_loops import (
     run_world_architect_turn as _run_world_architect_turn,
 )
+
+# reason: chat_opening.py re-exports bootstrap_story_scene (with a noqa F401 marker on the source import) without declaring __all__; mypy's --no-implicit-reexport rejects the access
 from .chat_opening import (  # type: ignore
     bootstrap_story_scene as _bootstrap_story_scene,
 )
@@ -146,7 +148,9 @@ except Exception:
 # ---------------------------------------------------------------------------
 # In-process write-through cache
 # ---------------------------------------------------------------------------
+# reason: `dict` is the bare generic missing type parameters; in-process sessions cache holds heterogeneous per-session dict shapes (mode/title/ids/timestamps)
 _SESSIONS: dict[str, dict] = {}  # type: ignore
+# reason: `list[dict]` is the bare generic missing type parameters; in-process messages cache holds per-session message lists with heterogeneous metadata shapes
 _MESSAGES: dict[str, list[dict]] = {}  # type: ignore
 _MESSAGES_MAX = 50
 _SESSIONS_LOADED_FROM_DB: bool = False
@@ -176,6 +180,7 @@ def _make_system_msg(session_id: str, content: str) -> dict[str, Any]:
     return make_system_message(session_id, content)
 
 
+# reason: `metadata: dict | None` — `dict` is the bare generic missing type parameters; helper accepts an untyped metadata dict and forwards it unchanged
 def _make_gm_msg(session_id: str, content: str, metadata: dict | None = None) -> dict[str, Any]:  # type: ignore
     # Defense in depth: chat_loops.run_scene_turn already strips entity
     # tags before returning, but the WS path in this module splits the
@@ -441,9 +446,7 @@ async def create_session(body: SessionCreate) -> Session:
     if body.mode == "world_architect" or is_resume:
         session["phase"] = "active_play"
     elif defer_autonomous_preplay:
-        session["phase"] = (
-            "session_zero" if session.get("character_id") else "character_interview"
-        )
+        session["phase"] = "session_zero" if session.get("character_id") else "character_interview"
     elif body.character_id or body.controlled_character_ids or body.selected_character_id:
         session["phase"] = "active_play"
     else:
@@ -692,6 +695,7 @@ async def wrap_up_session(session_id: str) -> WrapUpDigest:
     canon_items: list[WrapUpCanonItem] = []
     if story_id and _WRAP_UP_READS_AVAILABLE:
         try:
+            # reason: `resp` would need an explicit annotation because `_run_sync_read`'s `func` is typed as bare `callable` (not Callable), so mypy cannot infer the return at the call site
             resp = await _run_sync_read(  # type: ignore
                 mongodb_list_proposed_changes,
                 ProposedChangeFilter(story_id=uuid.UUID(story_id), limit=1000),
@@ -1186,12 +1190,8 @@ async def end_scene(session_id: str) -> Message:
 # ---------------------------------------------------------------------------
 
 
-_PREPLAY_PHASES = frozenset(
-    {"awaiting_character", "character_interview", "session_zero", "char_creation"}
-)
-_CHARACTER_SETUP_PHASES = frozenset(
-    {"awaiting_character", "character_interview", "char_creation"}
-)
+_PREPLAY_PHASES = frozenset({"awaiting_character", "character_interview", "session_zero", "char_creation"})
+_CHARACTER_SETUP_PHASES = frozenset({"awaiting_character", "character_interview", "char_creation"})
 
 
 @router.post("/{session_id}/skip-preplay", response_model=Message)
@@ -1300,6 +1300,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
             if msg_type == "dice_result":
                 spec: str = data.get("spec", "")
                 value: int = int(data.get("value", 0))
+                # reason: `list` is the bare generic missing type parameters; `data` is `Any` (json.loads return), so `.get("rolls", [])` is `Any` and cannot be parameterized without narrowing
                 rolls: list = data.get("rolls", [])  # type: ignore
                 reason: str = data.get("reason", spec)
 
@@ -1409,6 +1410,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
             streamed_tokens = False
             delivered = True
 
+            # reason: `data` parameter intentionally untyped and return intentionally absent — stream runtime emits heterogeneous payload shapes (str/dict/None) and this callback dispatches on kind
             async def on_event(kind: str, data):  # type: ignore
                 """Dispatch a stream callback from dspy_runtime.
 
@@ -1440,17 +1442,24 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                     payload = {
                         "type": "tool_call",
                         "message_id": gm_id,
+                        # reason: `data` is `Any` (no annotation on on_event); `.get()` returns `Any | None` which the dict literal cannot narrow to str
                         "id": data.get("id"),  # type: ignore
+                        # reason: same as above — `Any | None` cannot narrow to str
                         "name": data.get("name"),  # type: ignore
+                        # reason: same as above — `Any | dict[Any, Any]` cannot narrow to dict[str, Any] for the literal value
                         "args": data.get("args") or {},  # type: ignore
                     }
                 elif kind == "tool_result" and isinstance(data, dict):
                     payload = {
                         "type": "tool_result",
                         "message_id": gm_id,
+                        # reason: `data` is `Any` (no annotation on on_event); `.get()` returns `Any | None` which the dict literal cannot narrow to str
                         "tool_call_id": data.get("tool_call_id"),  # type: ignore
+                        # reason: same as above — `Any | None` cannot narrow to str
                         "name": data.get("name"),  # type: ignore
+                        # reason: same as above — `Any | None` cannot narrow to str
                         "result_preview": data.get("result_preview"),  # type: ignore
+                        # reason: same as above — `Any | None` cannot narrow to str
                         "error": data.get("error"),  # type: ignore
                     }
                 else:
@@ -1465,6 +1474,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                 else:
                     await fanout_event(session_id, payload, exclude=websocket)
 
+            # reason: `stream_callback_var` is `ContextVar[None]` (no type parameter at the var site), so `.set()` is typed as accepting only None; passing the `on_event` callback to register it for this turn violates that
             token_cv = stream_callback_var.set(on_event)  # type: ignore
             try:
                 session = _SESSIONS.get(session_id, {})
