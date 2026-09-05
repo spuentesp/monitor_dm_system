@@ -74,6 +74,7 @@ class PerformanceReport(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+# reason: lazy-import factory — try/except ImportError branch raises HTTPException so the function body has no consistent return type for mypy to infer
 def _get_tracker():  # type: ignore
     """Get the QueryPerformanceTracker singleton."""
     try:
@@ -111,6 +112,7 @@ async def get_performance_overview() -> PerformanceOverview:
     Raises:
         HTTPException: If performance tracking is not available
     """
+    # reason: _get_tracker is untyped (see its definition above); mypy reports [no-untyped-call] for every caller until that helper gets a return type
     tracker = _get_tracker()  # type: ignore
     stats = tracker.get_stats()
 
@@ -149,6 +151,7 @@ async def get_query_patterns(
     Returns:
         List of query pattern metrics sorted by specified metric
     """
+    # reason: _get_tracker is untyped (see its definition above); mypy reports [no-untyped-call] for every caller until that helper gets a return type
     tracker = _get_tracker()  # type: ignore
     report = tracker.get_report(limit=None, sort_by=sort_by)
 
@@ -191,6 +194,7 @@ async def get_slow_queries(
     Returns:
         List of slow query executions with metadata
     """
+    # reason: _get_tracker is untyped (see its definition above); mypy reports [no-untyped-call] for every caller until that helper gets a return type
     tracker = _get_tracker()  # type: ignore
     # QueryPerformanceTracker.get_slow_queries only accepts a threshold and
     # its records use duration_ms/query keys — map the router's
@@ -222,6 +226,7 @@ async def get_performance_report(
     Returns:
         Complete performance report with overview, patterns, and slow queries
     """
+    # reason: _get_tracker is untyped (see its definition above); mypy reports [no-untyped-call] for every caller until that helper gets a return type
     tracker = _get_tracker()  # type: ignore
 
     # Get overview
@@ -301,6 +306,7 @@ async def reset_performance_tracker() -> dict[str, str]:
     Returns:
         Confirmation message
     """
+    # reason: _get_tracker is untyped (see its definition above); mypy reports [no-untyped-call] for every caller until that helper gets a return type
     tracker = _get_tracker()  # type: ignore
     tracker.reset()
 
@@ -318,6 +324,7 @@ async def get_performance_health() -> dict[str, Any]:
     Returns:
         Health status with metrics and status
     """
+    # reason: _get_tracker is untyped (see its definition above); mypy reports [no-untyped-call] for every caller until that helper gets a return type
     tracker = _get_tracker()  # type: ignore
     stats = tracker.get_stats()
 
@@ -385,6 +392,7 @@ class AlertConfiguration(BaseModel):
     baseline_timestamp: str | None = Field(None, description="ISO timestamp of baseline")
 
 
+# reason: lazy-import factory — try/except ImportError branch raises HTTPException so the function body has no consistent return type for mypy to infer
 def _get_alert_manager():  # type: ignore
     """Get the PerformanceAlertManager singleton."""
     try:
@@ -430,6 +438,7 @@ async def get_alerts(
     Returns:
         List of alert information
     """
+    # reason: _get_alert_manager is untyped (see its definition above); mypy reports [no-untyped-call] for every caller until that helper gets a return type
     manager = _get_alert_manager()  # type: ignore
 
     # Parse optional filters
@@ -470,6 +479,7 @@ async def get_alerts_config() -> AlertConfiguration:
     Returns:
         Alerting configuration
     """
+    # reason: _get_alert_manager is untyped (see its definition above); mypy reports [no-untyped-call] for every caller until that helper gets a return type
     manager = _get_alert_manager()  # type: ignore
     config = manager.get_configuration()
 
@@ -515,6 +525,7 @@ async def update_alerts_config(
     Returns:
         Updated configuration
     """
+    # reason: _get_alert_manager is untyped (see its definition above); mypy reports [no-untyped-call] for every caller until that helper gets a return type
     manager = _get_alert_manager()  # type: ignore
 
     # Build update dictionary with only provided parameters
@@ -560,6 +571,7 @@ async def check_system_health_for_alerts() -> dict[str, Any]:
     Returns:
         Summary of alerts emitted
     """
+    # reason: _get_alert_manager is untyped (see its definition above); mypy reports [no-untyped-call] for every caller until that helper gets a return type
     manager = _get_alert_manager()  # type: ignore
     alerts = manager.check_system_health()
 
@@ -597,6 +609,7 @@ async def set_performance_baseline(
     Returns:
         Baseline confirmation
     """
+    # reason: _get_alert_manager is untyped (see its definition above); mypy reports [no-untyped-call] for every caller until that helper gets a return type
     manager = _get_alert_manager()  # type: ignore
 
     if use_current_metrics:
