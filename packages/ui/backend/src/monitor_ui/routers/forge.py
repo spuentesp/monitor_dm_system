@@ -45,6 +45,7 @@ class QuickWorldResponse(BaseModel):
     axiom: str
     opening_scene: str
     pc_concept: str
+    # reason: bare list[dict] for heterogeneous entity payload — items are dynamic dicts; narrow to list[dict[str, Any]] only if a stricter consumer contract appears
     entities: list[dict]  # type: ignore
     lore_facts: list[str]
     committed: int
@@ -107,6 +108,7 @@ _DEMO_PC_DESC = (
 _DEMO_PC_ATTRIBUTES = {"Grit": 12, "Wits": 13, "Resolve": 11}
 
 
+# reason: bare dict return annotation — caller is EntityCreate.properties (dict[str, Any]); narrow the signature to dict[str, Any] in a follow-up
 def _demo_pc_properties(system_id: UUID | None) -> dict:  # type: ignore
     """Build the demo PC properties, deriving resources from the bound system.
 
@@ -115,6 +117,7 @@ def _demo_pc_properties(system_id: UUID | None) -> dict:  # type: ignore
     If the system can't be loaded, the PC is created with attributes only rather
     than falling back to hardcoded resources.
     """
+    # reason: bare dict local annotation — props is built up dynamically with optional resources entries keyed by str; matches the return type and EntityCreate.properties (dict[str, Any])
     props: dict = {"attributes": dict(_DEMO_PC_ATTRIBUTES)}  # type: ignore
     if system_id is None:
         return props
@@ -153,6 +156,7 @@ def _ensure_demo_pc(universe_id: UUID, system_id: UUID | None = None) -> str | N
         rows = getattr(existing, "entities", existing) or []
         for e in rows:
             if getattr(e, "name", None) == _DEMO_PC_NAME:
+                # reason: dynamic dispatch — getattr fallback union Any | tuple[str, ...]; mypy can't narrow e.id at static-analysis time
                 return str(e.id)  # type: ignore
     except Exception:
         pass
@@ -209,7 +213,9 @@ async def demo_world(start_playing: bool = True) -> DemoWorldResponse:
         systems_res = mongodb_list_game_systems(include_builtin=True, limit=50)
         mistlands_id = None
         for sys in getattr(systems_res, "systems", systems_res):
+            # reason: dynamic dispatch — getattr fallback union Any | tuple[str, ...]; mypy can't narrow sys.name at static-analysis time
             if sys.name == "Mistlands Core":  # type: ignore
+                # reason: dynamic dispatch — getattr fallback union Any | tuple[str, ...]; mypy can't narrow sys.id at static-analysis time
                 mistlands_id = sys.id  # type: ignore
                 break
 
@@ -222,6 +228,7 @@ async def demo_world(start_playing: bool = True) -> DemoWorldResponse:
             u = existing[0]
             return (
                 QuickWorldResult(
+                    # reason: UniverseResponse.multiverse_id is typed UUID | None but every persisted Universe has a non-None parent multiverse; reach into the known-good value rather than swallowing the None branch
                     multiverse_id=u.multiverse_id,  # type: ignore
                     universe_id=u.id,
                     world_name=_DEMO_NAME,
@@ -320,7 +327,9 @@ async def demo_world(start_playing: bool = True) -> DemoWorldResponse:
     systems_res = await anyio.to_thread.run_sync(mongodb_list_game_systems, True, 50)
     mistlands_id = None
     for sys in getattr(systems_res, "systems", systems_res):
+        # reason: dynamic dispatch — getattr fallback union Any | tuple[str, ...]; mypy can't narrow sys.name at static-analysis time
         if sys.name == "Mistlands Core":  # type: ignore
+            # reason: dynamic dispatch — getattr fallback union Any | tuple[str, ...]; mypy can't narrow sys.id at static-analysis time
             mistlands_id = sys.id  # type: ignore
             break
 
@@ -391,7 +400,9 @@ async def quick_world(body: QuickWorldRequest) -> QuickWorldResponse:
         systems_res = await anyio.to_thread.run_sync(mongodb_list_game_systems, True, 50)
         mistlands_id = None
         for sys in getattr(systems_res, "systems", systems_res):
+            # reason: dynamic dispatch — getattr fallback union Any | tuple[str, ...]; mypy can't narrow sys.name at static-analysis time
             if sys.name == "Mistlands Core":  # type: ignore
+                # reason: dynamic dispatch — getattr fallback union Any | tuple[str, ...]; mypy can't narrow sys.id at static-analysis time
                 mistlands_id = sys.id  # type: ignore
                 break
     except Exception:
