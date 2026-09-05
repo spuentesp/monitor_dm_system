@@ -118,39 +118,6 @@ def build_graph(
     return nodes, edges
 
 
-def topological_sort(
-    nodes: set[str],
-    edges: list[tuple[str, str]],
-) -> list[str]:
-    """Topological sort of nodes based on dependency edges."""
-    # Build adjacency list and in-degree count
-    adj = defaultdict(list)
-    in_degree = defaultdict(int)
-
-    for node in nodes:
-        in_degree[node] = 0
-
-    for from_node, to_node in edges:
-        adj[to_node].append(from_node)
-        in_degree[from_node] += 1
-
-    # Kahn's algorithm
-    queue = [n for n in nodes if in_degree[n] == 0]
-    result = []
-
-    while queue:
-        queue.sort()  # Alphabetical for determinism
-        node = queue.pop(0)
-        result.append(node)
-
-        for neighbor in adj[node]:
-            in_degree[neighbor] -= 1
-            if in_degree[neighbor] == 0:
-                queue.append(neighbor)
-
-    return result
-
-
 def generate_ascii(
     use_cases: dict[str, dict[str, Any]],
     nodes: set[str],

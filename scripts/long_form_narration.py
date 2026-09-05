@@ -275,7 +275,9 @@ def _llm_player_turn(goal: str, history: list[TurnObservation], model: str) -> s
     return text or "I press forward, watching for danger and looking for clues."
 
 
-def _observe_turn(idx: int, goal_tag: str, player_text: str, reply: dict[str, Any], latency: float) -> TurnObservation:
+def _observe_turn(
+    idx: int, goal_tag: str, player_text: str, reply: dict[str, Any], latency: float
+) -> TurnObservation:
     meta = reply.get("metadata") or {}
     gm_text = reply.get("content", "")
     return TurnObservation(
@@ -288,12 +290,16 @@ def _observe_turn(idx: int, goal_tag: str, player_text: str, reply: dict[str, An
         fallback=any(m in gm_text.lower() for m in FALLBACK_MARKERS),
         phase=str(meta.get("phase")) if meta.get("phase") else None,
         resolution_type=str(meta.get("type") or "") or None,
-        success_level=str(meta.get("success_level")) if meta.get("success_level") else None,
+        success_level=str(meta.get("success_level"))
+        if meta.get("success_level")
+        else None,
         effects=[str(e) for e in (meta.get("effects") or []) if e],
     )
 
 
-def _bootstrap(http: requests.Session, base_url: str, seed: str | None) -> tuple[str, str]:
+def _bootstrap(
+    http: requests.Session, base_url: str, seed: str | None
+) -> tuple[str, str]:
     """Create a fresh dice-mode play session. Returns (session_id, universe_id).
 
     /forge/demo-world and /forge/quick-world currently reject the bundled
@@ -325,10 +331,6 @@ def _bootstrap(http: requests.Session, base_url: str, seed: str | None) -> tuple
     return sid, uid
 
 
-def _fetch_state(http: requests.Session, base_url: str, session_id: str) -> dict[str, Any]:
-    return _api(http, "GET", base_url, f"/chat/{session_id}/state")
-
-
 def _canon_delta(http: requests.Session, base_url: str, universe_id: str | None) -> int:
     if not universe_id:
         return 0
@@ -340,15 +342,28 @@ def _canon_delta(http: requests.Session, base_url: str, universe_id: str | None)
     return len(ents) if isinstance(ents, list) else 0
 
 
-def _write_markdown(log_file: Path, args: argparse.Namespace, sid: str, uid: str, observations: list[TurnObservation], canon_after: int) -> None:
+def _write_markdown(
+    log_file: Path,
+    args: argparse.Namespace,
+    sid: str,
+    uid: str,
+    observations: list[TurnObservation],
+    canon_after: int,
+) -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     latencies = [t.latency_s for t in observations]
     avg = round(sum(latencies) / len(latencies), 2) if latencies else 0.0
     fallback_count = sum(1 for t in observations if t.fallback)
-    rolls_seen = sum(1 for t in observations if (t.resolution_type or "").startswith("scene_turn"))
-    combat = sum(1 for t in observations if "momentum" in str(t.metadata.get("effects", [])).lower()
-                 or "fiction_advances" in (t.effects or [])
-                 and t.success_level in {"success", "critical_success"})
+    rolls_seen = sum(
+        1 for t in observations if (t.resolution_type or "").startswith("scene_turn")
+    )
+    combat = sum(
+        1
+        for t in observations
+        if "momentum" in str(t.metadata.get("effects", [])).lower()
+        or "fiction_advances" in (t.effects or [])
+        and t.success_level in {"success", "critical_success"}
+    )
     lines = [
         "# Long-Form Narration Replay",
         "",
@@ -370,7 +385,9 @@ def _write_markdown(log_file: Path, args: argparse.Namespace, sid: str, uid: str
         "",
     ]
     for t in observations:
-        lines.append(f"## Turn {t.index} — `{t.goal_tag}` _(phase={t.phase or '?'}, lat={t.latency_s}s)_")
+        lines.append(
+            f"## Turn {t.index} — `{t.goal_tag}` _(phase={t.phase or '?'}, lat={t.latency_s}s)_"
+        )
         lines.append("")
         lines.append(f"**PLAYER:** {t.player_text.strip()}")
         lines.append("")
@@ -403,9 +420,15 @@ def main() -> int:
     ap.add_argument("--api-url", default=DEFAULT_API_URL)
     ap.add_argument("--player-model", default=DEFAULT_PLAYER_MODEL)
     ap.add_argument("--benchmark-id", default=DEFAULT_BENCHMARK)
-    ap.add_argument("--seed", default=None, help="World seed (skips demo, narrative-only)")
-    ap.add_argument("--turns", type=int, default=len(LONG_FORM_GOALS),
-                    help="How many goal steps to actually play (default: all)")
+    ap.add_argument(
+        "--seed", default=None, help="World seed (skips demo, narrative-only)"
+    )
+    ap.add_argument(
+        "--turns",
+        type=int,
+        default=len(LONG_FORM_GOALS),
+        help="How many goal steps to actually play (default: all)",
+    )
     ap.add_argument("--output-dir", default=str(DEFAULT_OUTPUT))
     ap.add_argument("--log-file", default=None)
     args = ap.parse_args()
@@ -434,18 +457,26 @@ def main() -> int:
     for i in range(turns):
         goal = LONG_FORM_GOALS[i]
         try:
-            player_text = _llm_player_turn(goal["goal"], observations, args.player_model)
+            player_text = _llm_player_turn(
+                goal["goal"], observations, args.player_model
+            )
         except Exception as exc:  # noqa: BLE001
-            print(f"  ⚠️  LLM fallback at turn {i+1} ({goal['tag']}): {exc}")
+            print(f"  ⚠️  LLM fallback at turn {i + 1} ({goal['tag']}): {exc}")
             player_text = "I press forward, watching for danger and looking for clues."
 
         t0 = time.time()
-        reply = _api(http, "POST", args.api_url, f"/chat/{sid}/send", json={"content": player_text})
+        reply = _api(
+            http,
+            "POST",
+            args.api_url,
+            f"/chat/{sid}/send",
+            json={"content": player_text},
+        )
         latency = time.time() - t0
         obs = _observe_turn(i + 1, goal["tag"], player_text, reply, latency)
         observations.append(obs)
         print(
-            f"  turn {i+1:02d} [{goal['tag']:<24s}] "
+            f"  turn {i + 1:02d} [{goal['tag']:<24s}] "
             f"{latency:5.1f}s phase={obs.phase or '?'} "
             f"res={obs.resolution_type or '-'}"
         )

@@ -19,6 +19,7 @@ Invariants tested (each is a hard PASS/FAIL):
 Usage:
     python scripts/property_test_character_versions.py
 """
+
 from __future__ import annotations
 
 import os
@@ -43,13 +44,6 @@ def fail(label: str, detail: str = "") -> None:
     print(f"  [FAIL] {label}{(': ' + detail) if detail else ''}")
 
 
-def hdr_fail(label: str, detail: str = "") -> None:
-    """Print a failed invariant prominently."""
-    print(f"\n  [FAIL] {label}")
-    if detail:
-        print(f"         {detail}")
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -62,9 +56,7 @@ def create_character(payload: Dict[str, Any]) -> str:
 
 
 def expand(character_id: str) -> Dict[str, Any]:
-    r = requests.post(
-        f"{BASE}/entities/characters/{character_id}/expand", timeout=120
-    )
+    r = requests.post(f"{BASE}/entities/characters/{character_id}/expand", timeout=120)
     r.raise_for_status()
     return r.json()
 
@@ -117,9 +109,11 @@ def get_profile(character_id: str) -> Dict[str, Any]:
     # Fallback: direct data-layer read (only works server-side / with .env).
     try:
         import os as _os
+
         _os.environ.setdefault("PYTHONPATH", "packages/data-layer/src")
         from monitor_data.tools.mongodb_tools import mongodb_get_npc_profile
         from uuid import UUID as _U
+
         char_doc = requests.get(
             f"{BASE}/entities/characters/{character_id}", timeout=10
         ).json()
@@ -133,9 +127,7 @@ def get_profile(character_id: str) -> Dict[str, Any]:
 
 
 def list_memories(character_id: str) -> List[Dict[str, Any]]:
-    r = requests.get(
-        f"{BASE}/entities/characters/{character_id}/memories", timeout=10
-    )
+    r = requests.get(f"{BASE}/entities/characters/{character_id}/memories", timeout=10)
     r.raise_for_status()
     return r.json().get("memories", [])
 
@@ -223,9 +215,7 @@ def main() -> int:
         }
     )
     # Confirm entity_id is None on the freshly-created card.
-    char_doc = requests.get(
-        f"{BASE}/entities/characters/{simple_id}", timeout=5
-    ).json()
+    char_doc = requests.get(f"{BASE}/entities/characters/{simple_id}", timeout=5).json()
     if char_doc.get("entity_id") is None and char_doc.get("versions") == []:
         ok(f"simple card has no incarnation (entity_id=null, versions=[])")
     else:
@@ -267,7 +257,9 @@ def main() -> int:
         b = expand(char_b_id)
         entity_b = b["entity_id"]
         if entity_b != entity_a:
-            ok(f"two cards in conversatory → distinct entities: {entity_a[:8]}… vs {entity_b[:8]}…")
+            ok(
+                f"two cards in conversatory → distinct entities: {entity_a[:8]}… vs {entity_b[:8]}…"
+            )
         else:
             fail(f"two cards share entity_id {entity_a[:8]}…")
             failures.append("two_cards_share_entity")
@@ -313,8 +305,12 @@ def main() -> int:
                 "incarnations (endpoint + Mongo fallback both empty)"
             )
         else:
-            by_uni_a = (profile_a.get("relationship_states_by_universe") or {}).get(universe_a) or {}
-            by_uni_b = (profile_b.get("relationship_states_by_universe") or {}).get(universe_b) or {}
+            by_uni_a = (profile_a.get("relationship_states_by_universe") or {}).get(
+                universe_a
+            ) or {}
+            by_uni_b = (profile_b.get("relationship_states_by_universe") or {}).get(
+                universe_b
+            ) or {}
             # Same entity_id but two universe partitions: A's turn-1 + turn-2
             # trust/familiarity + B's. They must be disjoint.
             if universe_a == universe_b:
