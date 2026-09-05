@@ -495,20 +495,6 @@ async def check_victory(state: CombatState) -> dict[str, Any]:
 # =============================================================================
 
 
-def route_after_choose(state: CombatState) -> str:
-    """After choosing combatant: resolve if NPC, pause if PC."""
-    if state.awaiting_pc_input:
-        return "pause"
-    return "resolve"
-
-
-def route_after_check(state: CombatState) -> str:
-    """After victory check: continue or end."""
-    if state.combat_active:
-        return "choose"
-    return "end"
-
-
 # =============================================================================
 # PUBLIC API
 # =============================================================================

@@ -585,20 +585,6 @@ def _build_advancement_model(
     }
 
 
-def _build_tracks(
-    tracks: list[Any],
-    system_data: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Convert tracks list to plain dicts (stored in system metadata)."""
-    result = []
-    for track in tracks:
-        if isinstance(track, str):
-            result.append({"name": track, "type": "track"})
-        else:
-            result.append(track)
-    return result
-
-
 # ---------------------------------------------------------------------------
 # Main converter
 # ---------------------------------------------------------------------------
