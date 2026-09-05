@@ -379,6 +379,7 @@ class Neo4jClient:
                     # One statement per write so a single bad statement cannot
                     # abort the whole bootstrap (constraints are idempotent).
                     try:
+                        # reason: neo4j AsyncSession.execute_write callback signature isn't preserved through the lambda default-arg capture; tx.run returns EagerResult | None but mypy can't bridge the unbound generic
                         await session.execute_write(lambda tx, stmt=statement: tx.run(stmt))  # type: ignore
                     except Exception as exc:
                         logger.warning(

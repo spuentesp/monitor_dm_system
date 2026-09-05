@@ -34,7 +34,8 @@ class DatabaseStatus(BaseModel):
     status: str  # online | offline | degraded
     latency_ms: float | None = None
     version: str | None = None
-    stats: dict = {}    # type: ignore
+    # reason: Pydantic v2 forbids mutable default `{}` on BaseModel fields; the bare `dict` annotation defers typing of the heterogeneous per-database stat payload (nodes/relationships/collections/counts) — narrow to dict[str, int | str] in a follow-up
+    stats: dict = {}  # type: ignore
     error: str | None = None
 
 
@@ -83,7 +84,8 @@ async def _probe_neo4j() -> DatabaseStatus:
         )
         row = await result.single()
     await driver.close()
-    stats: dict = {}    # type: ignore
+    # reason: bare dict local — populated conditionally from apoc.meta.stats() row; the return is assigned into DatabaseStatus.stats (typed dict) so mypy sees Any at the assignment site without narrowing
+    stats: dict = {}  # type: ignore
     if row:
         stats = {
             "nodes": row["nodeCount"],
@@ -102,11 +104,13 @@ async def _probe_neo4j() -> DatabaseStatus:
 async def _probe_mongodb() -> DatabaseStatus:
     from motor.motor_asyncio import AsyncIOMotorClient
 
-    client: AsyncIOMotorClient = AsyncIOMotorClient(_settings.mongodb_uri, serverSelectionTimeoutMS=3000)    # type: ignore
+    # reason: motor.motor_asyncio.AsyncIOMotorClient constructor's overloaded return type is wider than the variable annotation; mypy can't narrow the assignment
+    client: AsyncIOMotorClient = AsyncIOMotorClient(_settings.mongodb_uri, serverSelectionTimeoutMS=3000)  # type: ignore
     await client.admin.command("ping")
     db = client[_settings.mongodb_database]
     collections = await db.list_collection_names()
-    stats: dict = {"collections": len(collections)}    # type: ignore
+    # reason: bare dict local — entries are int | list count_documents results; mirrors the DatabaseStatus.stats typing gap above
+    stats: dict = {"collections": len(collections)}  # type: ignore
     for coll in collections[:6]:
         stats[coll] = await db[coll].count_documents({})
     info = await client.server_info()

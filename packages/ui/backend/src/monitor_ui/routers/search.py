@@ -69,6 +69,7 @@ class SemanticSearchResponse(BaseModel):
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 
+# reason: bare helper accepting qdrant_client ScoredVector (untyped) + str + str | None and returning a typed SearchResultItem; mypy can't narrow ScoredVector's dynamic attribute access
 def _build_result_item(scored_vector, collection: str, text: str | None = None) -> SearchResultItem:  # type: ignore
     """Convert a ScoredVector + collection into a SearchResultItem."""
     payload = scored_vector.payload or {}
@@ -90,8 +91,11 @@ def _build_result_item(scored_vector, collection: str, text: str | None = None) 
 def _embed_query_text(query_text: str) -> list[float]:
     """Embed query text through the RetrievalService — the single embed owner (sync)."""
     from monitor_data.retrieval import default_retrieval_service
+
+    # reason: in-function import of qdrant_tools.run_sync — module isn't typed for the sync-bridge helper; suppress the import-time error
     from monitor_data.tools.qdrant_tools import run_sync  # type: ignore
 
+    # reason: default_retrieval_service().embed_query returns Awaitable[list[float]]; run_sync expects Awaitable[Any] but the function signature promises list[float] — mypy sees the untyped bridge
     return run_sync(default_retrieval_service().embed_query(query_text))  # type: ignore
 
 

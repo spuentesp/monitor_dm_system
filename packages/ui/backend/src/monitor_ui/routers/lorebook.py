@@ -77,6 +77,7 @@ async def list_entries(
     ascending: bool = Query(default=False),
 ) -> list[LorebookEntry]:
     """List all active lorebook entries for a character."""
+    # reason: mongodb_get_lorebook_entries returns list[LorebookEntry] but the Mongo cursor bridges Any through motor; FastAPI/Pydantic v2 returns Any for the response_model inference without explicit Annotated[]
     return mongodb_get_lorebook_entries(character_id=character_id, sort_by=sort_by, ascending=ascending)  # type: ignore
 
 
@@ -141,6 +142,7 @@ async def inject_entries(
 
 
 @router.get("/lorebook/stats")
+# reason: FastAPI/Pydantic v2 returns Any for the handler's returned dict because response_model is absent; the mongodb helper returns dict[str, int] but the FastAPI wrapper accepts Any
 async def get_stats(character_id: str = Query(..., description="Character ID")) -> dict:  # type: ignore
     """Get aggregate stats for a character's lorebook."""
     return mongodb_get_lorebook_stats(character_id)
@@ -238,6 +240,7 @@ async def get_scan_config(character_id: str = Query(..., description="Character 
 @router.put("/lorebook/scan-config", response_model=LorebookScanConfig)
 async def update_scan_config(
     character_id: str = Query(..., description="Character ID"),
+    # reason: FastAPI/Pydantic v2 returns Any for the Query body parameter typed `LorebookScanConfig = ...` (Elipsis sentinel); the assignment from the Query() default flows Any → LorebookScanConfig without Annotated[] narrowing
     config: LorebookScanConfig = ...,  # type: ignore[assignment]
 ) -> LorebookScanConfig:
     """Update SillyTavern-style scan settings for a character's lorebook."""

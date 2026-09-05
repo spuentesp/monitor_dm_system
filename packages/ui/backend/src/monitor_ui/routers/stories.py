@@ -238,6 +238,7 @@ async def get_story_state(story_id: UUID) -> StoryState | None:
             thread_id = f"story-{story_id}"
             config = {"configurable": {"thread_id": thread_id}}
 
+            # reason: LangGraph compiled graph's aget_state return type is typed loosely as Runnable | dict; mypy can't bridge the LangChain Runnable bridge into the typed current.values access
             current = await compiled.aget_state(config)  # type: ignore
             if current and current.values:
                 # Handle cases where in_game_time might be stored as string in some checkpointers
@@ -324,9 +325,11 @@ async def patch_story(story_id: UUID, body: StoryPatch) -> StoryResponse:
             update["active_threads"] = body.active_threads
 
         if update:
+            # reason: LangGraph compiled graph's aupdate_state accepts dict | StateUpdate but mypy can't reconcile the typed update dict against the untyped LangChain Runnable API
             await compiled.aupdate_state(config, update)  # type: ignore
 
         # Reload for response
+        # reason: same LangChain Runnable bridge typing gap as the aget_state call above (different site)
         current = await compiled.aget_state(config)  # type: ignore
         if not current or not current.values:
             raise HTTPException(status_code=500, detail="Failed to reload story state after update")

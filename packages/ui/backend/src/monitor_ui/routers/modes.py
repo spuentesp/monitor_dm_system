@@ -78,6 +78,7 @@ MODES = [
 ]
 
 # In-memory active mode (replace with MongoDB persistence)
+# reason: bare-typed module-level mutable singleton — entries are str | None | list; narrow to a typed ActiveMode TypedDict in a follow-up
 _ACTIVE: dict = {  # type: ignore
     "mode_id": "autonomous_gm",
     "world_id": None,

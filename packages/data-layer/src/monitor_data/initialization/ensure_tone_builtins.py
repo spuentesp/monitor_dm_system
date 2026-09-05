@@ -219,6 +219,7 @@ def ensure_tone_builtins() -> None:
             is_default=True,
             priority=100,
         )
+        # reason: mongodb_create_tone_library's return is ObjectId | ToneLibrary; mypy infers Any at the call site because the imported symbol's return type isn't bound until runtime (sync function invoked outside an awaitable context)
         result = mongodb_create_tone_library(lib_params)  # type: ignore
         logger.info("  Created Default ToneLibrary: %s", result.name)
     else:

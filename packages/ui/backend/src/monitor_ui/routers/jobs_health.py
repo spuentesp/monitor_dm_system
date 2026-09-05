@@ -19,7 +19,9 @@ from typing import Any
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from monitor_data.schemas.ingestion_jobs import IngestionStatus    # type: ignore
+
+# reason: in-function lazy import of IngestionStatus would create a circular import with monitor_ui.main; suppress until the dependency is restructured
+from monitor_data.schemas.ingestion_jobs import IngestionStatus  # type: ignore
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/jobs", tags=["ingestion-jobs"])
@@ -57,12 +59,14 @@ class JobsHealthResponse(BaseModel):
     generated_at: datetime
 
 
+# reason: bare dep factory — returns Any to dodge the circular-import typing between main.py and routers/jobs_health.py; narrow to AsyncIOMotorCollection once the dependency is restructured
 def _get_jobs_collection_dep() -> Any:  # pragma: no cover - app-level wiring    # type: ignore
     """Returns the MongoDB ingestion_jobs collection. The dep is bound
     at startup so this module stays agnostic to DB clients."""
     from monitor_ui.main import get_jobs_collection
 
-    return get_jobs_collection()    # type: ignore
+    # reason: get_jobs_collection is annotated bare due to the circular-import dodge above; mypy sees the call as Any → Any until the dep factory is narrowed
+    return get_jobs_collection()  # type: ignore
 
 
 def _stale_threshold_seconds() -> float:
@@ -82,7 +86,8 @@ def _watchdog_enabled() -> bool:
 
 
 @router.get("/health", response_model=JobsHealthResponse)
-async def get_jobs_health(coll=Depends(_get_jobs_collection_dep)) -> JobsHealthResponse:    # type: ignore
+# reason: FastAPI dependency-injected parameter `coll` is typed Any by the bare dep factory above; mypy can't narrow the downstream `find`/`count_documents` calls without an explicit AsyncIOMotorCollection type
+async def get_jobs_health(coll=Depends(_get_jobs_collection_dep)) -> JobsHealthResponse:  # type: ignore
     """Snapshot the ingest job registry — counts + stale jobs.
 
     ``/jobs/health`` is the single endpoint an operator needs to see

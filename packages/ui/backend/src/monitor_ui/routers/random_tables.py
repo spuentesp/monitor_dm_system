@@ -120,6 +120,7 @@ class _CreateEntry(BaseModel):
     subtable_id: str | None = None
     conditions: dict[str, Any] | None = None
 
+    # reason: bare adapter method with no return annotation; mypy can't narrow the RandomTableEntry construction against the untyped self / optional weight / subtable fields
     def to_entry(self):  # type: ignore
         from monitor_data.schemas.random_tables import RandomTableEntry
 
@@ -161,6 +162,7 @@ async def create_random_table(body: RandomTableCreateRequest) -> RandomTableResp
             table_type=body.table_type,
             dice_formula=body.dice_formula,
             weighted=body.weighted,
+            # reason: to_entry() has no return annotation; the comprehension yields a list[Any] that the surrounding RandomTableCreate.entries: list[RandomTableEntry] rejects
             entries=[e.to_entry() for e in body.entries],  # type: ignore
             universe_id=UUID(body.universe_id) if body.universe_id else None,
             source_id=UUID(body.source_id) if body.source_id else None,

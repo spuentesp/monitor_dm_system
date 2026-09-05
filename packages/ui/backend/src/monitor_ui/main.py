@@ -95,6 +95,7 @@ def _start_watchdog_if_enabled() -> None:
 
         from monitor_ui.watchdog import StaleJobWatchdog, set_watchdog
 
+        # reason: bare factory returned to StaleJobWatchdog whose expected signature is Callable[[], Collection]; the dynamic-dispatch watchdog consumer accepts any zero-arg callable — narrow to a typed factory in a follow-up
         def _get_collection():  # type: ignore
             return get_mongodb_client().get_collection("ingestion_jobs")
 
@@ -214,6 +215,7 @@ def _stop_watchdog() -> None:
         logger.warning("Could not stop StaleJobWatchdog: %s", exc)
 
 
+# reason: bare accessor exposed at module scope; FastAPI routers consume it via jobs_health.Depends without an explicit return-annotation hook — narrow the signature to AsyncIOMotorCollection in a follow-up
 def get_jobs_collection():  # type: ignore
     """Accessor for routers/jobs_health.py — returns the live
     ``ingestion_jobs`` collection."""
@@ -223,6 +225,7 @@ def get_jobs_collection():  # type: ignore
 
 
 @asynccontextmanager
+# reason: FastAPI lifespan ASGI handler — FastAPI's lifespan parameter is typed AsyncIterator but the @asynccontextmanager decorator returns AsyncContextManager; mypy can't reconcile the two without an explicit cast
 async def lifespan(app: FastAPI):  # type: ignore
     _startup_runtime()
     try:
@@ -289,8 +292,10 @@ def create_app() -> FastAPI:
     app.include_router(character_promotion.router, prefix="/api/entities", tags=["character-promotion"])
 
     @app.get("/api/health")
+    # reason: FastAPI route handler returns dict but response_model is absent; FastAPI/Pydantic v2 returns Any for the inferred response without an Annotated[] response_model
     async def health(deep: bool = False) -> dict:  # type: ignore
         """Liveness by default; ``?deep=true`` aggregates component health."""
+        # reason: FastAPI/Pydantic v2 returns Any for dynamic dict-literal payload built up under conditional branches; mypy can't narrow without an explicit Pydantic model
         payload: dict = {  # type: ignore
             "status": "ok",
             "service": "monitor-ui-backend",

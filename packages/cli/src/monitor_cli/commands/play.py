@@ -22,6 +22,7 @@ import typing
 from typing import Any
 from uuid import UUID, uuid4
 
+# reason: nest_asyncio lacks type stubs; suppress until upstream adds py.typed
 import nest_asyncio  # type: ignore
 import typer
 from monitor_agents.canonkeeper.agent import CanonKeeper

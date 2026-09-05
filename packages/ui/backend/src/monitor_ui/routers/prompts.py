@@ -207,6 +207,7 @@ def _get_fields(sig_class: type) -> tuple[list[dict[str, str]], list[dict[str, s
     """Extract input and output fields from a DSPy Signature class."""
     inputs: list[dict[str, str]] = []
     outputs: list[dict[str, str]] = []
+    # reason: DSPy signature — dspy.Signature subclasses use dynamic field typing mypy can't model
     for name, field in sig_class.model_fields.items():  # type: ignore
         extra = field.json_schema_extra or {}
         field_type = extra.get("__dspy_field_type", "input")
@@ -233,6 +234,7 @@ async def _load_override(module_id: str) -> dict[str, Any] | None:
         # Empty object {} means "deleted override"
         if "instructions" not in data:
             return None
+        # reason: json.loads returns Any and the function returns dict[str, Any] | None; the `"instructions" not in data` guard narrows but mypy can't bridge the union without an explicit cast
         return data  # type: ignore
     except Exception:
         return None

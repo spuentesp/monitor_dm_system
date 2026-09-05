@@ -101,6 +101,7 @@ def _name_matches(planted: str, candidate: str) -> bool:
 def _make_pdf() -> bytes:
     """Build the fixture as a real text-layer PDF (PyMuPDF)."""
     try:
+        # reason: PyMuPDF (fitz) lacks type stubs; suppress until upstream adds py.typed
         import fitz  # type: ignore
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(

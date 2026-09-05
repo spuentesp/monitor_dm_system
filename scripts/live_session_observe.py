@@ -422,6 +422,7 @@ def run_pass(
 # --------------------------------------------------------------------------- #
 def _run_judge(result: PassResult, judge_model: str) -> dict[str, Any]:
     try:
+        # reason: eval_gm_playtest is a sibling module not installed as a package; suppress the optional-import error since the judge is opportunistic and the script tolerates its absence
         from eval_gm_playtest import RUBRIC, judge  # type: ignore
     except Exception as exc:  # noqa: BLE001
         return {"error": f"judge unavailable: {exc}"}

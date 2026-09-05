@@ -178,6 +178,7 @@ def _ensure_universe_for_multiverse(multiverse_id: UUID) -> UUID:
     return universe.id
 
 
+# reason: bare helper accepting IngestionJobResponse | Any and returning dict; the call site mongodb_get_document is typed Any → DocumentResponse and the chained source_node / job attribute accesses leak Any
 def _source_from_job(job: Any) -> dict:  # type: ignore
     """Merge IngestionJobResponse plus Neo4j SourceResponse into the frontend Source shape."""
     source_node = None
@@ -226,6 +227,7 @@ def _source_from_job(job: Any) -> dict:  # type: ignore
     }
 
 
+# reason: bare helper accepting DocumentResponse | Any and returning dict; the source_id / extraction_status attribute accesses on `doc: Any` are union-attr narrowing gaps that mypy can't bridge
 def _source_from_doc(doc: Any) -> dict:  # type: ignore
     """Build a source response from a raw DocumentResponse with no ingestion job."""
     return {
@@ -250,6 +252,7 @@ def _source_from_doc(doc: Any) -> dict:  # type: ignore
     }
 
 
+# reason: bare helper accepting IngestionJobResponse | Any and returning dict; dozens of `.value` / `.isoformat()` / `list()` calls on the union type can't be narrowed statically across the field set
 def _job_to_dict(job: Any) -> dict:  # type: ignore
     """Normalize an ingestion job into the frontend-friendly shape."""
     title = job.source_title or str(job.source_id)[:8]
@@ -295,6 +298,7 @@ def _job_to_dict(job: Any) -> dict:  # type: ignore
     }
 
 
+# reason: bare helper accepting KnowledgePackResponse | Any and returning dict | None; the getattr fallback chain (pack.game_system_data / game_system_id) and the union-attr access on gsd.* can't be statically narrowed
 def _game_system_summary(pack: Any) -> dict | None:  # type: ignore
     """Build a lightweight game-system summary for pack responses.
 
@@ -339,11 +343,13 @@ def _game_system_summary(pack: Any) -> dict | None:  # type: ignore
     }
 
 
+# reason: bare helper accepting Iterable[Any] | None and returning list; the hasattr()-guarded .model_dump() branch can't be narrowed for the list literal return
 def _dump_model_list(items: Any) -> list:  # type: ignore
     """Serialize a list of Pydantic models or plain dicts."""
     return [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in (items or [])]
 
 
+# reason: bare helper accepting KnowledgePackResponse | Any and returning dict; dozens of getattr() fallbacks and union-attr accesses (pack.name / axioms / chunk_summaries / etc.) cannot be statically typed
 def _pack_to_dict(pack: Any) -> dict:  # type: ignore
     """Serialize a KnowledgePack, preserving richer entity metadata for the UI."""
     # Build embedded system/profile payloads for the response

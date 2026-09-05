@@ -94,7 +94,8 @@ async def ensure_conversatory_universe() -> str:
     if "id" not in mv:
         raise RuntimeError(f"Failed to create conversatory multiverse: {mv}")
 
-    u = await keeper.create_universe(    # type: ignore
+    # reason: CanonKeeper.create_universe accepts UniverseCreate | dict; passing a bare dict literal here relies on the agent's runtime validation — narrow to UniverseCreate in a follow-up
+    u = await keeper.create_universe(  # type: ignore
         {
             "multiverse_id": str(mv["id"]),
             "name": _CONVERSATORY_UNIVERSE_NAME,
@@ -103,10 +104,12 @@ async def ensure_conversatory_universe() -> str:
             "tone": "neutral",
         }
     )
-    if "id" not in u:    # type: ignore
+    # reason: u: Any (agent-returned universe dict); subscript access `.id` and `"id" in u` are union-attr gaps that mypy can't bridge across the agent boundary
+    if "id" not in u:  # type: ignore
         raise RuntimeError(f"Failed to create conversatory universe: {u}")
 
-    _conversatory_universe_id = str(u["id"])    # type: ignore
+    # reason: same Any subscript gap as the `"id" not in u` check above; keep the runtime guard
+    _conversatory_universe_id = str(u["id"])  # type: ignore
     log.info("conversatory_universe_created", universe_id=_conversatory_universe_id)
     return _conversatory_universe_id
 
@@ -210,7 +213,8 @@ def _provision_entity_and_profile(universe_id: str, char: dict[str, Any], fields
             current_emotional_state=fields.get("current_emotional_state", "neutral"),
         )
     )
-    return entity_id    # type: ignore
+    # reason: entity_id is the keeper's return value from create_entity — typed Any at the agent boundary; narrow to EntityResponse / UUID once the agent publishes its return contract
+    return entity_id  # type: ignore
 
 
 async def ensure_character_backed(
@@ -287,9 +291,7 @@ async def ensure_character_backed(
     char_rendered = {
         **char,
         **{
-            field: substitute_card_macros(
-                str(char.get(field) or ""), char_name=char["name"], user_name=user_name
-            )
+            field: substitute_card_macros(str(char.get(field) or ""), char_name=char["name"], user_name=user_name)
             for field in ("description", "personality", "gm_notes")
         },
     }
@@ -303,9 +305,7 @@ async def ensure_character_backed(
         char_rendered.get("gm_notes", "") or "",
     )
 
-    entity_id = await asyncio.to_thread(
-        _provision_entity_and_profile, universe_id, char_rendered, fields
-    )
+    entity_id = await asyncio.to_thread(_provision_entity_and_profile, universe_id, char_rendered, fields)
     added = add_version(character_id, universe_id, entity_id)
     log.info(
         "character_expanded",
@@ -420,9 +420,7 @@ async def start_conversation(
         if not persona:
             raise ValueError(f"Persona {persona_character_id} not found")
         if not persona.get("is_ooc_persona"):
-            raise ValueError(
-                f"Character {persona_character_id} is not a persona (is_ooc_persona=false)"
-            )
+            raise ValueError(f"Character {persona_character_id} is not a persona (is_ooc_persona=false)")
         user_name = str(persona.get("name") or "").strip() or None
         if user_name:
             persona_desc = str(persona.get("description") or "").strip()
@@ -595,9 +593,7 @@ async def send_message(
     }
 
 
-async def redistill_conversation(
-    character_id: str, conversation_id: str, *, force: bool = False
-) -> dict[str, Any]:
+async def redistill_conversation(character_id: str, conversation_id: str, *, force: bool = False) -> dict[str, Any]:
     """Rebuild episodic event proposals for a persisted conversation.
 
     Episodic proposals are derived from the durable transcript, so they can

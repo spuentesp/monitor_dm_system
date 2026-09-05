@@ -105,6 +105,7 @@ def test_create_universe_missing_required():
         UniverseCreate(
             multiverse_id=uuid4(),
             description="A test universe",
+            # reason: test fixture monkey-patch — intentionally constructing UniverseCreate without required `name` to assert Pydantic ValidationError; the type signature would reject the call statically
         )  # type: ignore
 
     # Verify the error mentions the missing field

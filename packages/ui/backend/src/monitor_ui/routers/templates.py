@@ -16,6 +16,8 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
+
+# reason: monitor_data.schemas.entity_templates module is a recent addition that hasn't published py.typed metadata; suppress the unresolved-attribute errors at import time
 from monitor_data.schemas.entity_templates import (  # type: ignore
     EntityTemplateCreate,
     EntityTemplateFilter,

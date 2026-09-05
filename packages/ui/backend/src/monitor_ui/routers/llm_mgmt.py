@@ -205,6 +205,7 @@ def _discover_ollama_model_sync(base_url: str) -> str:
         with _req.urlopen(f"{ol_base}/api/tags", timeout=5) as r:
             models = [m["name"] for m in _json.loads(r.read()).get("models", []) if m.get("name")]
             if models:
+                # reason: ollama /api/tags response shape is JSON-decoded dynamically; models[0] is typed as Any until the response model is declared
                 return models[0]  # type: ignore
     except Exception:
         pass
@@ -229,6 +230,7 @@ def _mask_key(key: str | None) -> str | None:
     return key[:4] + "••••••••" + key[-4:]
 
 
+# reason: bare adapter from raw dict[str, Any] (from MongoDB / provider registry) to typed LLMProvider Pydantic model; subscript accesses on `p` can't be narrowed statically
 def _to_response(p: dict) -> LLMProvider:  # type: ignore
     return LLMProvider(
         id=p["id"],

@@ -40,6 +40,7 @@ class WatchdogTickResult:
     failed: int = 0
     skipped: int = 0
 
+    # reason: bare dict return annotation on a frozen dataclass as_dict helper; caller is the FastAPI health endpoint which iterates the dict and stringifies — narrow to dict[str, int] in a follow-up
     def as_dict(self) -> dict:  # type: ignore
         return {
             "scanned": self.scanned,
@@ -65,6 +66,7 @@ class StaleJobWatchdog:
     do not crash the host app.
     """
 
+    # reason: bare __init__ — get_collection is a dynamic-dispatch Callable[[], Any] passed by the FastAPI lifespan hook (see main.py:_get_collection); narrow the parameter type to Callable[[], AsyncIOMotorCollection] once the consumer contract is published
     def __init__(  # type: ignore
         self,
         *,
@@ -75,6 +77,7 @@ class StaleJobWatchdog:
         self._get_collection = get_collection
         self._stale_after = timedelta(seconds=stale_after_seconds)
         self._interval = interval_seconds
+        # reason: bare asyncio.Task[None] | None annotation — the task body returns coroutine[None]; narrow to asyncio.Task[None] in a follow-up after the watchdog body is typed
         self._task: asyncio.Task | None = None  # type: ignore
         self._stop_event = asyncio.Event()
         self._last_result = WatchdogTickResult()
@@ -113,6 +116,7 @@ class StaleJobWatchdog:
     async def tick_once(self) -> WatchdogTickResult:
         """One watchdog pass — exposed for unit tests and the
         ``monitor ingest doctor`` CLI invocation path."""
+        # reason: in-function lazy import of IngestionStatus to break a circular import between watchdog and the data-layer schema module; suppress until the dependency is restructured
         from monitor_data.schemas.ingestion_jobs import IngestionStatus  # type: ignore
 
         result = WatchdogTickResult()

@@ -31,6 +31,8 @@ from monitor_data.schemas.deduplication import (
 )
 from monitor_data.schemas.knowledge_packs import KnowledgePackResponse
 from monitor_data.tools._shared import pydantic_to_dict as _pydantic_to_dict
+
+# reason: internal module import — _levenshtein_ratio is an underscore-prefixed helper from delta_detection not re-exported in __all__; mypy sees it as a missing module attribute
 from monitor_data.tools.ingest_tools.delta_detection import (  # type: ignore
     _levenshtein_ratio,
 )

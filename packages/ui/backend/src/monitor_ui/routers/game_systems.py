@@ -23,6 +23,7 @@ from .ingest_shared import db_op, validate_uuid
 router = APIRouter()
 
 
+# reason: bare-typed helper that accepts a Pydantic GameSystemResponse | Any and returns dict; the helper is reused from create/update endpoints where mypy can't narrow the AsyncIOMotorClient cursor's yielded element type
 def _system_to_dict(system) -> dict:  # type: ignore
     """Serialize a GameSystemResponse for the frontend."""
     return {
@@ -54,6 +55,7 @@ def _system_to_dict(system) -> dict:  # type: ignore
     }
 
 
+# reason: same dynamic-dispatch typing gap as _system_to_dict — the list endpoint receives system items from a motor cursor yielding Any
 def _system_summary(system) -> dict:  # type: ignore
     """Lightweight summary for list endpoints (omit large arrays)."""
     return {
@@ -77,6 +79,7 @@ async def list_systems(
     include_builtin: bool = True,
     limit: int = 50,
     offset: int = 0,
+    # reason: FastAPI/Pydantic v2 returns Any for the handler's returned dict-literal because response_model is absent; the inner payload (list of summaries) is uniform enough to declare an Annotated[] response_model in a follow-up
 ) -> dict:  # type: ignore
     """List game systems (summaries without full rule/attribute arrays)."""
     with db_op("Database unavailable"):
@@ -90,6 +93,7 @@ async def list_systems(
 
 
 @router.get("/systems/{system_id}")
+# reason: FastAPI/Pydantic v2 returns Any for the handler's returned dict because response_model is absent; the helper _system_to_dict already returns dict so an explicit Annotated[] would close the gap
 async def get_system(system_id: str) -> dict:  # type: ignore
     """Get a game system by ID, including all rules and character creation data."""
     uid = validate_uuid(system_id, "system_id")
@@ -104,6 +108,7 @@ async def get_system(system_id: str) -> dict:  # type: ignore
 async def get_system_rules(
     system_id: str,
     rule_type: str | None = None,
+    # reason: FastAPI/Pydantic v2 returns Any for the handler's returned dict because response_model is absent; the payload is a uniform rules-by-type subset
 ) -> dict:  # type: ignore
     """Get just the rules for a game system, with optional type filter."""
     uid = validate_uuid(system_id, "system_id")

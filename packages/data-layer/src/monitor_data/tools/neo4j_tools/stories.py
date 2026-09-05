@@ -509,6 +509,7 @@ def neo4j_create_plot_thread(params: PlotThreadCreate) -> PlotThreadResponse:
         )
 
     # Return the created thread
+    # reason: neo4j_get_plot_thread is annotated PlotThreadResponse | None, but neo4j_create_plot_thread returns PlotThreadResponse; suppress the None branch since the thread was just inserted and must exist
     return neo4j_get_plot_thread(thread_id)  # type: ignore
 
 

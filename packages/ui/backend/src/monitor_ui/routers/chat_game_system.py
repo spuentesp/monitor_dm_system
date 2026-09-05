@@ -100,6 +100,7 @@ def get_game_system_doc(
                 if pack is not None:
                     embedded = getattr(pack, "game_system_data", None)
                     if embedded is not None:
+                        # reason: getattr fallback union Any | None; mypy can't narrow embedded.model_dump's return through the dynamic attribute access
                         return embedded.model_dump(mode="json")  # type: ignore
                     if not resolved_system_id and getattr(pack, "game_system_id", None):
                         resolved_system_id = str(pack.game_system_id)
@@ -115,6 +116,7 @@ def get_game_system_doc(
         col = mdb.get_collection("game_systems")
         found = col.find_one({"system_id": resolved_system_id}, projection={"_id": 0})
         if found is not None:
+            # reason: motor find_one projection Any → dict flows through the untyped `found` local; the surrounding function's dict | None return accepts Any at the call site
             return found  # type: ignore
 
         logger.debug(

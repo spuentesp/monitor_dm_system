@@ -50,6 +50,7 @@ def create_character(data: dict[str, Any]) -> dict[str, Any]:
 
 def get_character(character_id: str) -> dict[str, Any] | None:
     """Fetch a single character by ID."""
+    # reason: _coll() returns Any (lazy Mongo client access); motor's find_one is typed Any → dict[str, Any] | None but mypy can't bridge until the helper is narrowed
     return _coll().find_one({"id": character_id})  # type: ignore
 
 
@@ -73,6 +74,7 @@ def update_character(character_id: str, updates: dict[str, Any]) -> dict[str, An
     )
     if result:
         log.info("character_updated", character_id=character_id)
+    # reason: motor's find_one_and_update return is dict[str, Any] | None at the call site; the function signature promises the same, so mypy flags the inner Any from _coll() leaking through
     return result  # type: ignore
 
 
@@ -95,6 +97,7 @@ def delete_character(character_id: str) -> bool:
     deleted = result.deleted_count > 0
     if deleted:
         log.info("character_deleted", character_id=character_id)
+    # reason: deleted is narrowed to bool at the site but _coll() flows Any through motor's DeleteResult.deleted_count → int, and mypy can't narrow without an AsyncIOMotorCollection helper
     return deleted  # type: ignore
 
 
@@ -130,7 +133,9 @@ def _version_summary(version: dict[str, Any]) -> dict[str, Any]:
         "universe_id": version["universe_id"],
         "entity_id": version["entity_id"],
         "npc_profile_id": version.get("npc_profile_id"),
+        # reason: created / last_chat are dict[str, Any] | datetime | None (from the version entry); hasattr()-guarded .isoformat() call can't be narrowed statically across the union — keep the runtime check
         "created_at": created.isoformat() if hasattr(created, "isoformat") else str(created or ""),  # type: ignore
+        # reason: same hasattr()-guarded .isoformat() narrowing gap as the `created_at` field above; the runtime branch keeps the JSON-safe invariant
         "last_chatted_at": last_chat.isoformat() if hasattr(last_chat, "isoformat") else last_chat,  # type: ignore
     }
 
@@ -142,6 +147,7 @@ def get_version(character_id: str, universe_id: str) -> dict[str, Any] | None:
         return None
     for v in char.get("versions", []) or []:
         if v.get("universe_id") == universe_id:
+            # reason: char.get() returns dict[str, Any]; the loop's `v` is therefore dict[str, Any] which mypy can't narrow against the declared list[dict[str, Any]] | None return type without an explicit cast
             return v  # type: ignore
     return None
 

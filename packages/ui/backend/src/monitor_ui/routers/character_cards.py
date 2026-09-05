@@ -45,6 +45,7 @@ def extract_charx_card(data: bytes) -> dict[str, Any]:
             )
             if card_name is None:
                 raise ValueError("CharX archive has no card.json.")
+            # reason: zf.read returns bytes and json.loads returns Any; the surrounding function returns dict[str, Any] | None and mypy can't narrow through the chained decode → loads
             return json.loads(zf.read(card_name).decode("utf-8", "ignore"))  # type: ignore
     except zipfile.BadZipFile as exc:
         raise ValueError(f"CharX file is not a valid zip archive: {exc}") from exc
@@ -58,9 +59,7 @@ def extract_charx_assets(data: bytes) -> dict[str, bytes]:
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             return {
-                name: zf.read(name)
-                for name in zf.namelist()
-                if name.startswith("assets/") and not name.endswith("/")
+                name: zf.read(name) for name in zf.namelist() if name.startswith("assets/") and not name.endswith("/")
             }
     except zipfile.BadZipFile:
         return {}
@@ -84,7 +83,7 @@ def resolve_charx_icon(card: dict[str, Any], assets: dict[str, bytes]) -> bytes 
                 continue
             uri = str(entry.get("uri") or "")
             if uri.startswith(_EMBEDED_URI_PREFIX):
-                path = uri[len(_EMBEDED_URI_PREFIX):].lstrip("/")
+                path = uri[len(_EMBEDED_URI_PREFIX) :].lstrip("/")
                 if path in assets:
                     return assets[path]
             name, ext = str(entry.get("name") or ""), str(entry.get("ext") or "")
@@ -129,6 +128,7 @@ def _extract_card_from_png(data: bytes) -> dict[str, Any]:
         if kw in found and found[kw].strip():
             try:
                 raw = base64.b64decode(found[kw])
+                # reason: same bytes → str → Any chain as the CharX helper above; the surrounding function returns dict[str, Any] and mypy can't narrow json.loads's Any to the typed dict
                 return json.loads(raw.decode("utf-8", "ignore"))  # type: ignore
             except (binascii.Error, json.JSONDecodeError, ValueError) as exc:
                 raise ValueError(f"PNG '{kw}' chunk is not a valid card: {exc}") from exc
@@ -138,9 +138,7 @@ def _extract_card_from_png(data: bytes) -> dict[str, Any]:
 def _load_card_dict(raw: bytes, *, content_type: str = "", filename: str = "") -> dict[str, Any]:
     """Load the raw card bytes into a dict, handling PNG/CharX extraction."""
     is_charx = (
-        raw.startswith(_ZIP_SIGNATURE)
-        or filename.lower().endswith(".charx")
-        or content_type == "application/zip"
+        raw.startswith(_ZIP_SIGNATURE) or filename.lower().endswith(".charx") or content_type == "application/zip"
     )
     if is_charx:
         return extract_charx_card(raw)
@@ -157,11 +155,7 @@ def _load_card_dict(raw: bytes, *, content_type: str = "", filename: str = "") -
 
 def is_charx_file(raw: bytes, *, content_type: str = "", filename: str = "") -> bool:
     """Public predicate so routers can decide whether to extract assets."""
-    return (
-        raw.startswith(_ZIP_SIGNATURE)
-        or filename.lower().endswith(".charx")
-        or content_type == "application/zip"
-    )
+    return raw.startswith(_ZIP_SIGNATURE) or filename.lower().endswith(".charx") or content_type == "application/zip"
 
 
 def sniff_image_type(blob: bytes) -> tuple[str, str]:
@@ -234,9 +228,7 @@ def parse_character_card(raw: bytes, *, content_type: str = "", filename: str = 
     Backward-compatible wrapper that ignores any embedded ``character_book``.
     Use ``parse_character_card_with_book`` to import lorebook entries too.
     """
-    character, _, _ = parse_character_card_with_book(
-        raw, content_type=content_type, filename=filename
-    )
+    character, _, _ = parse_character_card_with_book(raw, content_type=content_type, filename=filename)
     return character
 
 

@@ -582,6 +582,7 @@ class ContractRunner:
                 )
             )
             if self.strict:
+                # reason: bare ContractViolation return in strict-mode path; the public method is annotated ContractResult but strict-mode wants to surface the violating check first — narrow the signature to ContractResult | ContractViolation in a follow-up
                 return failed[0]  # type: ignore
         return ContractResult.ok()
 
@@ -607,6 +608,7 @@ class ContractRunner:
                 )
             )
             if self.strict:
+                # reason: bare ContractViolation return in strict-mode path; mirrors the precondition handler above — narrow the signature to ContractResult | ContractViolation in a follow-up
                 return failed[0]  # type: ignore
         return ContractResult.ok()
 
