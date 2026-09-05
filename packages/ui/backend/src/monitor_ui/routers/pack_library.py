@@ -16,7 +16,9 @@ from fastapi.responses import Response
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_agents.services.pack_service import KnowledgePackService
 from monitor_data.schemas.base import ProposalStatus
-from monitor_data.schemas.knowledge_packs import (  # type: ignore
+
+# reason: internal knowledge-pack schema exports ExtractedAgenda at runtime but omits it from mypy's explicit exports
+from monitor_data.schemas.knowledge_packs import (  # type: ignore[attr-defined]
     ChunkSummaryArtifact,
     EmbeddedGameSystem,
     EmbeddedSourceProfile,
@@ -67,7 +69,8 @@ from .ingest_shared import (
 router = APIRouter()
 
 
-def _assert_pack_not_building(pack, *, action: str) -> None:  # type: ignore
+# reason: helper accepts an unannotated pack model shared across dynamically typed database routes
+def _assert_pack_not_building(pack, *, action: str) -> None:  # type: ignore[no-untyped-def]
     """Block use/edit operations while the backing ingest job is still running."""
     job = None
     if getattr(pack, "ingestion_job_id", None):
@@ -76,7 +79,8 @@ def _assert_pack_not_building(pack, *, action: str) -> None:  # type: ignore
 
     live_statuses = {"pending", "running", "retrying", "backing_off"}
     if job is not None and getattr(job.status, "value", None) in live_statuses:
-        stage = job.current_stage.value if getattr(job, "current_stage", None) else job.status.value  # type: ignore
+        # reason: dynamic dispatch — type can't be inferred at static-analysis time
+        stage = job.current_stage.value if getattr(job, "current_stage", None) else job.status.value  # type: ignore[union-attr]
         raise HTTPException(
             409,
             f"KnowledgePack '{pack.name}' is still being built from '{job.source_title}' "
@@ -94,7 +98,8 @@ def _assert_pack_not_building(pack, *, action: str) -> None:  # type: ignore
 
 
 @router.get("/packs")
-async def list_packs(status: str | None = None, limit: int = 30) -> list[dict]:  # type: ignore
+# reason: route response contains dynamically shaped pack dictionaries without a concrete response model
+async def list_packs(status: str | None = None, limit: int = 30) -> list[dict]:  # type: ignore[type-arg]
     pack_status = None
     if status:
         with suppress(ValueError):
@@ -108,7 +113,8 @@ async def list_packs(status: str | None = None, limit: int = 30) -> list[dict]: 
 
 
 @router.get("/packs/{pack_id}")
-async def get_pack(pack_id: str) -> dict:  # type: ignore
+# reason: route response contains a dynamically shaped pack dictionary without a concrete response model
+async def get_pack(pack_id: str) -> dict:  # type: ignore[type-arg]
     uid = validate_uuid(pack_id, "pack_id")
     with db_op("Database unavailable"):
         pack = await asyncio.to_thread(mongodb_get_knowledge_pack, uid)
@@ -121,33 +127,50 @@ class PackUpdateRequest(BaseModel):
     """Body for PUT /packs/{pack_id} — all fields optional."""
 
     name: str | None = None
-    axioms: list[dict] | None = None  # type: ignore
-    entity_archetypes: list[dict] | None = None  # type: ignore
-    lore_facts: list[dict] | None = None  # type: ignore
-    entity_relationships: list[dict] | None = None  # type: ignore
-    random_tables: list[dict] | None = None  # type: ignore
-    agendas: list[dict] | None = None  # type: ignore
-    topologies: list[dict] | None = None  # type: ignore
-    tone_profiles: list[dict] | None = None  # type: ignore
-    character_profiles: list[dict] | None = None  # type: ignore
-    generation_templates: list[dict] | None = None  # type: ignore
-    source_profile_data: dict | None = None  # type: ignore
-    chunk_summaries: list[dict] | None = None  # type: ignore
-    section_summaries: list[dict] | None = None  # type: ignore
-    source_mindscape: dict | None = None  # type: ignore
+    # reason: axiom updates accept heterogeneous JSON objects before schema conversion
+    axioms: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: entity archetype updates accept heterogeneous JSON objects before schema conversion
+    entity_archetypes: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: lore fact updates accept heterogeneous JSON objects before schema conversion
+    lore_facts: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: relationship updates accept heterogeneous JSON objects before schema conversion
+    entity_relationships: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: random table updates accept heterogeneous JSON objects before schema conversion
+    random_tables: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: agenda updates accept heterogeneous JSON objects before schema conversion
+    agendas: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: topology updates accept heterogeneous JSON objects before schema conversion
+    topologies: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: tone profile updates accept heterogeneous JSON objects before schema conversion
+    tone_profiles: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: character profile updates accept heterogeneous JSON objects before schema conversion
+    character_profiles: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: generation template updates accept heterogeneous JSON objects before schema conversion
+    generation_templates: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: source profile updates accept a heterogeneous JSON object before schema conversion
+    source_profile_data: dict | None = None  # type: ignore[type-arg]
+    # reason: chunk summary updates accept heterogeneous JSON objects before schema conversion
+    chunk_summaries: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: section summary updates accept heterogeneous JSON objects before schema conversion
+    section_summaries: list[dict] | None = None  # type: ignore[type-arg]
+    # reason: source mindscape updates accept a heterogeneous JSON object before schema conversion
+    source_mindscape: dict | None = None  # type: ignore[type-arg]
     tags: list[str] | None = None
     status: str | None = None
     game_system_id: str | None = None
-    plot_threads: list[dict] | None = None  # type: ignore
+    # reason: plot thread updates accept heterogeneous JSON objects before schema conversion
+    plot_threads: list[dict] | None = None  # type: ignore[type-arg]
     source_document_ids: list[str] | None = None
 
 
 @router.put("/packs/{pack_id}")
-async def update_pack(pack_id: str, body: PackUpdateRequest) -> dict:  # type: ignore
+# reason: update route returns a dynamically shaped pack dictionary after partial field conversion
+async def update_pack(pack_id: str, body: PackUpdateRequest) -> dict:  # type: ignore[type-arg]
     """Update a KnowledgePack's extracted content for World Forge editing."""
     uid = validate_uuid(pack_id, "pack_id")
 
-    update_kwargs: dict = {}  # type: ignore
+    # reason: update kwargs accumulate heterogeneous fields before KnowledgePackUpdate validation
+    update_kwargs: dict = {}  # type: ignore[type-arg]
     if body.name is not None:
         update_kwargs["name"] = body.name
     if body.tags is not None:
@@ -280,7 +303,8 @@ class PromoteRequest(BaseModel):
 
 
 @router.post("/packs/{pack_id}/promote", status_code=200)
-async def promote_pack_item(pack_id: str, body: PromoteRequest) -> dict:  # type: ignore
+# reason: promotion route returns a dynamically shaped pack dictionary
+async def promote_pack_item(pack_id: str, body: PromoteRequest) -> dict:  # type: ignore[type-arg]
     """Promote a lore_fact to axiom, or demote an axiom to lore_fact."""
     uid = validate_uuid(pack_id, "pack_id")
     if body.direction not in ("to_axiom", "to_lore"):
@@ -315,7 +339,8 @@ async def promote_pack_item(pack_id: str, body: PromoteRequest) -> dict:  # type
                 422,
                 f"axiom index {body.source_index} out of range (0..{len(axioms) - 1})",
             )
-        item = axioms.pop(body.source_index)  # type: ignore
+        # reason: axioms and lore items have distinct Pydantic types, so this pop result cannot share one inferred variable type
+        item = axioms.pop(body.source_index)  # type: ignore[assignment]
         lore_fact = ExtractedLoreFact(
             statement=item.statement,
             confidence=item.confidence if hasattr(item, "confidence") else 0.8,
@@ -342,7 +367,8 @@ class UpdateEntityInPackRequest(BaseModel):
     entity_type: str | None = None
     sub_type: str | None = None
     description: str | None = None
-    properties: dict | None = None  # type: ignore
+    # reason: entity properties preserve arbitrary JSON values from the request payload
+    properties: dict | None = None  # type: ignore[type-arg]
     entity_roles: list[str] | None = None
     is_container: bool | None = None
     tags: list[str] | None = None
@@ -358,7 +384,8 @@ class UpdateRelationshipInPackRequest(BaseModel):
     description: str | None = None
     confidence: float | None = None
     tags: list[str] | None = None
-    properties: dict | None = None  # type: ignore
+    # reason: relationship properties preserve arbitrary JSON values from the request payload
+    properties: dict | None = None  # type: ignore[type-arg]
 
 
 class AddRelationshipToPackRequest(BaseModel):
@@ -371,7 +398,8 @@ class AddRelationshipToPackRequest(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     source_ref: str | None = None
     tags: list[str] = Field(default_factory=list)
-    properties: dict = Field(default_factory=dict)  # type: ignore
+    # reason: relationship properties use an unparameterized JSON mapping for arbitrary values
+    properties: dict = Field(default_factory=dict)  # type: ignore[type-arg]
 
 
 @router.patch("/packs/{pack_id}/entities/{index}", status_code=200)
@@ -379,7 +407,8 @@ async def update_entity_in_pack(
     pack_id: str,
     index: int,
     body: UpdateEntityInPackRequest,
-) -> dict:  # type: ignore
+    # reason: entity update route returns a dynamically shaped pack dictionary
+) -> dict:  # type: ignore[type-arg]
     """Edit a single entity archetype within a KnowledgePack.
 
     Supports changing entity_type, name, description, and other fields
@@ -436,7 +465,8 @@ async def update_relationship_in_pack(
     pack_id: str,
     index: int,
     body: UpdateRelationshipInPackRequest,
-) -> dict:  # type: ignore
+    # reason: relationship update route returns a dynamically shaped pack dictionary
+) -> dict:  # type: ignore[type-arg]
     """Edit a single relationship within a KnowledgePack.
 
     Supports changing from_entity, rel_type, to_entity, description, tags,
@@ -491,7 +521,8 @@ async def update_relationship_in_pack(
 async def add_relationship_to_pack(
     pack_id: str,
     body: AddRelationshipToPackRequest,
-) -> dict:  # type: ignore
+    # reason: relationship creation route returns a dynamically shaped pack dictionary
+) -> dict:  # type: ignore[type-arg]
     """Add a new relationship to a KnowledgePack."""
     uid = validate_uuid(pack_id, "pack_id")
 
@@ -535,7 +566,8 @@ async def delete_item_from_pack(
     pack_id: str,
     collection: str,
     index: int,
-) -> dict:  # type: ignore
+    # reason: deletion route returns a dynamically shaped pack dictionary
+) -> dict:  # type: ignore[type-arg]
     """Delete a single item from a KnowledgePack's axiom, lore_fact, entity, or relationship array.
 
     Valid collections: entities, axioms, lore_facts, relationships
@@ -554,11 +586,14 @@ async def delete_item_from_pack(
     if collection == "entities":
         items = list(pack.entity_archetypes or [])
     elif collection == "axioms":
-        items = list(pack.axioms or [])  # type: ignore
+        # reason: branch-specific pack collections contain different Pydantic item types
+        items = list(pack.axioms or [])  # type: ignore[arg-type]
     elif collection == "lore_facts":
-        items = list(pack.lore_facts or [])  # type: ignore
+        # reason: branch-specific pack collections contain different Pydantic item types
+        items = list(pack.lore_facts or [])  # type: ignore[arg-type]
     else:
-        items = list(pack.entity_relationships or [])  # type: ignore
+        # reason: branch-specific pack collections contain different Pydantic item types
+        items = list(pack.entity_relationships or [])  # type: ignore[arg-type]
 
     if index < 0 or index >= len(items):
         raise HTTPException(422, f"{collection} index {index} out of range (0..{len(items) - 1})")
@@ -589,7 +624,8 @@ class MergePacksRequest(BaseModel):
 
 
 @router.post("/packs/merge", status_code=201)
-async def merge_packs(body: MergePacksRequest) -> dict:  # type: ignore
+# reason: merge route returns a dynamically shaped pack dictionary
+async def merge_packs(body: MergePacksRequest) -> dict:  # type: ignore[type-arg]
     """Merge multiple KnowledgePacks into a new deduplicated pack."""
     uids = [validate_uuid(pid, f"pack_id ({pid})") for pid in body.pack_ids]
     try:
@@ -617,7 +653,8 @@ class CreatePackRequest(BaseModel):
 
 
 @router.post("/packs", status_code=201)
-async def create_pack(body: CreatePackRequest) -> dict:  # type: ignore
+# reason: pack creation route returns a dynamically shaped pack dictionary
+async def create_pack(body: CreatePackRequest) -> dict:  # type: ignore[type-arg]
     """Create an empty KnowledgePack manually (MP-1)."""
     try:
         pack_type_enum = KnowledgePackType(body.pack_type)
@@ -642,7 +679,8 @@ async def create_pack(body: CreatePackRequest) -> dict:  # type: ignore
 
 
 @router.delete("/packs/{pack_id}", status_code=200)
-async def delete_pack(pack_id: str, hard: bool = False) -> dict:  # type: ignore
+# reason: archive route returns a dynamically shaped action dictionary
+async def delete_pack(pack_id: str, hard: bool = False) -> dict:  # type: ignore[type-arg]
     """Archive or hard-delete a KnowledgePack."""
     uid = validate_uuid(pack_id, "pack_id")
 
@@ -692,11 +730,13 @@ class ImportPackRequest(BaseModel):
 
     schema_version: str
     exported_at: str
-    pack: dict  # type: ignore
+    # reason: imported pack data remains an arbitrary JSON object before validation
+    pack: dict  # type: ignore[type-arg]
 
 
 @router.post("/packs/import", status_code=201)
-async def import_pack(body: ImportPackRequest) -> dict:  # type: ignore
+# reason: import route returns a dynamically shaped pack dictionary
+async def import_pack(body: ImportPackRequest) -> dict:  # type: ignore[type-arg]
     """Import a `.monitorpack` JSON envelope as a new KnowledgePack."""
     if body.schema_version != "1.0":
         raise HTTPException(
@@ -758,7 +798,8 @@ class ClonePackRequest(BaseModel):
 
 
 @router.post("/packs/{pack_id}/clone", status_code=201)
-async def clone_pack(pack_id: str, body: ClonePackRequest) -> dict:  # type: ignore
+# reason: clone route returns a dynamically shaped pack dictionary
+async def clone_pack(pack_id: str, body: ClonePackRequest) -> dict:  # type: ignore[type-arg]
     """Clone a KnowledgePack into a new editable copy."""
     uid = validate_uuid(pack_id, "pack_id")
     with db_op("Database unavailable"):
@@ -821,7 +862,8 @@ class SlicePackRequest(BaseModel):
 
 
 @router.post("/packs/{pack_id}/slice", status_code=201)
-async def slice_pack(pack_id: str, body: SlicePackRequest) -> dict:  # type: ignore
+# reason: slice route returns a dynamically shaped pack dictionary
+async def slice_pack(pack_id: str, body: SlicePackRequest) -> dict:  # type: ignore[type-arg]
     """Create a new pack from a user-selected subset of an existing pack."""
     uid = validate_uuid(pack_id, "pack_id")
     with db_op("Database unavailable"):
@@ -830,7 +872,8 @@ async def slice_pack(pack_id: str, body: SlicePackRequest) -> dict:  # type: ign
         raise HTTPException(404, "KnowledgePack not found")
     _assert_pack_not_building(src, action="slicing it")
 
-    def _pick(items: list, indices: list[int]) -> list:  # type: ignore
+    # reason: selection helper handles heterogeneous Pydantic collections with unparameterized list input
+    def _pick(items: list, indices: list[int]) -> list:  # type: ignore[type-arg]
         return [items[i] for i in indices if 0 <= i < len(items)]
 
     parent_ids = [pack_id] if body.with_lineage else []
@@ -871,7 +914,8 @@ class ApplyNewWorldRequest(BaseModel):
 
 
 @router.post("/packs/{pack_id}/apply/new-world", status_code=201)
-async def apply_pack_new_world(pack_id: str, body: ApplyNewWorldRequest) -> dict:  # type: ignore
+# reason: new-world application route returns a dynamically shaped result dictionary
+async def apply_pack_new_world(pack_id: str, body: ApplyNewWorldRequest) -> dict:  # type: ignore[type-arg]
     """Create a new Multiverse+Universe and commit all pack items to canon."""
     pack_uid = validate_uuid(pack_id, "pack_id")
     with db_op("Database unavailable"):
@@ -925,7 +969,8 @@ class ApplyExistingWorldRequest(BaseModel):
     entity_indices: list[int] = []
     axiom_indices: list[int] = []
     lore_indices: list[int] = []
-    resolved_conflicts: list[dict] = []  # type: ignore
+    # reason: resolved conflicts carry arbitrary JSON objects supplied by the frontend
+    resolved_conflicts: list[dict] = []  # type: ignore[type-arg]
 
 
 @router.post("/packs/{pack_id}/apply/{universe_id}")
@@ -933,7 +978,8 @@ async def apply_pack_existing_world(
     pack_id: str,
     universe_id: str,
     body: ApplyExistingWorldRequest,
-) -> dict:  # type: ignore
+    # reason: existing-world application route returns a dynamically shaped result dictionary
+) -> dict:  # type: ignore[type-arg]
     """Apply a pack to an existing universe (MP-7 / MP-8)."""
     pack_uid = validate_uuid(pack_id, "pack_id")
     universe_uid = validate_uuid(universe_id, "universe_id")
@@ -960,7 +1006,8 @@ class CreateKGRequest(BaseModel):
 
 
 @router.get("/kgs")
-async def list_kgs() -> list[dict]:  # type: ignore
+# reason: legacy knowledge-graph listing route returns dynamically shaped dictionaries
+async def list_kgs() -> list[dict]:  # type: ignore[type-arg]
     try:
         result = mongodb_list_knowledge_packs(KnowledgePackFilter(tag=None, limit=30))
     except Exception:
@@ -969,7 +1016,8 @@ async def list_kgs() -> list[dict]:  # type: ignore
 
 
 @router.post("/kgs", status_code=201)
-async def create_knowledge_graph(body: CreateKGRequest) -> dict:  # type: ignore
+# reason: legacy knowledge-graph creation route returns a dynamically shaped result dictionary
+async def create_knowledge_graph(body: CreateKGRequest) -> dict:  # type: ignore[type-arg]
     return {
         "id": "stub",
         "name": body.name,
@@ -1022,7 +1070,8 @@ async def list_pack_proposals(
     change_type: str | None = None,
     page: int = 1,
     per_page: int = 20,
-) -> dict:  # type: ignore
+    # reason: proposal listing route returns a dynamically shaped response dictionary
+) -> dict:  # type: ignore[type-arg]
     """List proposals for a KnowledgePack, grouped by type.
 
     Query params:
@@ -1105,7 +1154,8 @@ async def list_pack_proposals(
 
 
 @router.patch("/proposals/{proposal_id}")
-async def review_proposal(proposal_id: str, body: ProposalActionRequest) -> dict:  # type: ignore
+# reason: proposal review route returns a dynamically shaped response dictionary
+async def review_proposal(proposal_id: str, body: ProposalActionRequest) -> dict:  # type: ignore[type-arg]
     """Accept or reject a single proposal (I-4).
 
     Accepted proposals are marked for commit but NOT written to Neo4j yet.
@@ -1139,15 +1189,19 @@ async def review_proposal(proposal_id: str, body: ProposalActionRequest) -> dict
         "proposal_id": str(updated.proposal_id),
         "status": updated.status.value,
         "decision_metadata": {
-            "decided_by": updated.decision_metadata.decided_by,  # type: ignore
-            "decided_at": updated.decision_metadata.decided_at.isoformat(),  # type: ignore
-            "reason": updated.decision_metadata.reason,  # type: ignore
+            # reason: persisted decision metadata is optional, so this response access remains unchecked
+            "decided_by": updated.decision_metadata.decided_by,  # type: ignore[union-attr]
+            # reason: persisted decision metadata is optional, so this response access remains unchecked
+            "decided_at": updated.decision_metadata.decided_at.isoformat(),  # type: ignore[union-attr]
+            # reason: persisted decision metadata is optional, so this response access remains unchecked
+            "reason": updated.decision_metadata.reason,  # type: ignore[union-attr]
         },
     }
 
 
 @router.post("/proposals/batch")
-async def batch_review_proposals(body: BatchProposalRequest) -> dict:  # type: ignore
+# reason: batch review route returns a dynamically shaped result dictionary
+async def batch_review_proposals(body: BatchProposalRequest) -> dict:  # type: ignore[type-arg]
     """Batch accept/reject proposals (I-4).
 
     Body: { "actions": [{ "proposal_id": "...", "action": "accept|reject", "reason": "..." }] }
@@ -1197,7 +1251,8 @@ async def batch_review_proposals(body: BatchProposalRequest) -> dict:  # type: i
 
 
 @router.post("/packs/{pack_id}/commit")
-async def commit_accepted_proposals(pack_id: str) -> dict:  # type: ignore
+# reason: commit route returns a dynamically shaped result dictionary
+async def commit_accepted_proposals(pack_id: str) -> dict:  # type: ignore[type-arg]
     """Commit all accepted proposals for a pack to Neo4j (I-4 final step).
 
     Only proposals in 'accepted' status are committed. Rejected proposals
