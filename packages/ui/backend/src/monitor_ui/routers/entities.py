@@ -195,7 +195,8 @@ async def _query_systems() -> list[RPGSystem]:
     try:
         from motor.motor_asyncio import AsyncIOMotorClient
 
-        client: AsyncIOMotorClient = AsyncIOMotorClient(_settings.mongodb_uri, serverSelectionTimeoutMS=2000)    # type: ignore
+        # reason: motor.motor_asyncio.AsyncIOMotorClient constructor's overloaded return type is wider than the variable annotation; mypy can't narrow the assignment
+        client: AsyncIOMotorClient = AsyncIOMotorClient(_settings.mongodb_uri, serverSelectionTimeoutMS=2000)  # type: ignore
         db = client[_settings.mongodb_database]
         coll = db["game_systems"]
         docs = await coll.find({}).to_list(length=100)
@@ -984,7 +985,8 @@ def _count_character_memories(entity_ids: list[str]) -> int:
         return 0
 
 
-def _serialise_character(doc: dict) -> dict:    # type: ignore
+# reason: function body mutates `doc` in place and never returns; the `-> dict` annotation is stale and would trigger a return-type error
+def _serialise_character(doc: dict) -> dict:  # type: ignore
     """Convert MongoDB document fields to JSON-safe strings for CharacterDetail.
 
     Adds defaults for fields introduced by the Character Versions feature so
@@ -1005,7 +1007,8 @@ def _serialise_character(doc: dict) -> dict:    # type: ignore
         for ts_field in ("created_at", "last_chatted_at"):
             ts = nv.get(ts_field)
             if hasattr(ts, "isoformat"):
-                nv[ts_field] = ts.isoformat()    # type: ignore
+                # reason: mypy can't narrow `ts: object | None` through hasattr; calling `ts.isoformat()` and assigning to `nv[ts_field]` raises attr-defined
+                nv[ts_field] = ts.isoformat()  # type: ignore
             elif ts is not None:
                 nv[ts_field] = str(ts)
         out_versions.append(nv)
@@ -1083,7 +1086,8 @@ async def import_character_card(file: UploadFile = File(...)) -> CharacterDetail
 
 
 @router.get("/characters/{character_id}/export-card")
-async def export_character_card(character_id: str) -> dict:    # type: ignore
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+async def export_character_card(character_id: str) -> dict:  # type: ignore
     """Export a standalone character as a chara_card_v2 object.
 
     Includes the character's lorebook as an embedded ``character_book``.
@@ -1182,7 +1186,8 @@ async def import_character_from_universe(
 
 
 @router.post("/characters/{character_id}/save-template")
-async def save_template(character_id: str, template_name: str):    # type: ignore
+# reason: FastAPI handler with no return annotation; response_model inference needs Annotated[] for the returned dict literal
+async def save_template(character_id: str, template_name: str):  # type: ignore
     from monitor_data.tools.neo4j_tools.entities import neo4j_save_template
 
     tid = neo4j_save_template(character_id, template_name)
@@ -1198,7 +1203,8 @@ async def get_character_memories(
     character_id: str,
     min_importance: float = Query(default=0.0, ge=0.0, le=1.0),
     limit: int = Query(default=20, ge=1, le=100),
-) -> dict:    # type: ignore
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+) -> dict:  # type: ignore
     """List memories for a character (from MongoDB character_memories collection)."""
     char = _get_character_doc(character_id)
     if not char:
@@ -1246,9 +1252,7 @@ async def clear_character_memories(character_id: str) -> None:
     try:
         from monitor_data.db.mongodb import get_mongodb_client
 
-        get_mongodb_client().get_collection("character_memories").delete_many(
-            {"entity_id": {"$in": entity_ids}}
-        )
+        get_mongodb_client().get_collection("character_memories").delete_many({"entity_id": {"$in": entity_ids}})
         _increment_memory_count(character_id, delta=-char.get("memory_count", 0))
     except Exception:
         pass
@@ -1345,7 +1349,8 @@ async def delete_character_version(character_id: str, universe_id: str) -> None:
     "/characters/{character_id}/profile",
     response_model=dict,
 )
-async def get_character_profile(character_id: str) -> dict:    # type: ignore
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+async def get_character_profile(character_id: str) -> dict:  # type: ignore
     """Return the NPCProfile doc for the character's default incarnation.
 
     Read-only introspection — primarily used by e2e property tests and
@@ -1357,7 +1362,8 @@ async def get_character_profile(character_id: str) -> dict:    # type: ignore
         raise HTTPException(status_code=404, detail="Character not found")
     # Ensure backing entity exists; don't auto-provision (read-only).
     char = _get_character_doc(character_id)
-    entity_id = char.get("entity_id")    # type: ignore
+    # reason: mypy doesn't narrow `_get_character_doc()` from `dict | None` across the intervening `if not _get_character_doc(...)` guard; `char.get` is a union-attr call
+    entity_id = char.get("entity_id")  # type: ignore
     if not entity_id:
         raise HTTPException(
             status_code=409,
@@ -1390,9 +1396,7 @@ async def start_character_conversation(
     target_universe = body.universe_id if body else None
     persona_id = body.persona_character_id if body else None
     try:
-        result = await cc.start_conversation(
-            character_id, target_universe, persona_character_id=persona_id
-        )
+        result = await cc.start_conversation(character_id, target_universe, persona_character_id=persona_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -1433,7 +1437,8 @@ async def send_character_message(
 
 
 @router.post("/characters/{character_id}/conversations/{conversation_id}/end")
-async def end_character_conversation(character_id: str, conversation_id: str) -> dict:    # type: ignore
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+async def end_character_conversation(character_id: str, conversation_id: str) -> dict:  # type: ignore
     """Close a conversatory session (persist working state + stage proposals).
 
     If the loop was lost to a backend restart, it is rebuilt from the
@@ -1446,8 +1451,11 @@ async def end_character_conversation(character_id: str, conversation_id: str) ->
 
 @router.post("/characters/{character_id}/conversations/{conversation_id}/redistill")
 async def redistill_character_conversation(
-    character_id: str, conversation_id: str, force: bool = False
-) -> dict:    # type: ignore
+    character_id: str,
+    conversation_id: str,
+    force: bool = False,
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+) -> dict:  # type: ignore
     """Rebuild episodic event proposals from the persisted transcript.
 
     Use after a close-time extraction failure, or with force=true to
@@ -1488,7 +1496,8 @@ async def list_character_conversations(
 
 
 @router.post("/entities/{entity_id}/save-template")
-async def save_entity_as_template(entity_id: UUID, template_name: str) -> dict:    # type: ignore
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+async def save_entity_as_template(entity_id: UUID, template_name: str) -> dict:  # type: ignore
     """Clone an entity as an EntityTemplate in Neo4j."""
     from monitor_data.tools.neo4j_tools.entities import neo4j_save_entity_as_template
 
@@ -1505,7 +1514,8 @@ async def save_entity_as_template(entity_id: UUID, template_name: str) -> dict: 
 
 
 @router.post("/entities/{entity_id}/link-archetype/{archetype_id}")
-async def link_entity_to_archetype(entity_id: UUID, archetype_id: UUID) -> dict:    # type: ignore
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+async def link_entity_to_archetype(entity_id: UUID, archetype_id: UUID) -> dict:  # type: ignore
     """Link an entity to an archetype via DERIVES_FROM relationship."""
     from monitor_data.tools.neo4j_tools.entities import neo4j_link_to_archetype
 
@@ -1528,7 +1538,8 @@ class EntityCreateRequest(BaseModel):
     name: str
     entity_type: str = "concept"
     description: str = ""
-    properties: dict | None = None    # type: ignore
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+    properties: dict | None = None  # type: ignore
 
 
 class EntityPatchRequest(BaseModel):
@@ -1541,12 +1552,14 @@ class EntityPatchRequest(BaseModel):
 
     name: str | None = None
     description: str | None = None
-    properties: dict | None = None    # type: ignore
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+    properties: dict | None = None  # type: ignore
     tags: list[str] | None = None
 
 
 @router.post("/entities", status_code=201)
-async def create_entity(body: EntityCreateRequest) -> dict:    # type: ignore
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+async def create_entity(body: EntityCreateRequest) -> dict:  # type: ignore
     """Create a single canon entity in a universe (M-38).
 
     Writes through the data layer's CanonKeeper-authority entity tool so the
@@ -1584,7 +1597,8 @@ async def create_entity(body: EntityCreateRequest) -> dict:    # type: ignore
 
 
 @router.get("/entities/{entity_id}")
-async def get_entity(entity_id: str) -> dict:    # type: ignore
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+async def get_entity(entity_id: str) -> dict:  # type: ignore
     """Fetch a single entity by ID for the graph inspector (M-36)."""
     from monitor_data.tools.neo4j_tools.entities import neo4j_get_entity
 
@@ -1600,7 +1614,8 @@ async def get_entity(entity_id: str) -> dict:    # type: ignore
 
 
 @router.patch("/entities/{entity_id}")
-async def update_entity(entity_id: str, body: EntityPatchRequest) -> dict:    # type: ignore
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+async def update_entity(entity_id: str, body: EntityPatchRequest) -> dict:  # type: ignore
     """Update a single entity from the graph inspector (M-36).
 
     Mutable fields (``name``/``description``/``properties``) go through
@@ -1660,8 +1675,10 @@ async def create_character_relationship(
     from_id: UUID,
     to_id: UUID,
     rel_type: str,
-    properties: dict | None = None,    # type: ignore
-) -> dict:    # type: ignore
+    # reason: FastAPI dependency-injected query/body parameter typed as `dict | None`; mypy can't model the framework's runtime parsing without Annotated[]
+    properties: dict | None = None,  # type: ignore
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+) -> dict:  # type: ignore
     """Create a relationship between two characters in Neo4j."""
     from monitor_data.tools.neo4j_tools.entities import (
         neo4j_create_character_relationship,
@@ -1716,11 +1733,13 @@ class EdgeCreateRequest(BaseModel):
     to_id: UUID
     rel_type: str = "RELATED_TO"
     category: str | None = None
-    properties: dict | None = None    # type: ignore
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+    properties: dict | None = None  # type: ignore
 
 
 @router.post("/entities/edges", status_code=201)
-async def create_edge(body: EdgeCreateRequest) -> dict:    # type: ignore
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+async def create_edge(body: EdgeCreateRequest) -> dict:  # type: ignore
     """Create a relationship edge between two canon entities (M-37).
 
     Drawn by dragging between nodes on the graph; ``category`` is inferred from
@@ -1763,7 +1782,8 @@ async def create_edge(body: EdgeCreateRequest) -> dict:    # type: ignore
 
 
 @router.get("/entities/{entity_id}/edges")
-async def list_edges(entity_id: str) -> dict:    # type: ignore
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+async def list_edges(entity_id: str) -> dict:  # type: ignore
     """List relationships touching an entity, both directions (M-37)."""
     from monitor_data.schemas.relationships import Direction, RelationshipFilter
     from monitor_data.tools.neo4j_tools.relationships import neo4j_list_relationships
@@ -2093,9 +2113,11 @@ async def list_events(
         start_before=start_before,
     )
     try:
-        items, total = neo4j_list_events(filters, limit=limit, offset=offset)    # type: ignore
+        # reason: neo4j_list_events signature accepts only `filters: EventFilter | None` and returns `list[EventResponse]`; caller passes unsupported `limit`/`offset` kwargs and unpacks a single list into `(items, total)`
+        items, total = neo4j_list_events(filters, limit=limit, offset=offset)  # type: ignore
         return {
-            "items": [i.model_dump(mode="json") for i in items],    # type: ignore
+            # reason: list-comprehension of `i.model_dump(mode="json")` produces `list[dict[str, Any]]`; Pydantic's `model_dump` return type is Any, so the dict-literal entry has to be suppressed without Annotated[]
+            "items": [i.model_dump(mode="json") for i in items],  # type: ignore
             "total": total,
             "limit": limit,
             "offset": offset,
@@ -2162,8 +2184,10 @@ async def delete_event(event_id: UUID, force: bool = False) -> dict[str, Any]:
 
 @router.post("/entities/batch")
 async def batch_create_entities(
-    body: dict,    # type: ignore
-) -> dict:    # type: ignore
+    # reason: FastAPI body parameter typed as bare `dict`; mypy rejects dynamic body schemas without an Annotated[Body(), ...] wrapping
+    body: dict,  # type: ignore
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+) -> dict:  # type: ignore
     """Create multiple entities in a single operation.
 
     Request body:
@@ -2194,8 +2218,10 @@ async def batch_create_entities(
 
 @router.patch("/entities/batch")
 async def batch_update_entities(
-    body: dict,    # type: ignore
-) -> dict:    # type: ignore
+    # reason: FastAPI body parameter typed as bare `dict`; mypy rejects dynamic body schemas without an Annotated[Body(), ...] wrapping
+    body: dict,  # type: ignore
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+) -> dict:  # type: ignore
     """Update multiple entities in a single operation.
 
     Request body:
@@ -2226,7 +2252,8 @@ async def batch_update_entities(
 
     try:
         result = neo4j_batch_update_entities(
-            updates=updates,    # type: ignore
+            # reason: `updates` is built as a heterogeneous `list[tuple[UUID | str | None, EntityUpdate | dict[str, Any]]]` at runtime; `neo4j_batch_update_entities` expects typed `list[EntityBatchUpdateItem]`
+            updates=updates,  # type: ignore
             continue_on_error=request.continue_on_error,
         )
         return result
@@ -2236,8 +2263,10 @@ async def batch_update_entities(
 
 @router.delete("/entities/batch")
 async def batch_delete_entities(
-    body: dict,    # type: ignore
-) -> dict:    # type: ignore
+    # reason: FastAPI body parameter typed as bare `dict`; mypy rejects dynamic body schemas without an Annotated[Body(), ...] wrapping
+    body: dict,  # type: ignore
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
+) -> dict:  # type: ignore
     """Delete multiple entities in a single operation.
 
     Request body:
@@ -2260,7 +2289,8 @@ async def batch_delete_entities(
         result = neo4j_batch_delete_entities(
             entity_ids=request.entity_ids,
             force=request.force,
-            continue_on_error=request.continue_on_error,    # type: ignore
+            # reason: Pydantic request model attribute `continue_on_error` is typed `bool` but data-layer tool expects `bool | None`; dynamic attribute type can't be narrowed without Annotated[]
+            continue_on_error=request.continue_on_error,  # type: ignore
         )
         return result
     except ValueError as exc:
