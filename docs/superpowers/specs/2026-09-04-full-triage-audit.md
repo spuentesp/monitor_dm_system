@@ -140,6 +140,7 @@ Total: 16 findings — 0 Critical, 0 High, 11 Medium, 5 Low.
 - **Description:** 4 `print()` calls in production code violate AGENTS.md's "use structlog" rule.
 - **Evidence:** `grep -rEn "^\s*print\s*\(" packages/*/src/ --include="*.py"` returned 7 hits (3 are in interactive CLI modules where `print` is conventional).
 - **Recommended action:** Replace with `log = structlog.get_logger(__name__)` + `log.info(...)` calls. Mechanical.
+- **Correction (2026-09-04):** All 4 flagged `print()` calls are inside docstring `Usage::` example blocks — they show users how to call the API, not actual runtime code. The audit's grep matched the docstring text because the indentation pattern matched. These are not AGENTS.md violations; the docstring convention in this codebase is to use `print()` for example output. **No actual fix needed**; this finding is a false positive from the regex pattern.
 
 ### T-015 — Sandboxed `eval()` calls for RPG formula parsing (Low)
 
