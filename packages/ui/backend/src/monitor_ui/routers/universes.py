@@ -56,6 +56,7 @@ def _get_omniverse_id() -> UUID:
     return UUID(result["omniverse_id"])
 
 
+# reason: `mv` parameter has no annotation and `-> dict` return is the bare generic missing type parameters; helper builds a heterogeneous multiverse response dict literal
 def _mv_to_dict(mv, universe_count: int = 0) -> dict:  # type: ignore
     """Shape a MultiverseResponse into the frontend Multiverse type."""
     return {
@@ -72,11 +73,13 @@ def _mv_to_dict(mv, universe_count: int = 0) -> dict:  # type: ignore
     }
 
 
+# reason: _u_to_dict parameter `u` has no annotation (paired with the `-> dict` return-type suppression below); helper takes an untyped UniverseResponse-like object and returns a heterogeneous dict literal
 def _u_to_dict(  # type: ignore
     u,
     entity_count: int = 0,
     session_count: int = 0,
     story_count: int = 0,
+    # reason: _u_to_dict `-> dict` return is the bare generic missing type parameters (paired with the no-untyped-def suppression above); helper builds a heterogeneous universe response dict literal
 ) -> dict:  # type: ignore
     """Shape a UniverseResponse into the frontend Universe type."""
     return {
@@ -187,6 +190,7 @@ class UniverseUpdate(BaseModel):
 
 
 @router.get("/multiverses")
+# reason: `-> list[dict]` return is the bare generic missing type parameters; handler delegates to `_mv_to_dict` which builds a heterogeneous multiverse response literal
 async def list_multiverses() -> list[dict]:  # type: ignore
     """Return all multiverses, each annotated with universe count."""
     with db_op("Database unavailable"):
@@ -203,6 +207,7 @@ async def list_multiverses() -> list[dict]:  # type: ignore
 
 
 @router.post("/multiverses", status_code=201)
+# reason: `-> dict` return is the bare generic missing type parameters; handler delegates to `_mv_to_dict` which builds a heterogeneous multiverse response literal
 async def create_multiverse(body: MultiverseCreate) -> dict:  # type: ignore
     with db_op("Database unavailable"):
         omniverse_id = _get_omniverse_id()
@@ -219,6 +224,7 @@ async def create_multiverse(body: MultiverseCreate) -> dict:  # type: ignore
 
 @router.put("/multiverses/{mv_id}")
 @router.patch("/multiverses/{mv_id}")
+# reason: `-> dict` return is the bare generic missing type parameters; handler delegates to `_mv_to_dict` which builds a heterogeneous multiverse response literal
 async def update_multiverse(mv_id: str, body: MultiverseUpdate) -> dict:  # type: ignore
     try:
         params = DLMultiverseUpdate(
@@ -262,6 +268,7 @@ async def delete_multiverse(mv_id: str, force: bool = False) -> None:
 
 
 @router.get("/universes")
+# reason: `-> list[dict]` return is the bare generic missing type parameters; handler delegates to `_u_to_dict` which builds a heterogeneous universe response literal
 async def list_universes(multiverse_id: str | None = None) -> list[dict]:  # type: ignore
     with db_op("Database unavailable"):
         f = UniverseFilter(
@@ -274,6 +281,7 @@ async def list_universes(multiverse_id: str | None = None) -> list[dict]:  # typ
 
 
 @router.get("/universes/{universe_id}")
+# reason: `-> dict` return is the bare generic missing type parameters; handler delegates to `_u_to_dict` which builds a heterogeneous universe response literal
 async def get_universe(universe_id: str) -> dict:  # type: ignore
     with db_op("Database unavailable"):
         u = neo4j_get_universe(UUID(universe_id))
@@ -284,6 +292,7 @@ async def get_universe(universe_id: str) -> dict:  # type: ignore
 
 
 @router.get("/universes/{universe_id}/state")
+# reason: `-> dict` return is the bare generic missing type parameters; handler returns the full Neo4j state dict directly (`entities`, `facts`, `axioms`, `relationships`) with heterogeneous value types
 async def get_universe_state(universe_id: str) -> dict:  # type: ignore
     """Full world state: entities, facts, axioms, relationships (O1/O5 view)."""
     with db_op("Database unavailable"):
@@ -291,6 +300,7 @@ async def get_universe_state(universe_id: str) -> dict:  # type: ignore
 
 
 @router.post("/universes", status_code=201)
+# reason: `-> dict` return is the bare generic missing type parameters; handler delegates to `_u_to_dict` which builds a heterogeneous universe response literal
 async def create_universe(body: UniverseCreate) -> dict:  # type: ignore
     try:
         params = DLUniverseCreate(
@@ -308,6 +318,7 @@ async def create_universe(body: UniverseCreate) -> dict:  # type: ignore
 
 
 @router.put("/universes/{universe_id}")
+# reason: `-> dict` return is the bare generic missing type parameters; handler delegates to `_u_to_dict` which builds a heterogeneous universe response literal
 async def update_universe(universe_id: str, body: UniverseUpdate) -> dict:  # type: ignore
     try:
         params = DLUniverseUpdate(
@@ -370,6 +381,7 @@ class SnapshotRestoreRequest(BaseModel):
 
 
 @router.post("/universes/{universe_id}/seed")
+# reason: `-> dict` return is the bare generic missing type parameters; handler builds a heterogeneous seed response literal (`universe_id`, `entities_created`, `entities`, `errors`, `status`)
 async def seed_universe(universe_id: str, body: SeedRequest) -> dict:  # type: ignore
     """
     Seed a universe with procedurally generated entities from random tables.
@@ -405,6 +417,7 @@ async def seed_universe(universe_id: str, body: SeedRequest) -> dict:  # type: i
 
 
 @router.post("/universes/{universe_id}/fork")
+# reason: `-> dict` return is the bare generic missing type parameters; handler builds a heterogeneous fork response literal (`source_universe_id`, `new_universe_id`, `name`, `entities_cloned`, `relationships_cloned`, `status`)
 async def fork_universe(universe_id: str, body: ForkRequest) -> dict:  # type: ignore
     """
     Fork a universe: deep-clone all entities, facts, and relationships
@@ -438,6 +451,7 @@ async def fork_universe(universe_id: str, body: ForkRequest) -> dict:  # type: i
 
 
 @router.post("/universes/{universe_id}/snapshots")
+# reason: `-> dict` return is the bare generic missing type parameters; handler builds a heterogeneous snapshot-create response literal (`snapshot_id`, `universe_id`, `name`, `entity_count`, `fact_count`, `status`)
 async def create_snapshot(universe_id: str, body: SnapshotRequest) -> dict:  # type: ignore
     """Create a snapshot of the current universe state."""
     try:
@@ -473,6 +487,7 @@ async def create_snapshot(universe_id: str, body: SnapshotRequest) -> dict:  # t
 
 
 @router.get("/universes/{universe_id}/snapshots")
+# reason: `-> list[dict]` return is the bare generic missing type parameters; handler builds a list of heterogeneous per-snapshot dict literals (`id`, `name`, `description`, `entity_count`, `fact_count`, `created_at`)
 async def list_snapshots(universe_id: str) -> list[dict]:  # type: ignore
     """List all snapshots for a universe."""
     try:
@@ -520,6 +535,7 @@ async def delete_snapshot(universe_id: str, snapshot_id: str) -> None:
 
 
 @router.post("/universes/{universe_id}/snapshots/{snapshot_id}/restore")
+# reason: `-> dict` return is the bare generic missing type parameters; handler builds a heterogeneous snapshot-restore response literal (`universe_id`, `snapshot_id`, `status`, `entities_restored`)
 async def restore_snapshot(universe_id: str, snapshot_id: str, body: SnapshotRestoreRequest) -> dict:  # type: ignore
     """Restore a universe from a snapshot."""
     try:
@@ -549,6 +565,7 @@ async def compare_snapshots(
     universe_id: str,
     snapshot_a_id: str,
     snapshot_b_id: str,
+    # reason: `-> dict` return is the bare generic missing type parameters; handler builds a heterogeneous snapshot-compare response literal (`snapshot_a_id`, `snapshot_b_id`, `universe_id`, three summary dicts, three diff lists, two name fields, `compared_at`)
 ) -> dict:  # type: ignore
     """
     Compare two snapshots and return a detailed diff.
