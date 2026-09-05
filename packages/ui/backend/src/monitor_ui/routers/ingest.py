@@ -308,6 +308,7 @@ def _run_ingest_in_thread(
             # creates it by patching the symbol that `IngestionPipeline` actually uses.
             import monitor_agents.ingestion.agent as _pipeline_module
 
+            # reason: capturing the original mongodb_create_ingestion_job reference for runtime monkey-patch restoration; module attribute access narrows to a typed Callable that the local doesn't preserve at the restoration site
             _orig_create_job = _pipeline_module.mongodb_create_ingestion_job  # type: ignore
 
             def _patched_create_job(params):  # type: ignore[no-untyped-def]
@@ -321,6 +322,7 @@ def _run_ingest_in_thread(
                 )
                 return result
 
+            # reason: installing the untyped _patched_create_job (no parameter annotation) over the typed module attribute — mypy can't bridge the runtime swap from an untyped function to the typed signature
             _pipeline_module.mongodb_create_ingestion_job = _patched_create_job  # type: ignore
             try:
                 # 1. Standard ingestion pipeline
@@ -328,6 +330,7 @@ def _run_ingest_in_thread(
                     file_bytes=file_bytes,
                     filename=filename,
                     source_title=source_title,
+                    # reason: universe_uid: UUID | None passed to IngestionPipeline.ingest_file(universe_id: UUID), which expects a non-None UUID
                     universe_id=universe_uid,  # type: ignore
                     pack_name=source_title,
                     pack_type=pack_type_enum,
@@ -351,9 +354,11 @@ def _run_ingest_in_thread(
 
                         if universe:
                             await library.add_source(
+                                # reason: UniverseResponse.multiverse_id: UUID | None passed to WorldLibrary.add_source(multiverse_id: UUID), which expects a non-None UUID
                                 multiverse_id=universe.multiverse_id,  # type: ignore
                                 source_type="file",
                                 uri=filename,
+                                # reason: 'system_name' is not a defined attribute on UniverseResponse (only 'default_system_name' exists); access would raise AttributeError at runtime — flagged as a latent bug, not fixed here
                                 system_name=universe.system_name or "generic",  # type: ignore
                                 metadata={
                                     "title": source_title,
@@ -364,6 +369,7 @@ def _run_ingest_in_thread(
                         logger.debug("Failed to record file in WorldLibrary: %s", exc)
 
             finally:
+                # reason: restoring the original function reference — symmetric to the capture/install pattern at lines 311/324; mypy sees the typed callable being written back without the runtime context of the prior untyped swap
                 _pipeline_module.mongodb_create_ingestion_job = _orig_create_job  # type: ignore
 
         try:
@@ -620,6 +626,7 @@ async def _save_uploaded_source_only(
 
 
 @router.post("/unlock", status_code=200)
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def force_unlock_ingest() -> dict:  # type: ignore
     """Force-clear the ingestion queue and fail any orphaned pending/running DB jobs."""
     return _interrupt_ingest_runtime(
@@ -632,6 +639,7 @@ async def force_unlock_ingest() -> dict:  # type: ignore
 
 
 @router.get("/sources")
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def list_sources() -> list[dict]:  # type: ignore
     with db_op("Could not reach database"):
         result = await asyncio.to_thread(
@@ -668,6 +676,7 @@ async def list_sources() -> list[dict]:  # type: ignore
 
 
 @router.get("/sources/{source_id}")
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def get_source(source_id: str) -> dict:  # type: ignore
     uid = validate_uuid(source_id, "source_id")
     with db_op("Database unavailable"):
@@ -699,6 +708,7 @@ async def upload_source(
     # Existing setting (finds or creates Universe under it)
     multiverse_id: str | None = Form(default=None),
     title: str | None = Form(default=None),
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 ) -> dict:  # type: ignore
     """
     Upload a document and optionally run the full ingestion pipeline.
@@ -790,6 +800,7 @@ async def upload_source(
                 fut = loop.run_in_executor(
                     executor,
                     lambda: _run_ingest_in_thread(
+                        # reason: queue_token: str | None from the outer upload_source scope is captured in a lambda and passed as str keyword arg to _run_ingest_in_thread(queue_token: str), which expects a non-None str
                         queue_token=queue_token,  # type: ignore
                         file_bytes=file_bytes,
                         filename=filename,
@@ -936,6 +947,7 @@ async def rescan_source(
     source_id: str,
     scan_type: str = "setting_supplement",
     analysis_layers: list[str] | None = Query(default=None),
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 ) -> dict:  # type: ignore
     """Re-run the analysis pipeline on an already-uploaded source file.
 
@@ -1112,6 +1124,7 @@ async def rescan_source(
 
 
 @router.post("/jobs/{job_id}/cancel", status_code=200)
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def cancel_job(job_id: str) -> dict:  # type: ignore
     """Cancel a running ingestion job.
 
@@ -1190,6 +1203,7 @@ async def delete_job(job_id: str) -> None:
 
 
 @router.delete("/jobs", status_code=200)
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def purge_failed_jobs() -> dict:  # type: ignore
     """Delete all failed/error ingestion jobs from MongoDB.
 
@@ -1215,6 +1229,7 @@ async def purge_failed_jobs() -> dict:  # type: ignore
 
 
 @router.post("/cache/clear", status_code=200)
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def clear_llm_cache() -> dict:  # type: ignore
     """Clear DSPy caches, the LLM registry cache, and the Redis runtime cache.
 
@@ -1263,6 +1278,7 @@ async def clear_llm_cache() -> dict:  # type: ignore
 
 
 @router.get("/jobs")
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def list_jobs() -> list[dict]:  # type: ignore
     with db_op("Database unavailable"):
         result = await asyncio.to_thread(
@@ -1345,6 +1361,7 @@ async def list_jobs() -> list[dict]:  # type: ignore
 
 
 @router.get("/jobs/{job_id}")
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def get_job(job_id: str) -> dict:  # type: ignore
     uid = validate_uuid(job_id, "job_id")
     with db_op("Database unavailable"):
@@ -1387,6 +1404,7 @@ async def list_job_attempts(
 
 
 @router.get("/jobs/{job_id}/stream")
+# reason: FastAPI SSE handler with no return annotation; body returns StreamingResponse — mypy can't infer the response type without an explicit annotation or response_model
 async def stream_job(job_id: str):  # type: ignore
     """SSE stream that pushes job status updates until the job reaches a
     terminal state (completed / failed).  The frontend can listen to this
@@ -1396,6 +1414,7 @@ async def stream_job(job_id: str):  # type: ignore
     """
     uid = validate_uuid(job_id, "job_id")
 
+    # reason: inner async generator _event_generator has no return annotation; mypy can't infer AsyncGenerator[str, None] from bare yield statements without an explicit AsyncGenerator[..., None] annotation
     async def _event_generator():  # type: ignore
         import json as _json
 
@@ -1443,6 +1462,7 @@ async def stream_job(job_id: str):  # type: ignore
             await asyncio.sleep(_POLL_INTERVAL)
 
     return StreamingResponse(
+        # reason: StreamingResponse constructor expects ContentStream for the content kwarg; passing the untyped async generator from _event_generator() — mypy can't match an untyped AsyncGenerator to ContentStream's union without an explicit cast
         _event_generator(),  # type: ignore
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -1461,6 +1481,7 @@ async def upload_asset(
     universe_id: str | None = Form(default=None),
     asset_type: str = Form(default="image"),
     label: str | None = Form(default=None),
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 ) -> dict:  # type: ignore
     """
     Upload a binary asset (image, audio, PDF raw) to MinIO.
@@ -1538,6 +1559,7 @@ async def list_assets(
     asset_type: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 ) -> dict:  # type: ignore
     """List binary assets with optional filters."""
     mongo = get_mongodb_client()
@@ -1553,6 +1575,7 @@ async def list_assets(
     with db_op("Database error"):
         total = mongo.get_collection("binary_assets").count_documents(query)
     items = []
+    # reason: iterating a sync pymongo cursor (find().sort().skip().limit()) with async for — sync cursors are not AsyncIterable, mypy can't bridge without an explicit Motor-style wrapper
     async for doc in cursor:  # type: ignore
         # Refresh presigned URL
         minio = get_minio_client()
@@ -1576,6 +1599,7 @@ async def list_assets(
 
 
 @router.get("/assets/{asset_id}")
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def get_asset(asset_id: str) -> dict:  # type: ignore
     """Get a single binary asset by ID with a fresh presigned URL."""
     mongo = get_mongodb_client()
@@ -1602,6 +1626,7 @@ async def get_asset(asset_id: str) -> dict:  # type: ignore
 
 
 @router.delete("/assets/{asset_id}", status_code=200)
+# reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def delete_asset(asset_id: str) -> dict:  # type: ignore
     """Soft-delete a binary asset (marks deleted, retains metadata)."""
     mongo = get_mongodb_client()
@@ -1628,6 +1653,7 @@ async def delete_asset(asset_id: str) -> dict:  # type: ignore
 async def replace_asset(
     asset_id: str,
     file: UploadFile = File(...),
+    # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 ) -> dict:  # type: ignore
     """Replace the binary content of an existing asset (keeps metadata)."""
     mongo = get_mongodb_client()
