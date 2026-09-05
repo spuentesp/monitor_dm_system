@@ -48,6 +48,7 @@ _ENTITY_KIND: dict[str, str] = {
 
 
 def _tier_layout(
+    # reason: `items: list` is the bare generic missing a type parameter; `_tier_layout` accepts heterogeneous item types (MultiverseResponse, UniverseResponse) so the parameter is intentionally unparameterized
     items: list,  # type: ignore
     y: float,
     parent_x: float | None = None,
@@ -71,6 +72,7 @@ async def get_world_graph(
     universe_id: UUID | None = Query(None, description="Scope to a single universe"),
     entity_types: str | None = Query(None, description="Comma-separated entity types"),
     related_to: UUID | None = Query(None, description="Show only entities related to this entity"),
+    # reason: return annotation `-> dict` is the bare generic missing type parameters; FastAPI handler builds heterogeneous keys (`error`, `nodes`, `edges`, `entity_types`, `rel_types`) so the response shape is intentionally untyped
 ) -> dict:  # type: ignore
     """
     Return the world graph as ReactFlow nodes and edges.
@@ -146,7 +148,9 @@ async def get_world_graph(
     except Exception as exc:
         return {"nodes": [], "edges": [], "error": str(exc)}
 
+    # reason: `nodes: list[dict]` — `dict` is missing generic parameters for the inline-constructed node literals
     nodes: list[dict] = []  # type: ignore
+    # reason: `edges: list[dict]` — `dict` is missing generic parameters for the inline-constructed edge literals
     edges: list[dict] = []  # type: ignore
 
     # ── Multiverses (row 0) ───────────────────────────────────
@@ -155,6 +159,7 @@ async def get_world_graph(
 
     for _i, mv in enumerate(_tier_layout(multiverses, y=0, x_spread=MV_SPREAD)):
         mv_obj, x, y = mv
+        # reason: `mv_obj` is typed as `object` because `_tier_layout` returns `list[tuple[object, float, float]]`; the runtime value is MultiverseResponse (has `.id: UUID`), but the unparameterized return strips that
         mv_id = str(mv_obj.id)  # type: ignore
         mv_positions[mv_id] = x
         nodes.append(
@@ -163,8 +168,10 @@ async def get_world_graph(
                 "type": "worldNode",
                 "position": {"x": x, "y": y},
                 "data": {
+                    # reason: `mv_obj` is typed as `object` because `_tier_layout` returns `list[tuple[object, float, float]]`; the runtime value is MultiverseResponse (has `.name: str`), but the unparameterized return strips that
                     "label": mv_obj.name,  # type: ignore
                     "kind": "multiverse",
+                    # reason: `mv_obj` is typed as `object` because `_tier_layout` returns `list[tuple[object, float, float]]`; the runtime value is MultiverseResponse (has `.system_name: str`), but the unparameterized return strips that
                     "subtitle": mv_obj.system_name or None,  # type: ignore
                 },
             }
@@ -172,6 +179,7 @@ async def get_world_graph(
 
     # ── Universes (row 1) ─────────────────────────────────────
     # Group universes by their parent multiverse
+    # reason: `mv_children: dict[str, list]` — `list` is missing generic parameters for the universe group buckets
     mv_children: dict[str, list] = {}  # type: ignore
     for u in universes:
         mv_children.setdefault(str(u.multiverse_id), []).append(u)
@@ -181,6 +189,7 @@ async def get_world_graph(
     for mv_id, mv_univs in mv_children.items():
         parent_x = mv_positions.get(mv_id, 0.0)
         for u_obj, x, y in _tier_layout(mv_univs, y=220, parent_x=parent_x, x_spread=240):
+            # reason: `u_obj` is typed as `object` because `_tier_layout` returns `list[tuple[object, float, float]]`; the runtime value is UniverseResponse (has `.id: UUID`), but the unparameterized return strips that
             u_id = str(u_obj.id)  # type: ignore
             u_positions[u_id] = x
             nodes.append(
@@ -189,9 +198,12 @@ async def get_world_graph(
                     "type": "worldNode",
                     "position": {"x": x, "y": y},
                     "data": {
+                        # reason: `u_obj` is typed as `object` because `_tier_layout` returns `list[tuple[object, float, float]]`; the runtime value is UniverseResponse (has `.name: str`), but the unparameterized return strips that
                         "label": u_obj.name,  # type: ignore
                         "kind": "universe",
+                        # reason: `u_obj` is typed as `object` because `_tier_layout` returns `list[tuple[object, float, float]]`; the runtime value is UniverseResponse (has `.genre: str | None`), but the unparameterized return strips that
                         "subtitle": u_obj.genre or None,  # type: ignore
+                        # reason: `u_obj` is typed as `object` because `_tier_layout` returns `list[tuple[object, float, float]]`; the runtime value is UniverseResponse (has `.canon_level: CanonLevel`), but the unparameterized return strips that
                         "tags": [u_obj.canon_level.value] if u_obj.canon_level else [],  # type: ignore
                     },
                 }
@@ -208,6 +220,7 @@ async def get_world_graph(
     # ── Entities (rows 2+) ────────────────────────────────────
     # Group entities by their parent universe (cap at 20 per universe)
     # Apply entity_type and related_to filters
+    # reason: `u_entities: dict[str, list]` — `list` is missing generic parameters for the per-universe entity buckets (capped at 20 items each)
     u_entities: dict[str, list] = {}  # type: ignore
     for e in entities_r.entities:
         u_id = str(e.universe_id)
@@ -300,6 +313,7 @@ async def get_universe_graph(
     entity_types: str | None = Query(default=None, description="Comma-separated entity types to include"),
     rel_types: str | None = Query(default=None, description="Comma-separated relationship types to include"),
     limit_per_depth: int = Query(default=50, ge=1, le=200, description="Max entities per depth level"),
+    # reason: return annotation `-> dict` is the bare generic missing type parameters; FastAPI handler builds heterogeneous keys (`error`, `nodes`, `edges`, `entity_types`, `rel_types`, `total_entities`, `total_relationships`) so the response shape is intentionally untyped
 ) -> dict:  # type: ignore
     """
     Return the world graph scoped to a single universe.
@@ -349,7 +363,9 @@ async def get_universe_graph(
     except Exception as exc:
         return {"nodes": [], "edges": [], "error": str(exc)}
 
+    # reason: `nodes: list[dict]` — `dict` is missing generic parameters for the inline-constructed node literals
     nodes: list[dict] = []  # type: ignore
+    # reason: `edges: list[dict]` — `dict` is missing generic parameters for the inline-constructed edge literals
     edges: list[dict] = []  # type: ignore
 
     # ── Universe node (center) ─────────────────────────────────
@@ -438,6 +454,7 @@ async def get_entity_ego_graph(
     entity_id: UUID,
     universe_id: UUID,
     depth: int = Query(default=1, ge=1, le=3, description="Neighbour depth (1-3)"),
+    # reason: return annotation `-> dict` is the bare generic missing type parameters; FastAPI handler builds heterogeneous keys (`error`, `nodes`, `edges`, `central_entity_id`, `depth`, `entity_types`, `rel_types`) so the response shape is intentionally untyped
 ) -> dict:  # type: ignore
     """
     Return the ego-graph centred on a specific entity.
@@ -504,7 +521,9 @@ async def get_entity_ego_graph(
     entity_map: dict[str, Any] = {str(e.id): e for e in all_entities}
 
     # ── Build nodes ─────────────────────────────────────────────
+    # reason: `nodes: list[dict]` — `dict` is missing generic parameters for the inline-constructed node literals
     nodes: list[dict] = []  # type: ignore
+    # reason: `edges: list[dict]` — `dict` is missing generic parameters for the inline-constructed edge literals
     edges: list[dict] = []  # type: ignore
     entity_ids: set[str] = set()
 
