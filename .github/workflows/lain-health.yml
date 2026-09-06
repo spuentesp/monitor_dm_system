@@ -22,6 +22,3 @@ jobs:
           min-fan-out: '15'
           # auto-detect: pyproject.toml -> pylsp, package.json -> typescript-language-server
           lsp-languages: 'auto'
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          min-fan-out: '15'
