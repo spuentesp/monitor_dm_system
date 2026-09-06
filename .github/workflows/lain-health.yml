@@ -16,7 +16,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: spuentesp/lain/.github/actions/lain-health-badge@d4b81cd3fdd831802459fc04597b36a89f217975
+      - uses: spuentesp/lain/.github/actions/lain-health-badge@e93575dcb046fc3b90041be87526fe921bd9ba22
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          min-fan-out: '15'
+          # auto-detect: pyproject.toml -> pylsp, package.json -> typescript-language-server
+          lsp-languages: 'auto'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           min-fan-out: '15'
