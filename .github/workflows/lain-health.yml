@@ -1,0 +1,22 @@
+name: Lain architecture health
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  # The action posts a commit status and a sticky PR comment; the
+  # default GITHUB_TOKEN is read-only.
+  statuses: write
+  pull-requests: write
+
+jobs:
+  lain-health:
+    name: Lain architecture health badge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: spuentesp/lain/.github/actions/lain-health-badge@d4b81cd
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          min-fan-out: '15'
