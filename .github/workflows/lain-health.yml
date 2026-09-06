@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: spuentesp/lain/.github/actions/lain-health-badge@bfca8eb8238c9d0b83f80d1fd6e10cd7db72f96f
+      - uses: spuentesp/lain/.github/actions/lain-health-badge@v0.7.3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           min-fan-out: '15'
