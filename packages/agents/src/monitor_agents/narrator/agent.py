@@ -987,6 +987,11 @@ class Narrator(BaseAgent):
 
         Returns: (narrative_text, proposals, minutes_elapsed, suggested_actions)
         """
+        if isinstance(gm_verdict, dict):
+            from monitor_agents.gm_tools.contracts import GMVerdict
+
+            gm_verdict = GMVerdict.from_dict(gm_verdict)
+
         # Empty draft: fall back to legacy generation.
         draft_text = getattr(gm_verdict, "narrative_draft", None) or ""
         if not draft_text.strip():

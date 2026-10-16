@@ -87,3 +87,36 @@ class GMVerdict:
             "tool_call_count": self.tool_call_count,
             "reasoning": self.reasoning,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GMVerdict:
+        """Rehydrate a GMVerdict from a JSON/checkpoint dict."""
+        raw_intent = data.get("intent_type", IntentType.ACTION.value)
+        raw_action = data.get("action_type", ActionType.NONE.value)
+        raw_roll = data.get("roll_necessity", RollNecessity.TRIVIAL.value)
+        raw_causality = data.get("causality_action", CausalityAction.ACCEPT.value)
+        return cls(
+            intent_type=IntentType(raw_intent) if not isinstance(raw_intent, IntentType) else raw_intent,
+            action_type=ActionType(raw_action) if not isinstance(raw_action, ActionType) else raw_action,
+            roll_necessity=RollNecessity(raw_roll) if not isinstance(raw_roll, RollNecessity) else raw_roll,
+            causality_action=(
+                CausalityAction(raw_causality)
+                if not isinstance(raw_causality, CausalityAction)
+                else raw_causality
+            ),
+            suggested_stat=data.get("suggested_stat"),
+            suggested_dc=data.get("suggested_dc"),
+            declares_outcome=bool(data.get("declares_outcome", False)),
+            violates_causality=bool(data.get("violates_causality", False)),
+            pushback_prompt=data.get("pushback_prompt"),
+            severity=str(data.get("severity", "none")),
+            reasons=list(data.get("reasons") or []),
+            subsystem_hint=data.get("subsystem_hint"),
+            action_route=data.get("action_route"),
+            narrative_draft=str(data.get("narrative_draft", "")),
+            tool_calls_made=list(data.get("tool_calls_made") or []),
+            tool_failures=list(data.get("tool_failures") or []),
+            tool_call_count=int(data.get("tool_call_count", 0)),
+            reasoning=str(data.get("reasoning", "")),
+        )
+

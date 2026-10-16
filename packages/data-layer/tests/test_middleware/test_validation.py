@@ -510,3 +510,102 @@ def test_validate_update_visual_identity_status_without_optional_arg():
 
     assert result["identity_id"] == identity_id
     assert result["status"] == "draft"
+
+
+# =============================================================================
+# REAL AGENT WIRE SHAPES (ContextAssembly, CanonKeeper, CharacterCreator)
+# =============================================================================
+
+
+def test_validate_qdrant_search_accepts_flat_agent_kwargs():
+    """Regression: ContextAssembly calls qdrant_search with flat top-level keys."""
+    from monitor_data.tools.qdrant_tools import qdrant_search
+
+    scene_id = str(uuid4())
+    result = validate_tool_input(
+        "qdrant_search",
+        qdrant_search,
+        {
+            "collection": "scenes",
+            "query_text": "Investigate the ancient ruins",
+            "limit": 10,
+            "filter": {"scene_id": scene_id},
+        },
+    )
+
+    assert "params" in result
+    assert result["params"].collection == "scenes"
+    assert result["params"].query_text == "Investigate the ancient ruins"
+    assert result["params"].limit == 10
+    assert result["params"].filter is not None
+    assert str(result["params"].filter.scene_id) == scene_id
+
+
+def test_validate_neo4j_list_facts_accepts_flat_filter_kwargs():
+    """Regression: ContextAssembly and CanonKeeper call neo4j_list_facts with flat filter keys."""
+    from monitor_data.tools.neo4j_tools.facts import neo4j_list_facts
+
+    universe_id = uuid4()
+    entity_id = uuid4()
+    result = validate_tool_input(
+        "neo4j_list_facts",
+        neo4j_list_facts,
+        {
+            "universe_id": str(universe_id),
+            "entity_id": str(entity_id),
+            "limit": 20,
+        },
+    )
+
+    assert "filters" in result
+    assert result["filters"].universe_id == universe_id
+    assert result["filters"].entity_id == entity_id
+    assert result["filters"].limit == 20
+
+
+def test_validate_neo4j_update_fact_accepts_updates_alias():
+    """Regression: CanonKeeper calls neo4j_update_fact with 'updates' instead of 'params'."""
+    from monitor_data.tools.neo4j_tools.facts import neo4j_update_fact
+
+    fact_id = uuid4()
+    result = validate_tool_input(
+        "neo4j_update_fact",
+        neo4j_update_fact,
+        {
+            "fact_id": str(fact_id),
+            "updates": {"canon_level": "canon", "confidence": 0.95},
+        },
+    )
+
+    assert result["fact_id"] == fact_id
+    assert "params" in result
+    assert result["params"].canon_level.value == "canon"
+    assert result["params"].confidence == 0.95
+
+
+def test_validate_neo4j_create_entity_merges_top_level_fields_into_params():
+    """Regression: CharacterCreator passes universe_id and entity_type at top level alongside params."""
+    from monitor_data.tools.neo4j_tools.entities import neo4j_create_entity
+
+    universe_id = uuid4()
+    result = validate_tool_input(
+        "neo4j_create_entity",
+        neo4j_create_entity,
+        {
+            "universe_id": str(universe_id),
+            "entity_type": "character",
+            "params": {
+                "name": "Gandalf",
+                "description": "A wise wizard",
+                "properties": {"role": "ally"},
+                "state_tags": [],
+                "canon_level": "canon",
+            },
+        },
+    )
+
+    assert "params" in result
+    assert result["params"].universe_id == universe_id
+    assert result["params"].entity_type.value == "character"
+    assert result["params"].name == "Gandalf"
+

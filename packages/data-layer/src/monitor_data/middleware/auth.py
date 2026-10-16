@@ -40,6 +40,8 @@ AUTHORITY_MATRIX = {
     "neo4j_create_entity": ["CanonKeeper"],
     "neo4j_get_entity": ["*"],
     "neo4j_list_entities": ["*"],
+    "neo4j_list_archetypes": ["*"],
+    "neo4j_search_entities": ["*"],
     "neo4j_update_entity": ["CanonKeeper"],
     "neo4j_delete_entity": ["CanonKeeper"],
     "neo4j_tick_agendas": ["CanonKeeper", "StoryLoop"],
@@ -77,6 +79,7 @@ AUTHORITY_MATRIX = {
     "neo4j_get_story": ["*"],
     "neo4j_list_stories": ["*"],
     "neo4j_update_story": ["CanonKeeper"],
+    "neo4j_update_story_status": ["CanonKeeper"],
     # =========================================================================
     # NEO4J OPERATIONS - Sources
     # =========================================================================
@@ -125,7 +128,7 @@ AUTHORITY_MATRIX = {
     "mongodb_create_scene": ["CanonKeeper", "Narrator"],
     "mongodb_get_scene": ["*"],
     "mongodb_get_scene_summary": ["*"],
-    "mongodb_update_scene": ["CanonKeeper", "Narrator"],
+    "mongodb_update_scene": ["CanonKeeper", "Narrator", "ApplicationExitHandler"],
     "mongodb_list_scenes": ["*"],
     # =========================================================================
     # MONGODB OPERATIONS - Turns
@@ -152,9 +155,9 @@ AUTHORITY_MATRIX = {
     # =========================================================================
     # MONGODB OPERATIONS - Character Sheets
     # =========================================================================
-    "mongodb_create_character_sheet": ["CanonKeeper"],
+    "mongodb_create_character_sheet": ["CanonKeeper", "CharacterCreator"],
     "mongodb_get_character_sheet": ["*"],
-    "mongodb_update_character_sheet": ["CanonKeeper"],
+    "mongodb_update_character_sheet": ["CanonKeeper", "CharacterCreator"],
     # =========================================================================
     # MONGODB OPERATIONS - Documents
     # =========================================================================

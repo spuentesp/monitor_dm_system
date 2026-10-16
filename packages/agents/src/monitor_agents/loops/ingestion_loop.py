@@ -103,14 +103,22 @@ async def process_text(state: IngestionState) -> dict[str, Any]:
 
     # 1. Indexing
     job_id = state.job_id or uuid4()
+    index_metadata: dict[str, Any] = {
+        "universe_id": str(state.universe_id),
+        "job_id": str(job_id),
+        "ingestion_job_id": str(job_id),
+    }
+    if state.doc_id is not None:
+        index_metadata["doc_id"] = str(state.doc_id)
+        index_metadata["source_document_id"] = str(state.doc_id)
+    if state.source_id is not None:
+        index_metadata["source_id"] = str(state.source_id)
+
     await indexer.index(
         file_bytes=state.file_bytes,  # type: ignore[arg-type]
         filename=state.filename,
         source_name=state.source_title,
-        metadata={
-            "universe_id": str(state.universe_id),
-            "job_id": str(job_id),
-        },
+        metadata=index_metadata,
     )
 
     # 1.5 Triage & Mechanics Extraction
@@ -136,7 +144,8 @@ async def process_text(state: IngestionState) -> dict[str, Any]:
         
         extracted_mechanics = []
         for point in scroll_res:
-            text = point.payload.get("page_content", "") if point.payload else ""
+            payload = point.payload or {}
+            text = payload.get("text") or payload.get("page_content", "")
             if not text:
                 continue
                 

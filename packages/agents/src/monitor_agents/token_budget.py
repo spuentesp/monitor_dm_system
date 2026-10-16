@@ -22,6 +22,7 @@ import functools
 
 import tiktoken
 from monitor_data.schemas.llm_config import ModelRole
+from monitor_data.tools.ingest_tools._models import _FallbackEncoding
 
 # ---------------------------------------------------------------------------
 # Model → encoding mapping
@@ -52,9 +53,12 @@ def _resolve_encoding(model: str) -> str:
 
 
 @functools.lru_cache(maxsize=32)
-def _get_encoder(encoding_name: str) -> tiktoken.Encoding:
-    """Cache tiktoken encoders to avoid re-initialization."""
-    return tiktoken.get_encoding(encoding_name)
+def _get_encoder(encoding_name: str) -> tiktoken.Encoding | _FallbackEncoding:
+    """Cache tiktoken encoders to avoid re-initialization, with offline fallback."""
+    try:
+        return tiktoken.get_encoding(encoding_name)
+    except Exception:
+        return _FallbackEncoding()
 
 
 def count_tokens(text: str, model: str = "gpt-4o") -> int:

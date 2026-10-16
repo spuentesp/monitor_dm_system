@@ -787,6 +787,11 @@ def mongodb_apply_knowledge_pack(pack_id: UUID, params: ApplyKnowledgePackReques
             proposals_created += 1
 
     if proposal_docs:
+        source_doc_id = str(pack.source_document_ids[0]) if pack.source_document_ids else None
+        for doc in proposal_docs:
+            doc.setdefault("pack_id", str(pack_id))
+            if source_doc_id and not doc.get("source_document_id"):
+                doc["source_document_id"] = source_doc_id
         proposals_collection.insert_many(proposal_docs)
 
     # Record this application on the pack

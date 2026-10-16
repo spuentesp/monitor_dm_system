@@ -69,6 +69,7 @@ def discover_tools() -> None:
         (mongodb_tools, "mongodb_"),
         (qdrant_tools, "qdrant_"),
         (ingest_tools, "ingest_"),
+        (ingest_tools, "minio_"),
     ]
 
     for module, prefix in modules:

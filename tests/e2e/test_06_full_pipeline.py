@@ -101,3 +101,65 @@ class TestFullPipeline:
             or "shadowed alley" in turn.text.lower()
             for turn in scene.turns
         )
+
+        # Verify cross-store invariants across Neo4j and MongoDB after turn execution
+        from tests.e2e.conftest import assert_cross_store_invariants
+
+        assert_cross_store_invariants(universe_id=seeded_world["universe_id"])
+
+    @pytest.mark.asyncio
+    async def test_write_then_read_and_cold_checkpoint_rehydration(
+        self,
+        seeded_world: dict[str, Any],
+        e2e_story: Any,
+        e2e_scene: Any,
+    ) -> None:
+        """
+        Verify:
+        1. Write-Then-Read closure: entities & turns persisted in Neo4j/MongoDB are
+           retrievable via the real data-layer tools used by ContextAssembly.
+        2. Cold checkpoint rehydration: SceneState survives full JSON serialization
+           and rehydration into a clean instance with GMVerdict intact.
+        """
+        import json
+        from monitor_agents.gm_awareness import ActionType, CausalityAction, IntentType, RollNecessity
+        from monitor_agents.gm_tools.contracts import GMVerdict
+        from monitor_agents.loops.scene_loop import SceneState
+        from monitor_data.tools.neo4j_tools import neo4j_get_entity
+
+        hero = neo4j_get_entity(seeded_world["pc_hero_id"])
+        assert hero is not None
+        assert hero.name == "Aldric the Bold"
+
+        verdict = GMVerdict(
+            intent_type=IntentType.DIALOGUE,
+            action_type=ActionType.DIALOGUE,
+            roll_necessity=RollNecessity.PROPOSE_ROLL,
+            causality_action=CausalityAction.ACCEPT,
+            suggested_stat="Charisma",
+            suggested_dc=14,
+            narrative_draft="High Priestess Mara listens carefully in the temple shadows.",
+            reasoning="Player questions High Priestess Mara.",
+        )
+        state = SceneState(
+            scene_id=e2e_scene.scene_id,
+            story_id=e2e_story.id,
+            universe_id=seeded_world["universe_id"],
+            entity_context=[hero.model_dump(mode="json")],
+            user_input="I ask Mara about the Void Cult.",
+            gm_verdict=verdict,
+            turns_count=1,
+            durable_turn_count=1,
+        )
+
+        # Cold serialize to JSON and rehydrate into a brand-new SceneState
+        rehydrated = SceneState.model_validate(json.loads(state.model_dump_json()))
+        assert rehydrated.scene_id == e2e_scene.scene_id
+        assert rehydrated.entity_context[0]["name"] == "Aldric the Bold"
+        assert isinstance(rehydrated.gm_verdict, GMVerdict)
+        assert rehydrated.gm_verdict.narrative_draft == verdict.narrative_draft
+
+        from tests.e2e.conftest import assert_cross_store_invariants
+
+        assert_cross_store_invariants(universe_id=seeded_world["universe_id"])
+

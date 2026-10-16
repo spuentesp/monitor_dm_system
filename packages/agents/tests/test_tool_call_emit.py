@@ -119,3 +119,41 @@ async def test_call_tool_emits_error_on_exception(stub_agent, monkeypatch):
     err = events[1][1]
     assert "neo4j unreachable" in err["error"]
     assert "result_preview" not in err
+
+
+@pytest.mark.asyncio
+async def test_call_tool_rejects_unserializable_arguments(stub_agent):
+    """Wire boundary: passing a set or raw UUID to call_tool must raise TypeError."""
+    import uuid
+
+    with pytest.raises(TypeError):
+        await stub_agent.call_tool("neo4j_search", {"tags": {"a", "b"}})
+
+    with pytest.raises(TypeError):
+        await stub_agent.call_tool("neo4j_search", {"entity_id": uuid.uuid4()})
+
+
+@pytest.mark.asyncio
+async def test_call_tool_raises_on_authorization_and_validation_errors(stub_agent, monkeypatch):
+    """When server.py returns an Authorization or Validation error string, call_tool raises."""
+
+    class _R:
+        def __init__(self, t: str) -> None:
+            self.text = t
+
+    import monitor_data.server as srv
+
+    async def fake_auth_err(tool_name: str, args: dict) -> list:
+        return [_R("Authorization error: Narrator cannot call neo4j_create_entity")]
+
+    monkeypatch.setattr(srv, "call_tool", fake_auth_err, raising=False)
+    with pytest.raises(PermissionError, match="Authorization error:"):
+        await stub_agent.call_tool("neo4j_create_entity", {"name": "Forbidden"})
+
+    async def fake_val_err(tool_name: str, args: dict) -> list:
+        return [_R("Validation error: Field required: universe_id")]
+
+    monkeypatch.setattr(srv, "call_tool", fake_val_err, raising=False)
+    with pytest.raises(ValueError, match="Validation error:"):
+        await stub_agent.call_tool("neo4j_create_entity", {"name": "BadPayload"})
+

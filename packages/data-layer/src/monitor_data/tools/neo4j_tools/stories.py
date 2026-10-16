@@ -216,8 +216,9 @@ def neo4j_update_story(story_id: UUID, params: StoryUpdate) -> StoryResponse:
         valid_transitions = {
             StoryStatus.PLANNED: [StoryStatus.ACTIVE, StoryStatus.ABANDONED],
             StoryStatus.ACTIVE: [StoryStatus.COMPLETED, StoryStatus.ABANDONED],
-            StoryStatus.COMPLETED: [],  # No transitions from completed
-            StoryStatus.ABANDONED: [],  # No transitions from abandoned
+            StoryStatus.COMPLETED: [StoryStatus.ARCHIVED],
+            StoryStatus.ABANDONED: [StoryStatus.ARCHIVED],
+            StoryStatus.ARCHIVED: [],
         }
 
         if new_status != current_status:
@@ -269,6 +270,24 @@ def neo4j_update_story(story_id: UUID, params: StoryUpdate) -> StoryResponse:
         raise ValueError(f"Story {story_id} not found after update")
 
     return story_data
+
+
+def neo4j_update_story_status(
+    story_id: UUID,
+    status: str,
+    completed_at: str | None = None,
+) -> StoryResponse:
+    """
+    Update a Story node's status (and optional completed_at timestamp) in Neo4j.
+
+    Authority: CanonKeeper, StoryLoop
+    Use Case: DL-4, ST-4
+    """
+    story_status = StoryStatus(status)
+    return neo4j_update_story(
+        story_id=story_id,
+        params=StoryUpdate(status=story_status),
+    )
 
 
 def neo4j_list_stories(params: StoryFilter) -> StoryListResponse:

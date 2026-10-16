@@ -745,18 +745,24 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             if not pid:
                 errors.append("proposal missing proposal_id")
                 continue
+            set_fields: dict[str, Any] = {
+                "status": ProposalStatus.PENDING.value,
+                "source": source_key,
+                "meta.batch_id": str(ingestion_job_id),
+                "meta.requires_review": True,
+                "meta.enqueued_at": datetime.now(UTC),
+            }
+            orig_source = str(proposal.get("source") or "")
+            if proposal.get("pack_id"):
+                set_fields["pack_id"] = str(proposal["pack_id"])
+            elif orig_source.startswith("knowledge_pack:"):
+                set_fields["pack_id"] = orig_source.split(":", 1)[1]
+            if source_ids:
+                set_fields["meta.source_ids"] = [str(sid) for sid in source_ids]
             try:
                 proposals_coll.update_one(
                     {"proposal_id": pid},
-                    {
-                        "$set": {
-                            "status": ProposalStatus.PENDING.value,
-                            "source": source_key,
-                            "meta.batch_id": str(ingestion_job_id),
-                            "meta.requires_review": True,
-                            "meta.enqueued_at": datetime.now(UTC),
-                        }
-                    },
+                    {"$set": set_fields},
                 )
                 enqueued += 1
             except Exception as exc:
@@ -1012,6 +1018,8 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
 
         # Fetch ACCEPTED proposals (set by the review UI)
         proposals = list(proposals_coll.find({"source": source_key, "status": "accepted"}))
+        if not proposals:
+            proposals = list(proposals_coll.find({"pack_id": str(pack_id), "status": "accepted"}))
 
         if not proposals:
             return {"committed": 0, "errors": []}
@@ -1122,6 +1130,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             CanonKeeperDecision,
             CanonKeeperVerdict,
         )
+        from monitor_data.schemas.knowledge_packs import KnowledgePackStatus as KPS
 
         mongodb = get_mongodb_client()
         proposals_coll = mongodb.get_collection("proposed_changes")
@@ -1163,6 +1172,53 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 committed += 1
             except Exception as exc:
                 errors.append(str(exc))
+
+        pack_id_val = (job_doc or {}).get("pack_id") or (proposals[0].get("pack_id") if proposals else None)
+        if pack_id_val:
+            pack_doc = mongodb.get_collection("knowledge_packs").find_one({"pack_id": str(pack_id_val)})
+            if pack_doc and pack_doc.get("game_system_data"):
+                from monitor_data.schemas.knowledge_packs import EmbeddedGameSystem
+
+                try:
+                    gs = EmbeddedGameSystem(**pack_doc["game_system_data"])
+                    system_id = gs.name or "unknown_system"
+                    for ability in gs.tiered_abilities or []:
+                        neo4j_create_ability_system(
+                            name=ability.name,
+                            system_id=system_id,
+                            parent_category=ability.parent_category,
+                        )
+                    for track in gs.tracks or []:
+                        neo4j_create_track(
+                            name=track.name,
+                            system_id=system_id,
+                            track_type=track.track_type,
+                        )
+                    for condition in gs.conditions or []:
+                        neo4j_create_condition(
+                            name=condition.name,
+                            system_id=system_id,
+                        )
+                    for rm in gs.resolution_mechanics or []:
+                        neo4j_create_resolution_mechanic(
+                            name=rm.dice_formula,
+                            system_id=system_id,
+                            mechanic_type=rm.mechanic_type.value,
+                        )
+                except Exception as exc:
+                    logger.warning("Failed to write mechanic nodes: %s", exc)
+                    errors.append(f"mechanic_nodes: {exc}")
+                    await RoleplayErrorRecorder.record(
+                        source=RoleplayErrorSource.CANONKEEPER,
+                        category=RoleplayErrorCategory.CANONKEEPER_WRITE_FAILED,
+                        message=str(exc),
+                        fatal=False,
+                        universe_id=_safe_uuid(pack_doc.get("universe_id")) if pack_doc else None,
+                    )
+            mongodb.get_collection("knowledge_packs").update_one(
+                {"pack_id": str(pack_id_val)},
+                {"$set": {"status": KPS.APPLIED.value}},
+            )
 
         return {"committed": committed, "errors": errors}
 

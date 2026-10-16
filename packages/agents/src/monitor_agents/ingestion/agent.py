@@ -522,7 +522,9 @@ class IngestionPipeline(BaseAgent):
                         "universe_id": str(universe_id),
                         "source_id": str(source_id),
                         "doc_id": str(doc_id),
+                        "source_document_id": str(doc_id),
                         "job_id": str(job_id),
+                        "ingestion_job_id": str(job_id),
                     },
                 )
                 snippet_count = _extract_snippet_count(index_result)
@@ -624,6 +626,7 @@ class IngestionPipeline(BaseAgent):
                         multiverse_id=multiverse_id,
                         universe_id=universe_id,
                         analysis_result=analysis_result,
+                        source_id=source_id,
                     )
                 except Exception as canon_exc:
                     logger.warning("Auto-canonization failed for job %s: %s", job_id, canon_exc)
@@ -852,6 +855,7 @@ class IngestionPipeline(BaseAgent):
         multiverse_id: UUID,
         universe_id: UUID | None,
         analysis_result: Any,
+        source_id: UUID | None = None,
     ) -> tuple[int, int]:
         """Run the ingest-time canonization step.
 
@@ -903,6 +907,7 @@ class IngestionPipeline(BaseAgent):
             return 0, 0
 
         keeper = CanonKeeper(agent_id=f"canonize-{job_id}")
+        source_ids = [source_id] if source_id is not None else None
 
         if not _auto_canonize_enabled():
             # ── Default: enqueue for human review ────────────────────────
@@ -914,6 +919,7 @@ class IngestionPipeline(BaseAgent):
             result = await keeper.bulk_enqueue_proposals(
                 proposals,
                 ingestion_job_id=job_id,
+                source_ids=source_ids,
             )
             errors = len(result.get("errors", []))
             return result.get("enqueued", 0), errors
@@ -933,6 +939,7 @@ class IngestionPipeline(BaseAgent):
         result = await keeper.bulk_commit_proposals(
             proposals,
             universe_id=universe_id,
+            source_ids=source_ids,
             contradiction_check=True,
         )
         committed = result["committed"]

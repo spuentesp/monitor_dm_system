@@ -115,4 +115,21 @@ __all__ = [
     "_strip_html",
     "_extract_docx_text",
     "_extract_epub_text",
+    "minio_download",
 ]
+
+
+def minio_download(object_key: str) -> str:
+    """
+    Download an object from MinIO and return its raw bytes encoded as base64 ASCII.
+
+    Authority: All agents (read-only)
+    """
+    import base64
+    from monitor_data.db._utils import run_sync
+    from monitor_data.db.minio import get_minio_client
+
+    client = get_minio_client()
+    data = run_sync(client.download(object_key))
+    return base64.b64encode(data).decode("ascii")
+

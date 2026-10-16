@@ -1773,7 +1773,11 @@ class Analyzer(BaseAgent):
                         continue
                     seen_texts.add(text)
                     total_chunks += 1
-                    section_path = payload.get("section_path") or "General"
+                    section_path = (
+                        payload.get("section_path")
+                        or " > ".join(str(h) for h in (payload.get("heading_path") or []) if h)
+                        or "General"
+                    )
                     page = payload.get("page_number") or 0
                     idx = payload.get("chunk_index") or 0
 
@@ -1825,7 +1829,11 @@ class Analyzer(BaseAgent):
                         if not text or text in seen_texts:
                             continue
                         seen_texts.add(text)
-                        section_path = payload.get("section_path") or "General"
+                        section_path = (
+                            payload.get("section_path")
+                            or " > ".join(str(h) for h in (payload.get("heading_path") or []) if h)
+                            or "General"
+                        )
                         page = payload.get("page_number") or 0
                         idx = payload.get("chunk_index") or 0
                         append_section_chunk(
@@ -1902,7 +1910,11 @@ class Analyzer(BaseAgent):
                     if not text or text in seen_texts:
                         continue
 
-                    section_path = payload.get("section_path") or "General"
+                    section_path = (
+                        payload.get("section_path")
+                        or " > ".join(str(h) for h in (payload.get("heading_path") or []) if h)
+                        or "General"
+                    )
                     heading_blob = f"{section_path}\n{text[:500]}".lower()
                     if not any(
                         keyword in heading_blob for keyword in _REFERENCE_SECTION_KEYWORDS

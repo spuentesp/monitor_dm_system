@@ -80,8 +80,10 @@ PAYLOAD_INDEX_CONFIGS: dict[str, dict[str, Any]] = {
     "snippets": {
         "snippet_id": PayloadSchemaType.UUID,
         "doc_id": PayloadSchemaType.UUID,
+        "source_document_id": PayloadSchemaType.UUID,
         "source_id": PayloadSchemaType.UUID,
         "universe_id": PayloadSchemaType.UUID,
+        "job_id": PayloadSchemaType.UUID,
         "ingestion_job_id": PayloadSchemaType.UUID,
         "section": PayloadSchemaType.KEYWORD,
         "page": PayloadSchemaType.INTEGER,

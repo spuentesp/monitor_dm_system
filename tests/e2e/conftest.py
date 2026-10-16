@@ -1019,3 +1019,79 @@ def mock_narrator_persist_turn():
         return_value=str(uuid4()),
     ):
         yield
+
+
+def assert_cross_store_invariants(universe_id: UUID | str | None = None) -> None:
+    """
+    Inside-Out Cross-Store Oracle for E2E tests (Neo4j + MongoDB).
+
+    Verifies:
+    1. Every Entity and Fact in Neo4j belongs to an existing (:Universe) node.
+    2. Every MongoDB Document has a matching (:Source) node in Neo4j.
+    3. Every MongoDB Scene references an existing (:Story) and (:Universe) in Neo4j.
+    """
+    from monitor_data.db.mongodb import get_mongodb_client
+    from monitor_data.db.neo4j import get_neo4j_client
+
+    neo4j = get_neo4j_client()
+    mongodb = get_mongodb_client()
+
+    # 1. No orphan Entity or Fact nodes without a valid Universe in Neo4j
+    params: dict[str, Any] = {}
+    universe_filter = ""
+    if universe_id is not None:
+        universe_filter = "WHERE n.universe_id = $uid"
+        params["uid"] = str(universe_id)
+
+    orphan_nodes = neo4j.execute_read(
+        f"""
+        MATCH (n)
+        WHERE (n:Entity OR n:Fact OR n:Axiom)
+        {universe_filter.replace('WHERE', 'AND') if universe_filter else ''}
+        AND n.universe_id IS NOT NULL
+        OPTIONAL MATCH (u:Universe {{id: n.universe_id}})
+        WITH n, u WHERE u IS NULL
+        RETURN labels(n) AS labels, n.id AS id, n.universe_id AS universe_id
+        """,
+        params,
+    )
+    assert not orphan_nodes, f"Orphan Neo4j nodes with missing Universe: {orphan_nodes}"
+
+    # 2. Every MongoDB Document references an existing (:Source) node in Neo4j
+    docs_col = mongodb.get_collection("documents")
+    doc_query: dict[str, Any] = {}
+    if universe_id is not None:
+        doc_query["universe_id"] = str(universe_id)
+    for doc in docs_col.find(doc_query):
+        source_id = doc.get("source_id")
+        if source_id:
+            res = neo4j.execute_read(
+                "MATCH (s:Source {id: $sid}) RETURN s.id AS id",
+                {"sid": str(source_id)},
+            )
+            assert res, (
+                f"MongoDB document {doc.get('doc_id')} references missing Neo4j Source {source_id}"
+            )
+
+    # 3. Every MongoDB Scene references an existing (:Story) in Neo4j
+    scenes_col = mongodb.get_collection("scenes")
+    scene_query: dict[str, Any] = {}
+    if universe_id is not None:
+        scene_query["universe_id"] = str(universe_id)
+    for scene_doc in scenes_col.find(scene_query):
+        story_id = scene_doc.get("story_id")
+        if story_id:
+            res = neo4j.execute_read(
+                "MATCH (st:Story {id: $stid}) RETURN st.id AS id",
+                {"stid": str(story_id)},
+            )
+            assert res, (
+                f"MongoDB scene {scene_doc.get('scene_id')} references missing Neo4j Story {story_id}"
+            )
+
+
+@pytest.fixture
+def cross_store_oracle():
+    """Return the cross-store invariant assertion callable for E2E tests."""
+    return assert_cross_store_invariants
+

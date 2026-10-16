@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from monitor_data.db.neo4j import get_neo4j_client
+from monitor_data.schemas.base import EntityType
 from monitor_data.schemas.entities import (
     BatchError,
     EntityCreate,
@@ -1037,3 +1038,59 @@ def neo4j_batch_delete_entities(
         "failed": len(errors),
         "errors": errors,
     }
+
+
+def neo4j_list_archetypes(universe_id: UUID) -> list[dict[str, Any]]:
+    """
+    List all archetype entities in a universe.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-2, M-13
+    """
+    resp = neo4j_list_entities(
+        EntityFilter(
+            universe_id=universe_id,
+            is_archetype=True,
+            limit=200,
+        )
+    )
+    return [e.model_dump(mode="json") for e in resp.entities]
+
+
+def neo4j_search_entities(
+    universe_id: UUID,
+    query: str,
+    entity_type: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Search entities in a universe by name or description substring.
+
+    Authority: Any agent (read-only)
+    Use Case: DL-2, M-13
+    """
+    is_arch = True if entity_type == "archetype" else None
+    etype = None
+    if entity_type and entity_type != "archetype":
+        try:
+            etype = EntityType(entity_type)
+        except ValueError:
+            etype = None
+
+    resp = neo4j_list_entities(
+        EntityFilter(
+            universe_id=universe_id,
+            entity_type=etype,
+            is_archetype=is_arch,
+            limit=200,
+        )
+    )
+    q_lower = query.strip().lower()
+    matches = [
+        e.model_dump(mode="json")
+        for e in resp.entities
+        if not q_lower
+        or q_lower in e.name.lower()
+        or q_lower in (e.description or "").lower()
+    ]
+    return matches
+

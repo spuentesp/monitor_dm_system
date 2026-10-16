@@ -239,3 +239,27 @@ class TestContractCompliance:
             assert hasattr(FakePostgresClient, method), (
                 f"FakePostgresClient missing {method}"
             )
+
+    @pytest.mark.asyncio
+    async def test_mcp_client_wire_serializability(self):
+        """FakeMCPClient must reject non-JSON-serializable params just like JSON-RPC wire."""
+        from tests.mocks.agents.mcp import make_mock_mcp_client
+
+        client = make_mock_mcp_client()
+        with pytest.raises(TypeError):
+            await client.call_tool("neo4j_get_entity", {"tags": {"unserializable_set"}})
+        with pytest.raises(TypeError):
+            await client.call("neo4j_get_entity", {"tags": {"unserializable_set"}})
+
+    def test_mcp_tool_registry_contract(self):
+        """All default tools in make_mock_mcp_client must exist in monitor_data.server.TOOL_REGISTRY."""
+        from monitor_data.server import TOOL_REGISTRY
+        from tests.mocks.agents.mcp import make_mock_mcp_client
+
+        client = make_mock_mcp_client()
+        configured_tools = set(client.responses.keys())
+        missing = configured_tools - set(TOOL_REGISTRY.keys())
+        assert not missing, (
+            f"FakeMCPClient configured tools missing from monitor_data.server.TOOL_REGISTRY: {missing}"
+        )
+

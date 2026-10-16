@@ -50,10 +50,21 @@ class CharacterCreator(BaseAgent):
         self._mcp_client = mcp_client
         self._llm_client = llm_client
 
+    async def _call_neo4j_write_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
+        """Delegate Neo4j writes to CanonKeeper unless a mock MCP client is injected."""
+        if self._mcp_client is not None:
+            return await self._mcp_client.call_tool(tool_name, arguments)
+        from monitor_agents.canonkeeper.agent import CanonKeeper
+
+        canonkeeper = CanonKeeper()
+        return await canonkeeper.call_tool(tool_name, arguments)
+
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """Call an MCP tool, using injected client if available."""
         if self._mcp_client is not None:
             return await self._mcp_client.call_tool(tool_name, arguments)
+        if tool_name in {"neo4j_create_entity", "neo4j_create_relationship"}:
+            return await self._call_neo4j_write_tool(tool_name, arguments)
         return await super().call_tool(tool_name, arguments)
 
     def validate_character_params(
@@ -138,8 +149,8 @@ class CharacterCreator(BaseAgent):
         # Validate parameters
         validated = self.validate_character_params(name, role, description, stats)
 
-        # Create entity in Neo4j
-        entity_result = await self.call_tool(
+        # Create entity in Neo4j (delegated to CanonKeeper in production)
+        entity_result = await self._call_neo4j_write_tool(
             "neo4j_create_entity",
             {
                 "universe_id": universe_id,
@@ -160,7 +171,7 @@ class CharacterCreator(BaseAgent):
         # Create DERIVES_FROM relationship if archetype specified
         if archetype_id:
             try:
-                await self.call_tool(
+                await self._call_neo4j_write_tool(
                     "neo4j_create_relationship",
                     {
                         "from_id": entity_id,

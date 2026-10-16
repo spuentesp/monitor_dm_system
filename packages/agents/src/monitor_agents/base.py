@@ -186,7 +186,8 @@ class BaseAgent(ABC):
 
         call_id = str(_uuid.uuid4())
         cb = stream_callback_var.get()
-        full_args = {**arguments, "agent_type": self.agent_type, "agent_id": self.agent_id}
+        raw_full_args = {**arguments, "agent_type": self.agent_type, "agent_id": self.agent_id}
+        full_args = json.loads(json.dumps(raw_full_args))
         if cb is not None:
             try:
                 loop = asyncio.get_running_loop()
@@ -265,6 +266,10 @@ class BaseAgent(ABC):
                 return result
 
             stripped = result.strip()
+            if stripped.startswith("Authorization error:"):
+                raise PermissionError(stripped)
+            if stripped.startswith("Validation error:"):
+                raise ValueError(stripped)
             if stripped:
                 should_parse = (
                     stripped[0] in '[{"'

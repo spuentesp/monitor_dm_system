@@ -131,6 +131,9 @@ class _CallToolProxy:
         self, tool_name: str, params: dict[str, Any] | None = None, **kwargs: Any
     ) -> Any:
         """Allow ``await fake_mcp_client.call_tool("name", {...})`` usage."""
+        import json
+
+        json.dumps(params or {})
         self._parent._call_tool_call_count += 1
         self._parent._call_tool_last_args = (tool_name, params or {})
         self._parent._call_tool_all_args.append((tool_name, params or {}))
@@ -218,6 +221,9 @@ class FakeMCPClient:
         params: dict[str, Any],
         context: dict[str, Any] | None = None,
     ) -> Any:
+        import json
+
+        json.dumps(params or {})
         ctx = context or {}
         self._calls.append(FakeCall(tool_name, params, ctx))
         if tool_name in self.responses:

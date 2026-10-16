@@ -241,6 +241,20 @@ class SceneState(BaseModel):
     # Consistency violations detected by check_consistency node.
     consistency_violations: list[dict[str, Any]] = Field(default_factory=list)
 
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__pydantic_init_subclass__(**kwargs)
+
+    def model_post_init(self, __context: Any) -> None:
+        if isinstance(self.gm_verdict, dict):
+            from monitor_agents.gm_tools.contracts import GMVerdict
+
+            try:
+                self.gm_verdict = GMVerdict.from_dict(self.gm_verdict)
+            except Exception:
+                pass
+
+
 
 # =============================================================================
 # NODES

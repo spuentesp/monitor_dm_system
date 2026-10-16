@@ -291,6 +291,11 @@ def chunk_text(
     overlap_tokens = max(1, int(chunk_size * overlap_ratio))
     max_tokens = chunk_size
     base_metadata = dict(metadata or {})
+    inherited_section_path: str | None = base_metadata.get("section_path")
+    if not inherited_section_path and isinstance(base_metadata.get("heading_path"), list) and base_metadata["heading_path"]:
+        inherited_section_path = " > ".join(str(h) for h in base_metadata["heading_path"] if h)
+    inherited_category: str | None = base_metadata.get("semantic_category")
+
     blocks = _split_structured_blocks(text)
 
     chunks: list[IngestedChunk] = []
@@ -301,22 +306,28 @@ def chunk_text(
     buffer_section: str | None = None
     chunk_index = 0
 
+    def _resolve_category(section_label: str | None, body_str: str, tags: list[str]) -> str:
+        if inherited_category and inherited_category != "general":
+            return inherited_category
+        headings = list(base_metadata.get("heading_path") or [])
+        if section_label and section_label not in headings:
+            headings.append(section_label)
+        return _classify_semantic_category(headings, body_str, tags)
+
     def flush_buffer() -> None:
         nonlocal buffer_texts, buffer_types, buffer_tags, buffer_tokens, buffer_section, chunk_index
         if not buffer_texts:
             return
         chunk_text_str = "\n\n".join(buffer_texts).strip()
         token_count = len(_tokenize(chunk_text_str))
+        effective_section = inherited_section_path or buffer_section
+        effective_tags = sorted(buffer_tags) or ["general"]
         chunk_metadata = {
             **base_metadata,
-            "section_path": buffer_section,
+            "section_path": effective_section,
             "chunk_type": buffer_types[0] if len(set(buffer_types)) == 1 else "mixed",
-            "topic_tags": sorted(buffer_tags) or ["general"],
-            "semantic_category": _classify_semantic_category(
-                [buffer_section] if buffer_section else [],
-                chunk_text_str,
-                sorted(buffer_tags) or ["general"],
-            ),
+            "topic_tags": effective_tags,
+            "semantic_category": _resolve_category(effective_section, chunk_text_str, effective_tags),
         }
         chunk_id = IngestedChunk.stable_id(source_name, chunk_index, chunk_text_str)
         chunks.append(
@@ -346,15 +357,17 @@ def chunk_text(
             token_ids = _tokenize(block_text)
             for sub_ids in _split_tokens(token_ids, max_tokens, overlap_tokens):
                 sub_text = _detokenize(sub_ids)
+                effective_section = inherited_section_path or block.get("section_path")
+                effective_tags = block.get("topic_tags", ["general"])
                 chunk_metadata = {
                     **base_metadata,
-                    "section_path": block.get("section_path"),
+                    "section_path": effective_section,
                     "chunk_type": block.get("chunk_type", "paragraph"),
-                    "topic_tags": block.get("topic_tags", ["general"]),
-                    "semantic_category": _classify_semantic_category(
-                        [str(block["section_path"])] if block.get("section_path") else [],
+                    "topic_tags": effective_tags,
+                    "semantic_category": _resolve_category(
+                        str(effective_section) if effective_section else None,
                         sub_text,
-                        block.get("topic_tags", ["general"]),
+                        effective_tags,
                     ),
                 }
                 chunk_id = IngestedChunk.stable_id(source_name, chunk_index, sub_text)

@@ -168,3 +168,66 @@ class TestIngestionLoop:
         """IngestionLoop should have run method."""
         loop = IngestionLoop()
         assert hasattr(loop, "run")
+
+
+@pytest.mark.asyncio
+async def test_process_text_reads_qdrant_text_payload_and_normalizes_metadata():
+    """process_text must pass normalized provenance keys to Indexer and read 'text' from Qdrant points."""
+    from monitor_agents.loops.ingestion_loop import process_text
+
+    u_id = uuid4()
+    job_id = uuid4()
+    doc_id = uuid4()
+    source_id = uuid4()
+
+    state = IngestionState(
+        universe_id=u_id,
+        job_id=job_id,
+        doc_id=doc_id,
+        source_id=source_id,
+        filename="rules.pdf",
+        file_bytes=b"Armor Class (AC) is 10 + DEX modifier.",
+        source_title="Core Rulebook",
+        pack_name="Core Rules",
+    )
+
+    fake_point = MagicMock()
+    # IngestedChunk.to_qdrant_payload() stores the chunk text under "text", not "page_content"
+    fake_point.payload = {"text": "Armor Class (AC) is 10 + DEX modifier."}
+
+    fake_qdrant_inner = MagicMock()
+    fake_qdrant_inner.scroll = AsyncMock(return_value=([fake_point], None))
+    fake_qdrant_wrapper = MagicMock()
+    fake_qdrant_wrapper.get_client.return_value = fake_qdrant_inner
+
+    fake_analysis = MagicMock()
+    fake_analysis.entities = []
+    fake_analysis.axioms = []
+    fake_analysis.facts = []
+
+    with (
+        patch("monitor_agents.loops.ingestion_loop.Indexer.index", new_callable=AsyncMock) as mock_index,
+        patch("monitor_agents.loops.ingestion_loop.Analyzer.analyze", new_callable=AsyncMock, return_value=fake_analysis),
+        patch("monitor_data.db.qdrant.get_qdrant_client", return_value=fake_qdrant_wrapper),
+        patch("monitor_agents.ingestion.triage.TriageAgent.triage", return_value=["#mechanics"]) as mock_triage,
+        patch(
+            "monitor_agents.ingestion.mechanics_architect.MechanicsArchitect.extract",
+            return_value={"rule": "AC = 10 + DEX"},
+        ) as mock_extract,
+    ):
+        res = await process_text(state)
+
+        # Verify Indexer received normalized provenance keys
+        mock_index.assert_awaited_once()
+        passed_meta = mock_index.call_args.kwargs["metadata"]
+        assert passed_meta["job_id"] == str(job_id)
+        assert passed_meta["ingestion_job_id"] == str(job_id)
+        assert passed_meta["doc_id"] == str(doc_id)
+        assert passed_meta["source_document_id"] == str(doc_id)
+        assert passed_meta["source_id"] == str(source_id)
+
+        # Verify TriageAgent and MechanicsArchitect actually received the 'text' payload
+        mock_triage.assert_called_once_with("Armor Class (AC) is 10 + DEX modifier.")
+        mock_extract.assert_called_once_with("Armor Class (AC) is 10 + DEX modifier.")
+        assert res["extracted_mechanics"] == [{"rule": "AC = 10 + DEX"}]
+

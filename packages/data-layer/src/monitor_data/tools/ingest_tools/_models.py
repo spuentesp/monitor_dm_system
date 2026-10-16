@@ -28,9 +28,43 @@ DEFAULT_MAX_TOKENS: int = 512
 RULEBOOK_CHUNK_SIZE: int = 1024
 DEFAULT_OVERLAP_RATIO: float = 0.10  # 10% — per LIBRARY_PLAN DL-B3
 
+class _FallbackEncoding:
+    """Offline fallback tokenizer when tiktoken BPE cache is unavailable and sockets are blocked."""
+
+    def __init__(self) -> None:
+        self._id_to_tok: list[str] = []
+        self._tok_to_id: dict[str, int] = {}
+
+    def encode(self, text: str) -> list[int]:
+        import re
+
+        if not text:
+            return []
+        parts = re.findall(r"\S+\s*|\s+", text)
+        ids: list[int] = []
+        for part in parts:
+            tid = self._tok_to_id.get(part)
+            if tid is None:
+                tid = len(self._id_to_tok)
+                self._id_to_tok.append(part)
+                self._tok_to_id[part] = tid
+            ids.append(tid)
+        return ids
+
+    def decode(self, token_ids: list[int]) -> str:
+        return "".join(self._id_to_tok[tid] for tid in token_ids if 0 <= tid < len(self._id_to_tok))
+
+
+def _load_encoding() -> tiktoken.Encoding | _FallbackEncoding:
+    try:
+        return tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        return _FallbackEncoding()
+
+
 # Tiktoken encoding — cl100k_base is used by Claude / OpenAI text-embedding-3-*
 # Using a consistent encoding across all models avoids chunk-size drift.
-ENCODING = tiktoken.get_encoding("cl100k_base")
+ENCODING: tiktoken.Encoding | _FallbackEncoding = _load_encoding()
 
 # ---------------------------------------------------------------------------
 # Optional dependency guards (graceful degradation)
@@ -70,7 +104,21 @@ class IngestedChunk:
         return str(uuid5(NAMESPACE_URL, seed))
 
     def to_qdrant_payload(self) -> dict[str, Any]:
-        """Serialise for Qdrant point payload."""
+        """Serialise for Qdrant point payload with normalized provenance keys."""
+        meta = dict(self.metadata)
+        job_id = meta.get("ingestion_job_id") or meta.get("job_id")
+        if job_id is not None:
+            meta.setdefault("job_id", str(job_id))
+            meta.setdefault("ingestion_job_id", str(job_id))
+
+        doc_id = meta.get("doc_id") or meta.get("source_document_id")
+        if doc_id is not None:
+            meta.setdefault("doc_id", str(doc_id))
+            meta.setdefault("source_document_id", str(doc_id))
+
+        if not meta.get("section_path") and isinstance(meta.get("heading_path"), list) and meta["heading_path"]:
+            meta["section_path"] = " > ".join(str(h) for h in meta["heading_path"] if h)
+
         return {
             "chunk_id": self.chunk_id,
             "source_name": self.source_name,
@@ -79,7 +127,7 @@ class IngestedChunk:
             "text": self.text,
             "token_count": self.token_count,
             "artifact_type": "source_chunk",
-            **self.metadata,
+            **meta,
         }
 
 

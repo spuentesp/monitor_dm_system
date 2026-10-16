@@ -835,18 +835,26 @@ class Indexer(BaseAgent):
         all_chunks: list[IngestedChunk] = []
         for (block, _), category in zip(blocks_with_tags, categories, strict=False):
             is_rulebook = category in self._RULEBOOK_CATEGORIES
+            section_path = " > ".join(block.heading_path) if block.heading_path else None
+            page_num = (block.page_start + 1) if getattr(block, "page_start", None) is not None else None
             block_chunks = chunk_text(
                 block.text,
                 source_name,
                 is_rulebook=is_rulebook,
+                page_number=page_num,
                 metadata={
                     **(metadata or {}),
                     "semantic_category": category,
                     "heading_path": block.heading_path,
+                    "section_path": section_path,
                     "section_depth": block.depth,
                 },
             )
-            all_chunks.extend(block_chunks)
+            for chunk in block_chunks:
+                global_idx = len(all_chunks)
+                chunk.chunk_index = global_idx
+                chunk.chunk_id = IngestedChunk.stable_id(source_name, global_idx, chunk.text)
+                all_chunks.append(chunk)
 
         return all_chunks
 

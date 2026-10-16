@@ -104,18 +104,51 @@ def validate_tool_input(tool_name: str, tool_function: Callable[..., Any], argum
 
         # Validate using Pydantic schema
         try:
+            other_hints = {name: hint for name, hint in hints.items() if name not in {"return", param_name}}
+            model_field_names = set(getattr(param_schema, "model_fields", {}).keys())
+            consumed_keys: set[str] = {param_name}
+
             if param_name not in arguments:
-                # Check if the parameter has a default value
-                param = sig.parameters.get(param_name)
-                if param and param.default is not inspect.Parameter.empty:
-                    param_value = param.default
+                if param_name == "params" and "updates" in arguments and isinstance(arguments["updates"], (dict, BaseModel)):
+                    param_value = arguments["updates"]
+                    consumed_keys.add("updates")
                 else:
-                    raise ValidationError(
-                        tool_name,
-                        [{"loc": (param_name,), "msg": "Required parameter missing"}],
-                    )
+                    remaining_args = {k: v for k, v in arguments.items() if k not in other_hints}
+                    if remaining_args and (
+                        bool(set(remaining_args.keys()) & model_field_names) or not other_hints
+                    ):
+                        # Filter out unknown extra keys if at least one known model field is present
+                        # unless the model allows extra fields
+                        model_cfg = getattr(param_schema, "model_config", {}) or {}
+                        allows_extra = model_cfg.get("extra") == "allow"
+                        if allows_extra or not (set(remaining_args.keys()) & model_field_names):
+                            param_value = remaining_args
+                        else:
+                            param_value = {
+                                k: v for k, v in remaining_args.items() if k in model_field_names
+                            }
+                        consumed_keys.update(remaining_args.keys())
+                    else:
+                        # Check if the parameter has a default value
+                        param = sig.parameters.get(param_name)
+                        if param and param.default is not inspect.Parameter.empty:
+                            param_value = param.default
+                        else:
+                            raise ValidationError(
+                                tool_name,
+                                [{"loc": (param_name,), "msg": "Required parameter missing"}],
+                            )
             else:
                 param_value = arguments[param_name]
+                if isinstance(param_value, dict):
+                    top_level_model_fields = {
+                        k: v
+                        for k, v in arguments.items()
+                        if k != param_name and k not in other_hints and k in model_field_names
+                    }
+                    if top_level_model_fields:
+                        param_value = {**top_level_model_fields, **param_value}
+                        consumed_keys.update(top_level_model_fields.keys())
 
             # Validate the parameter value against the schema
             if isinstance(param_value, dict):
@@ -125,8 +158,7 @@ def validate_tool_input(tool_name: str, tool_function: Callable[..., Any], argum
                 validated_obj = param_value
 
             # Preserve any additional non-model arguments in the function signature
-            other_hints = {name: hint for name, hint in hints.items() if name not in {"return", param_name}}
-            other_args = {name: value for name, value in arguments.items() if name != param_name}
+            other_args = {name: value for name, value in arguments.items() if name not in consumed_keys}
 
             validated_other_args = (
                 _validate_simple_types(tool_name, other_hints, other_args, sig) if other_hints else {}

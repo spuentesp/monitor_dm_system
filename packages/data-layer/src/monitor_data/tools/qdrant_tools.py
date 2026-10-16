@@ -786,3 +786,51 @@ def qdrant_search_memories(params: MemorySearchRequest) -> MemorySearchResponse:
         query=params.query_text,
         top_k=params.top_k,
     )
+
+
+def qdrant_scroll(
+    collection: str,
+    filter: dict[str, Any] | None = None,
+    limit: int = 10000,
+    with_payload: bool = True,
+    with_vectors: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Scroll through points in a Qdrant collection with optional scalar key-value filter.
+
+    Authority: All agents (read-only)
+    """
+    client = get_qdrant_client()
+    _call_sync(client.ensure_collection(collection))
+    qdrant = client.get_client()
+
+    scroll_filter: Filter | None = None
+    if filter:
+        must_conditions = [
+            FieldCondition(
+                key=str(k),
+                match=MatchValue(value=str(v) if isinstance(v, UUID) else v),
+            )
+            for k, v in filter.items()
+            if v is not None
+        ]
+        if must_conditions:
+            scroll_filter = Filter(must=must_conditions)
+
+    points, _ = _call_sync(
+        qdrant.scroll(
+            collection_name=collection,
+            scroll_filter=scroll_filter,
+            limit=limit,
+            with_payload=with_payload,
+            with_vectors=with_vectors,
+        )
+    )
+    return [
+        {
+            "id": str(getattr(p, "id", "")),
+            "payload": getattr(p, "payload", {}) or {},
+        }
+        for p in (points or [])
+    ]
+

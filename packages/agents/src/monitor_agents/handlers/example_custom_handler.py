@@ -86,11 +86,11 @@ async def commit_story_completion(
     payload = proposal.get("payload", {}) or proposal.get("content", {}) or {}
 
     await agent.call_tool(
-        "neo4j_complete_story",
+        "neo4j_update_story_status",
         {
             "story_id": str(payload.get("story_id", "")),
-            "finale_summary": payload.get("finale_summary", ""),
-            "end_timestamp": payload.get("end_timestamp"),
+            "status": "completed",
+            "completed_at": payload.get("end_timestamp"),
         },
     )
 

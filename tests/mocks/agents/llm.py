@@ -90,6 +90,15 @@ class FakeLLMClient:
             return self._complete_responses.pop(0)
         return "ok"
 
+    async def stream_text(
+        self,
+        messages: list[dict[str, Any]],
+        **override_params: Any,
+    ):
+        """Yield a scripted text response as a single chunk."""
+        text = await self.complete_text(messages, **override_params)
+        yield text
+
 
 class FakeLLMClientBuilder:
     """Fluent builder for FakeLLMClient.
