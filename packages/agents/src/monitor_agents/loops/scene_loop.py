@@ -255,7 +255,7 @@ class SceneState(BaseModel):
 
             try:
                 self.gm_verdict = GMVerdict.from_dict(self.gm_verdict)
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("gm_verdict dict rehydration failed", exc_info=True)
 
 
@@ -302,7 +302,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
                     universe_id=state.universe_id,
                     title="CLI Solo Play Story",
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.info(f"Story creation skipped/failed (might already exist): {e}")
 
             # Create the scene if it doesn't exist and we have a universe_id
@@ -361,7 +361,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
             profile_res = mongodb_get_gm_profile(state.gm_profile_id)
             if profile_res:
                 gm_profile = profile_res.model_dump()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Failed to load GM profile %s: %s", state.gm_profile_id, e)
             await RoleplayErrorRecorder.record(
                 source=RoleplayErrorSource.SCENE_LOOP,
@@ -386,7 +386,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
                 # "resources" key, so the engine never found them and emitted no deltas. Pass the
                 # flat resource snapshot directly.
                 working_state_dict = dict(ws_res.state.resources or {})
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Failed to load working state for actor %s: %s", state.actor_id, e)
             await RoleplayErrorRecorder.record(
                 source=RoleplayErrorSource.SCENE_LOOP,
@@ -412,7 +412,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
                 entity_ids,
             )
             npc_profiles = {str(p.entity_id): p.model_dump(mode="json") for p in profiles}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("load_context: npc profile fetch failed: %s", exc)
 
     # Fetch open foreshadowing (Task 6). Best-effort: failure leaves the block silent.
@@ -427,7 +427,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
             limit=5,
         )
         open_foreshadowing = [r.model_dump(mode="json") for r in items]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("load_context: foreshadowing fetch failed: %s", exc)
 
     # Task 9 (fix round 1): compute the durable scene turn count from Mongo
@@ -889,7 +889,7 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
             gm_notes=(state.resolution.get("risk_preview") or "")[:1000] or None,
             forced_narrative=bool(state.resolution.get("forced_narrative")),
         )
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning(
             "Resolution payload validation failed for scene %s turn %s",
             state.scene_id,
@@ -900,7 +900,7 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
 
     try:
         created = await run_sync_read(mongodb_create_resolution, params)  # type: ignore[var-annotated]
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning(
             "Resolution creation failed for scene %s turn %s",
             state.scene_id,
@@ -931,7 +931,7 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
             actor_context=state.actor_context,
             universe_id=state.universe_id,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning(
             "Working-state persistence failed for scene %s turn %s",
             state.scene_id,
@@ -959,7 +959,7 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
                 summary=checkpoint.get("summary") if checkpoint else None,
                 checkpoint=checkpoint if checkpoint else None,
             )
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning(
             "Scene turn update failed after creating resolution %s",
             resolution_id,
@@ -1002,7 +1002,7 @@ async def canonize_checkpoint(state: SceneState) -> dict[str, Any]:
         )
         if seeded:
             logger.debug("canonize_checkpoint: seeded %d NPC profiles", seeded)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("canonize_checkpoint: NPC profile seeding failed: %s", exc)
     PersistenceService.clear_scene_runtime_cache(state.scene_id, include_entities=True)
     return {"pending_proposals": []}
@@ -1032,7 +1032,7 @@ async def persist_memories_node(state: SceneState) -> dict[str, Any]:
             memories=state.memories_to_persist,
         )
         logger.debug("Persisted %d memories for actor %s", len(created_ids), state.actor_id)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Failed to persist memories: %s", e)
 
     # Return empty dict — we only write, no state changes
@@ -1064,7 +1064,7 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
                 universe_id=state.universe_id,  # type: ignore[arg-type]
                 memories=state.memories_to_persist,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Failed to persist memories in complete_current_scene: %s", e)
 
     # 2. Advance story state
@@ -1089,7 +1089,7 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
             actor_id=state.actor_id,
             universe_id=getattr(state, "universe_id", None),
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("CanonKeeper.end_scene failed (non-fatal): %s", e)
         await RoleplayErrorRecorder.record(
             source=RoleplayErrorSource.CANONKEEPER,
@@ -1192,7 +1192,7 @@ async def check_foreshadowing(state: SceneState) -> dict[str, Any]:
             entities=state.entity_context,
             player_action=state.user_input or "",
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("check_foreshadowing: agent failed: %s", exc)
         return {"foreshadowing_planted": 0, "foreshadowing_paid": 0}
 
@@ -1211,7 +1211,7 @@ async def check_foreshadowing(state: SceneState) -> dict[str, Any]:
                 ),
             )
             planted += 1
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("check_foreshadowing: plant write failed: %s", exc)
 
     open_items = state.scene_foreshadowing_open or []
@@ -1231,7 +1231,7 @@ async def check_foreshadowing(state: SceneState) -> dict[str, Any]:
                 state.turns_count,
             )
             paid += 1
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("check_foreshadowing: payoff write failed: %s", exc)
 
     return {"foreshadowing_planted": planted, "foreshadowing_paid": paid}
@@ -1266,7 +1266,7 @@ async def _lookup_entity_by_name_and_universe(name: str, universe_id: UUID | Non
         if not isinstance(row, dict):
             return None
         return row.get("e")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("_lookup_entity_by_name_and_universe: %s", exc)
         return None
 
@@ -1288,7 +1288,7 @@ async def seed_npc_profiles_for_accepted_proposals(
         from monitor_data.schemas.npc_profiles import NPCProfileCreate
         from monitor_data.tools.mongodb_tools import mongodb_create_npc_profile
         import anyio
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("seed_npc_profiles: imports failed: %s", exc)
         return 0
 
@@ -1337,7 +1337,7 @@ async def seed_npc_profiles_for_accepted_proposals(
             )
             await anyio.to_thread.run_sync(mongodb_create_npc_profile, params)
             seeded += 1
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("seed_npc_profiles: failed for %r: %s", name, exc)
     return seeded
 

@@ -76,7 +76,7 @@ def _coerce_prior(prior: Sequence[ImageSuggestion | dict[str, Any]]) -> list[Ima
             continue
         try:
             out.append(ImageSuggestion.model_validate(item))
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             log.debug("image_suggestions.unparseable_prior_dropped")
     return out
 

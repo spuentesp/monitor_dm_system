@@ -53,7 +53,7 @@ def roll_character(sd: SystemData) -> dict[str, Any]:
             raw = result.total
             value = max(min_val, min(max_val, raw))
             roll_str = f"{formula}({','.join(str(r) for r in result.rolls)}) = {value}"
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("roll_character: roll failed for %s using %s: %s", abbr, formula, exc)
             value = attr.get("default_value", 0)
             roll_str = f"default = {value}"
@@ -301,7 +301,7 @@ def _derive_resources(sd: SystemData, stats: dict[str, int]) -> dict[str, int]:
 
             value = int(eval(resolved, {"__builtins__": {}}, {}))
             derived[res.get("name") or abbr] = value
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             log.debug("derived-stat formula evaluation failed", exc_info=True)
 
     return derived

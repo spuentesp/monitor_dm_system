@@ -188,7 +188,7 @@ class StoryAgent(BaseAgent):
                 scene_id=scene_id,
                 location_type=scene_type_hint,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Procedural population failed for scene %s: %s", scene_id, exc)
 
         return {
@@ -222,7 +222,7 @@ class StoryAgent(BaseAgent):
             agenda_moves = await asyncio.to_thread(neo4j_tick_agendas, str(state.universe_id))
             if agenda_moves:
                 logger.info("NPC Agendas advanced: %s", agenda_moves)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("NPC Agenda tick failed for universe %s: %s", state.universe_id, exc)
 
         # 3. Fetch context for simulation

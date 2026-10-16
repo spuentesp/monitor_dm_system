@@ -21,7 +21,7 @@ def _resolve_oracle_sync(
 
     try:
         like = Likelihood(likelihood)
-    except Exception:
+    except (ValueError, TypeError):
         like = Likelihood.FIFTY_FIFTY
 
     try:
@@ -31,7 +31,7 @@ def _resolve_oracle_sync(
             k: (str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v)
             for k, v in result.items()
         }
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: falls back to `{"question": question, "error": str(exc)` on failure
         return {"question": question, "error": str(exc), "method": "fail"}
 
 

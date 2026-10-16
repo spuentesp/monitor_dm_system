@@ -47,7 +47,7 @@ class EntityProgressionService:
                     current_xp = int(ws.state.xp or 0)
                     current_level = int(ws.state.level or 1)
                     state_id = ws.state.state_id
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("working-state probe failed; falling through to character sheet", exc_info=True)  # Fall through to character sheet
 
         # 1b. Get current XP/level from character sheet
@@ -62,7 +62,7 @@ class EntityProgressionService:
                     sheet = sheets.sheets[0]
                     current_xp = sheet.experience_points
                     current_level = sheet.total_level
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("character sheet XP probe failed", exc_info=True)
 
         # 2. Load the game system's advancement model
@@ -76,7 +76,7 @@ class EntityProgressionService:
                 )
                 if sheets.sheets and sheets.sheets[0].game_system_id:
                     system_id_str = str(sheets.sheets[0].game_system_id)
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("game system lookup from sheet failed", exc_info=True)
 
         if not system_id_str:
@@ -147,7 +147,7 @@ class EntityProgressionService:
                 if ws and getattr(ws, "state", None):
                     current_xp = int(ws.state.xp or 0)
                     current_level = int(ws.state.level or 1)
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("working-state probe failed for downtime XP", exc_info=True)
 
         if current_xp == 0:
@@ -163,7 +163,7 @@ class EntityProgressionService:
                     current_level = sheet.total_level
                     if not system_id and sheet.game_system_id:
                         system_id = str(sheet.game_system_id)
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("character sheet probe failed for downtime", exc_info=True)
 
         # 2. Load advancement model

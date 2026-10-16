@@ -177,7 +177,7 @@ async def open_session(state: ConversationState) -> dict[str, Any]:
         conversation_id = _extract_conversation_id(result)
         if conversation_id is not None:
             return {"conversation_id": conversation_id}
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         import logging
 
         logging.getLogger(__name__).warning(
@@ -224,7 +224,7 @@ async def load_npc_context(state: ConversationState) -> dict[str, Any]:
 
         ca = ContextAssembly()
         source_profile = await ca._fetch_runtime_profile()
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.debug("runtime profile fetch failed for NPCVoice", exc_info=True)
 
     return {"npc_contexts": contexts, "source_profile": source_profile}
@@ -310,7 +310,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     + (lore_result.get("after") or [])
                     + (lore_result.get("depth") or [])
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("conversation_loop: lorebook scan failed, continuing without", exc_info=True)
 
     for npc_id in state.npc_ids:
@@ -349,7 +349,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                         npc_text, directives = parse_output_directives(npc_text)
                         if directives:
                             await apply_lorebook_directives(agent, state.lorebook_character_ids, directives)
-                    except Exception:
+                    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                         logger.warning(
                             "conversation_loop: lorebook directives failed, continuing",
                             exc_info=True,
@@ -404,7 +404,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                         "text": result["actor_response"],
                     }
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
             # Individual NPC failure shouldn't crash the whole conversation
             import logging
 
@@ -453,7 +453,7 @@ async def _extract_episodic_memories(state: ConversationState) -> list[dict[str,
         )[:8000]
         extractor = MemoryExtractor()
         memories = await anyio.to_thread.run_sync(extractor.forward, transcript, "conversation", npc_name)
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("episodic memory extraction failed", exc_info=True)
         return []
 
@@ -521,7 +521,7 @@ async def _stage_proposal(agent: Any, state: ConversationState, proposal: dict[s
             {"params": params},
         )
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning(
             "Failed to stage proposal for conversation %s",
             state.conversation_id,

@@ -240,7 +240,7 @@ class LLMTaskRunner:
             result = callback(record)
             if inspect.isawaitable(result):
                 await result
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("LLM attempt callback failed for %s/%s: %s", record.stage, record.batch_id, exc)
 
     async def _persist_attempt(self, record: LLMAttemptRecord) -> None:
@@ -271,7 +271,7 @@ class LLMTaskRunner:
                     "output_size": record.output_size,
                 }
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug(
                 "Could not persist LLM attempt for %s/%s to PostgreSQL: %s",
                 record.stage,

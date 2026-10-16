@@ -91,7 +91,7 @@ class AppInitializer(BaseAgent):
                 elif elapsed_ms > 2000:
                     warnings.append(f"{service_name}: slow response ({elapsed_ms}ms)")
 
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
                 health_status[service_name] = {
                     "healthy": False,
                     "message": str(exc),

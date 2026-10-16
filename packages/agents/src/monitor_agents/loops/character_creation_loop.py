@@ -154,7 +154,7 @@ def load_system(state: CharacterCreationState) -> dict[str, Any]:
             },
         }
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error("Failed to load game system for character creation: %s", exc)
         return {
             "error": f"Failed to load game system: {exc}",
@@ -372,7 +372,7 @@ async def process_input(state: CharacterCreationState) -> dict[str, Any]:
         # Advance to next step
         updates["current_step_index"] = idx + 1
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Error processing creation input for step %d: %s", idx, exc)
         updates["error"] = f"Could not process that input. Try again? ({exc})"
 
@@ -554,7 +554,7 @@ class CharacterCreationLoop:
             }
             sheet = gsr.format_character_sheet(rolled)
             base["sheet_markdown"] = sheet
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Could not format final sheet: %s", exc)
         return base
 
@@ -675,7 +675,7 @@ def _auto_calculate_derived(state: CharacterCreationState, step: dict[str, Any])
             "current_step_index": state.current_step_index + 1,
             "awaiting_input": False,
         }
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Auto-calculate derived failed: %s", exc)
         return {
             "current_step_index": state.current_step_index + 1,
@@ -809,7 +809,7 @@ async def _extract_attribute_and_resource_assignments(
                 for k, v in candidate["attributes"].items():
                     if k.upper() in attributes:
                         attributes[k.upper()] = v
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("Random attribute roll failed", exc_info=True)
         return attributes, resources
 
@@ -846,7 +846,7 @@ async def _extract_attribute_and_resource_assignments(
         )
         attr_updates = _safe_json_object(getattr(prediction, "attribute_assignments", "{}"))
         resource_updates = _safe_json_object(getattr(prediction, "resource_assignments", "{}"))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Attribute/resource LLM extraction failed: %s", exc)
         return attributes, resources
 
@@ -900,7 +900,7 @@ async def _parse_skill_choices(text: str, game_context: dict[str, Any]) -> dict[
             available_skills=json.dumps(available_skills, default=str),
         )
         selections = _safe_json_object(getattr(prediction, "skill_selections", "{}"))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Skill selection LLM extraction failed: %s", exc)
         return {}
 
@@ -931,7 +931,7 @@ async def _match_option(text: str, options: list[Any], step_title: str = "") -> 
             available_options=json.dumps([str(o) for o in options], default=str),
         )
         matched = str(getattr(prediction, "matched_option", "") or "").strip()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Option match LLM extraction failed: %s", exc)
         return None
 

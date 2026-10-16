@@ -124,7 +124,7 @@ class CaptureInsightAgent(BaseAgent):
                 candidate_facts=list(prediction.candidate_facts or []),
                 advances_thread=str(prediction.advances_thread or ""),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             log.warning(
                 "capture_insights_llm_failed",
                 universe_id=str(universe_id),

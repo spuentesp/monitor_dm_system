@@ -129,7 +129,7 @@ async def summarize_story_agreements(
             raw_answers=answers,
             revision=revision,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.warning("story_agreements.summary_failed", error=str(exc))
         return _fallback_agreements(default_tone, answers, revision=revision)
 

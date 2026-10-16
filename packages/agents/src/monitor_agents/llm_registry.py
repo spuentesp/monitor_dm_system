@@ -343,7 +343,7 @@ class LLMRegistry:
         if isinstance(params, str):
             try:
                 params = json.loads(params)
-            except Exception:
+            except (ValueError, TypeError):
                 params = {}
         if not isinstance(params, dict):
             params = {}

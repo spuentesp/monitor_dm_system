@@ -192,7 +192,7 @@ class InstructedSpec:
 
         try:
             text = await self._invoke_llm(messages=recent_turns)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("player-llm.error (%s); falling back to canned line", exc)
             return (self.fallback_line, "fallback (player-llm error)")
 

@@ -255,7 +255,7 @@ If pushing back with a roll, suggest a stat and DC. Use defaults: STR/DEX/CON fo
             max_tokens=800,
         )
         return verdict
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning(
             "Causality check LLM call failed (%s); falling back to permissive",
             exc,

@@ -147,7 +147,7 @@ class SimulacrumAgent(BaseAgent):
                                 }
                             )
 
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                         logger.error(f"Simulacrum Council failed for agenda {agenda_title}: {exc}")
                         continue
 

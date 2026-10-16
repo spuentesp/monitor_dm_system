@@ -143,7 +143,7 @@ async def _infer_generic_stat(user_input: str) -> str:
         )
         if ranked:
             return _GENERIC_ABILITIES[ranked[0].index][0]
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("generic stat routing unavailable; using fixed default", exc_info=True)
     return _GENERIC_ABILITIES[0][0]
 
@@ -498,7 +498,7 @@ class Resolver(BaseAgent):
                 filters=filters,
                 limit=3,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
             # Don't break the resolver if retrieval is unavailable; the
             # caller will fall through to the normal flow.
             return None
@@ -862,7 +862,7 @@ class Resolver(BaseAgent):
                 from monitor_agents.gm_agent import gmverdict_from_awareness
 
                 gm_verdict = gmverdict_from_awareness(patched_result, upstream_action_context=None)  # type: ignore[arg-type]
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
                 gm_verdict = None
         else:
             # Production path: GMAgent ReAct loop + fall through to seed.
@@ -879,7 +879,7 @@ class Resolver(BaseAgent):
                     play_mode=play_mode or "dice_game_system",
                     roll_mode=(auto_roll and "auto") or "normal",
                 )
-            except Exception as exc:  # pragma: no cover - defensive
+            except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning(
                     "GMAgent.decide raised unexpectedly (%s); falling through to seed verdict",
                     exc,
@@ -907,7 +907,7 @@ class Resolver(BaseAgent):
             try:
                 llm_roll_necessity = gm_verdict.roll_necessity.value
                 llm_verdict_was_real = gm_verdict.action_type != ActionType.NONE
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
                 llm_roll_necessity = None
                 llm_verdict_was_real = False
 

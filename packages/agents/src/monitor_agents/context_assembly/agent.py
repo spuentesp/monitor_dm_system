@@ -182,7 +182,7 @@ class ContextAssembly(BaseAgent):
             from monitor_data.db.redis import get_redis_client
 
             return get_redis_client().get_json(key)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("Redis cache get failed for %s: %s", key, exc)
             return None
 
@@ -191,7 +191,7 @@ class ContextAssembly(BaseAgent):
             from monitor_data.db.redis import get_redis_client
 
             get_redis_client().set_json(key, value, ttl=ttl)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("Redis cache set failed for %s: %s", key, exc)
 
     @staticmethod
@@ -384,7 +384,7 @@ class ContextAssembly(BaseAgent):
                     profile_context += "\n\nRELEVANT LOREBOOK ENTRIES:\n" + "\n".join(lorebook_after)
                 if lorebook_depth:
                     profile_context += "\n\nLOREBOOK (@DEPTH):\n" + "\n".join(lorebook_depth)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning(f"Failed to inject lorebook entries: {e}")
 
         result: dict[str, Any] = {
@@ -733,7 +733,7 @@ class ContextAssembly(BaseAgent):
                     "filter": filter_dict,
                 },
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("_fetch_knowledge: qdrant_search failed: %s", exc)
             self._cache_set_json(cache_key, [], ttl=self._ttl(short=True))
             return []
@@ -799,7 +799,7 @@ class ContextAssembly(BaseAgent):
                 import anyio
 
                 await anyio.to_thread.run_sync(mongodb_increment_memory_access, ids)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("_search_memories: access_count increment failed: %s", exc)
         self._cache_set_json(cache_key, memories, ttl=self._ttl(short=True))
         return memories
@@ -855,7 +855,7 @@ class ContextAssembly(BaseAgent):
 
             self._cache_set_json(cache_key, threads, ttl=self._ttl(short=True))
             return cast(list[dict[str, Any]], threads)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("_fetch_plot_threads failed: %s", exc)
             return []
 
@@ -902,7 +902,7 @@ class ContextAssembly(BaseAgent):
                 import anyio
 
                 await anyio.to_thread.run_sync(mongodb_increment_memory_access, ids)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("_fetch_memories: access_count increment failed: %s", exc)
         self._cache_set_json(cache_key, memories, ttl=self._ttl(short=True))
         return memories
@@ -923,7 +923,7 @@ class ContextAssembly(BaseAgent):
                 continue
             try:
                 doc = await self.call_tool("mongodb_get_memory", {"memory_id": str(memory_id)})
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("memory lookup failed; skipping chunk", exc_info=True)
                 continue
             if isinstance(doc, dict) and doc.get("text"):
@@ -1125,7 +1125,7 @@ class ContextAssembly(BaseAgent):
                     "limit": 12,
                 },
             )
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
             ranked_paths_raw = None
 
         ranked_paths: list[dict[str, Any]] = []
@@ -1180,7 +1180,7 @@ class ContextAssembly(BaseAgent):
                         "rel_types": preferred_rel_types,
                     },
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
                 raw = None
 
             if raw is not None:
@@ -1205,7 +1205,7 @@ class ContextAssembly(BaseAgent):
                             }
                         },
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
                     fallback_raw = None
 
                 if fallback_raw is not None:
@@ -1272,7 +1272,7 @@ class ContextAssembly(BaseAgent):
                     "neo4j_get_entity",
                     {"entity_id": str(counterpart_id)},
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
                 entity_raw = None
 
             counterpart: dict[str, Any] = {}
@@ -1372,7 +1372,7 @@ class ContextAssembly(BaseAgent):
                 )
             self._cache_set_json(cache_key, {}, ttl=self._ttl(short=True))
             return {}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("_fetch_game_system failed: %s", exc)
             return {}
 
@@ -1468,7 +1468,7 @@ class ContextAssembly(BaseAgent):
                         )
             self._cache_set_json(cache_key, normalized, ttl=self._ttl())
             return normalized
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("_fetch_runtime_profile failed: %s", exc)
             return {}
 

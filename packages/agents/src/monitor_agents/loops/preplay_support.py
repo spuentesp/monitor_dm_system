@@ -574,7 +574,7 @@ async def _compose_ooc_answer(
                     f"Mechanically, I'd usually call for **{stat_name}** using **{core_formula}**. "
                     f"For a risky attempt, expect pressure around **{dc}** unless the fiction changes it."
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("answer_ooc_question mechanical hint failed: %s", exc)
             info = classify_llm_error(exc)
             await RoleplayErrorRecorder.record(
@@ -605,7 +605,7 @@ async def _compose_ooc_answer(
             desc = (r.get("desc") or "")[:120]
             if name:
                 archetype_lines.append(f"{name}: {desc}" if desc else name)
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.debug("archetype listing failed", exc_info=True)
 
     # Try LLM answer — a dedicated meta-voice signature, NOT the narration
@@ -631,7 +631,7 @@ async def _compose_ooc_answer(
             if mechanical_hint and mechanical_hint.lower() not in answer.lower():
                 return f"{answer}\n\n{mechanical_hint}"
             return answer
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("answer_ooc_question LLM failed: %s", exc)
         info = classify_llm_error(exc)
         await RoleplayErrorRecorder.record(
@@ -682,7 +682,7 @@ async def _generate_prologue(session: dict[str, Any], summary_text: str) -> str:
         )
         if prologue and len(prologue) > 40:
             return prologue
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("_generate_prologue LLM call failed: %s", exc)
         info = classify_llm_error(exc)
         await RoleplayErrorRecorder.record(
@@ -747,7 +747,7 @@ def resolve_authored_questions(
             )
             if isinstance(system_doc, dict) and system_doc.get("system_id"):
                 system_id = uuid.UUID(str(system_doc["system_id"]))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("prompt-collection: system_id resolve failed: %s", exc)
 
         universe_id = session.get("universe_id")
@@ -762,7 +762,7 @@ def resolve_authored_questions(
             listing = mongodb_list_prompt_collections(filt)
             if listing.collections:
                 return _entries_to_questions(listing.collections[0])
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("resolve_authored_questions(%s) failed: %s", category, exc)
 
     return []

@@ -155,7 +155,7 @@ async def process_text(state: IngestionState) -> dict[str, Any]:
                 mech_data = mechanics_architect.extract(text)
                 if mech_data:
                     extracted_mechanics.append(mech_data)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning(f"Failed to triage chunks from Qdrant: {exc}")
         extracted_mechanics = []
 
@@ -269,7 +269,7 @@ async def synthesize_proposals(state: IngestionState) -> dict[str, Any]:
                 if old_id:
                     fact["replaces"] = old_id
                     logger.info(f"Fact Versioning: Fact '{fact['statement']}' replaces {old_id}")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning(f"Fact versioning check failed for fact: {exc}")
 
         final_facts.append(fact)

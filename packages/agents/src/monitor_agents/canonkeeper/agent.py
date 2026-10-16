@@ -474,7 +474,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 new_fact=new_fact,
             )
             return result
-        except Exception:  # pragma: no cover — fallback path
+        except Exception:  # pragma: no cover — fallback path  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning(
                 "Contradiction detection failed, using heuristic fallback",
                 exc_info=True,
@@ -662,7 +662,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         if contradiction_check and universe_id is not None:
             try:
                 rejected_ids = await self._batch_contradiction_check(ordered, universe_id)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning("Batched contradiction check failed (committing anyway): %s", exc)
                 await RoleplayErrorRecorder.record(
                     source=RoleplayErrorSource.CANONKEEPER,
@@ -696,7 +696,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                     {"$set": {"status": "committed"}},
                 )
                 committed += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response
                 errors.append(f"{pid}: {exc}")
 
         logger.info(
@@ -765,7 +765,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                     {"$set": set_fields},
                 )
                 enqueued += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response
                 errors.append(f"{pid}: {exc}")
 
         logger.info(
@@ -939,7 +939,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                     {"$set": {"status": "committed"}},
                 )
                 committed += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response
                 errors.append(str(exc))
 
         # Step 5: Write mechanic reference nodes when game_system_data exists
@@ -972,7 +972,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                         system_id=system_id,
                         mechanic_type=rm.mechanic_type.value,
                     )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning("Failed to write mechanic nodes: %s", exc)
                 errors.append(f"mechanic_nodes: {exc}")
                 await RoleplayErrorRecorder.record(
@@ -1053,7 +1053,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                     {"$set": {"status": "committed"}},
                 )
                 committed += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response
                 errors.append(str(exc))
 
         # Write mechanic reference nodes when game_system_data exists
@@ -1086,7 +1086,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                         system_id=system_id,
                         mechanic_type=rm.mechanic_type.value,
                     )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning("Failed to write mechanic nodes: %s", exc)
                 errors.append(f"mechanic_nodes: {exc}")
                 await RoleplayErrorRecorder.record(
@@ -1170,7 +1170,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                     {"$set": {"status": "committed"}},
                 )
                 committed += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response
                 errors.append(str(exc))
 
         pack_id_val = (job_doc or {}).get("pack_id") or (proposals[0].get("pack_id") if proposals else None)
@@ -1205,7 +1205,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                             system_id=system_id,
                             mechanic_type=rm.mechanic_type.value,
                         )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning("Failed to write mechanic nodes: %s", exc)
                     errors.append(f"mechanic_nodes: {exc}")
                     await RoleplayErrorRecorder.record(
@@ -1285,7 +1285,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                         }
                     },
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("CanonKeeper.end_scene: fact write failed (non-fatal): %s", exc)
             await RoleplayErrorRecorder.record(
                 source=RoleplayErrorSource.CANONKEEPER,
@@ -1450,7 +1450,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 },
             )
             logger.info(f"Replaced fact {old_fact_id} with {new_fact_id} (scene: {scene_id}, reason: {reason})")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning(f"Failed to tombstone old fact {old_fact_id}: {e}")
             await RoleplayErrorRecorder.record(
                 source=RoleplayErrorSource.CANONKEEPER,
@@ -1526,7 +1526,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             )
             # If we get a result back (not None and not empty), the story exists
             return raw is not None and raw != {}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.error(f"Error checking if story {story_id} exists: {e}")
             return False
 
@@ -2845,7 +2845,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             if isinstance(raw, list):
                 return raw
             return []
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.error(f"Error fetching canon facts: {e}")
             return []
 
@@ -2861,7 +2861,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             if isinstance(raw, list):
                 return raw
             return []
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.error(f"Error fetching canon axioms: {e}")
             return []
 
@@ -2976,7 +2976,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 return res
 
             return None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
             # Silent failure risk addressed: Log with stack trace
             logger.error(f"Error checking contradictions for proposal {proposal_id}: {e}\n{traceback.format_exc()}")
             # Don't block the proposal on contradiction check errors

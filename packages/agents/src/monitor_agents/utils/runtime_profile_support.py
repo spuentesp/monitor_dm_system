@@ -56,7 +56,7 @@ def normalize_source_profile(profile: Any) -> dict[str, Any]:
     if hasattr(profile, "model_dump"):
         try:
             profile = profile.model_dump(mode="json")
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: falls back to `{}` on failure
             return {}
     if not isinstance(profile, Mapping):
         return {}

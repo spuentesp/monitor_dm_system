@@ -354,7 +354,7 @@ async def _fetch_canon_facts(
         if isinstance(raw, list):
             return raw
         return []
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error(f"Error fetching canon facts: {e}")
         return []
 
@@ -376,7 +376,7 @@ async def _fetch_canon_events(
         if isinstance(raw, list):
             return raw
         return []
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error(f"Error fetching canon events: {e}")
         return []
 
@@ -398,7 +398,7 @@ async def _fetch_canon_axioms(
         if isinstance(raw, list):
             return raw
         return []
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error(f"Error fetching canon axioms: {e}")
         return []
 
@@ -414,7 +414,7 @@ async def _get_multiverse_id(
             multiverse_id = universe.get("multiverse_id")
             if multiverse_id:
                 return UUID(str(multiverse_id))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error(f"Error getting multiverse ID: {e}")
     return None
 
@@ -452,7 +452,7 @@ def _extract_axioms_from_proposals(
                     confidence=content.get("confidence", 0.8),
                 )
                 axioms.append(axiom)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning(f"Failed to extract axiom from proposal: {e}")
     return axioms
 
@@ -474,7 +474,7 @@ def _extract_lore_facts_from_proposals(
                     confidence=content.get("confidence", 0.8),
                 )
                 facts.append(fact)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning(f"Failed to extract lore fact from proposal: {e}")
     return facts
 
@@ -497,7 +497,7 @@ def _extract_entities_from_proposals(
                     source_ref=content.get("source_ref"),
                 )
                 entities.append(entity)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning(f"Failed to extract entity from proposal: {e}")
     return entities
 

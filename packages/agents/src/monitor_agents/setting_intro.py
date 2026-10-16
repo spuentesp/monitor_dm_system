@@ -159,7 +159,7 @@ async def assemble_session_intro(session: dict[str, Any]) -> SessionIntro:
                 ),
             ),
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.warning("session_intro.canon_read_failed", universe_id=str(universe_id), error=str(exc))
         axioms, facts, locations, factions = [], [], None, None
 

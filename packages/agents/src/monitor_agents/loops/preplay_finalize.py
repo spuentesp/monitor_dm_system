@@ -70,7 +70,7 @@ async def seed_canon_from_session_zero(session: dict[str, Any]) -> None:
                 metadata={"story_id": str(story_id), "source": "session_zero_canon_seed"},
             )
             await anyio.to_thread.run_sync(mongodb_create_memory, params)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             log.warning("preplay.canon_seed_memory_failed", error=str(exc))
 
     notes = session.setdefault("director_notes", [])
@@ -142,7 +142,7 @@ async def finalize_preplay(
                 story_premise=session.get("story_premise"),
             )
         ).strip()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.warning("preplay.opening_failed", error=str(exc))
         narrative = ""
 
@@ -180,7 +180,7 @@ async def _load_gm_profile(profile_id: Any) -> dict[str, Any] | None:
             UUID(str(profile_id)),
         )
         return profile.model_dump() if profile else None
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.warning("preplay.gm_profile_load_failed", error=str(exc))
         return None
 

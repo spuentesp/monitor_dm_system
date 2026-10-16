@@ -240,5 +240,5 @@ class CommitDispatcherMixin:
                 transaction_id=_maybe_uuid(doc.get("scene_id")),
             )
             mongodb_append_change_log(entry)
-        except Exception:  # pragma: no cover — auditing is non-critical
+        except Exception:  # pragma: no cover — auditing is non-critical  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("change_log audit skipped for %s", proposal_id, exc_info=True)

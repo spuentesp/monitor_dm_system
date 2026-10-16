@@ -32,7 +32,7 @@ def gm_tool_check_conditions() -> Any:
             import json as _json
 
             ctx = _json.loads(context) if context else {}
-        except Exception:
+        except (ValueError, TypeError):
             ctx = {}
         payload: dict[str, Any] = {
             "event": event,

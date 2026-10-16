@@ -742,7 +742,7 @@ async def check_gm_awareness(
             roll_mode=roll_mode,
             established_facts=established_facts,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning(
             "GM-awareness DSPy call failed (%s); falling back to permissive propose-roll",
             exc,

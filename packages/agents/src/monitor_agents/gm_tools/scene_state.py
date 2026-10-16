@@ -57,7 +57,7 @@ def _build_gsr_from_json(game_context_json: str) -> Any:
 
     try:
         return GameSystemRuntime(doc)
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
         return None
 
 

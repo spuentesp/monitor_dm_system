@@ -382,7 +382,7 @@ class StoryLoop:
         try:
             world_update = await simulate_world_advance(state)
             state = state.model_copy(update=world_update)
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning(
                 "Story world-advance failed for story %s",
                 self.story_id,
@@ -428,7 +428,7 @@ class StoryLoop:
             try:
                 current = await compiled.aget_state(config)  # type: ignore[arg-type]
                 state_values = dict(current.values) if current.values else {}
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: falls back to `{}` on failure
                 state_values = {}
 
             # Build state with scene completion context
@@ -462,7 +462,7 @@ class StoryLoop:
             try:
                 world_update = await simulate_world_advance(run_state)
                 run_state = run_state.model_copy(update=world_update)
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning(
                     "Story world-advance failed after scene %s",
                     scene_id,
@@ -490,7 +490,7 @@ class StoryLoop:
                         len(agenda_moves),
                         self.universe_id,
                     )
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning("NPC agenda tick failed", exc_info=True)
 
             # P-21: Progression Phase
@@ -634,7 +634,7 @@ class StoryLoop:
         if include_recap:
             try:
                 result["recap"] = await build_story_recap(story_id=self.story_id, universe_id=self.universe_id)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
                 # Recap failure must not block story completion
                 logger.warning("Story recap failed for %s: %s", self.story_id, exc)
                 result["recap"] = {
@@ -758,7 +758,7 @@ async def build_story_recap(story_id: UUID, universe_id: UUID) -> dict[str, Any]
     try:
         filter_obj = SceneFilter(story_id=story_id, universe_id=universe_id, limit=100)
         scenes_response = await run_sync_read(mongodb_list_scenes, filter_obj)  # type: ignore[var-annotated]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Failed to fetch scenes for recap: %s", exc)
         scenes_response = {}
 

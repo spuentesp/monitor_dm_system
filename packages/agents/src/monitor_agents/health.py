@@ -88,7 +88,7 @@ async def check_all_services(*, force: bool = False) -> dict[str, Any]:
 
             checker = get_embedding_health_checker()
             checker.last_cached_status(force=True)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("Force-refresh of embedding cache failed: %s", exc)
     return status
 

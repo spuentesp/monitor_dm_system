@@ -110,7 +110,7 @@ async def apply_lorebook_directives(
                 verb=directive.verb,
                 entry_name=directive.entry_name,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning(
                 "lorebook_directive_failed",
                 verb=directive.verb,

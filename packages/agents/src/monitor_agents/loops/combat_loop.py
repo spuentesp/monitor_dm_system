@@ -102,7 +102,7 @@ def _calculate_modifier_from_attributes(
     if gsr:
         try:
             return gsr.calc_modifier(stat_name, value)  # type: ignore[no-any-return]
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             log.debug("game-system modifier lookup failed; using default formula", exc_info=True)
     return calculate_modifier(value, _DEFAULT)
 
@@ -128,7 +128,7 @@ async def roll_initiative(state: CombatState) -> dict[str, Any]:
 
             gsr = GameSystemRuntime(state.game_context)
             initiative_stat = getattr(gsr, "initiative_stat_name", "DEX")
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             log.debug("game system runtime unavailable in combat loop", exc_info=True)
 
     rolled: list[CombatantState] = []
@@ -271,7 +271,7 @@ async def resolve_combat_action(state: CombatState) -> dict[str, Any]:
                 inferred_action_type, inferred_stat, _ = await gsr.infer_action_stat(state.user_input)
                 if inferred_stat:
                     stat_name = inferred_stat
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("action stat inference failed; defaulting to Strength", exc_info=True)
 
         # Opposed check: attacker vs target
@@ -358,7 +358,7 @@ def _apply_damage(
                         c.is_active = False
                         c.conditions.append("incapacitated")
                     return
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning("GSR apply_damage failed: %s", exc)
 
             # Fallback to simple HP subtraction

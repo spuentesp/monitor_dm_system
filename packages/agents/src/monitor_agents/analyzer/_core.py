@@ -1005,7 +1005,7 @@ class Analyzer(BaseAgent):
                         f"{len(mindscape.taxonomy_hints)} taxonomy hints"
                     ],
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning("Mindscape synthesis skipped for '%s': %s", source_name, exc)
 
         return filtered_sections, source_profile, source_profile_context
@@ -1490,7 +1490,7 @@ class Analyzer(BaseAgent):
             from monitor_agents.dspy_runtime import (
                 dspy_context_for,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning(
                 "analyzer._extract_module_intro dspy_runtime import failed for '%s': %s",
                 source_name,
@@ -1504,7 +1504,7 @@ class Analyzer(BaseAgent):
                     sections_context=sections_ctx,
                     source_name=source_name,
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning(
                 "analyzer._extract_module_intro LLM call failed for '%s': %s",
                 source_name,
@@ -1662,7 +1662,7 @@ class Analyzer(BaseAgent):
                     ],
                     activity_log=[f"Auto-apply complete: {proposals} proposals generated for CanonKeeper"],
                 )
-            except Exception as apply_exc:
+            except Exception as apply_exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning("Auto-apply failed for pack %s (pack is still usable): %s", pack_id, apply_exc)
                 self._update_job(
                     job_id,
@@ -1792,7 +1792,7 @@ class Analyzer(BaseAgent):
                     )
                 if offset is None:
                     break
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Section retrieval failed for '%s' %s: %s", source_name, categories, exc)
 
         # --- Fallback: semantic search for untagged documents ---
@@ -1845,7 +1845,7 @@ class Analyzer(BaseAgent):
                             chunk_id=payload.get("chunk_id"),
                             semantic_category=payload.get("semantic_category"),
                         )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning("Fallback section search failed for '%s': %s", query, exc)
 
         # --- Assemble section digests ---
@@ -1938,7 +1938,7 @@ class Analyzer(BaseAgent):
 
                 if offset is None:
                     break
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Reference section retrieval failed for '%s': %s", source_name, exc)
 
         digests = build_section_digests(sections, max_words=_MAX_SECTION_WORDS)
@@ -2005,7 +2005,7 @@ class Analyzer(BaseAgent):
                     n_batches,
                     len(batch_classifications),
                 )
-            except (TimeoutError, Exception) as exc:
+            except (TimeoutError, Exception) as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning(
                     "Section classification failed for batch %d/%d of '%s': %s — keeping these sections",
                     batch_num,
@@ -2100,7 +2100,7 @@ class Analyzer(BaseAgent):
                     )
                     logger.info("Batch %d/%d complete", batch_idx + 1, n_batches)
                     return result
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning(
                         "Batched extraction failed for batch %d/%d: %s",
                         batch_idx + 1,
@@ -2217,7 +2217,7 @@ class Analyzer(BaseAgent):
                 draft_profile_context=seed_profile.model_dump_json(indent=2),
             )
             synthesized = parse_source_profile(getattr(result, "profile_json", ""))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Source profile synthesis failed for '%s': %s", source_name, exc)
 
         profile = merge_source_profiles(seed_profile, synthesized)
@@ -2270,7 +2270,7 @@ class Analyzer(BaseAgent):
                     section_text=inp["section_text"],
                 )
                 summary_text = getattr(result, "summary", "") or ""
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning("Section summary failed for '%s': %s", inp["heading_path"], exc)
                 summary_text = ""
 
@@ -2301,7 +2301,7 @@ class Analyzer(BaseAgent):
                 system_name=getattr(global_result, "system_name", None),
                 confidence=0.85,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Mindscape synthesis failed for '%s': %s", source_name, exc)
             mindscape = SourceMindscapeArtifact(
                 source_name=source_name,
@@ -2327,7 +2327,7 @@ class Analyzer(BaseAgent):
                 section_summaries=section_summary_artifacts,
                 mindscape=mindscape,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Qdrant mindscape projection failed for '%s': %s", source_name, exc)
 
         return mindscape
@@ -2407,7 +2407,7 @@ class Analyzer(BaseAgent):
                         source_name=source_name,
                     )
                     return result.tone_profiles or []
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning(
                         "Tone extraction failed for section '%s': %s",
                         section.section_path,
@@ -2444,7 +2444,7 @@ class Analyzer(BaseAgent):
                         source_name=source_name,
                     )
                     return result.character_profiles or []
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning(
                         "Character profile extraction failed for section '%s': %s",
                         section.section_path,
@@ -2483,7 +2483,7 @@ class Analyzer(BaseAgent):
                         known_entities=known_entities,
                     )
                     return result.generation_templates or []
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning(
                         "Generation template extraction failed for section '%s': %s",
                         section.section_path,
@@ -2520,7 +2520,7 @@ class Analyzer(BaseAgent):
                         source_name=source_name,
                     )
                     return result.plot_threads or []
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning(
                         "Plot thread extraction failed for section '%s': %s",
                         section.section_path,
@@ -2567,7 +2567,7 @@ class Analyzer(BaseAgent):
                         source_profile_context=source_profile_context,
                     )
                     return result.rules or []
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning(
                         "Rule extraction failed for section '%s': %s",
                         section.section_path,
@@ -2644,7 +2644,7 @@ class Analyzer(BaseAgent):
                         "core_mechanic": result.core_mechanic,
                         "resolution_mechanics": result.resolution_mechanics or [],
                     }
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning(
                         "Character sheet extraction failed for section '%s': %s",
                         section.section_path,
@@ -2679,7 +2679,7 @@ class Analyzer(BaseAgent):
                         "resolution_mechanics": synthesis_result.resolution_mechanics or [],
                     }
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning(
                     "Character sheet synthesis pass failed for '%s': %s",
                     system_name,
@@ -2749,7 +2749,7 @@ class Analyzer(BaseAgent):
                 source_profile_context=source_profile_context,
             )
             return {"steps": result.steps or []}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning(
                 "Creation procedure extraction failed for '%s': %s",
                 system_name,
@@ -2790,7 +2790,7 @@ class Analyzer(BaseAgent):
                 known_entities=known_entities,
             )
             return result.logic_steps or []
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Creation logic synthesis failed: %s", exc)
             return []
 
@@ -2834,7 +2834,7 @@ class Analyzer(BaseAgent):
                 "stat_blocks": result.stat_blocks or [],
                 "creation_rules": result.creation_rules,
             }
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning(
                 "NPC extraction failed for '%s': %s",
                 system_name,
@@ -2871,7 +2871,7 @@ class Analyzer(BaseAgent):
                         source_name=source_name,
                     )
                     return result.random_tables or []
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning(
                         "Random table extraction batch failed for '%s': %s",
                         source_name,
@@ -2911,7 +2911,7 @@ class Analyzer(BaseAgent):
                         source_name=source_name,
                     )
                     return result.agendas or []
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning("Agenda extraction failed for '%s': %s", source_name, exc)
                     return []
 
@@ -2946,7 +2946,7 @@ class Analyzer(BaseAgent):
                         source_name=source_name,
                     )
                     return result.topologies or []
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning("Topology extraction failed for '%s': %s", source_name, exc)
                     return []
 
@@ -3026,7 +3026,7 @@ class Analyzer(BaseAgent):
                             seen.add(txt)
                             texts.append(txt)
                     return name, texts
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.debug("Entity evidence lookup failed for '%s': %s", name, exc)
                     return name, []
 
@@ -3269,7 +3269,7 @@ class Analyzer(BaseAgent):
                         source_profile_context=source_profile_context,
                     )
                     return result.relationships or []
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning("Relationship inference batch failed for '%s': %s", source_name, exc)
                     return []
 
@@ -3347,7 +3347,7 @@ class Analyzer(BaseAgent):
                     if key not in all_rels_keys and r.from_entity in rescue_names:
                         all_rels.append(r)
                         all_rels_keys.add(key)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning("Orphan rescue pass failed for '%s': %s", source_name, exc)
 
         return all_rels
@@ -3445,7 +3445,7 @@ class Analyzer(BaseAgent):
         """Update ingestion job progress fields (fire-and-forget; ignores errors)."""
         try:
             mongodb_update_ingestion_job(job_id, IngestionJobUpdate(**kwargs))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
             # Log at WARNING for status transitions (critical state changes),
             # DEBUG for routine progress increments.
             if "status" in kwargs:

@@ -77,7 +77,7 @@ def _coerce_json_list(raw: Any) -> list[Any]:
     try:
         parsed = json.loads(text)
         return parsed if isinstance(parsed, list) else []
-    except Exception:
+    except (ValueError, TypeError):
         return []
 
 
@@ -288,7 +288,7 @@ class QuickWorldBuilder:
 
         try:
             pack = await anyio.to_thread.run_sync(_make_pack)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: falls back to `0, [f"Could not create content pack: {ex` on failure
             return 0, [f"Could not create content pack: {exc}"]
 
         try:
@@ -300,6 +300,6 @@ class QuickWorldBuilder:
                 auto_accept=True,
             )
             return int(result.get("committed", 0)), list(result.get("errors", []))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Quick-world canonization failed: %s", exc)
             return 0, [f"Canonization failed: {exc}"]

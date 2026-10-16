@@ -584,7 +584,7 @@ class GMAgent(BaseAgent):
                     tool_failures=len(verdict.tool_failures),
                 )
                 return verdict
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.warning(
                     "gm_agent.react.failed",
                     scene_id=str(scene_id),
@@ -608,7 +608,7 @@ class GMAgent(BaseAgent):
                     established_facts=established,
                     upstream_action_context=upstream_action_context,
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             log.error("gm_agent.decide.failed", scene_id=str(scene_id), error=str(exc))
             await RoleplayErrorRecorder.record(
                 source=RoleplayErrorSource.GM_AGENT,
@@ -647,7 +647,7 @@ class GMAgent(BaseAgent):
                 roll_mode=roll_mode,
             )
             return gmverdict_from_awareness(awareness, upstream_action_context=upstream_action_context)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             log.error("gm_agent.fallback.failed", error=str(exc))
             await RoleplayErrorRecorder.record(
                 source=RoleplayErrorSource.GM_AGENT,

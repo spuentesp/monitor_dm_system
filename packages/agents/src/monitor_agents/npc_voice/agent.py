@@ -436,7 +436,7 @@ class NPCVoice(BaseAgent):
                 continue
             try:
                 doc = await self.call_tool("mongodb_get_memory", {"memory_id": str(memory_id)})
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("memory lookup failed; skipping chunk", exc_info=True)
                 continue
             if isinstance(doc, dict) and doc.get("text"):
@@ -895,7 +895,7 @@ class NPCVoice(BaseAgent):
                 "mongodb_update_npc_profile",
                 {"entity_id": str(npc_id), "params": params},
             )
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
             return
 
     async def _persist_npc_turn(
@@ -968,7 +968,7 @@ class NPCVoice(BaseAgent):
                 ent = await self.call_tool("neo4j_get_entity", {"entity_id": str(npc_id)})
                 if isinstance(ent, dict):
                     resolved_universe_id = ent.get("universe_id") or ent.get("properties", {}).get("universe_id")
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
                 resolved_universe_id = None
 
         # Wrap params per the data-layer tool contract (MemoryCreate).
@@ -987,7 +987,7 @@ class NPCVoice(BaseAgent):
                         if v.get("entity_id") == str(npc_id):
                             resolved_universe_id = v.get("universe_id")
                             break
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("universe resolution from character versions failed", exc_info=True)
         if not resolved_universe_id:
             raise RuntimeError(

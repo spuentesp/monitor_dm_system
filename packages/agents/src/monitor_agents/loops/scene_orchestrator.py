@@ -387,7 +387,7 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
                 metadata["story_complete"] = True
 
             callbacks.db_save_session(session)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Failed to advance StoryLoop: %s", exc)
 
     if story_id and state.agents_available and getattr(callbacks, "get_story_state", None):
@@ -413,7 +413,7 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
                             "scenes_completed": getattr(story_state, "scenes_completed", None),
                         },
                     )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("Failed to fetch story state for metadata: %s", exc)
 
     state.response_text = narrative
@@ -437,7 +437,7 @@ def _chat_log_for(callbacks: Any, session_id: str) -> list[Any] | None:
         if callable(loader):
             loaded = loader(session_id)
             return loaded if isinstance(loaded, list) else None
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
         return None
     return None
 

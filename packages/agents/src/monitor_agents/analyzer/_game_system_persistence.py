@@ -87,7 +87,7 @@ def _build_random_tables(
                 )
             )
             table_ids.append(created.id)  # type: ignore[attr-defined]
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Failed to persist extracted random table '%s': %s", t.name, exc)
     return table_ids
 
@@ -170,7 +170,7 @@ def _build_typed_list(
             continue
         try:
             result.append(builder(item))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response
             _record_skip(label, item, type(item).__name__, type(exc).__name__, skipped)
             continue
     return result
@@ -845,7 +845,7 @@ async def save_game_system(
                     f"{'; '.join(skipped[:5])}"
                 )[:400]
                 mongodb_update_ingestion_job(job_id, IngestionJobUpdate(warnings=[summary]))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning(
                     "save_game_system.job_warning_append_failed",
                     job_id=str(job_id),
@@ -903,7 +903,7 @@ async def save_game_system(
             )
         )
         return system.id, embedded
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Failed to save game system '%s': %s", system_name, exc)
         # Still return the embedded data even if the separate collection
         # write failed — the pack itself carries the system regardless.

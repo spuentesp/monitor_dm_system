@@ -134,7 +134,7 @@ async def _is_job_cancelled(job_id: UUID) -> bool:
             logger.info("Job %s detected as cancelled — stopping pipeline", job_id)
             return True
         return False
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Job cancellation check failed for %s (will continue): %s", job_id, exc)
         return False
 
@@ -321,7 +321,7 @@ class IngestionPipeline(BaseAgent):
         elif not reusing_existing_doc:
             try:
                 existing_by_hash = await asyncio.to_thread(mongodb_find_document_by_content_hash, content_hash)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning("Content-hash duplicate check failed (will continue): %s", exc)
                 existing_by_hash = None
             if existing_by_hash is not None and existing_by_hash.extraction_status != ExtractionStatus.FAILED:
@@ -628,7 +628,7 @@ class IngestionPipeline(BaseAgent):
                         analysis_result=analysis_result,
                         source_id=source_id,
                     )
-                except Exception as canon_exc:
+                except Exception as canon_exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning("Auto-canonization failed for job %s: %s", job_id, canon_exc)
 
             if final_status == IngestionStatus.COMPLETED:
@@ -709,7 +709,7 @@ class IngestionPipeline(BaseAgent):
                             extracted_at=datetime.now(UTC),
                         ),
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning("Failed to update document %s status to FAILED", doc_id)
             if job_id is not None:
                 try:
@@ -731,7 +731,7 @@ class IngestionPipeline(BaseAgent):
                             last_error=last_error,
                         ),
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.warning("Failed to update job %s status to FAILED", job_id)
             # Preserve the uploaded source + object on failure so the user can
             # still see the book in the library and retry ingestion later.
