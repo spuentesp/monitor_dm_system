@@ -71,7 +71,7 @@ def mongodb_get_world_profile(universe_id: UUID) -> EmbeddedWorldProfile | None:
         return None
     try:
         return EmbeddedWorldProfile(**profile_data)
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
         return None
 
 

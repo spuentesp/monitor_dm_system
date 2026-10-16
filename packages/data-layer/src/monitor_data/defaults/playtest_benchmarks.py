@@ -93,7 +93,7 @@ def resolve_playtest_benchmarks(*, include_scripted_turns: bool = True) -> list[
         from monitor_data.tools.mongodb_tools import _ensure_builtin_systems_seeded
 
         _ensure_builtin_systems_seeded()
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.debug("builtin systems seeding failed during benchmark defaults", exc_info=True)
 
     try:
@@ -101,7 +101,7 @@ def resolve_playtest_benchmarks(*, include_scripted_turns: bool = True) -> list[
 
         mdb = get_mongodb_client()
         collection = mdb.get_collection("game_systems")
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
         collection = None
 
     resolved_rows: dict[str, dict[str, Any]] = {}
@@ -121,7 +121,7 @@ def resolve_playtest_benchmarks(*, include_scripted_turns: bool = True) -> list[
                 ):
                     if row.get("name"):
                         resolved_rows[str(row["name"])] = row
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
                 # Best-effort metadata attach: a dead MongoDB must not break
                 # benchmark resolution (cursor iteration is what actually dials).
                 resolved_rows = {}

@@ -214,7 +214,7 @@ async def _run_list_tables(universe_id: str | None, table_type: str | None) -> N
         console.print(table)
         console.print(f"\n[bold]Total:[/bold] {len(tables)} table(s)")
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to list tables: {exc}")
 
 
@@ -240,7 +240,7 @@ async def _run_roll_on_table(table_id: str) -> None:
         for sub in result.get("sub_results", []):
             console.print(f"  └─ [bold]Subtable:[/bold] {sub.get('table_name')} -> {sub.get('value')}")
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to roll on table: {exc}")
 
 
@@ -277,7 +277,7 @@ async def _run_list_snapshots(universe_id: str) -> None:
 
         console.print(table)
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to list snapshots: {exc}")
 
 
@@ -303,7 +303,7 @@ async def _run_create_snapshot(universe_id: str, name: str, description: str) ->
             )
         )
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to create snapshot: {exc}")
 
 
@@ -338,7 +338,7 @@ async def _run_list_templates(universe_id: str, entity_type: str | None) -> None
 
         console.print(table)
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to list templates: {exc}")
 
 
@@ -377,7 +377,7 @@ async def _run_list_entities(universe_id: str) -> None:
         console.print(table)
         console.print(f"\n[bold]Total:[/bold] {len(entities)} entity(ies)")
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to list entities: {exc}")
 
 
@@ -412,7 +412,7 @@ async def _run_create_entity(universe_id: str, entity_type: str, name: str, desc
         )
         console.print(f"\n[dim]Universe: {universe_id}[/dim]")
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to create entity: {exc}")
         raise typer.Exit(code=1)
 
@@ -444,7 +444,7 @@ async def _run_show_entity(entity_id: str) -> None:
 
     except typer.Exit:
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to show entity: {exc}")
         raise typer.Exit(code=1)
 
@@ -484,7 +484,7 @@ async def _run_update_entity(entity_id: str, name: str | None, description: str 
 
     except typer.Exit:
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to update entity: {exc}")
         raise typer.Exit(code=1)
 
@@ -512,7 +512,7 @@ async def _run_delete_entity(entity_id: str) -> None:
 
     except typer.Exit:
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to delete entity: {exc}")
         raise typer.Exit(code=1)
 
@@ -561,7 +561,7 @@ async def _run_create_template(
             )
         )
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to create template: {exc}")
         raise typer.Exit(code=1)
 
@@ -610,7 +610,7 @@ async def _run_show_template(template_id: str) -> None:
 
     except typer.Exit:
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to show template: {exc}")
         raise typer.Exit(code=1)
 
@@ -638,7 +638,7 @@ async def _run_delete_template(template_id: str) -> None:
 
     except typer.Exit:
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to delete template: {exc}")
         raise typer.Exit(code=1)
 
@@ -705,7 +705,7 @@ async def _run_create_table(
 
     except typer.Exit:
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to create table: {exc}")
         raise typer.Exit(code=1)
 
@@ -751,6 +751,6 @@ async def _run_show_table(table_id: str) -> None:
 
     except typer.Exit:
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to show table: {exc}")
         raise typer.Exit(code=1)

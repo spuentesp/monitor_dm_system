@@ -137,7 +137,7 @@ async def _fix_dbs() -> dict[str, str]:
         neo4j_client = get_neo4j_client()
         await neo4j_client.connect()
         verdicts["neo4j"] = "ok"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
         verdicts["neo4j"] = f"error: {exc}"
 
     try:
@@ -146,7 +146,7 @@ async def _fix_dbs() -> dict[str, str]:
         mongodb_client = get_mongodb_client()
         await mongodb_client.connect()
         verdicts["mongodb"] = "ok"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
         verdicts["mongodb"] = f"error: {exc}"
 
     try:
@@ -155,7 +155,7 @@ async def _fix_dbs() -> dict[str, str]:
         pg_client = get_postgres_client()
         await pg_client.connect()
         verdicts["postgres"] = "ok"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
         verdicts["postgres"] = f"error: {exc}"
 
     try:
@@ -165,10 +165,10 @@ async def _fix_dbs() -> dict[str, str]:
         for name in COLLECTION_CONFIGS:
             try:
                 qdrant_client.ensure_collection(name)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
                 verdicts[f"qdrant:{name}"] = f"error: {exc}"
         verdicts["qdrant"] = "ok"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
         verdicts["qdrant"] = f"error: {exc}"
 
     try:
@@ -177,7 +177,7 @@ async def _fix_dbs() -> dict[str, str]:
         minio_client = get_minio_client()
         await minio_client.ensure_bucket()
         verdicts["minio"] = "ok"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
         verdicts["minio"] = f"error: {exc}"
 
     return verdicts
@@ -213,7 +213,7 @@ def _fix_providers_if_empty() -> str:
             return "ok" if result.returncode == 0 else f"error: {result.stderr.strip()}"
 
         return asyncio.run(_check_and_seed())
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report
         return f"error: {exc}"
 
 
@@ -257,7 +257,7 @@ def _fix_ollama_models() -> str:
         return "ok"
     except subprocess.TimeoutExpired:
         return "error: ollama pull timed out"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report
         return f"error: {exc}"
 
 

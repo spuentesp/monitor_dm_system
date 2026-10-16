@@ -733,7 +733,7 @@ def load_all_builtin_specs(
         try:
             spec = builtin_to_game_system_spec(entry)
             specs.append(spec)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Failed to convert system %r: %s", name, exc)
             errors.append(f"{name}: {exc}")
 
@@ -781,13 +781,13 @@ def get_spec_for_system(system_name: str) -> GameSystemSpec | None:
     try:
         with open(_BUILTIN_SYSTEMS_PATH, encoding="utf-8") as _f:
             entries: list[dict[str, Any]] = json.load(_f)
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
         return None
     for entry in entries:
         if system_name.lower() in entry.get("name", "").lower():
             try:
                 return builtin_to_game_system_spec(entry)
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("builtin conversion failed for entry; trying next", exc_info=True)
                 continue
     return None

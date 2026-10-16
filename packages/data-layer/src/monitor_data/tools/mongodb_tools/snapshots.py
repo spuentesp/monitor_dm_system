@@ -212,7 +212,7 @@ def mongodb_restore_world_snapshot(snapshot_id: UUID) -> dict[str, Any]:
             )
             mongodb_create_proposed_change(proposal)
             proposals_created += 1
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Failed to create entity proposal for %s: %s", entity_data.get("name"), exc)
             errors.append(f"entity:{entity_data.get('name', 'unknown')}:{exc}")
 
@@ -241,7 +241,7 @@ def mongodb_restore_world_snapshot(snapshot_id: UUID) -> dict[str, Any]:
             )
             mongodb_create_proposed_change(proposal)
             proposals_created += 1
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Failed to create fact proposal: %s", exc)
             errors.append(f"fact:{fact_data.get('id', 'unknown')}:{exc}")
 
@@ -271,7 +271,7 @@ def mongodb_restore_world_snapshot(snapshot_id: UUID) -> dict[str, Any]:
             )
             mongodb_create_proposed_change(proposal)
             proposals_created += 1
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Failed to create relationship proposal: %s", exc)
             errors.append(f"relationship:{rel_data.get('from_id', 'unknown')}:{exc}")
 

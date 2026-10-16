@@ -272,7 +272,7 @@ class GLiNERClient:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(url)
                 return response.status_code == 200
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning(f"GLiNER health check failed: {e}")
             return False
 

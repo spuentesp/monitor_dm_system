@@ -335,7 +335,7 @@ def _compute_content_hash(item: Any) -> str:
             data.pop(excl, None)
         canonical = "|".join(f"{k}={data[k]}" for k in sorted(data.keys()) if data[k] is not None)
         return hashlib.md5(canonical.encode()).hexdigest()
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `hashlib.md5(repr(item).encode()).hexdige` on failure
         return hashlib.md5(repr(item).encode()).hexdigest()
 
 

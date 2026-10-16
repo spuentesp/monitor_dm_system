@@ -215,7 +215,7 @@ class EmbeddingHealthChecker:
             kwargs["api_base"] = self._base_url
         try:
             resp = await litellm.aembedding(**kwargs)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: falls back to `None, f"embed probe failed: {exc}"` on failure
             return None, f"embed probe failed: {exc}"
 
         data = getattr(resp, "data", None) or []

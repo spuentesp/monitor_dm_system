@@ -907,7 +907,7 @@ def neo4j_batch_create_entities(
         try:
             entity = neo4j_create_entity(params)
             created.append(entity)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: falls back to `BatchError(` on failure
             batch_err = BatchError(
                 index=i,
                 entity_id=getattr(params, "id", None),
@@ -957,7 +957,7 @@ def neo4j_batch_update_entities(
         try:
             entity = neo4j_update_entity(entity_id, params)
             updated.append(entity)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: falls back to `BatchError(` on failure
             batch_err = BatchError(
                 index=i,
                 entity_id=entity_id,
@@ -1019,7 +1019,7 @@ def neo4j_batch_delete_entities(
                         "code": result.get("code", "DELETE_FAILED"),
                     }
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
             errors.append(
                 {
                     "index": i,

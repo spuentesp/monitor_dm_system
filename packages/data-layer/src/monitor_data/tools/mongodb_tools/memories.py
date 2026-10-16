@@ -173,12 +173,12 @@ def mongodb_create_memory(params: MemoryCreate) -> MemoryResponse:
         def _embed() -> None:
             try:
                 qdrant_embed_memory(embed_req)
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("memory embedding failed", exc_info=True)  # Don't let embedding failures affect the memory write
 
         thread = threading.Thread(target=_embed)
         thread.start()
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.warning("memory embedding pipeline failed", exc_info=True)  # Complete silence on embedding failures
 
     return MemoryResponse(

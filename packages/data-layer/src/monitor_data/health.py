@@ -61,7 +61,7 @@ async def check_neo4j_connectivity() -> dict[str, Any]:
                 "status": HealthStatus.UNHEALTHY,
                 "message": "Neo4j connection failed",
             }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error(f"Neo4j health check failed: {e}")
         return {
             "status": HealthStatus.UNHEALTHY,
@@ -95,7 +95,7 @@ async def check_mongodb_connectivity() -> dict[str, Any]:
                 "status": HealthStatus.UNHEALTHY,
                 "message": "MongoDB connection failed",
             }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error(f"MongoDB health check failed: {e}")
         return {
             "status": HealthStatus.UNHEALTHY,
@@ -129,7 +129,7 @@ def check_qdrant_connectivity() -> dict[str, Any]:
                 "status": HealthStatus.UNHEALTHY,
                 "message": "Qdrant connection failed",
             }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error(f"Qdrant health check failed: {e}")
         return {
             "status": HealthStatus.UNHEALTHY,
@@ -157,7 +157,7 @@ async def check_postgres_connectivity() -> dict[str, Any]:
             "status": HealthStatus.UNHEALTHY,
             "message": "PostgreSQL connection failed",
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error(f"PostgreSQL health check failed: {e}")
         return {
             "status": HealthStatus.UNHEALTHY,
@@ -185,7 +185,7 @@ async def check_minio_connectivity() -> dict[str, Any]:
             "status": HealthStatus.UNHEALTHY,
             "message": "MinIO connection failed",
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error(f"MinIO health check failed: {e}")
         return {
             "status": HealthStatus.UNHEALTHY,
@@ -247,10 +247,10 @@ async def check_llm_providers() -> dict[str, Any]:
                     "status": "unknown",
                     "model": settings.embedding_model,
                 }
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Embedding health cache unavailable: %s", exc)
             out_providers["_embedding_active"] = {"status": "unknown"}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("LLM provider health check failed: %s", exc)
         return {
             "status": HealthStatus.UNHEALTHY,
@@ -335,6 +335,6 @@ async def is_healthy() -> bool:
     try:
         status = await get_health_status()
         return bool(status["overall_status"] == HealthStatus.HEALTHY)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error(f"Health check failed: {e}")
         return False

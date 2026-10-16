@@ -47,7 +47,7 @@ async def _gather_doctor_report(*, force: bool) -> dict[str, Any]:
             report["pairs"] = [pair.to_dict()] if pair is not None else []
         finally:
             await pg.close()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
         report["pairs_error"] = str(exc)
 
     # Provider collection (Postgres)
@@ -71,7 +71,7 @@ async def _gather_doctor_report(*, force: bool) -> dict[str, Any]:
                 }
             )
         report["providers"] = providers
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
         report["providers_error"] = str(exc)
 
     # Embedding health (cheap cached or fresh probe)
@@ -89,7 +89,7 @@ async def _gather_doctor_report(*, force: bool) -> dict[str, Any]:
             "vector_dim": status.vector_dim,
             "detail": status.detail,
         }
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
         report["embedding_health_error"] = str(exc)
 
     # Ingestion queue
@@ -106,7 +106,7 @@ async def _gather_doctor_report(*, force: bool) -> dict[str, Any]:
             "completed": completed,
             "pending": pending,
         }
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
         report["jobs_error"] = str(exc)
 
     return report

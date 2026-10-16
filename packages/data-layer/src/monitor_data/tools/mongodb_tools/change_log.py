@@ -78,7 +78,7 @@ def mongodb_append_change_log(entry: ChangeLogEntry) -> None:
     try:
         coll = get_mongodb_client().get_collection(_COLLECTION)
         coll.insert_one(_entry_to_doc(entry))
-    except Exception:  # pragma: no cover — auditing is non-critical
+    except Exception:  # pragma: no cover — auditing is non-critical  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Failed to append change_log entry", exc_info=True)
 
 
@@ -112,7 +112,7 @@ def mongodb_list_change_log(filters: ChangeLogFilter) -> ChangeLogListResponse:
     for doc in cursor:
         try:
             entries.append(_doc_to_entry(doc))
-        except Exception:  # pragma: no cover — skip malformed legacy rows
+        except Exception:  # pragma: no cover — skip malformed legacy rows  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Skipping malformed change_log doc", exc_info=True)
 
     return ChangeLogListResponse(

@@ -86,7 +86,7 @@ class LainClient:
         try:
             result = await self._session.call_tool(name, arguments)
             return {"success": True, "content": result.content}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             log.error("lain_tool_failed", tool=name, error=str(e))
             return {"error": str(e)}
 

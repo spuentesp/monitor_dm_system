@@ -159,7 +159,7 @@ class RetrievalService:
         # Create if missing.
         try:
             info = await client.get_collection(collection)
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
             await qdrant.ensure_collection(collection)
             info = await client.get_collection(collection)
 
@@ -273,7 +273,7 @@ class RetrievalService:
             try:
                 if pair_llm:
                     embed_input = await _hyde_rewrite(pair_llm, query)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.info("retrieve.hyde_failed (%s); using raw query", exc)
                 embed_input = query
 
@@ -290,7 +290,7 @@ class RetrievalService:
             try:
                 if pair_llm:
                     hits = await _llm_rerank(pair_llm, query, hits, top_k=limit)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.info("retrieve.rerank_failed (%s); using vector order", exc)
                 hits = hits[:limit]
         else:
@@ -375,7 +375,7 @@ class RetrievalService:
             pg = PostgresClient()
             raw = await pg.config_get(f"{_META_KEY_PREFIX}{collection}")
             return json.loads(raw) if raw else None
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("retrieval: could not read meta for '%s': %s", collection, exc)
             return None
 
@@ -386,7 +386,7 @@ class RetrievalService:
                 f"{_META_KEY_PREFIX}{collection}",
                 json.dumps({"model": model, "dimension": dimension}),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("retrieval: could not record meta for '%s': %s", collection, exc)
 
 
@@ -469,7 +469,7 @@ def _collection_dim(info: Any) -> int | None:
         if isinstance(vectors, dict) and vectors:
             first = next(iter(vectors.values()))
             return int(getattr(first, "size", 0)) or None
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
         return None
     return None
 

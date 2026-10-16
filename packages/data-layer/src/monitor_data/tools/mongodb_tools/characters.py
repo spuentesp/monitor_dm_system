@@ -50,7 +50,7 @@ def mongodb_resolve_character(character_id: str) -> dict[str, Any]:
                 "skills": {},
                 "resources": {},
             }
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.debug("character document parse failed", exc_info=True)
 
     # 2. Check Neo4j entities
@@ -66,7 +66,7 @@ def mongodb_resolve_character(character_id: str) -> dict[str, Any]:
             if isinstance(props, str):
                 try:
                     props = json.loads(props)
-                except Exception:
+                except (ValueError, TypeError):
                     props = {}
 
             eid = e.get("entity_id") or e.get("id") or character_id
@@ -83,7 +83,7 @@ def mongodb_resolve_character(character_id: str) -> dict[str, Any]:
                 "skills": dict(props.get("skills", {})),
                 "resources": dict(props.get("resources", {})),
             }
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.debug("character document parse failed", exc_info=True)
 
     raise ValueError(f"Character {character_id} not found in MongoDB or Neo4j")

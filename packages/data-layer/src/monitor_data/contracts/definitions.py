@@ -626,7 +626,7 @@ class ContractRunner:
                     f"Invariant {invariant_name} violated",
                     context or {},
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: falls back to `ContractResult.fail(` on failure
             return ContractResult.fail(
                 f"Invariant {invariant_name} raised exception: {e}",
                 context or {},
@@ -659,7 +659,7 @@ def requires_contract(contract_class: type[BaseModel]) -> Callable[..., Callable
             # Try to create contract model
             try:
                 contract = contract_class(**contract_data)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # reason: falls back to `ContractResult.fail(` on failure
                 return ContractResult.fail(
                     f"Contract initialization failed: {e}",
                     {"data": contract_data},

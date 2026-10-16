@@ -58,7 +58,7 @@ class _FallbackEncoding:
 def _load_encoding() -> tiktoken.Encoding | _FallbackEncoding:
     try:
         return tiktoken.get_encoding("cl100k_base")
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `_FallbackEncoding()` on failure
         return _FallbackEncoding()
 
 

@@ -137,7 +137,7 @@ class MinIOClient:
             async with self._s3() as client:
                 await client.list_buckets()
             return True
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
             if self._fallback_to_local:
                 self._local_bucket_root().mkdir(parents=True, exist_ok=True)
                 logger.warning(
@@ -163,7 +163,7 @@ class MinIOClient:
         async with self._s3() as client:
             try:
                 await client.head_bucket(Bucket=target)
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
                 await client.create_bucket(Bucket=target)
 
     # ------------------------------------------------------------------

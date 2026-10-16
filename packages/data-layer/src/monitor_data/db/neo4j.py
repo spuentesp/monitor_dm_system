@@ -381,13 +381,13 @@ class Neo4jClient:
                     try:
                         # reason: neo4j AsyncSession.execute_write callback signature isn't preserved through the lambda default-arg capture; tx.run returns EagerResult | None but mypy can't bridge the unbound generic
                         await session.execute_write(lambda tx, stmt=statement: tx.run(stmt))  # type: ignore
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                         logger.warning(
                             "Neo4j schema statement failed (%s...): %s",
                             statement[:60],
                             exc,
                         )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Neo4j schema bootstrap skipped: %s", exc)
 
     def _log_query_timing(self, mode: str, query: str, started_at: float) -> None:
@@ -403,7 +403,7 @@ class Neo4jClient:
             alert_manager = get_alert_manager()
             pattern = get_perf_tracker()._normalize_pattern(query)
             alert_manager.check_slow_query(pattern, elapsed_ms, query)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
             # Don't fail the query if alerting has issues
             logger.debug("Failed to check for slow query alerts: %s", exc)
 
@@ -427,7 +427,7 @@ class Neo4jClient:
                 return False
             await self._driver.verify_connectivity()
             return True
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: falls back to `False` on failure
             return False
 
     # ------------------------------------------------------------------

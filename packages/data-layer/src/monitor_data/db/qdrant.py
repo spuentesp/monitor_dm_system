@@ -223,7 +223,7 @@ class QdrantClient:
             assert self._client is not None
             await self._client.get_collections()
             return True
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: falls back to `False` on failure
             return False
 
     # ------------------------------------------------------------------
@@ -310,7 +310,7 @@ class QdrantClient:
 
         try:
             await client.get_collection(collection_name)
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: falls back to `COLLECTION_CONFIGS[collection_name]` on failure
             config = COLLECTION_CONFIGS[collection_name]
             await client.create_collection(
                 collection_name=collection_name,
@@ -340,7 +340,7 @@ class QdrantClient:
                         lowercase=True,
                     ),
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.debug("Qdrant text payload index skipped for %s.text: %s", collection_name, exc)
 
         for field_name, field_schema in PAYLOAD_INDEX_CONFIGS.get(collection_name, {}).items():
@@ -350,7 +350,7 @@ class QdrantClient:
                     field_name=field_name,
                     field_schema=field_schema,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.debug(
                     "Qdrant payload index skipped for %s.%s: %s",
                     collection_name,

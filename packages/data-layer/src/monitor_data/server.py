@@ -160,7 +160,7 @@ def extract_tool_schema(func: Callable[..., Any]) -> dict[str, Any]:
 
         return schema
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error(f"Failed to extract schema for {func.__name__}: {e}")
         # Return minimal schema as fallback
         return {"type": "object"}
@@ -390,7 +390,7 @@ async def main() -> None:
         logger.info(f"Health status: {health['overall_status']}")
         for component, status in health["components"].items():
             logger.info(f"  {component}: {status['status']}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning(f"Health check failed: {e}")
 
     # Run server with STDIO transport

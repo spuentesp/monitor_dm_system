@@ -87,7 +87,7 @@ async def _run_list_universes() -> None:
         console.print(table)
         console.print(f"\n[bold]Total:[/bold] {len(universes)} universe(s)")
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to list universes: {exc}")
 
 
@@ -121,7 +121,7 @@ async def _run_list_multiverses() -> None:
         console.print(table)
         console.print(f"\n[bold]Total:[/bold] {len(multiverses)} multiverse(s)")
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to list multiverses: {exc}")
 
 
@@ -186,7 +186,7 @@ async def _run_create_universe(name: str, description: str, multiverse_id_str: s
             )
         )
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to create universe: {exc}")
         raise typer.Exit(code=1)
 
@@ -221,6 +221,6 @@ async def _run_show_universe(universe_id_str: str) -> None:
     except ValueError:
         console.print(f"[red]Error:[/red] Invalid UUID format: {universe_id_str}")
         raise typer.Exit(code=1)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[red]Error:[/red] Failed to show universe: {exc}")
         raise typer.Exit(code=1)
