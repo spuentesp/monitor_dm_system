@@ -59,7 +59,7 @@ def resolve_actor_character(
                 skills={},
                 resources={},
             )
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.debug("character resolution document parse failed", exc_info=True)
 
     # 2. Check Neo4j entities
@@ -75,7 +75,7 @@ def resolve_actor_character(
             if isinstance(props, str):
                 try:
                     props = json.loads(props)
-                except Exception:
+                except (ValueError, TypeError):
                     props = {}
 
             # Neo4j Entity IDs can be string or UUID in the driver
@@ -96,7 +96,7 @@ def resolve_actor_character(
                 skills=dict(props.get("skills", {})),
                 resources=dict(props.get("resources", {})),
             )
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.debug("character resolution document parse failed", exc_info=True)
 
     return None

@@ -138,7 +138,7 @@ def _demo_pc_properties(system_id: UUID | None) -> dict:  # type: ignore
         derived = gsr.derive_resources(stats)
         if derived:
             props["resources"] = {name: {"current": val, "max": val} for name, val in derived.items()}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Demo PC resource derivation failed: %s", exc)
     return props
 
@@ -162,7 +162,7 @@ def _ensure_demo_pc(universe_id: UUID, system_id: UUID | None = None) -> str | N
             if getattr(e, "name", None) == _DEMO_PC_NAME:
                 # reason: dynamic dispatch — getattr fallback union Any | tuple[str, ...]; mypy can't narrow e.id at static-analysis time
                 return str(e.id)  # type: ignore
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.debug("demo PC lookup failed", exc_info=True)
 
     pc = neo4j_create_entity(
@@ -349,7 +349,7 @@ async def demo_world(start_playing: bool = True) -> DemoWorldResponse:
             pc_id: str | None = None
             try:
                 pc_id = await anyio.to_thread.run_sync(_ensure_demo_pc, result.universe_id, mistlands_id)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
                 payload.setdefault("errors", []).append(f"Demo PC bootstrap failed: {exc}")
 
             session = await create_session(
@@ -370,7 +370,7 @@ async def demo_world(start_playing: bool = True) -> DemoWorldResponse:
                 )
             )
             session_id = session.id
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
             payload.setdefault("errors", []).append(f"Session bootstrap failed: {exc}")
 
     return DemoWorldResponse(session_id=session_id, reused=reused, **payload)
@@ -409,7 +409,7 @@ async def quick_world(body: QuickWorldRequest) -> QuickWorldResponse:
                 # reason: dynamic dispatch — getattr fallback union Any | tuple[str, ...]; mypy can't narrow sys.id at static-analysis time
                 mistlands_id = sys.id  # type: ignore
                 break
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
         mistlands_id = None
 
     payload = result.summary()
@@ -423,7 +423,7 @@ async def quick_world(body: QuickWorldRequest) -> QuickWorldResponse:
             pc_id: str | None = None
             try:
                 pc_id = await anyio.to_thread.run_sync(_ensure_demo_pc, result.universe_id, mistlands_id)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
                 payload.setdefault("errors", []).append(f"Quick-world PC bootstrap failed: {exc}")
 
             session = await create_session(
@@ -442,7 +442,7 @@ async def quick_world(body: QuickWorldRequest) -> QuickWorldResponse:
                 )
             )
             session_id = session.id
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("quick-world session bootstrap failed: %s", exc)
             payload.setdefault("errors", []).append(f"Session bootstrap failed: {exc}")
 

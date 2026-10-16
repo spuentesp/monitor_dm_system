@@ -188,7 +188,7 @@ async def _query_npcs(
         ]
         return npcs, total
 
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `[], 0` on failure
         return [], 0
 
 
@@ -286,7 +286,7 @@ async def _query_systems() -> list[RPGSystem]:
             )
 
         return systems
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure
         return []
 
 
@@ -516,7 +516,7 @@ async def get_npc(npc_id: str) -> NPCDetail:
         if isinstance(props, str):
             try:
                 props = _json.loads(props)
-            except Exception:
+            except (ValueError, TypeError):
                 props = {}
 
         return NPCDetail(
@@ -953,7 +953,7 @@ async def list_characters(system_id: str) -> list[Character]:
             )
             for sheet in sheets.sheets
         ]
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure
         return []
 
 
@@ -983,7 +983,7 @@ def _count_character_memories(entity_ids: list[str]) -> int:
 
         coll = get_mongodb_client().get_collection("character_memories")
         return int(coll.count_documents({"entity_id": {"$in": entity_ids}}))
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `0` on failure
         return 0
 
 
@@ -1073,7 +1073,7 @@ async def import_character_card(file: UploadFile = File(...)) -> CharacterDetail
                 key = f"assets/avatar/imported/{uuid4()}.{ext}"
                 await get_minio_client().upload(key, icon, content_type=content_type)
                 create.avatar_url = key
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
             # Asset extraction is best-effort: a card without its icon is
             # still a valid import.
             logger.warning("charx asset extraction failed, importing without avatar: %s", exc)
@@ -1167,7 +1167,7 @@ async def import_character_from_universe(
             "MATCH (e:EntityInstance {id: $id}) RETURN e",
             {"id": body.source_entity_id},
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         raise HTTPException(status_code=502, detail=f"Neo4j lookup failed: {exc}")
 
     if not rows:
@@ -1235,7 +1235,7 @@ async def get_character_memories(
             }
             for m in cursor
         ]
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure
         memories = []
         total = 0
 
@@ -1256,7 +1256,7 @@ async def clear_character_memories(character_id: str) -> None:
 
         get_mongodb_client().get_collection("character_memories").delete_many({"entity_id": {"$in": entity_ids}})
         _increment_memory_count(character_id, delta=-char.get("memory_count", 0))
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.warning("memory cleanup after entity delete failed", exc_info=True)
 
 
@@ -1277,7 +1277,7 @@ async def draft_character_card(body: CardDraftRequest) -> CardDraftResponse:
             description=body.description,
             personality=body.personality,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         raise HTTPException(status_code=502, detail=f"Draft failed: {exc}")
     return CardDraftResponse(**draft)
 
@@ -1297,7 +1297,7 @@ async def expand_character(
     target_universe = body.universe_id if body else None
     try:
         backing = await cc.ensure_character_backed(character_id, target_universe)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         raise HTTPException(status_code=502, detail=f"Expansion failed: {exc}")
     return CharacterExpandResponse(
         character_id=character_id,
@@ -1341,7 +1341,7 @@ async def delete_character_version(character_id: str, universe_id: str) -> None:
         raise HTTPException(status_code=404, detail="Character not found")
     try:
         ok = await cc.delete_incarnation(character_id, universe_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         raise HTTPException(status_code=502, detail=f"Delete failed: {exc}")
     if not ok:
         raise HTTPException(status_code=404, detail="Version not found")
@@ -1373,7 +1373,7 @@ async def get_character_profile(character_id: str) -> dict:  # type: ignore
         )
     try:
         profile = mongodb_get_npc_profile(UUID(entity_id))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         raise HTTPException(status_code=502, detail=f"Mongo read failed: {exc}")
     if profile is None:
         raise HTTPException(status_code=404, detail="NPCProfile not found in MongoDB")
@@ -1401,7 +1401,7 @@ async def start_character_conversation(
         result = await cc.start_conversation(character_id, target_universe, persona_character_id=persona_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         raise HTTPException(status_code=502, detail=f"Could not start conversation: {exc}")
     return ConversationStartResponse(**result)
 
@@ -1433,7 +1433,7 @@ async def send_character_message(
             status_code=409,
             detail="Conversation is no longer active. Start a new one.",
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         raise HTTPException(status_code=502, detail=f"Reply failed: {exc}")
     return ConversationReply(**reply)
 

@@ -145,7 +145,7 @@ async def get_world_graph(
                     related_entity_ids.add(to_id)
                 elif to_id == rt_str:
                     related_entity_ids.add(from_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report
         return {"nodes": [], "edges": [], "error": str(exc)}
 
     # reason: `nodes: list[dict]` — `dict` is missing generic parameters for the inline-constructed node literals
@@ -360,7 +360,7 @@ async def get_universe_graph(
         if allowed_rel_types:
             filtered_rels = [r for r in filtered_rels if r.rel_type and r.rel_type.lower() in allowed_rel_types]
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report
         return {"nodes": [], "edges": [], "error": str(exc)}
 
     # reason: `nodes: list[dict]` — `dict` is missing generic parameters for the inline-constructed node literals
@@ -480,7 +480,7 @@ async def get_entity_ego_graph(
         # Load all relationships in this universe
         rels_r = neo4j_list_relationships(RelationshipFilter(universe_id=universe_id, limit=1000))
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report
         return {"nodes": [], "edges": [], "error": str(exc)}
 
     # ── BFS to collect neighbours up to depth ──────────────────
@@ -512,7 +512,7 @@ async def get_entity_ego_graph(
     for nid in neighbor_ids:
         try:
             e = neo4j_get_entity(UUID(nid))
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
             e = None
         if e is not None:
             all_entities.append(e)

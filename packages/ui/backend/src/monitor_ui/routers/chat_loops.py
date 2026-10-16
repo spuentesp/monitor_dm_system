@@ -38,7 +38,7 @@ try:
     from monitor_agents.loops.story_loop import StoryLoop
 
     _AGENTS_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     SceneLoop = None  # type: ignore[assignment,misc]
     SceneOrchestrator = None  # type: ignore[assignment,misc]
     StoryLoop = None  # type: ignore[assignment,misc]
@@ -53,14 +53,14 @@ try:
     from monitor_agents.loops.world_building_loop import WorldBuildingLoop
 
     _WORLD_ARCHITECT_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     _WORLD_ARCHITECT_AVAILABLE = False
 
 try:
     from monitor_agents.loops.character_creation_loop import CharacterCreationLoop
 
     _CHAR_CREATION_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     _CHAR_CREATION_AVAILABLE = False
 
 try:
@@ -69,7 +69,7 @@ try:
     )
 
     _SESSION_ZERO_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     _SESSION_ZERO_AVAILABLE = False
 
 try:
@@ -79,7 +79,7 @@ try:
     )
 
     _CONVERSATION_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     ConversationLoop = None  # type: ignore[assignment,misc]
     ConversationMode = None  # type: ignore[assignment,misc]
     _CONVERSATION_AVAILABLE = False
@@ -88,7 +88,7 @@ try:
     from monitor_agents.recap.agent import RecapAgent
 
     _RECAP_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     RecapAgent = None  # type: ignore[assignment,misc]
     _RECAP_AVAILABLE = False
 
@@ -96,19 +96,19 @@ try:
     from monitor_data.tools.mongodb_tools import mongodb_get_gm_profile
 
     _BOOTSTRAP_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     _BOOTSTRAP_AVAILABLE = False
 
 try:
     _PROMPT_COLLECTIONS_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     _PROMPT_COLLECTIONS_AVAILABLE = False
 
 try:
     from .character_resolution import resolve_actor_character
 
     _CHARACTER_RESOLUTION_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     _CHARACTER_RESOLUTION_AVAILABLE = False
 
 try:
@@ -116,7 +116,7 @@ try:
     from monitor_data.schemas.scenes import SceneUpdate
 
     _DB_READERS_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     _DB_READERS_AVAILABLE = False
 
 
@@ -235,7 +235,7 @@ def get_scene_loop(
             profile = mongodb_get_gm_profile(uuid.UUID(gm_profile_id))
             if profile:
                 gm_profile_dict = profile.model_dump()
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Failed to load GM profile %s, falling back to tone", gm_profile_id)
 
     loop = SceneLoop(
@@ -338,14 +338,14 @@ async def run_preplay_turn(
         try:
             lore_data = await fetch_opening_hook(session)
             world_lore = lore_data.get("axioms", []) + lore_data.get("facts", [])
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("Failed to fetch opening hook for session zero: %s", exc)
 
         try:
             from monitor_agents.character_interview import ground_world_lore
 
             world_lore = ground_world_lore(world_lore, session.get("system_label") or "", system_context)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("Failed to ground world lore: %s", exc)
 
         if system_doc and isinstance(system_doc, dict):
@@ -436,7 +436,7 @@ async def run_world_architect_turn(
             user_input=user_content,
             conversation_history=history,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("World Architect turn failed: %s", exc)
         return (
             "I encountered an issue processing your request. Could you rephrase or try again?",
@@ -500,7 +500,7 @@ async def run_scene_turn(
             resolved = resolve_actor_character(session)
             if resolved:
                 actor_context = resolved.model_dump(mode="json")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("Failed to resolve actor character: %s", exc)
 
     if not _AGENTS_AVAILABLE or SceneOrchestrator is None:
@@ -667,7 +667,7 @@ async def run_end_scene(
                 )
                 if forget_count:
                     logger.info("run_end_scene: forgot %d stale memories", forget_count)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.warning("run_end_scene: memory hygiene failed: %s", exc)
 
             if story_result.get("current_scene_id"):
@@ -728,7 +728,7 @@ async def run_recap_command(
         )
         if not recap_text or len(recap_text.strip()) < 20:
             recap_text = "The story is just beginning. Every legend starts with a first step."
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("RecapAgent failed (story=%s): %s", story_id, exc)
         return (
             "I couldn't gather the story threads right now. Try again later.",
@@ -788,7 +788,7 @@ async def run_start_conversation(
                 "Try a different name, or check the Entities tab.",
                 {"type": "conversation_error", "npc_query": npc_query},
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("NPC lookup failed: %s", exc)
         return (
             f"I had trouble looking up **{npc_query}**. The world memory may be unavailable.",
@@ -807,7 +807,7 @@ async def run_start_conversation(
             story_id=uuid.UUID(session["story_id"]) if session.get("story_id") else None,
             player_entity_id=uuid.UUID(player_id) if player_id else None,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("ConversationLoop.start failed: %s", exc)
         return (
             "Couldn't start the conversation engine.",
@@ -894,7 +894,7 @@ async def run_conversation_turn(
             "social_read": responses[0].get("social_read", {}) if responses else {},
             "relationship_snapshot": responses[0].get("relationship_snapshot", {}) if responses else {},
         }
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("ConversationLoop.step failed: %s", exc)
         session.pop("conversation_active", None)
         pop_conversation_loop(session_id)
@@ -943,7 +943,7 @@ async def _generate_scene_summary(session_id: str, messages: dict[str, list[dict
                 gm_profile={"prompt_override": summary_prompt},
             )
             return summary.strip()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Failed to generate scene summary: %s", exc)
 
     return "The scene concludes."
@@ -978,7 +978,7 @@ async def run_ooc_turn(
             resolved = resolve_actor_character(session)
             if resolved:
                 character = resolved.model_dump(mode="json")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("Failed to resolve actor character for OOC: %s", exc)
 
     if not character:
@@ -1026,7 +1026,7 @@ async def run_ooc_turn(
             gm_profile={"prompt_override": character_prompt},
         )
         narrative = strip_entity_tags(result.get("narrative_text", ""))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("OOC turn failed: %s", exc)
         narrative = "The character is unavailable right now."
 

@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 try:
     _GSR_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     _GSR_AVAILABLE = False
 
 
@@ -57,7 +57,7 @@ def resolve_universe_system_binding(universe_id: str | None) -> dict[str, Any]:
             "system_source_id": getattr(universe, "default_system_source_id", None),
             "system_name": getattr(universe, "default_system_name", None),
         }
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("resolve_universe_system_binding failed: %s", exc)
         return {}
 
@@ -124,7 +124,7 @@ def get_game_system_doc(
             resolved_system_id,
         )
         return None
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("get_game_system_doc failed: %s", exc)
         return None
 
@@ -158,6 +158,6 @@ def get_benchmark_config(benchmark_id: str | None) -> dict[str, Any] | None:
         from monitor_data.defaults.playtest_benchmarks import get_playtest_benchmark
 
         return get_playtest_benchmark(benchmark_id, include_scripted_turns=True)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("get_benchmark_config failed: %s", exc)
         return None

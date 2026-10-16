@@ -133,7 +133,7 @@ try:
     from monitor_agents.loops.world_building_loop import WorldBuildingLoop
 
     _WORLD_ARCHITECT_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     _WORLD_ARCHITECT_AVAILABLE = False
 
 try:
@@ -142,7 +142,7 @@ try:
     from monitor_data.tools.mongodb_tools import mongodb_list_proposed_changes
 
     _WRAP_UP_READS_AVAILABLE = True
-except Exception:
+except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     _WRAP_UP_READS_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
@@ -311,7 +311,7 @@ async def list_playtest_benchmarks() -> list[dict[str, Any]]:
         )
 
         return await asyncio.to_thread(resolve_playtest_benchmarks, include_scripted_turns=True)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("list_playtest_benchmarks failed: %s", exc)
         return []
 
@@ -490,7 +490,7 @@ async def create_session(body: SessionCreate) -> Session:
                 welcome_text = welcome.get("response_text", "")
                 if welcome_text:
                     messages.append(_make_gm_msg(sid, welcome_text, {"type": "world_architect_welcome"}))
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
                 messages.append(
                     _make_gm_msg(
                         sid,
@@ -612,7 +612,7 @@ async def get_session_recap(session_id: str) -> dict[str, Any]:
             recap_text = "The story is just beginning. Every legend starts with a first step."
     except ImportError:
         recap_text = "The recap engine is not available right now."
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("RecapAgent endpoint failed (session=%s): %s", session_id, exc)
         recap_text = "I couldn't gather the story threads right now. Try again later."
 
@@ -684,7 +684,7 @@ async def wrap_up_session(session_id: str) -> WrapUpDigest:
             )
         except ImportError:
             recap_text = "The recap engine is not available right now."
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Wrap-up recap failed (session=%s): %s", session_id, exc)
             recap_text = "I couldn't gather the story threads right now."
     if not recap_text or len(recap_text.strip()) < 20:
@@ -716,7 +716,7 @@ async def wrap_up_session(session_id: str) -> WrapUpDigest:
                         label=_canon_item_label(proposal.content, proposal.change_type.value),
                     )
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Wrap-up canon tally failed (session=%s): %s", session_id, exc)
 
     # 4. Open threads + next-session prep teaser.
@@ -731,7 +731,7 @@ async def wrap_up_session(session_id: str) -> WrapUpDigest:
             open_threads = list(next_prep.open_threads)
         except ImportError:
             logger.debug("PlotHookAgent unavailable for wrap-up (session=%s)", session_id)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.warning("Wrap-up session prep failed (session=%s): %s", session_id, exc)
 
     # 5. Persist the wrap-up artifacts onto the session doc (P1.4).
@@ -1051,7 +1051,7 @@ async def delete_session(session_id: str) -> None:
         mdb = get_mongodb_client()
         mdb.get_collection("chat_sessions").delete_one({"id": session_id})
         mdb.get_collection("chat_messages").delete_many({"session_id": session_id})
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("delete_session DB cleanup failed: %s", exc)
 
     listeners = list(_WS_SUBSCRIBERS.pop(session_id, set()))

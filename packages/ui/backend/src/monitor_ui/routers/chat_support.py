@@ -199,7 +199,7 @@ async def match_consequence_choice(user_text: str, options: list[str]) -> str | 
             available_options=json.dumps(options, default=str),
         )
         matched = str(getattr(prediction, "matched_option", "") or "").strip()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Consequence choice LLM match failed: %s", exc)
         return None
 

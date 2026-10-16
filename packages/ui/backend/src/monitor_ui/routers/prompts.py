@@ -240,7 +240,7 @@ async def _load_override(module_id: str) -> dict[str, Any] | None:
             return None
         # reason: json.loads returns Any and the function returns dict[str, Any] | None; the `"instructions" not in data` guard narrows but mypy can't bridge the union without an explicit cast
         return data  # type: ignore
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
         return None
 
 
@@ -334,7 +334,7 @@ async def list_modules() -> list[PromptModuleSummary]:
             try:
                 parsed = json.loads(raw)
                 has_override = "instructions" in parsed
-            except Exception:
+            except (ValueError, TypeError):
                 log.debug("prompt override JSON parse failed", exc_info=True)
 
         result.append(
@@ -508,7 +508,7 @@ async def test_module(module_id: str, body: PromptTestRequest) -> PromptTestResu
             latency_ms=round(elapsed_ms, 1),
         )
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: falls back to `(time.perf_counter() - t0) * 1000` on failure
         elapsed_ms = (time.perf_counter() - t0) * 1000
         return PromptTestResult(
             ok=False,

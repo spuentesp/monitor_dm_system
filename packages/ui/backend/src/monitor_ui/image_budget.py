@@ -137,7 +137,7 @@ def _derive_used_from_mongo(
     try:
         coll = get_mongodb_client().get_collection(_BUDGET_COLLECTION)
         return int(coll.count_documents(query))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.warning(
             "image_budget.mongo_derive_failed",
             scope=scope,
@@ -149,7 +149,7 @@ def _derive_used_from_mongo(
 def _redis_is_available() -> bool:
     try:
         return bool(get_redis_client().is_available())
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `False` on failure
         return False
 
 
@@ -163,7 +163,7 @@ def _redis_get_count(key: str) -> int | None:
         if raw is None:
             return 0
         return int(raw)
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
         return None
 
 
@@ -184,10 +184,10 @@ def _redis_increment(key: str, ttl: int) -> int | None:
         if ttl > 0:
             try:
                 raw_client.expire(key, ttl)
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("redis TTL set failed", exc_info=True)
         return new_value
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.warning(
             "image_budget.redis_increment_failed",
             key=key,
@@ -204,7 +204,7 @@ def _redis_decrement(key: str) -> None:
             return
         raw_client = client._get_client()
         raw_client.decr(key)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.warning(
             "image_budget.redis_decrement_failed",
             key=key,

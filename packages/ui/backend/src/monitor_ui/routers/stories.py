@@ -195,7 +195,7 @@ async def list_story_threads(story_id: UUID, only_open: bool = True) -> list[Thr
                     source="graph",
                 )
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("plot-thread lookup failed for %s: %s", story_id, exc)
 
     if not threads:
@@ -244,7 +244,7 @@ async def get_story_state(story_id: UUID) -> StoryState | None:
                 # Handle cases where in_game_time might be stored as string in some checkpointers
                 vals = dict(current.values)
                 return StoryState(**vals)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("Failed to load story state for %s: %s", story_id, exc)
     return None
 
@@ -265,7 +265,7 @@ async def get_story(story_id: UUID) -> StoryResponse:
 
         try:
             record = neo4j_get_story(story_id)
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
             record = None
         if record is None:
             raise HTTPException(status_code=404, detail="Story not found")

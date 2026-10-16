@@ -185,11 +185,11 @@ def _source_from_job(job: Any) -> dict:  # type: ignore
     doc = None
     try:
         source_node = neo4j_get_source(job.source_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("Could not fetch Neo4j source node for %s: %s", job.source_id, exc)
     try:
         doc = mongodb_get_document(job.doc_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("Could not fetch document record for job %s: %s", job.job_id, exc)
 
     title = (source_node.title if source_node else None) or (doc.title if doc else "Unknown")
@@ -326,7 +326,7 @@ def _game_system_summary(pack: Any) -> dict | None:  # type: ignore
         return None
     try:
         system = mongodb_get_game_system(game_system_id)
-    except Exception:
+    except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
         return None
     if not system:
         return None

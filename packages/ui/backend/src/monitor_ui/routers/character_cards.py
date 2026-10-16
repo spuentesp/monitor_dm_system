@@ -123,7 +123,7 @@ def _extract_card_from_png(data: bytes) -> dict[str, Any]:
             try:
                 text = zlib.decompress(rest[1:]).decode("latin-1", "ignore")
                 found[key.decode("latin-1", "ignore")] = text
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 log.debug("lorebook entry decompress failed; skipping entry", exc_info=True)
         elif ctype == b"IEND":
             break
@@ -219,7 +219,7 @@ def parse_character_card_with_book(
         for raw_entry in raw_entries:
             try:
                 entries.append(LorebookEntryCreate(**raw_entry))
-            except Exception:
+            except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
                 # Defensive: skip malformed entries rather than failing the whole card.
                 log.debug("malformed lorebook entry skipped", exc_info=True)
                 continue

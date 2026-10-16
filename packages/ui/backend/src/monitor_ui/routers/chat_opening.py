@@ -80,7 +80,7 @@ async def fetch_opening_hook(session: dict[str, Any]) -> dict[str, Any]:
         )
         result["locations"] = [f"{r['name']}: {r.get('desc', '')}" for r in loc_rows if r.get("name")]
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("fetch_opening_hook failed: %s", exc)
     return result
 
@@ -110,7 +110,7 @@ async def _fetch_module_intro(session: dict[str, Any]) -> str:
         )
 
         pack = mongodb_get_knowledge_pack(uuid.UUID(str(pack_id_raw)))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.debug("build_gm_opening module_intro fetch failed: %s", exc)
         return ""
     if pack is None:
@@ -161,7 +161,7 @@ async def build_gm_opening(
                 recap_text = (recap_text or "").strip()
                 if recap_text and len(recap_text) > 40:
                     return recap_text, {"type": "gm_opening", "resume": True}
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                 logger.debug("build_gm_opening resume-recap failed: %s", exc)
         # Falls through to the cold-open path below if the recap couldn't
         # be produced (e.g. a story_id with no prior scenes yet) -- better
@@ -191,7 +191,7 @@ async def build_gm_opening(
                     profile_res = mongodb_get_gm_profile(uuid.UUID(gm_profile_id))
                     if profile_res:
                         gm_profile = profile_res.model_dump()
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
                     logger.debug("Failed to load GM profile for opening: %s", e)
 
             lore_context = []
@@ -223,7 +223,7 @@ async def build_gm_opening(
                     "lore_used": bool(lore_context),
                     "premise_used": bool(story_premise),
                 }
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
             logger.debug("build_gm_opening LLM call failed: %s", exc)
 
     # Fallback: compose from lore strings without LLM. Reached when there's

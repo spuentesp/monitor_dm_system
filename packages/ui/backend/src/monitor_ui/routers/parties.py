@@ -75,7 +75,7 @@ async def list_parties(
             offset=offset,
         )
         return neo4j_list_parties(params)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.warning("list_parties failed: %s", exc)
         return []
 
