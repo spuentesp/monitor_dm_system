@@ -55,11 +55,13 @@ def evaluate(paths: list[str], allow_sealed: bool) -> tuple[int, str]:
 
 
 def _git_lines(*args: str) -> list[str]:
+    # Run git in the caller's working tree (like every git tool) so the guard
+    # inspects the repo it is invoked against, not the script's install path.
     proc = subprocess.run(
         ["git", *args],
-        cwd=ROOT,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
@@ -67,11 +69,13 @@ def _git_lines(*args: str) -> list[str]:
 
 
 def changed_files(base: str) -> list[str]:
-    return _git_lines("diff", "--name-only", f"{base}...HEAD")
+    # --no-renames: a pure rename lists only the destination by default, which
+    # would let a `git mv` out of a sealed suite slip past the guard.
+    return _git_lines("diff", "--name-only", "--no-renames", f"{base}...HEAD")
 
 
 def staged_files() -> list[str]:
-    return _git_lines("diff", "--cached", "--name-only")
+    return _git_lines("diff", "--cached", "--name-only", "--no-renames")
 
 
 def main(argv: list[str] | None = None) -> int:

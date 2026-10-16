@@ -206,3 +206,79 @@ def test_allowlist_entry_without_justification_is_error(tmp_path: Path) -> None:
     )
     with pytest.raises(md.AllowlistError, match="justification"):
         md.load_allowlist(allow)
+
+
+def test_changed_production_files_excludes_deletions(tmp_path: Path) -> None:
+    """Deleting dead code must not send the gate hunting for mutants in a
+    file that no longer exists (cosmic-ray init aborts on missing modules)."""
+    import subprocess as sp
+
+    repo = tmp_path / "repo"
+    (repo / "packages" / "pkg" / "src").mkdir(parents=True)
+    mod = repo / "packages" / "pkg" / "src" / "gone.py"
+    mod.write_text("x = 1\n")
+    for cmd in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "t@t"],
+        ["git", "config", "user.name", "t"],
+    ):
+        sp.run(cmd, cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "commit", "-qm", "seed"], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "rm", "-q", "packages/pkg/src/gone.py"], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "commit", "-qm", "delete"], cwd=repo, check=True, capture_output=True)
+
+    changed = md.changed_production_files("HEAD~1", repo)
+    assert changed == [], f"deleted modules must be excluded, got {changed}"
+
+
+def test_no_production_changes_short_circuits(monkeypatch) -> None:
+    """Review Focus pin: docs-only / empty diffs exit 0 without ever invoking
+    Cosmic Ray (zero mutation minutes)."""
+    calls = []
+    monkeypatch.setattr(md, "changed_production_files", lambda base, root: [])
+    monkeypatch.setattr(md, "run_session", lambda *a, **k: calls.append(a) or (_ for _ in ()).throw(AssertionError("run_session must not be called")))
+    code = md.main(["--base", "HEAD"])
+    assert code == 0
+    assert calls == []
+
+
+def test_load_allowlist_missing_file_is_config_error(tmp_path: Path) -> None:
+    with pytest.raises(md.AllowlistError, match="allowlist"):
+        md.load_allowlist(tmp_path / "nope.toml")
+
+
+def test_load_allowlist_bad_toml_is_config_error(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.toml"
+    bad.write_text("survivors = [unclosed\n")
+    with pytest.raises(md.AllowlistError, match="allowlist"):
+        md.load_allowlist(bad)
+
+
+def test_load_allowlist_non_string_justification_is_rejected(tmp_path: Path) -> None:
+    allow = tmp_path / "allow.toml"
+    allow.write_text(
+        '[[survivors]]\n'
+        'module_path = "m.py"\n'
+        'operator_name = "core/Number"\n'
+        'occurrence = 0\n'
+        'justification = 5\n'
+    )
+    with pytest.raises(md.AllowlistError, match="justification"):
+        md.load_allowlist(allow)
+
+
+def test_run_session_budget_exceeded_raises_actionable_error(tmp_path: Path, monkeypatch) -> None:
+    """A hung cosmic-ray run must surface as a budget error (exit 2 upstream),
+    never a false survivor verdict or an unbounded hang."""
+    import subprocess as sp
+
+    config = tmp_path / "cfg.toml"
+    config.write_text('[cosmic-ray]\nmodule-path = "m.py"\ntest-command = "true"\n')
+
+    def fake_run(*args, **kwargs):
+        raise sp.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout", 0))
+
+    monkeypatch.setattr(md.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="mutation budget exceeded"):
+        md.run_session(config, tmp_path)

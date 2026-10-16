@@ -45,10 +45,13 @@ class Survivor:
 def changed_production_files(base: str, root: Path) -> list[Path]:
     """Production .py files under packages/ touched by the PR (tests excluded)."""
     proc = subprocess.run(
-        ["git", "diff", "--name-only", f"{base}...HEAD", "--", "packages/"],
+        # --diff-filter=ACMR: deleted modules have no mutants to run; cosmic-ray
+        # init aborts on missing module paths.
+        ["git", "diff", "--name-only", "--diff-filter=ACMR", f"{base}...HEAD", "--", "packages/"],
         cwd=root,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"git diff failed: {proc.stderr.strip()}")
@@ -179,16 +182,29 @@ def evaluate_gate(
 
 
 def load_allowlist(path: Path) -> dict[tuple[str, str, int], str]:
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise AllowlistError(f"allowlist file missing: {path}") from exc
+    except OSError as exc:
+        raise AllowlistError(f"allowlist file unreadable: {path}: {exc}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise AllowlistError(f"allowlist TOML invalid in {path}: {exc}") from exc
     entries: dict[tuple[str, str, int], str] = {}
-    for entry in data.get("survivors", []):
-        key = (entry["module_path"], entry["operator_name"], int(entry["occurrence"]))
-        justification = str(entry.get("justification", "")).strip()
-        if not justification:
-            raise AllowlistError(
-                f"allowlist entry {key} lacks a non-empty 'justification' string"
-            )
-        entries[key] = justification
+    try:
+        rows = data.get("survivors", [])
+        for entry in rows:
+            key = (str(entry["module_path"]), str(entry["operator_name"]), int(entry["occurrence"]))
+            justification = entry.get("justification", "")
+            if not isinstance(justification, str) or not justification.strip():
+                raise AllowlistError(
+                    f"allowlist entry {key} lacks a non-empty string 'justification'"
+                )
+            entries[key] = justification.strip()
+    except AllowlistError:
+        raise
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AllowlistError(f"allowlist entry malformed in {path}: {exc}") from exc
     return entries
 
 
@@ -235,7 +251,7 @@ def write_generated_config(module: Path, root: Path, tmp_dir: Path) -> Path:
         f'[cosmic-ray]\nmodule-path = "{module}"\npython-version = ""\n'
         f"timeout = 30\nexcluded-modules = []\n"
         f'test-command = "{test_command}"\n\n'
-        f'[cosmic-ray.distributor]\nname = "local"\n\n'
+        f'[cosmic-ray.distributor]\nname = "local"\nnum-workers = 8\n\n'
         f"[cosmic-ray.operators]\nenabled = [\n{operators}\n]\n"
     )
     config_path = tmp_dir / f"generated-{module.name}.toml"
@@ -243,14 +259,29 @@ def write_generated_config(module: Path, root: Path, tmp_dir: Path) -> Path:
     return config_path
 
 
-def run_session(config: Path, root: Path) -> Path:
-    """Initialize and execute a Cosmic Ray session for one config; return the DB path."""
+def run_session(config: Path, root: Path, module_budget_secs: int = 600) -> Path:
+    """Initialize and execute a Cosmic Ray session for one config; return the DB path.
+
+    module_budget_secs bounds one module's `cosmic-ray exec`; exceeding it is a
+    budget error (exit 2 with guidance), never a false survivor verdict.
+    """
     session_db = config.with_suffix(".session.sqlite3")
-    for command in (
-        ["uv", "run", "cosmic-ray", "init", str(config), str(session_db)],
-        ["uv", "run", "cosmic-ray", "exec", str(config), str(session_db)],
-    ):
-        proc = subprocess.run(command, cwd=root, capture_output=True, text=True)
+    commands = (
+        (["uv", "run", "cosmic-ray", "init", str(config), str(session_db)], 60),
+        (["uv", "run", "cosmic-ray", "exec", str(config), str(session_db)], module_budget_secs),
+    )
+    for command, budget in commands:
+        try:
+            proc = subprocess.run(
+                command, cwd=root, capture_output=True, text=True, timeout=budget
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"mutation budget exceeded: {' '.join(command)} ran longer than "
+                f"{budget}s. Re-run this module locally without the budget, or land "
+                f"the change in smaller PRs: uv run python scripts/mutation_diff.py "
+                f"--base <ref> on a branch that touches fewer modules."
+            ) from exc
         if proc.returncode != 0:
             raise RuntimeError(
                 f"{' '.join(command)} failed: {proc.stderr.strip() or proc.stdout.strip()}"

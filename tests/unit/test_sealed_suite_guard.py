@@ -88,3 +88,66 @@ def test_cli_without_mode_exits_2() -> None:
     )
     assert proc.returncode == 2
     assert "usage" in (proc.stderr + proc.stdout).lower()
+
+
+def _init_scratch_repo(tmp_path: Path) -> Path:
+    import subprocess as sp
+
+    repo = tmp_path / "repo"
+    (repo / "tests" / "property").mkdir(parents=True)
+    (repo / "tests" / "unit").mkdir(parents=True)
+    for cmd in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "t@t"],
+        ["git", "config", "user.name", "t"],
+    ):
+        sp.run(cmd, cwd=repo, check=True, capture_output=True)
+    return repo
+
+
+def test_staged_rename_out_of_sealed_is_flagged(tmp_path: Path) -> None:
+    """A pure rename out of a sealed suite must NOT slip past the guard (git hides
+    the source path unless rename detection is disabled)."""
+    import subprocess as sp
+
+    repo = _init_scratch_repo(tmp_path)
+    src = repo / "tests" / "property" / "test_sealed.py"
+    src.write_text("assert True\n")
+    sp.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "commit", "-qm", "seed"], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "mv", "tests/property/test_sealed.py", "tests/unit/test_sealed.py"], cwd=repo, check=True, capture_output=True)
+
+    proc = sp.run(
+        [sys.executable, str(SCRIPT_PATH), "--staged"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 1, f"rename out of sealed suite must fail the guard: {proc.stdout}{proc.stderr}"
+    assert "tests/property/test_sealed.py" in proc.stdout
+
+
+def test_staged_rename_detection_sees_both_sides(tmp_path: Path) -> None:
+    """changed_files/staged_files must use --no-renames so a pure rename lists
+    the sealed source path too (guard input contract)."""
+    import subprocess as sp
+
+    repo = _init_scratch_repo(tmp_path)
+    (repo / "tests" / "property" / "test_sealed.py").write_text("assert True\n")
+    sp.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "commit", "-qm", "seed"], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "mv", "tests/property/test_sealed.py", "tests/unit/test_sealed.py"], cwd=repo, check=True, capture_output=True)
+
+    import importlib.util as _ilu
+    spec = _ilu.spec_from_file_location("guard_under_test", SCRIPT_PATH)
+    guard_mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(guard_mod)
+    import os
+    old_cwd = os.getcwd()
+    os.chdir(repo)
+    try:
+        staged = guard_mod.staged_files()
+    finally:
+        os.chdir(old_cwd)
+    assert "tests/property/test_sealed.py" in staged
+    assert "tests/unit/test_sealed.py" in staged
