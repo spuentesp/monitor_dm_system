@@ -33,6 +33,8 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 from uuid import uuid4
 
+from inline_snapshot import snapshot
+
 
 # ==============================================================================
 # 1. PUENTE ESTRICTO DE PROTOCOLO MCP (`StrictMCPWireBridge`)
@@ -129,6 +131,60 @@ class StrictMCPWireBridge:
             }
         )
         return decoded_response
+
+
+# --- Topología de ejecución (anti "no-op bypass") ---------------------------------
+# Un "fix" que hace return temprano o traga errores deja los tests verdes pero el
+# pipeline muerto. Estos contadores exigen que cada tool crítico se invoque al menos
+# N veces en cada escenario y que ninguna respuesta haya fallado en silencio.
+
+MIN_TOOL_INVOCATIONS: Dict[str, int] = {
+    "ingest_store_document": 1,
+    "qdrant_upsert_chunk": 1,
+    "mongo_propose_change": 1,
+    "canonkeeper_commit_proposal": 1,
+    "context_query_world_at_tick": 1,
+    "langgraph_save_checkpoint": 1,
+    "langgraph_load_checkpoint": 1,
+}
+
+
+class InvocationLedger:
+    """Cuenta invocaciones reales de tools MCP a partir del audit log del puente."""
+
+    def __init__(self, bridge: StrictMCPWireBridge) -> None:
+        self._bridge = bridge
+
+    def tool_counts(self) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for entry in self._bridge.call_audit_log:
+            counts[entry["tool"]] = counts.get(entry["tool"], 0) + 1
+        return counts
+
+    def trace(self) -> List[str]:
+        return [entry["tool"] for entry in self._bridge.call_audit_log]
+
+    def assert_topology(self, minimums: Dict[str, int]) -> None:
+        counts = self.tool_counts()
+        missing = {
+            tool: {"invoked": counts.get(tool, 0), "required": minimum}
+            for tool, minimum in minimums.items()
+            if counts.get(tool, 0) < minimum
+        }
+        assert not missing, (
+            "Topología de ejecución incompleta (posible no-op bypass): "
+            f"tools por debajo del mínimo {missing}"
+        )
+
+    def assert_no_failed_responses(self) -> None:
+        failed = [
+            entry["tool"]
+            for entry in self._bridge.call_audit_log
+            if isinstance(entry["response"], dict) and entry["response"].get("ok") is False
+        ]
+        assert not failed, (
+            f"Respuestas fallidas tragadas durante el escenario de aceptación: {failed}"
+        )
 
 
 # ==============================================================================
@@ -825,6 +881,13 @@ class MonitorDMSystemVerificationSuite(unittest.TestCase):
             "fallen_in_battle",
         )
 
+        ledger = InvocationLedger(harness.mcp)
+        ledger.assert_topology(MIN_TOOL_INVOCATIONS)
+        ledger.assert_no_failed_responses()
+        assert ledger.trace() == snapshot(
+            ['ingest_store_document', 'qdrant_upsert_chunk', 'mongo_propose_change', 'canonkeeper_commit_proposal', 'mongo_propose_change', 'canonkeeper_commit_proposal', 'context_query_world_at_tick', 'langgraph_load_checkpoint', 'mongo_propose_change', 'canonkeeper_commit_proposal', 'langgraph_save_checkpoint', 'langgraph_load_checkpoint', 'mongo_propose_change', 'canonkeeper_commit_proposal', 'langgraph_save_checkpoint', 'context_query_world_at_tick', 'context_query_world_at_tick', 'context_query_world_at_tick']
+        )
+
     def test_03_canonkeeper_rejects_orphan_provenance_and_out_of_order_ticks(self) -> None:
         harness = IntegratedMonitorRuntimeHarness(seed=19)
         harness.ingest_manual_end_to_end(
@@ -944,6 +1007,10 @@ class MonitorDMSystemVerificationSuite(unittest.TestCase):
                     world_view["entities"]["ent_elara"]["facts"]["status"],
                     new_status,
                 )
+
+                ledger = InvocationLedger(harness.mcp)
+                ledger.assert_topology(MIN_TOOL_INVOCATIONS)
+                ledger.assert_no_failed_responses()
 
     def test_05_real_server_tool_registry_and_middleware_wire_validation(self) -> None:
         """
