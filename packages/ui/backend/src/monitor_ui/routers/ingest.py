@@ -13,6 +13,8 @@ Upload flow:
 
 from __future__ import annotations
 
+import structlog
+
 import asyncio
 import concurrent.futures
 import logging
@@ -51,6 +53,8 @@ from .ingest_shared import (
     validate_uuid,
 )
 from .pack_library import router as pack_router
+
+log = structlog.get_logger()
 
 # Pack Library routes live in `pack_library.py`, which is included here to
 # preserve the existing `/api/ingest/*` surface while keeping this module lean.
@@ -403,7 +407,7 @@ def _run_ingest_in_thread(
                         ),
                     )
                 except Exception:
-                    pass
+                    log.warning("timeout status update failed", exc_info=True)
         except Exception as exc:
             logger.exception("Background ingestion failed for '%s': %s", source_title, exc)
 
@@ -1437,7 +1441,7 @@ async def stream_job(job_id: str):  # type: ignore
                 if job:
                     break
             except Exception:
-                pass
+                log.debug("ingestion job lookup failed; retrying", exc_info=True)
             await asyncio.sleep(1)
 
         if job is None:

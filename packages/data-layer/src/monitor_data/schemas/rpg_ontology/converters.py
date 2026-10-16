@@ -52,6 +52,8 @@ Usage
 
 from __future__ import annotations
 
+import structlog
+
 import json
 import logging
 import os
@@ -70,6 +72,8 @@ from monitor_data.schemas.rpg_ontology.meta import (
     ValidatorSpec,
     ValidatorType,
 )
+
+log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 
@@ -613,6 +617,7 @@ def builtin_to_game_system_spec(
 
     The mapping is lossless for all fields present in the JSON. Unknown fields
     from the JSON are collected and stored in the spec's ``description`` field
+
     so nothing silently disappears.
 
     Raises
@@ -783,5 +788,6 @@ def get_spec_for_system(system_name: str) -> GameSystemSpec | None:
             try:
                 return builtin_to_game_system_spec(entry)
             except Exception:
+                log.debug("builtin conversion failed for entry; trying next", exc_info=True)
                 continue
     return None

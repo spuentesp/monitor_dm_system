@@ -10,6 +10,7 @@ Gated behind ``RUN_INTEGRATION=1`` (see ``pytest.ini`` / root ``conftest.py``).
 
 from __future__ import annotations
 
+import contextlib
 from uuid import UUID
 
 import pytest
@@ -55,10 +56,8 @@ def universe_id():
     yield str(universe.id)
 
     # Cascade delete the multiverse (removes universe + entities).
-    try:
+    with contextlib.suppress(Exception):  # teardown best-effort
         neo4j_delete_multiverse(mv.id)
-    except Exception:
-        pass
 
 
 def test_entity_crud_roundtrip(universe_id):

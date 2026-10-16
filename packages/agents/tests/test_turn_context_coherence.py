@@ -24,6 +24,7 @@ Run:
 
 from __future__ import annotations
 
+import contextlib
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -974,7 +975,7 @@ class TestConsistencyGuard:
         )
 
         # Try to set established_facts via turn_context if available
-        try:
+        with contextlib.suppress(Exception):  # optional context enrichment may fail
             TurnContext = _import_turn_context()
             state.turn_context = TurnContext(
                 genre="sci-fi",
@@ -988,8 +989,6 @@ class TestConsistencyGuard:
                 character_role="engineer",
                 established_facts=["The ship is called the Rust Nail"],
             )
-        except Exception:
-            pass
 
         with patch(
             "monitor_agents.loops.scene_loop.check_consistency",

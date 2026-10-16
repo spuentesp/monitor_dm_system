@@ -272,7 +272,6 @@ class TestContestedCheckTool:
         core_mechanic provides — not a hardcoded value."""
         import json
         from pathlib import Path
-        from unittest.mock import patch
         from monitor_agents.gm_tools.dice import gm_tool_contested_check
 
         # Load the seed: the world config provides difficulty=6

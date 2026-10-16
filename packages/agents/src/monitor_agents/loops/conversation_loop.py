@@ -35,6 +35,8 @@ Flow (ACTOR mode):
 
 from __future__ import annotations
 
+import structlog
+
 import asyncio
 import logging
 from typing import Any
@@ -43,6 +45,8 @@ from uuid import UUID, uuid4
 from langgraph.graph import END, StateGraph
 from monitor_data.schemas.conversations import ConversationMode, ConversationStatus
 from pydantic import BaseModel, Field
+
+log = structlog.get_logger()
 
 # Re-export ConversationMode so Layer 3 (CLI) can import it from here
 # instead of directly from monitor_data.schemas.conversations.
@@ -221,7 +225,7 @@ async def load_npc_context(state: ConversationState) -> dict[str, Any]:
         ca = ContextAssembly()
         source_profile = await ca._fetch_runtime_profile()
     except Exception:
-        pass
+        log.debug("runtime profile fetch failed for NPCVoice", exc_info=True)
 
     return {"npc_contexts": contexts, "source_profile": source_profile}
 

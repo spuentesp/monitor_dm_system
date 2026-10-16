@@ -24,6 +24,8 @@ Pipeline per turn:
 
 from __future__ import annotations
 
+import structlog
+
 import json
 import logging
 import re
@@ -42,6 +44,8 @@ from monitor_agents.utils.world_profile_support import (
     build_world_profile,
     render_world_profile_context,
 )
+
+log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +104,7 @@ class WorldArchitect(BaseAgent):
 
                 prior_profile = mongodb_get_world_profile(universe_id)
             except Exception:
-                pass
+                log.debug("world profile load failed; building default profile", exc_info=True)
         world_profile = build_world_profile(
             world_summary,
             user_message=user_message,
@@ -277,6 +281,7 @@ class WorldArchitect(BaseAgent):
                         "source_table": tbl.name,
                     }
                 except Exception:
+                    log.debug("random table roll failed; trying next table", exc_info=True)
                     continue
             return {"name": default, "description": f"Procedurally generated {default}"}
 
@@ -962,7 +967,7 @@ class WorldArchitect(BaseAgent):
                                     if u_doc:
                                         sys_name = u_doc.default_system_name or "generic"
                                 except Exception:
-                                    pass
+                                    log.debug("default system name lookup failed", exc_info=True)
 
                             await library.add_source(
                                 multiverse_id=m_id,

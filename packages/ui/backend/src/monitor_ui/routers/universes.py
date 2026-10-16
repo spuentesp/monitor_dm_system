@@ -8,6 +8,8 @@ Backed by Neo4j via monitor_data tools. Falls back with a 503 if the
 database is unreachable so the frontend can show a clean error state.
 """
 
+import structlog
+
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -43,6 +45,8 @@ from monitor_data.tools.neo4j_tools import (
 from pydantic import BaseModel
 
 from .ingest_shared import db_op
+
+log = structlog.get_logger()
 
 router = APIRouter()
 
@@ -133,7 +137,7 @@ def _universe_counts(universe_ids: list[str]) -> dict[str, dict[str, int]]:
                 counts[row["id"]]["entity_count"] = row["entity_count"]
                 counts[row["id"]]["story_count"] = row["story_count"]
     except Exception:
-        pass
+        log.debug("universe counts aggregation failed", exc_info=True)
 
     try:
         from monitor_data.db.mongodb import get_mongodb_client
@@ -148,7 +152,7 @@ def _universe_counts(universe_ids: list[str]) -> dict[str, dict[str, int]]:
             if row["_id"] in counts:
                 counts[row["_id"]]["session_count"] = row["n"]
     except Exception:
-        pass
+        log.debug("session counts aggregation failed", exc_info=True)
 
     return counts
 

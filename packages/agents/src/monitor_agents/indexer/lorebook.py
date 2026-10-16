@@ -12,11 +12,15 @@ prompts/memory_extraction.py and prompts/session_ingest.py.
 
 from __future__ import annotations
 
+import structlog
+
 import json
 import re
 
 import dspy
 from monitor_data.schemas.lorebook import LorebookEntryDraft
+
+log = structlog.get_logger()
 
 # ---------------------------------------------------------------------------
 # Signatures — declared as dspy.Signature classes so the framework can
@@ -123,7 +127,7 @@ class LorebookKeywordExtractor(dspy.Module):  # type: ignore[misc]
             if isinstance(keywords, list) and all(isinstance(k, str) for k in keywords):
                 return [k.lower().strip() for k in keywords[:8] if k.strip()]
         except Exception:
-            pass
+            log.debug("LLM keyword extraction not usable; using fallback keywords", exc_info=True)
         return _fallback_keywords(content)
 
 

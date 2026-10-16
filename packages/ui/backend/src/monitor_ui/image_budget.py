@@ -185,7 +185,7 @@ def _redis_increment(key: str, ttl: int) -> int | None:
             try:
                 raw_client.expire(key, ttl)
             except Exception:
-                pass
+                log.debug("redis TTL set failed", exc_info=True)
         return new_value
     except Exception as exc:
         log.warning(

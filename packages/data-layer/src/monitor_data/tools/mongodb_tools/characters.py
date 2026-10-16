@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import structlog
+
 import json
 from typing import Any
 from uuid import UUID
 
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.db.neo4j import get_neo4j_client
+
+log = structlog.get_logger()
 
 
 def mongodb_get_character(character_id: UUID | str) -> dict[str, Any] | None:
@@ -47,7 +51,7 @@ def mongodb_resolve_character(character_id: str) -> dict[str, Any]:
                 "resources": {},
             }
     except Exception:
-        pass
+        log.debug("character document parse failed", exc_info=True)
 
     # 2. Check Neo4j entities
     try:
@@ -80,6 +84,6 @@ def mongodb_resolve_character(character_id: str) -> dict[str, Any]:
                 "resources": dict(props.get("resources", {})),
             }
     except Exception:
-        pass
+        log.debug("character document parse failed", exc_info=True)
 
     raise ValueError(f"Character {character_id} not found in MongoDB or Neo4j")

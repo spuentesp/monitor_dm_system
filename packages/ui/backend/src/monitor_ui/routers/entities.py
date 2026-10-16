@@ -109,6 +109,8 @@ from .entities_schemas import (
 )
 from .ingest_shared import validate_uuid
 
+log = structlog.get_logger()
+
 logger = structlog.get_logger()
 
 router = APIRouter()
@@ -1255,7 +1257,7 @@ async def clear_character_memories(character_id: str) -> None:
         get_mongodb_client().get_collection("character_memories").delete_many({"entity_id": {"$in": entity_ids}})
         _increment_memory_count(character_id, delta=-char.get("memory_count", 0))
     except Exception:
-        pass
+        log.warning("memory cleanup after entity delete failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

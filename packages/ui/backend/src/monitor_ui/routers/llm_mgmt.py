@@ -12,6 +12,8 @@ Provider type values follow the canonical names used by LLMProviderType:
 
 from __future__ import annotations
 
+import structlog
+
 import os
 import time
 import uuid
@@ -22,6 +24,8 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from monitor_data.db.postgres import get_postgres_client
 from pydantic import BaseModel
+
+log = structlog.get_logger()
 
 
 def _invalidate_llm_cache() -> None:
@@ -208,7 +212,7 @@ def _discover_ollama_model_sync(base_url: str) -> str:
                 # reason: ollama /api/tags response shape is JSON-decoded dynamically; models[0] is typed as Any until the response model is declared
                 return models[0]  # type: ignore
     except Exception:
-        pass
+        log.debug("ollama model discovery failed", exc_info=True)
     return "qwen2.5:latest"
 
 
@@ -1095,6 +1099,6 @@ async def list_models(provider: str) -> list[str]:
                     return sorted([m["id"] for m in data], reverse=True)
 
     except Exception:
-        pass
+        log.debug("LLM provider model listing failed", exc_info=True)
 
     return AVAILABLE_MODELS.get(provider, [])

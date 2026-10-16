@@ -11,6 +11,8 @@ LAYER: 3 (UI backend)
 
 from __future__ import annotations
 
+import structlog
+
 import base64
 import binascii
 import json
@@ -25,6 +27,8 @@ from monitor_data.interop.sillytavern_lorebook import (
 from monitor_data.schemas.lorebook import LorebookEntryCreate, LorebookScanConfig
 
 from .entities_schemas import CharacterCreate
+
+log = structlog.get_logger()
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _ZIP_SIGNATURE = b"PK\x03\x04"
@@ -120,7 +124,7 @@ def _extract_card_from_png(data: bytes) -> dict[str, Any]:
                 text = zlib.decompress(rest[1:]).decode("latin-1", "ignore")
                 found[key.decode("latin-1", "ignore")] = text
             except Exception:
-                pass
+                log.debug("lorebook entry decompress failed; skipping entry", exc_info=True)
         elif ctype == b"IEND":
             break
 
@@ -217,6 +221,7 @@ def parse_character_card_with_book(
                 entries.append(LorebookEntryCreate(**raw_entry))
             except Exception:
                 # Defensive: skip malformed entries rather than failing the whole card.
+                log.debug("malformed lorebook entry skipped", exc_info=True)
                 continue
 
     return character, entries, config

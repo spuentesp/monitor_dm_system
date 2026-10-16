@@ -20,6 +20,8 @@ Invariants (from CONVERSATIONAL_LOOPS.md):
 
 from __future__ import annotations
 
+import structlog
+
 import functools
 import logging
 import time
@@ -50,6 +52,8 @@ from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorde
 from monitor_agents.loops.story_loop import StoryState
 from monitor_agents.narrator.agent import compute_pacing
 from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 _SCENE_GRAPH_TEMPLATE: StateGraph | None = None
@@ -252,7 +256,7 @@ class SceneState(BaseModel):
             try:
                 self.gm_verdict = GMVerdict.from_dict(self.gm_verdict)
             except Exception:
-                pass
+                log.debug("gm_verdict dict rehydration failed", exc_info=True)
 
 
 

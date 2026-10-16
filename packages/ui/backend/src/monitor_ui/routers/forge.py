@@ -11,11 +11,15 @@ IMPORTS FROM: monitor_agents (Layer 2)
 
 from __future__ import annotations
 
+import structlog
+
 import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+
+log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +163,7 @@ def _ensure_demo_pc(universe_id: UUID, system_id: UUID | None = None) -> str | N
                 # reason: dynamic dispatch — getattr fallback union Any | tuple[str, ...]; mypy can't narrow e.id at static-analysis time
                 return str(e.id)  # type: ignore
     except Exception:
-        pass
+        log.debug("demo PC lookup failed", exc_info=True)
 
     pc = neo4j_create_entity(
         EntityCreate(

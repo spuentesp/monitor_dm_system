@@ -6,10 +6,14 @@ All functions are pure: they receive a ``SystemData`` snapshot
 
 from __future__ import annotations
 
+import structlog
+
 from typing import Any
 
 from ._char_generation import _skill_description_for_attr, ability_method_description
 from ._types import SystemData
+
+log = structlog.get_logger()
 
 # ---------------------------------------------------------------------------
 # Modifier calculation (schema-driven)
@@ -33,7 +37,7 @@ def calc_modifier(sd: SystemData, stat_abbr: str, stat_value: int) -> int:
 
                 return calculate_modifier(stat_value, formula.replace("VALUE", str(stat_value)))
             except Exception:
-                pass
+                log.debug("modifier formula evaluation failed", exc_info=True)
         width = attr.get("max_value", 20) - attr.get("min_value", 0)
         if width <= 10:
             return stat_value

@@ -6,9 +6,13 @@ all use the same curated scenarios for comparison runs.
 
 from __future__ import annotations
 
+import structlog
+
 import json
 from pathlib import Path
 from typing import Any
+
+log = structlog.get_logger()
 
 _BENCHMARK_SYSTEM_FALLBACKS: dict[str, list[str]] = {
     "death in space": ["Narrative Weighted", "Narrative Pure"],
@@ -90,7 +94,7 @@ def resolve_playtest_benchmarks(*, include_scripted_turns: bool = True) -> list[
 
         _ensure_builtin_systems_seeded()
     except Exception:
-        pass
+        log.debug("builtin systems seeding failed during benchmark defaults", exc_info=True)
 
     try:
         from monitor_data.db.mongodb import get_mongodb_client

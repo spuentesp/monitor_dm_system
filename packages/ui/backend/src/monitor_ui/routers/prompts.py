@@ -17,6 +17,8 @@ modules a future step would inject them at module init time via dspy_runtime.
 
 from __future__ import annotations
 
+import structlog
+
 import json
 import textwrap
 import time
@@ -27,6 +29,8 @@ import dspy
 from fastapi import APIRouter, HTTPException
 from monitor_data.db.postgres import get_postgres_client
 from pydantic import BaseModel
+
+log = structlog.get_logger()
 
 router = APIRouter()
 
@@ -331,7 +335,7 @@ async def list_modules() -> list[PromptModuleSummary]:
                 parsed = json.loads(raw)
                 has_override = "instructions" in parsed
             except Exception:
-                pass
+                log.debug("prompt override JSON parse failed", exc_info=True)
 
         result.append(
             PromptModuleSummary(

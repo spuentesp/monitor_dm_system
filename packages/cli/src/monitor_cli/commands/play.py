@@ -14,6 +14,8 @@ Usage:
 
 from __future__ import annotations
 
+import structlog
+
 import asyncio
 import json
 import logging
@@ -36,6 +38,8 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
+
+log = structlog.get_logger()
 
 nest_asyncio.apply()
 
@@ -147,7 +151,7 @@ async def _run_play(
             if profile:
                 tone = profile.get("name", tone)
         except Exception:
-            pass
+            log.debug("GM profile tone lookup failed", exc_info=True)
 
     # Start or resume the story loop to handle world state and scene progression
     story_loop = StoryLoop(story_id=resolved_story, universe_id=resolved_universe)

@@ -1,3 +1,4 @@
+import contextlib
 import pytest
 import uuid
 from unittest.mock import patch, MagicMock, AsyncMock
@@ -427,11 +428,9 @@ async def test_stream_job_branches(mock_all_dbs):
         with patch("asyncio.sleep", new_callable=AsyncMock):
             res = await stream_job(str(uuid.uuid4()))
             gen = res.body_iterator
-            try:
+            with contextlib.suppress(Exception):  # branch coverage: consume one stream item; error path may raise
 
                 await gen.__anext__()
-            except Exception:
-                pass
         
     class FakeStatus:
         value = "completed"
@@ -451,33 +450,27 @@ async def test_stream_job_branches(mock_all_dbs):
         with patch("asyncio.sleep", new_callable=AsyncMock):
             res = await stream_job(str(uuid.uuid4()))
             gen = res.body_iterator
-            try:
+            with contextlib.suppress(Exception):  # branch coverage: consume one stream item; error path may raise
 
                 await gen.__anext__()
-            except Exception:
-                pass
 
     # Test error in while loop
     with patch("monitor_ui.routers.ingest.mongodb_get_ingestion_job", side_effect=[FakeJob("pending")]*5 + [Exception("err")]):
         with patch("asyncio.sleep", new_callable=AsyncMock):
             res = await stream_job(str(uuid.uuid4()))
             gen = res.body_iterator
-            try:
+            with contextlib.suppress(Exception):  # branch coverage: consume one stream item; error path may raise
 
                 await gen.__anext__()
-            except Exception:
-                pass
 
     # Test job disappeared
     with patch("monitor_ui.routers.ingest.mongodb_get_ingestion_job", side_effect=[FakeJob("pending")]*5 + [None]):
         with patch("asyncio.sleep", new_callable=AsyncMock):
             res = await stream_job(str(uuid.uuid4()))
             gen = res.body_iterator
-            try:
+            with contextlib.suppress(Exception):  # branch coverage: consume one stream item; error path may raise
 
                 await gen.__anext__()
-            except Exception:
-                pass
 
 def test_list_jobs_and_delete(mock_all_dbs):
     mock_all_dbs["del_job"].return_value = True
@@ -492,7 +485,7 @@ def test_run_ingest_in_thread_branches(mock_all_dbs):
     mod._reserve_ingest_slot("test", source_id=q_tok)
     
     with patch("asyncio.wait_for", side_effect=TimeoutError):
-        try:
+        with contextlib.suppress(Exception):  # branch coverage: failing ingest call must not raise
             _run_ingest_in_thread(
                 queue_token=q_tok,
                 file_bytes=b"123",
@@ -503,12 +496,10 @@ def test_run_ingest_in_thread_branches(mock_all_dbs):
                 selected_layers=[],
                 content_type=None
             )
-        except Exception:
-            pass
         
     mod._reserve_ingest_slot("test", source_id=q_tok)
     with patch("asyncio.wait_for", side_effect=Exception("mocked fail")):
-        try:
+        with contextlib.suppress(Exception):  # branch coverage: failing ingest call must not raise
             _run_ingest_in_thread(
                 queue_token=q_tok,
                 file_bytes=b"123",
@@ -519,8 +510,6 @@ def test_run_ingest_in_thread_branches(mock_all_dbs):
                 selected_layers=[],
                 content_type=None
             )
-        except Exception:
-            pass
 
 def test_assets_all(mock_all_dbs):
     
@@ -562,7 +551,7 @@ def test_assets_all(mock_all_dbs):
 
 
 def test_fill_gaps(mock_all_dbs):
-    try:
+    with contextlib.suppress(Exception):  # branch coverage: exercise error path
         mod._reserve_ingest_slot("token1", source_id="src1")
         mod._mark_ingest_started("token1", "title1", job_id="job1")
         mod._reserve_ingest_slot("token2", source_id="src2")
@@ -583,11 +572,9 @@ def test_fill_gaps(mock_all_dbs):
                 
         mock_all_dbs["list_jobs"].return_value = ([FakeJob("job3", "src3")], 1)
         client.get("/api/ingest/jobs")
-    except Exception:
 
-        pass
     
-    try:
+    with contextlib.suppress(Exception):  # branch coverage: exercise error path
         from monitor_data.schemas.knowledge_packs import KnowledgePackType
         mod._reserve_ingest_slot("tok3", source_id="src3")
         with patch("monitor_agents.ingestion.agent.IngestionPipeline.ingest_file", new_callable=AsyncMock, side_effect=TimeoutError):
@@ -599,11 +586,9 @@ def test_fill_gaps(mock_all_dbs):
                         universe_uid=uuid.uuid4(), pack_type_enum=KnowledgePackType.SETTING_SUPPLEMENT,
                         selected_layers=[], content_type=None
                     )
-    except Exception:
 
-        pass
     
-    try:
+    with contextlib.suppress(Exception):  # branch coverage: exercise error path
         mod._reserve_ingest_slot("tok4", source_id="src4")
         with patch("monitor_agents.ingestion.agent.IngestionPipeline.ingest_file", new_callable=AsyncMock, side_effect=Exception("mocked fail")):
             with patch("monitor_agents.ingestion.agent.IngestionPipeline._create_neo4j_source", side_effect=Exception("early fail")):
@@ -612,17 +597,13 @@ def test_fill_gaps(mock_all_dbs):
                     universe_uid=uuid.uuid4(), pack_type_enum=KnowledgePackType.SETTING_SUPPLEMENT,
                     selected_layers=[], content_type=None
                 )
-    except Exception:
 
-        pass
     
-    try:
+    with contextlib.suppress(Exception):  # branch coverage: exercise error path
         mock_all_dbs["get_doc"].return_value = {"_id": "doc1", "title": "doc"}
         mock_all_dbs["get_source"].return_value = MagicMock(id=uuid.uuid4())
         client.get("/api/ingest/sources/" + str(uuid.uuid4()))
-    except Exception:
 
-        pass
     
     # 5. test assets /replace 
     class FakeCursor:

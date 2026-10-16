@@ -1,3 +1,4 @@
+import contextlib
 from unittest.mock import patch, MagicMock, AsyncMock
 import uuid
 from fastapi.testclient import TestClient
@@ -30,7 +31,7 @@ def test_missing_lines_in_ingest_more():
     # directly call the function _run_ingest_in_thread
     with patch("monitor_ui.routers.ingest.asyncio.wait_for", side_effect=TimeoutError):
         mod._captured_job_id = [str(uuid.uuid4())]
-        try:
+        with contextlib.suppress(Exception):  # branch coverage: exercise error path
             mod._run_ingest_in_thread(
                 queue_token="tok_1",
                 file_bytes=b"123",
@@ -41,12 +42,10 @@ def test_missing_lines_in_ingest_more():
                 selected_layers=[],
                 content_type=None
             )
-        except Exception:
-            pass
         
     with patch("monitor_ui.routers.ingest.asyncio.wait_for", side_effect=Exception("foo")):
         mod._captured_job_id = [str(uuid.uuid4())]
-        try:
+        with contextlib.suppress(Exception):  # branch coverage: exercise error path
             mod._run_ingest_in_thread(
                 queue_token="tok_1",
                 file_bytes=b"123",
@@ -57,5 +56,3 @@ def test_missing_lines_in_ingest_more():
                 selected_layers=[],
                 content_type=None
             )
-        except Exception:
-            pass

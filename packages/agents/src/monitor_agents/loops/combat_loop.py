@@ -17,11 +17,15 @@ Invariants:
 
 from __future__ import annotations
 
+import structlog
+
 import logging
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +103,7 @@ def _calculate_modifier_from_attributes(
         try:
             return gsr.calc_modifier(stat_name, value)  # type: ignore[no-any-return]
         except Exception:
-            pass
+            log.debug("game-system modifier lookup failed; using default formula", exc_info=True)
     return calculate_modifier(value, _DEFAULT)
 
 
@@ -125,7 +129,7 @@ async def roll_initiative(state: CombatState) -> dict[str, Any]:
             gsr = GameSystemRuntime(state.game_context)
             initiative_stat = getattr(gsr, "initiative_stat_name", "DEX")
         except Exception:
-            pass
+            log.debug("game system runtime unavailable in combat loop", exc_info=True)
 
     rolled: list[CombatantState] = []
     initiative_values: list[tuple[UUID, int]] = []
@@ -268,7 +272,7 @@ async def resolve_combat_action(state: CombatState) -> dict[str, Any]:
                 if inferred_stat:
                     stat_name = inferred_stat
             except Exception:
-                pass
+                log.debug("action stat inference failed; defaulting to Strength", exc_info=True)
 
         # Opposed check: attacker vs target
         result = await resolver.resolve_opposed_check(

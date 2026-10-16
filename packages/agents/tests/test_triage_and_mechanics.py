@@ -1,6 +1,8 @@
 import pytest
 from monitor_agents.ingestion.triage import TriageAgent
 from monitor_agents.ingestion.mechanics_architect import MechanicsArchitect
+import contextlib
+
 import dspy
 
 class MockTriageResult:
@@ -10,8 +12,6 @@ class MockTriageResult:
 class MockMechanicsResult:
     def __init__(self, json_output: str):
         self.json_output = json_output
-
-import contextlib
 
 @pytest.fixture(autouse=True)
 def mock_dspy_context(monkeypatch):

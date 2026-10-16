@@ -6,11 +6,15 @@ All functions are pure: they receive a ``SystemData`` snapshot
 
 from __future__ import annotations
 
+import structlog
+
 import logging
 import re
 from typing import Any
 
 from ._types import SystemData
+
+log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +302,7 @@ def _derive_resources(sd: SystemData, stats: dict[str, int]) -> dict[str, int]:
             value = int(eval(resolved, {"__builtins__": {}}, {}))
             derived[res.get("name") or abbr] = value
         except Exception:
-            pass
+            log.debug("derived-stat formula evaluation failed", exc_info=True)
 
     return derived
 

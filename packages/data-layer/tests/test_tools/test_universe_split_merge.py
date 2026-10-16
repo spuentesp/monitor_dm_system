@@ -7,6 +7,7 @@ the split/merge tool, and asserts the resulting universe. Gated by
 
 from __future__ import annotations
 
+import contextlib
 from uuid import UUID
 
 import pytest
@@ -83,10 +84,8 @@ def multiverse():
         )
     )
     yield mv.id
-    try:
+    with contextlib.suppress(Exception):  # teardown best-effort
         neo4j_delete_multiverse(mv.id)
-    except Exception:
-        pass
 
 
 def _new_universe(multiverse_id: UUID, name: str) -> UUID:

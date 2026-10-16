@@ -15,6 +15,8 @@ This agent is called from scene_loop.load_context().
 
 from __future__ import annotations
 
+import structlog
+
 import asyncio
 import contextlib
 import hashlib
@@ -56,6 +58,8 @@ from monitor_agents.utils.source_scope_support import (
     derive_source_scope,
     rank_snippets_with_source_scope,
 )
+
+log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 
@@ -920,6 +924,7 @@ class ContextAssembly(BaseAgent):
             try:
                 doc = await self.call_tool("mongodb_get_memory", {"memory_id": str(memory_id)})
             except Exception:
+                log.debug("memory lookup failed; skipping chunk", exc_info=True)
                 continue
             if isinstance(doc, dict) and doc.get("text"):
                 item["text"] = doc["text"]

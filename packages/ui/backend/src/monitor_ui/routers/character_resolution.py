@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import structlog
+
 import json
 from typing import Any, Literal
 from uuid import UUID
@@ -7,6 +9,8 @@ from uuid import UUID
 from monitor_data.db.neo4j import get_neo4j_client
 from monitor_data.tools.mongodb_tools import mongodb_get_character
 from pydantic import BaseModel
+
+log = structlog.get_logger()
 
 
 class CharacterContext(BaseModel):
@@ -56,7 +60,7 @@ def resolve_actor_character(
                 resources={},
             )
     except Exception:
-        pass
+        log.debug("character resolution document parse failed", exc_info=True)
 
     # 2. Check Neo4j entities
     try:
@@ -93,6 +97,6 @@ def resolve_actor_character(
                 resources=dict(props.get("resources", {})),
             )
     except Exception:
-        pass
+        log.debug("character resolution document parse failed", exc_info=True)
 
     return None

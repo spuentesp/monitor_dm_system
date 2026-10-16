@@ -6,6 +6,8 @@ IMPORTS FROM: monitor_data (Layer 1)
 CALLED BY: CLI, UI Routers, Agents
 """
 
+import structlog
+
 import anyio
 from uuid import UUID
 
@@ -22,6 +24,8 @@ from monitor_data.tools.mongodb_tools.working_state import (
 )
 from monitor_data.tools.mongodb_tools.character_sheets import mongodb_list_character_sheets
 from monitor_data.tools.mongodb_tools import mongodb_get_game_system
+
+log = structlog.get_logger()
 
 
 class EntityProgressionService:
@@ -44,7 +48,7 @@ class EntityProgressionService:
                     current_level = int(ws.state.level or 1)
                     state_id = ws.state.state_id
             except Exception:
-                pass  # Fall through to character sheet
+                log.debug("working-state probe failed; falling through to character sheet", exc_info=True)  # Fall through to character sheet
 
         # 1b. Get current XP/level from character sheet
         if current_xp == 0 and not state_id:
@@ -59,7 +63,7 @@ class EntityProgressionService:
                     current_xp = sheet.experience_points
                     current_level = sheet.total_level
             except Exception:
-                pass
+                log.debug("character sheet XP probe failed", exc_info=True)
 
         # 2. Load the game system's advancement model
         system_id_str = request.system_id
@@ -73,7 +77,7 @@ class EntityProgressionService:
                 if sheets.sheets and sheets.sheets[0].game_system_id:
                     system_id_str = str(sheets.sheets[0].game_system_id)
             except Exception:
-                pass
+                log.debug("game system lookup from sheet failed", exc_info=True)
 
         if not system_id_str:
             raise ValueError("No game system specified and none found on character sheet")
@@ -144,7 +148,7 @@ class EntityProgressionService:
                     current_xp = int(ws.state.xp or 0)
                     current_level = int(ws.state.level or 1)
             except Exception:
-                pass
+                log.debug("working-state probe failed for downtime XP", exc_info=True)
 
         if current_xp == 0:
             try:
@@ -160,7 +164,7 @@ class EntityProgressionService:
                     if not system_id and sheet.game_system_id:
                         system_id = str(sheet.game_system_id)
             except Exception:
-                pass
+                log.debug("character sheet probe failed for downtime", exc_info=True)
 
         # 2. Load advancement model
         if not system_id:

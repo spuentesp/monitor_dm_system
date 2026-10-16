@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import structlog
+
 import asyncio
 import contextvars
 import logging
@@ -17,6 +19,8 @@ from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.llm_config import LLMProviderType, ModelRole
 
 from monitor_agents.llm_registry import LLMClient, LLMRegistry
+
+log = structlog.get_logger()
 
 stream_callback_var = contextvars.ContextVar("stream_callback", default=None)
 
@@ -93,7 +97,7 @@ class _MonitorLitellmLogger(litellm.integrations.custom_logger.CustomLogger):
                 resp_text,
             )
         except Exception:
-            pass
+            log.debug("LLM log callback failed", exc_info=True)
 
     def log_failure_event(self, kwargs: dict, response_obj: Any, start_time: float, end_time: float) -> None:
         if not _llm_log_enabled:
@@ -114,7 +118,7 @@ class _MonitorLitellmLogger(litellm.integrations.custom_logger.CustomLogger):
                 error,
             )
         except Exception:
-            pass
+            log.debug("LLM log callback failed", exc_info=True)
 
 
 if _llm_log_enabled:
@@ -626,7 +630,7 @@ def get_dspy_lm(
                             elif kind == "thinking_end":
                                 loop.create_task(cb(kind, None))
                         except Exception:
-                            pass
+                            log.debug("stream callback dispatch failed", exc_info=True)
 
                     for chunk in response:
                         if getattr(chunk, "choices", None):
@@ -662,7 +666,7 @@ def get_dspy_lm(
                     return [full_text]
                 except Exception:
                     # Fallback to standard (non-streaming) execution below.
-                    pass
+                    log.debug("streaming execution failed; falling back to non-streaming", exc_info=True)
 
             return super().__call__(prompt=prompt, messages=messages, **call_kwargs)
 

@@ -1,3 +1,5 @@
+import structlog
+
 import asyncio
 import logging
 import re
@@ -9,6 +11,8 @@ from monitor_agents.llm_errors import classify_llm_error
 from monitor_agents.loops.scene_support import strip_entity_tags
 from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
 from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 
@@ -602,7 +606,7 @@ async def _compose_ooc_answer(
             if name:
                 archetype_lines.append(f"{name}: {desc}" if desc else name)
     except Exception:
-        pass
+        log.debug("archetype listing failed", exc_info=True)
 
     # Try LLM answer — a dedicated meta-voice signature, NOT the narration
     # pipeline (which is prompted to produce fiction and sometimes answered

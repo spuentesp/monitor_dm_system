@@ -9,7 +9,6 @@ from monitor_data.schemas.knowledge_packs import (
     ExtractedEntityArchetype,
     ExtractedRelationship,
 )
-from monitor_data.schemas.relationships import RelationshipType
 
 
 def test_organization_sub_type_coerced_to_group_type():

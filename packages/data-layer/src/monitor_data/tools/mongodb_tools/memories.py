@@ -1,5 +1,7 @@
 """Auto-extracted MongoDB tools sub-module."""
 
+import structlog
+
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -13,6 +15,8 @@ from monitor_data.schemas.memories import (
     MemoryResponse,
     MemoryUpdate,
 )
+
+log = structlog.get_logger()
 
 
 def mongodb_increment_memory_access(
@@ -170,12 +174,12 @@ def mongodb_create_memory(params: MemoryCreate) -> MemoryResponse:
             try:
                 qdrant_embed_memory(embed_req)
             except Exception:
-                pass  # Don't let embedding failures affect the memory write
+                log.debug("memory embedding failed", exc_info=True)  # Don't let embedding failures affect the memory write
 
         thread = threading.Thread(target=_embed)
         thread.start()
     except Exception:
-        pass  # Complete silence on embedding failures
+        log.warning("memory embedding pipeline failed", exc_info=True)  # Complete silence on embedding failures
 
     return MemoryResponse(
         memory_id=memory_id,

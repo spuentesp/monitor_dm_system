@@ -26,6 +26,8 @@ NPCVoice is only for DIRECT and ACTOR modes.
 
 from __future__ import annotations
 
+import structlog
+
 import asyncio
 import json
 from datetime import UTC, datetime
@@ -43,6 +45,8 @@ from monitor_agents.utils.runtime_profile_support import (
     build_npc_profile_context,
     normalize_source_profile,
 )
+
+log = structlog.get_logger()
 
 
 class NPCDirectResponse(BaseModel):
@@ -433,6 +437,7 @@ class NPCVoice(BaseAgent):
             try:
                 doc = await self.call_tool("mongodb_get_memory", {"memory_id": str(memory_id)})
             except Exception:
+                log.debug("memory lookup failed; skipping chunk", exc_info=True)
                 continue
             if isinstance(doc, dict) and doc.get("text"):
                 item["text"] = doc["text"]
@@ -983,7 +988,7 @@ class NPCVoice(BaseAgent):
                             resolved_universe_id = v.get("universe_id")
                             break
             except Exception:
-                pass
+                log.debug("universe resolution from character versions failed", exc_info=True)
         if not resolved_universe_id:
             raise RuntimeError(
                 "_write_npc_memory: no universe_id resolved for entity "

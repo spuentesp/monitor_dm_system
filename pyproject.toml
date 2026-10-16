@@ -160,3 +160,13 @@ disable_error_code = [
     "no-untyped-def",
     "type-arg",
 ]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# Anti-reward-hacking: silent exception swallowing is the classic "fix" that
+# turns a failing pipeline green by disabling it. E722 (bare except) is already
+# on via the default E7 ruleset; listed here so the policy is explicit.
+extend-select = ["BLE001", "S110", "S112", "E722"]

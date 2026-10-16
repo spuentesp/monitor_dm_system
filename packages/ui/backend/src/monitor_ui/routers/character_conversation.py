@@ -459,7 +459,7 @@ async def start_conversation(
     try:
         touch_version(character_id, str(backing["universe_id"]))
     except Exception:
-        pass
+        log.debug("last_chatted_at stamp failed", exc_info=True)
 
     opening_raw = char.get("first_message") or f"{char['name']} turns to face you."
     from monitor_data.interop.card_macros import substitute_card_macros

@@ -1,3 +1,5 @@
+import structlog
+
 import asyncio
 import logging
 from datetime import UTC, datetime
@@ -17,6 +19,8 @@ from monitor_agents.loops.scene_support import (
 )
 from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
 from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 
@@ -416,4 +420,4 @@ class PersistenceService:
             if include_entities:
                 cache.delete(f"solo_play:scene_entities:{scene_id}")
         except Exception:
-            pass
+            log.warning("cache invalidation failed after scene turn", exc_info=True)

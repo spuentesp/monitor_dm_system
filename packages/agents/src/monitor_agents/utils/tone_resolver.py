@@ -15,9 +15,13 @@ EXTENSIBILITY:
 - Tags in GMProfile trigger matching ToneProfiles.
 """
 
+import structlog
+
 import logging
 from typing import Any
 from uuid import UUID
+
+log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +130,7 @@ async def _async_fallback_to_builtin_profiles(
                                 base += " Additional tone direction: " + ", ".join(unknown) + "."
                         return base
                 except Exception:
-                    pass  # Fall through to safe fallback
+                    log.debug("tone tag resolution failed; using safe fallback", exc_info=True)  # Fall through to safe fallback
 
     # Absolute last resort — use the emergency strings (should never reach here
     # in normal operation after first startup seeding)

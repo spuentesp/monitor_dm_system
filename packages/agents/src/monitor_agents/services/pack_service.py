@@ -4,6 +4,8 @@ Knowledge Pack Service — Extracts pack merging, conflict detection, and applic
 LAYER: 2 (agents)
 """
 
+import structlog
+
 from typing import Any
 from collections.abc import Hashable, Callable
 from uuid import UUID
@@ -24,6 +26,8 @@ from monitor_data.tools.neo4j_tools import (
 )
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_data.tools.ingest_tools.contradiction_detection import detect_contradictions
+
+log = structlog.get_logger()
 
 
 class KnowledgePackService:
@@ -96,7 +100,7 @@ class KnowledgePackService:
 
             neo4j_update_universe(universe_id, DLUniverseUpdate(**update_kwargs))
         except Exception:
-            pass
+            log.debug("universe metadata sync after pack update failed", exc_info=True)
 
     @staticmethod
     def _detect_pack_world_conflicts(

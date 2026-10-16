@@ -23,10 +23,14 @@ Grouping:
 
 from __future__ import annotations
 
+import structlog
+
 import logging
 import re
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
+
+log = structlog.get_logger()
 
 
 logger = logging.getLogger(__name__)
@@ -385,7 +389,7 @@ async def _analyze_narrative_conditions(
                 if cond_name:
                     condition_tags.append(cond_name.lower().replace(" ", "_"))
         except Exception:
-            pass
+            log.debug("condition tag extraction failed", exc_info=True)
     return condition_tags
 
 
@@ -553,7 +557,7 @@ def canonical_state_tags(
                     if tag:
                         add_tags.append(tag)
         except Exception:
-            pass
+            log.debug("effect tag extraction failed", exc_info=True)
 
     # Condition tags are already system-derived; pass them through directly.
     for tag in condition_tags:
@@ -598,6 +602,7 @@ def parse_entity_tags(narrative_text: str) -> list[dict[str, str]]:
     signal: the Narrator itself marks an entity's structural weight at
     generation time, rather than a second-pass classifier inferring it
     from prose alone. Returns one dict per tagged mention:
+
     ``{"name": str, "promotion_intent": "anchor" | "flavor"}``.
     """
     return [

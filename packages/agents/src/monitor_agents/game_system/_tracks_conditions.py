@@ -35,6 +35,8 @@ import structlog
 
 from ._types import SystemData
 
+log = structlog.get_logger()
+
 logger = structlog.get_logger()
 
 
@@ -380,7 +382,7 @@ def _eval_track_max(track: dict[str, Any]) -> int | None:
         try:
             return int(eval(str(max_formula), {"__builtins__": {}}, {}))
         except Exception:
-            pass
+            log.debug("track max formula evaluation failed", exc_info=True)
     return track.get("max_value")
 
 
