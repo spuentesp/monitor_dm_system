@@ -121,4 +121,179 @@ def extract_survivors(session_db: Path) -> list[Survivor]:
     return survivors
 
 
-# ---- Policy layer (Task 4) is appended below this line. ----
+class AllowlistError(ValueError):
+    """The allowlist file is malformed; refuse to treat it as an implicit pass."""
+
+
+def filter_in_diff(
+    survivors: list[Survivor],
+    hunk_ranges: dict[str, set[int]],
+) -> tuple[list[Survivor], list[Survivor]]:
+    """Split survivors into (inside PR hunks, outside PR hunks) by mutant line."""
+    in_diff: list[Survivor] = []
+    outside: list[Survivor] = []
+    for survivor in survivors:
+        lines = hunk_ranges.get(survivor.module_path, set())
+        if survivor.line in lines:
+            in_diff.append(survivor)
+        else:
+            outside.append(survivor)
+    return in_diff, outside
+
+
+def evaluate_gate(
+    in_diff: list[Survivor],
+    outside: list[Survivor],
+    allowlist: dict[tuple[str, str, int], str],
+) -> int:
+    """Policy: only in-diff survivors block, and only when not allowlisted."""
+    for survivor in outside:
+        print(
+            f"[warn] pre-existing survivor outside diff: "
+            f"{survivor.module_path}:{survivor.line} {survivor.operator_name} "
+            f"occurrence={survivor.occurrence}"
+        )
+    blocking = [
+        s
+        for s in in_diff
+        if (s.module_path, s.operator_name, s.occurrence) not in allowlist
+    ]
+    if blocking:
+        print("[FAIL] mutation-diff: surviving mutants on changed lines:")
+        for s in blocking:
+            where = f" in {s.definition_name}" if s.definition_name else ""
+            print(
+                f"  - {s.module_path}:{s.line} {s.operator_name} "
+                f"occurrence={s.occurrence}{where}"
+            )
+        print(
+            "Kill them with real assertions, or (proven equivalent mutants only) add "
+            "entries to scripts/mutation_allowlist.toml with a justification."
+        )
+        return 1
+    print(
+        f"mutation-diff: {len(in_diff)} in-diff survivor(s) allowlisted; "
+        f"{len(outside)} pre-existing survivor(s) outside the diff."
+    )
+    return 0
+
+
+def load_allowlist(path: Path) -> dict[tuple[str, str, int], str]:
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    entries: dict[tuple[str, str, int], str] = {}
+    for entry in data.get("survivors", []):
+        key = (entry["module_path"], entry["operator_name"], int(entry["occurrence"]))
+        justification = str(entry.get("justification", "")).strip()
+        if not justification:
+            raise AllowlistError(
+                f"allowlist entry {key} lacks a non-empty 'justification' string"
+            )
+        entries[key] = justification
+    return entries
+
+
+FALLBACK_OPERATOR_SET = (
+    "core/Boolean",
+    "core/Break",
+    "core/Continue",
+    "core/Deletion",
+    "core/Number",
+    "core/String",
+    "core/Variable",
+)
+
+
+def load_known_configs(root: Path) -> dict[str, Path]:
+    """Map module-path -> config file for the curated cosmic-ray-*.toml files."""
+    known: dict[str, Path] = {}
+    for config in sorted(root.glob("cosmic-ray*.toml")):
+        data = tomllib.loads(config.read_text(encoding="utf-8"))
+        module_path = data.get("cosmic-ray", {}).get("module-path")
+        if module_path:
+            known[module_path] = config
+    return known
+
+
+def package_root(file: Path, root: Path) -> Path:
+    """Nearest ancestor of the file that contains a pyproject.toml."""
+    current = (root / file).parent
+    while current != root and current != current.parent:
+        if (current / "pyproject.toml").exists():
+            return current.relative_to(root)
+        current = current.parent
+    return Path(".")
+
+
+def write_generated_config(module: Path, root: Path, tmp_dir: Path) -> Path:
+    pkg = package_root(module, root)
+    test_command = (
+        f"python -m pytest {pkg}/tests tests/unit -x -q --timeout=15 "
+        f"--tb=line -p no:cacheprovider --no-header"
+    )
+    operators = "\n".join(f'    "{op}",' for op in FALLBACK_OPERATOR_SET)
+    config_text = (
+        f'[cosmic-ray]\nmodule-path = "{module}"\npython-version = ""\n'
+        f"timeout = 30\nexcluded-modules = []\n"
+        f'test-command = "{test_command}"\n\n'
+        f'[cosmic-ray.distributor]\nname = "local"\n\n'
+        f"[cosmic-ray.operators]\nenabled = [\n{operators}\n]\n"
+    )
+    config_path = tmp_dir / f"generated-{module.name}.toml"
+    config_path.write_text(config_text, encoding="utf-8")
+    return config_path
+
+
+def run_session(config: Path, root: Path) -> Path:
+    """Initialize and execute a Cosmic Ray session for one config; return the DB path."""
+    session_db = config.with_suffix(".session.sqlite3")
+    for command in (
+        ["uv", "run", "cosmic-ray", "init", str(config), str(session_db)],
+        ["uv", "run", "cosmic-ray", "exec", str(config), str(session_db)],
+    ):
+        proc = subprocess.run(command, cwd=root, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"{' '.join(command)} failed: {proc.stderr.strip() or proc.stdout.strip()}"
+            )
+    return session_db
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Fail when a surviving mutant lands on a line this PR changed."
+    )
+    parser.add_argument("--base", required=True, metavar="REF", help="Compare REF...HEAD.")
+    parser.add_argument(
+        "--allowlist",
+        default=str(ROOT / "scripts" / "mutation_allowlist.toml"),
+        help="Path to the survivors allowlist (justified equivalent mutants only).",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        changed = changed_production_files(args.base, ROOT)
+        if not changed:
+            print("mutation-diff: no production Python changes; nothing to do.")
+            return 0
+
+        hunks = parse_hunk_ranges(git_diff_u0(args.base, ROOT, changed))
+        known = load_known_configs(ROOT)
+
+        survivors: list[Survivor] = []
+        with tempfile.TemporaryDirectory(prefix="mutation-diff-") as tmp:
+            tmp_dir = Path(tmp)
+            for module in changed:
+                config = known.get(str(module)) or write_generated_config(module, ROOT, tmp_dir)
+                session = run_session(config, ROOT)
+                survivors.extend(extract_survivors(session))
+
+        in_diff, outside = filter_in_diff(survivors, hunks)
+        allowlist = load_allowlist(Path(args.allowlist))
+        return evaluate_gate(in_diff, outside, allowlist)
+    except (RuntimeError, AllowlistError) as exc:
+        print(f"[ERROR] {exc}")
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

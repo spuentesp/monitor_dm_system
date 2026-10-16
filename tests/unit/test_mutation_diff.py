@@ -151,3 +151,58 @@ def test_extract_survivors_ignores_incompetent_and_pending(tmp_path: Path) -> No
         db.close()
 
     assert md.extract_survivors(db_path) == []
+
+
+def test_filter_in_diff_splits_by_hunk_lines() -> None:
+    inside = md.Survivor("packages/agents/src/monitor_agents/narrator/agent.py", "core/Number", 0, 11, "f")
+    outside = md.Survivor("packages/agents/src/monitor_agents/narrator/agent.py", "core/String", 1, 90, "f")
+    hunks = {"packages/agents/src/monitor_agents/narrator/agent.py": {11, 12}}
+    in_diff, out = md.filter_in_diff([inside, outside], hunks)
+    assert in_diff == [inside]
+    assert out == [outside]
+
+
+def test_out_of_diff_survivor_only_warns(tmp_path: Path) -> None:
+    survivor = md.Survivor("packages/agents/src/x.py", "core/Number", 0, 99, "f")
+    hunks = {"packages/agents/src/x.py": {10}}
+    in_diff, outside = md.filter_in_diff([survivor], hunks)
+    assert in_diff == []
+    assert outside == [survivor]
+    # With no in-diff survivors, the gate is green regardless of pre-existing debt.
+    assert md.evaluate_gate(in_diff, outside, allowlist={}) == 0
+
+
+def test_gate_fails_on_unallowlisted_in_diff_survivor() -> None:
+    survivor = md.Survivor("packages/agents/src/x.py", "core/Number", 0, 10, "f")
+    assert md.evaluate_gate([survivor], [], allowlist={}) == 1
+
+
+def test_gate_allowlist_entry_passes() -> None:
+    survivor = md.Survivor("packages/agents/src/x.py", "core/Number", 0, 10, "f")
+    key = ("packages/agents/src/x.py", "core/Number", 0)
+    assert md.evaluate_gate([survivor], [], allowlist={key: "equivalent mutant: flip has no effect"}) == 0
+
+
+def test_load_allowlist_roundtrip(tmp_path: Path) -> None:
+    allow = tmp_path / "allow.toml"
+    allow.write_text(
+        '[[survivors]]\n'
+        'module_path = "packages/agents/src/x.py"\n'
+        'operator_name = "core/Number"\n'
+        'occurrence = 0\n'
+        'justification = "equivalent mutant: constant is unused"\n'
+    )
+    loaded = md.load_allowlist(allow)
+    assert loaded == {("packages/agents/src/x.py", "core/Number", 0): "equivalent mutant: constant is unused"}
+
+
+def test_allowlist_entry_without_justification_is_error(tmp_path: Path) -> None:
+    allow = tmp_path / "allow.toml"
+    allow.write_text(
+        '[[survivors]]\n'
+        'module_path = "packages/agents/src/x.py"\n'
+        'operator_name = "core/Number"\n'
+        'occurrence = 0\n'
+    )
+    with pytest.raises(md.AllowlistError, match="justification"):
+        md.load_allowlist(allow)

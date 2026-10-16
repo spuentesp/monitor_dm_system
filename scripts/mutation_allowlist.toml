@@ -1,0 +1,7 @@
+# Justified equivalent mutants (the ONLY exception route for the mutation gate).
+#
+# Each entry must carry a non-empty justification. The gate keys entries by
+# (module_path, operator_name, occurrence) and fails closed on any entry that
+# lacks a justification. Start empty; add entries only for proven equivalent
+# mutants, in the same PR that documents why the mutant cannot be killed.
+survivors = []

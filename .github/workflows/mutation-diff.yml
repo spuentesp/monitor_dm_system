@@ -1,0 +1,23 @@
+name: Mutation (diff)
+
+on:
+  pull_request:
+
+concurrency:
+  group: mutation-diff-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen || uv sync
+      - name: Mutation gate (zero survivors on changed lines)
+        run: uv run python scripts/mutation_diff.py --base "${{ github.event.pull_request.base.sha }}"
