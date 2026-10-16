@@ -37,5 +37,34 @@ This repo enforces single-responsibility PRs with mandatory tests and strict lay
 ## CI Gate
 - PRs to `main` run: layer check, use-case reference check, test-requirement check, ruff, mypy, pytest with coverage. Failing any gate blocks merge.
 
+## Sealed Verification Suites (T_val / T_test)
+
+This repo splits its tests into two trust tiers:
+
+- **T_val (visible, freely editable):** `tests/unit/`, `tests/api/`, `tests/contracts/`,
+  `tests/behavior/`, `tests/e2e/`, `tests/smoke/` and per-package `tests/` dirs. Iterate
+  here as fast as you need.
+- **T_test (sealed):** `tests/verification/` (DST + cross-store oracle) and
+  `tests/property/` (Hypothesis properties). **Implementers may not modify or delete
+  files under these paths.**
+
+Enforcement:
+
+1. Pre-commit runs `scripts/sealed_suite_guard.py --staged` (best effort).
+2. CI job `sealed-suite-guard` fails any PR whose diff touches sealed paths unless the
+   PR carries the `sealed-override` label. Labels require write access — an agent cannot
+   label its own PR.
+3. `.github/CODEOWNERS` routes sealed-path changes to `@spuentesp`. Enable *Require
+   review from Code Owners* in branch protection to enforce reviews.
+
+A legitimate sealed-suite change (new property, stronger invariant, DST extension) lands
+via: open the PR, explain why the sealed suite must change, and ask a maintainer to apply
+`sealed-override` and review.
+
+Mutation gate: `mutation-diff.yml` runs Cosmic Ray on the modules your PR touches and
+fails when a mutant on a changed line survives. Kill it with a real assertion; the only
+exception is `scripts/mutation_allowlist.toml`, which requires a written justification
+(use it for proven equivalent mutants only).
+
 ## Optional Tools
-- `pre-commit install` to run mypy pytest/mypy/pytest hook before commits.
+- `pre-commit install` to run the sealed-suite guard before commits.

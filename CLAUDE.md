@@ -20,6 +20,11 @@
 - **Evidence for canon facts**: Every canonical fact MUST have `evidence_refs`
 - **Async MCP calls**: All agent methods calling MCP tools must be `async`
 - **Logging**: Use `structlog`, never `print()`
+- Sealed suites: never modify or delete `tests/verification/**` or `tests/property/**`
+  (T_test). CI blocks it via `scripts/sealed_suite_guard.py`; only a maintainer applying
+  the `sealed-override` label can land such changes. Never weaken asserts or hardcode
+  responses to turn tests green — the mutation gate (`scripts/mutation_diff.py`) rejects
+  survivors on changed lines.
 
 ## Forbidden Patterns (From AGENTS.md)
 

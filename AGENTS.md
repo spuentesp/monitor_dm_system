@@ -82,6 +82,15 @@ Pydantic v2 models in `packages/data-layer/src/monitor_data/schemas/`. Base enum
 
 FastAPI app at `packages/ui/backend/src/monitor_ui/`. Routers in `routers/`. The chat router drives `SceneLoop` via WebSocket.
 
+### Sealed Test Suites (Anti-Reward-Hacking)
+
+`tests/verification/**` and `tests/property/**` are sealed (`T_test`). Implementer
+agents MUST NOT modify or delete files under these paths; CI enforces this via
+`scripts/sealed_suite_guard.py` (override label `sealed-override` is maintainer-only).
+Write tests for your changes in `tests/unit/`, `tests/api/`, `tests/contracts/`, or the
+per-package `tests/` dirs instead. Mutants surviving on lines your PR changes fail CI
+(`scripts/mutation_diff.py`); weaken nothing to get a green run.
+
 ## Documentation Map
 
 The documentation for MONITOR has been restructured for agent-friendliness.

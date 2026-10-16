@@ -1,0 +1,4 @@
+# Sealed verification suites (T_test): changes require maintainer review.
+# Enable "Require review from Code Owners" in branch protection to enforce.
+tests/verification/** @spuentesp
+tests/property/** @spuentesp

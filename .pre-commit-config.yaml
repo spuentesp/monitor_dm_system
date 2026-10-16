@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: sealed-suite-guard
+        name: sealed-suite guard (T_test protection)
+        entry: python3 scripts/sealed_suite_guard.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true

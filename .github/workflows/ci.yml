@@ -24,6 +24,26 @@ jobs:
       - name: Layer boundaries
         run: uv run python scripts/check_layer_dependencies.py
 
+  sealed-suite-guard:
+    name: Sealed-suite guard (T_test)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Guard sealed verification suites
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          ALLOW=""
+          case ",${LABELS}," in
+            *,sealed-override,*) ALLOW="--allow-sealed" ;;
+          esac
+          python3 scripts/sealed_suite_guard.py --base "${BASE_SHA}" ${ALLOW}
+
   typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 15
