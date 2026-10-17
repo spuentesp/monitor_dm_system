@@ -86,7 +86,7 @@ class RedisClient:
                 client.ping()
                 self._client = client
                 self._connection_attempted = True
-            except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+            except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _get_client)
                 self._connection_attempted = True
                 if not self._logged_unavailable:
                     logger.info("Redis cache unavailable, falling back to direct DB reads: %s", exc)
@@ -111,7 +111,7 @@ class RedisClient:
         except json.JSONDecodeError as exc:
             logger.warning("Redis JSON decode failed for %s: %s", key, exc)
             return None
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in get_json)
             logger.debug("Redis get_json failed for %s: %s", key, exc)
             return None
 
@@ -130,7 +130,7 @@ class RedisClient:
         except (TypeError, ValueError) as exc:
             logger.warning("Redis set_json serialisation failed for %s: %s", key, exc)
             return False
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in set_json)
             logger.debug("Redis set_json failed for %s: %s", key, exc)
             return False
 
@@ -144,7 +144,7 @@ class RedisClient:
             return 0
         try:
             return int(client.delete(*qualified))
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in delete)
             logger.debug("Redis delete failed for %s: %s", qualified, exc)
             return 0
 
@@ -155,7 +155,7 @@ class RedisClient:
             return 0
         try:
             return int(client.publish(self._qualified_key(channel), json.dumps(value, default=str)))
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in publish_json)
             logger.debug("Redis publish_json failed for %s: %s", channel, exc)
             return 0
 
@@ -171,7 +171,7 @@ class RedisClient:
             pubsub = client.pubsub(ignore_subscribe_messages=True)
             pubsub.subscribe(*qualified)
             return pubsub
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in create_pubsub)
             logger.debug("Redis create_pubsub failed for %s: %s", channels, exc)
             return None
 
@@ -189,7 +189,7 @@ class RedisClient:
             if data in (None, ""):
                 return None
             return json.loads(data)
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in get_pubsub_message_json)
             logger.debug("Redis get_pubsub_message_json failed: %s", exc)
             return None
 
@@ -212,7 +212,7 @@ class RedisClient:
             if keys:
                 deleted = int(client.delete(*keys))
             return deleted
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in delete_prefix)
             logger.debug("Redis delete_prefix failed for %s: %s", prefix, exc)
             return 0
 

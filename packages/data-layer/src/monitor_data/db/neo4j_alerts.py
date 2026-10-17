@@ -218,7 +218,7 @@ class PerformanceAlertManager:
         for handler in self._handlers:
             try:
                 handler(alert)
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _emit_alert)
                 logger.error("Error in alert handler %s: %s", handler.__name__, exc)
 
     def check_slow_query(

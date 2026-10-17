@@ -436,3 +436,60 @@ def test_group_kill_reaps_grandchildren(tmp_path: Path) -> None:
             break
         time.sleep(0.1)
     assert not alive, f"grandchild {pid} survived the group kill (would leak on CI runners)"
+
+
+def test_changed_production_files_excludes_fixture_trees(tmp_path: Path) -> None:
+    """Fixture/e2e helper modules are test scaffolding, not mutation targets —
+    a full mutation session on them burns budget for nothing."""
+    import subprocess as sp
+
+    repo = tmp_path / "repo"
+    fx = repo / "packages" / "ui" / "frontend" / "e2e" / "fixtures"
+    fx.mkdir(parents=True)
+    (fx / "llm-bridge.py").write_text("x = 1\n")
+    for cmd in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "t@t"],
+        ["git", "config", "user.name", "t"],
+    ):
+        sp.run(cmd, cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "commit", "-qm", "seed"], cwd=repo, check=True, capture_output=True)
+    (fx / "llm-bridge.py").write_text("x = 2\n")
+    sp.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "commit", "-qm", "touch fixture"], cwd=repo, check=True, capture_output=True)
+
+    changed = md.changed_production_files("HEAD~1", repo)
+    assert changed == [], f"fixture trees must be excluded, got {changed}"
+
+
+def test_package_root_fails_loud_outside_a_package(tmp_path: Path) -> None:
+    stray = tmp_path / "orphan.py"
+    stray.write_text("x = 1\n")
+    with pytest.raises(RuntimeError, match="no package root"):
+        md.package_root(Path("orphan.py"), tmp_path)
+
+
+def test_tests_for_module_selects_importing_test_files(tmp_path: Path) -> None:
+    """Generated test-commands should run the tests that actually exercise the
+    module (by import), not the package's whole test tree per mutant."""
+    pkg = tmp_path / "packages" / "pkg"
+    (pkg / "src" / "monitor_x").mkdir(parents=True)
+    (pkg / "pyproject.toml").write_text("[project]\nname='pkg'\n")
+    (pkg / "src" / "monitor_x" / "core.py").write_text("x = 1\n")
+    (pkg / "tests").mkdir(parents=True)
+    (pkg / "tests" / "test_core.py").write_text("from monitor_x.core import x\n")
+    (pkg / "tests" / "test_unrelated.py").write_text("from monitor_x.other import y\n")
+    selected = md.tests_for_module(Path("packages/pkg/src/monitor_x/core.py"), tmp_path)
+    assert [p.name for p in selected] == ["test_core.py"]
+
+
+def test_tests_for_module_falls_back_to_package_tests(tmp_path: Path) -> None:
+    pkg = tmp_path / "packages" / "pkg"
+    (pkg / "src" / "monitor_x").mkdir(parents=True)
+    (pkg / "pyproject.toml").write_text("[project]\nname='pkg'\n")
+    (pkg / "src" / "monitor_x" / "orphan_mod.py").write_text("x = 1\n")
+    (pkg / "tests").mkdir(parents=True)
+    (pkg / "tests" / "test_anything.py").write_text("print('hi')\n")
+    selected = md.tests_for_module(Path("packages/pkg/src/monitor_x/orphan_mod.py"), tmp_path)
+    assert [p.name for p in selected] == ["test_anything.py"]

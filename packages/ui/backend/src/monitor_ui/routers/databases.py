@@ -61,7 +61,7 @@ async def _timed_check(
         result = await check_fn()
         result.latency_ms = (time.monotonic() - t0) * 1000
         return result
-    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report
+    except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report (in _timed_check)
         return _make_offline(name, db_type, url, str(exc))
 
 

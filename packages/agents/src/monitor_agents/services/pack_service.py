@@ -99,7 +99,7 @@ class KnowledgePackService:
             from monitor_data.schemas.universe import UniverseUpdate as DLUniverseUpdate
 
             neo4j_update_universe(universe_id, DLUniverseUpdate(**update_kwargs))
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _propagate_system_to_universe)
             log.debug("universe metadata sync after pack update failed", exc_info=True)
 
     @staticmethod

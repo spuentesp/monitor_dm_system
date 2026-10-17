@@ -210,7 +210,7 @@ def update_yaml_file(filepath: Path, new_status: str) -> bool:
             filepath.write_text(new_content)
             return True
         return False
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: script boundary: reports and continues
         print(f"Error updating {filepath}: {e}")
         return False
 
@@ -257,7 +257,7 @@ def main():
                                 updated += 1
                             else:
                                 skipped += 1
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # reason: script boundary: reports and continues
                 print(f"Error reading {yaml_file}: {e}")
                 errors += 1
     

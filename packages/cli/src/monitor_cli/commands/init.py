@@ -170,7 +170,7 @@ async def _preflight() -> dict[str, Any] | None:
     """
     try:
         return await check_all_services()
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _preflight)
         console.print(Panel(f"[red]{exc}[/red]", title="Health probe crashed"))
         return None
 
@@ -185,19 +185,19 @@ async def _bootstrap_schemas() -> None:
     try:
         neo4j = get_neo4j_client()
         await neo4j.connect()
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _bootstrap_schemas)
         console.print(f"   [yellow]![/yellow] Neo4j bootstrap skipped: {exc}")
 
     try:
         mongodb = get_mongodb_client()
         await mongodb.connect()
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _bootstrap_schemas)
         console.print(f"   [yellow]![/yellow] MongoDB bootstrap skipped: {exc}")
 
     try:
         postgres = get_postgres_client()
         await postgres.connect()
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _bootstrap_schemas)
         console.print(f"   [yellow]![/yellow] Postgres bootstrap skipped: {exc}")
 
 
@@ -228,7 +228,7 @@ async def _ensure_ollama_model(model: str) -> bool:
         with urllib.request.urlopen(f"{base}/api/tags", timeout=5) as r:
             data = json.loads(r.read())
             installed = {m.get("name", "") for m in data.get("models", [])}
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _ensure_ollama_model)
         console.print(
             Panel(
                 f"Could not reach Ollama at {base}: {exc}\n\n"

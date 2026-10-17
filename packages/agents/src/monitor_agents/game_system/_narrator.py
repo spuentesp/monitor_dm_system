@@ -36,7 +36,7 @@ def calc_modifier(sd: SystemData, stat_abbr: str, stat_value: int) -> int:
                 from monitor_data.utils.dice import calculate_modifier
 
                 return calculate_modifier(stat_value, formula.replace("VALUE", str(stat_value)))
-            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in calc_modifier)
                 log.debug("modifier formula evaluation failed", exc_info=True)
         width = attr.get("max_value", 20) - attr.get("min_value", 0)
         if width <= 10:
@@ -46,7 +46,7 @@ def calc_modifier(sd: SystemData, stat_abbr: str, stat_value: int) -> int:
         from monitor_data.utils.dice import calculate_modifier
 
         return calculate_modifier(stat_value, "(VALUE - 10) // 2")
-    except Exception:  # noqa: BLE001  # reason: falls back to `0` on failure
+    except Exception:  # noqa: BLE001  # reason: falls back to `0` on failure (in calc_modifier)
         return 0
 
 

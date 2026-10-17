@@ -15,6 +15,7 @@ Environment variables:
     RUN_INTEGRATION=1  # Required to run actual queries
 """
 
+import contextlib
 import asyncio
 import json
 import os
@@ -215,19 +216,15 @@ class Neo4jPerformanceDiagnostics:
 
             try:
                 # Warm up (ignore first run)
-                try:
+                with contextlib.suppress(Exception):  # benchmark warm-up run: failure ignored
                     self.client.execute_read(query, params)
-                except Exception:  # noqa: BLE001
-                    pass
 
                 # Profile with multiple runs
                 times = []
                 for _ in range(3):
                     start = time.perf_counter()
-                    try:
+                    with contextlib.suppress(Exception):  # benchmark measurement run: failure ignored
                         self.client.execute_read(query, params)
-                    except Exception:  # noqa: BLE001
-                        pass
                     elapsed_ms = (time.perf_counter() - start) * 1000
                     times.append(elapsed_ms)
 

@@ -91,7 +91,7 @@ def _restore_loop_state(loop: Any, session: dict[str, Any] | None, stage: str) -
         current_question_index = getattr(loop._state, "question_index", None)
         if current_question_index is not None and hasattr(loop, "_current_question_index"):
             loop._current_question_index = current_question_index
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _restore_loop_state)
         log.warning("preplay.checkpoint_invalid", stage=stage, error=str(exc))
     return loop
 
@@ -130,7 +130,7 @@ def get_character_creation_loop(
         _CHAR_CREATION_LOOPS[session_id] = loop
         _evict_oldest(_CHAR_CREATION_LOOPS, _CHAR_CREATION_LOOPS_MAX)
         return loop
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in get_character_creation_loop)
         log.warning("preplay.character_creation_unavailable", error=str(exc))
         return None
 
@@ -162,7 +162,7 @@ def get_character_interview_loop(
         _CHARACTER_INTERVIEW_LOOPS[session_id] = loop
         _evict_oldest(_CHARACTER_INTERVIEW_LOOPS, _CHARACTER_INTERVIEW_LOOPS_MAX)
         return loop
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in get_character_interview_loop)
         log.warning("preplay.character_interview_unavailable", error=str(exc))
         return None
 
@@ -231,7 +231,7 @@ async def _persona_seed(session: dict[str, Any]) -> list[dict[str, str]] | None:
 
         persona = await asyncio.to_thread(mongodb_get_character, UUID(str(persona_id)))
         return _seed_answers_from_persona(persona) or None if persona else None
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _persona_seed)
         log.warning("preplay.persona_seed_failed", error=str(exc))
         return None
 

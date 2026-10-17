@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import re
-import os
 from pathlib import Path
 
 # Mapping of prefix to standard Epic folder

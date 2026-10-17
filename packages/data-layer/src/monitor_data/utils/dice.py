@@ -136,5 +136,5 @@ def calculate_modifier(value: int, formula: str) -> int:
     try:
         result = eval(formula, _SANDBOX_GLOBALS, local_env)
         return math.floor(result) if isinstance(result, float) else int(result)
-    except Exception:  # noqa: BLE001  # reason: falls back to `0` on failure
+    except Exception:  # noqa: BLE001  # reason: falls back to `0` on failure (in calculate_modifier)
         return 0

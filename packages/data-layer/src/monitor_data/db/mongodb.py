@@ -86,7 +86,7 @@ class MongoDBClient:
             assert self._client is not None
             self._client.admin.command("ping")
             return True
-        except Exception:  # noqa: BLE001  # reason: falls back to `False` on failure
+        except Exception:  # noqa: BLE001  # reason: falls back to `False` on failure (in verify_connectivity)
             return False
 
     # ------------------------------------------------------------------

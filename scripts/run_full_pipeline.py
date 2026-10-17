@@ -68,7 +68,7 @@ async def main():
         log.info("=" * 60)
         log.info("PIPELINE COMPLETED in %.1fs", elapsed)
         log.info("Job: %s", job.model_dump_json(indent=2))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: falls back to `time.time() - t0` on failure
         elapsed = time.time() - t0
         log.error("PIPELINE FAILED after %.1fs: %s", elapsed, e)
         import traceback
@@ -113,7 +113,7 @@ async def main():
         for c in collections.collections:
             info = await qdrant.get_collection(c.name)
             log.info("Qdrant %s: %d points", c.name, info.points_count)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         log.warning("Qdrant check: %s", e)
 
     # Check Neo4j Source node

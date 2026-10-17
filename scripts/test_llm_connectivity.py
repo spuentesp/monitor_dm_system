@@ -25,7 +25,7 @@ async def test_default_provider():
         print(f"  Model: {client.model}")
         print(f"  Provider: {client.provider}")
         print(f"  Base URL: {client.base_url}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: script boundary: reports and continues
         print(f"  ERROR: {e}")
         await pg.close()
         return
@@ -45,7 +45,7 @@ async def test_default_provider():
         print(f"  Greeting: {result.greeting}")
         print(f"  Language: {result.language}")
         print("  ✅ Structured call works!")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: script boundary: reports and continues
         print(f"  ERROR: {e}")
 
     print("\n=== Test 3: Plain text completion ===")
@@ -59,7 +59,7 @@ async def test_default_provider():
         )
         print(f"  Response: {text[:200]}")
         print("  ✅ Text completion works!")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: script boundary: reports and continues
         print(f"  ERROR: {e}")
 
     print("\n=== Test 4: Game system prompt ===")
@@ -82,7 +82,7 @@ async def test_default_provider():
         )
         print(f"  GM Response: {text[:300]}")
         print("  ✅ Game system prompt works!")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: script boundary: reports and continues
         print(f"  ERROR: {e}")
 
     await pg.close()

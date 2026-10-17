@@ -118,7 +118,7 @@ async def _apply(plan: dict[str, Any], *, ids_only: bool) -> None:
                 "MATCH (n {id: $id}) SET n.universe_id = $universe_id",
                 {"id": action["id"], "universe_id": action["new_universe_id"]},
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: script boundary: reports and continues
             print(f"rebind failed {action}: {exc}")
 
     # 2. Multiverses
@@ -128,7 +128,7 @@ async def _apply(plan: dict[str, Any], *, ids_only: bool) -> None:
             continue
         try:
             neo4j_delete_multiverse(entry["id"], force=True)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: script boundary: reports and continues
             print(f"multiverse delete failed {entry}: {exc}")
 
     # plan_dedupes.py stores duplicate non-test multiverses under keep[].duplicates.
@@ -139,7 +139,7 @@ async def _apply(plan: dict[str, Any], *, ids_only: bool) -> None:
                 continue
             try:
                 neo4j_delete_multiverse(duplicate_id, force=True)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: script boundary: reports and continues
                 print(f"multiverse duplicate delete failed {duplicate_id}: {exc}")
 
     # 3. Universes
@@ -149,7 +149,7 @@ async def _apply(plan: dict[str, Any], *, ids_only: bool) -> None:
             continue
         try:
             neo4j_delete_universe(entry["id"], force=True)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: script boundary: reports and continues
             print(f"universe delete failed {entry}: {exc}")
 
     # 4. Characters (Mongo)
@@ -181,7 +181,7 @@ async def _apply(plan: dict[str, Any], *, ids_only: bool) -> None:
                     f"MATCH (n:{label} {{id: $id}}) DETACH DELETE n",
                     {"id": entry["id"]},
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  # reason: script boundary: reports and continues
                 print(f"canon delete failed {entry}: {exc}")
 
 

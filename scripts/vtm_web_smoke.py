@@ -16,11 +16,9 @@ Run from repo root:
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -106,7 +104,7 @@ async def main(turns: int = 6) -> None:
             chat_input = page.locator('textarea[aria-label="Send message"]').first
             await chat_input.wait_for(timeout=10000)
             print("[smoke] found composer via aria-label")
-        except Exception:
+        except Exception:  # noqa: BLE001  # reason: falls back to `page.locator("textarea").first` on failure
             chat_input = page.locator("textarea").first
             try:
                 await chat_input.wait_for(timeout=5000)

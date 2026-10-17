@@ -173,7 +173,7 @@ def validate_tool_input(tool_name: str, tool_function: Callable[..., Any], argum
 
     except ValidationError:
         raise
-    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in validate_tool_input)
         logger.error(f"Validation error for tool '{tool_name}': {e}")
         raise ValidationError(tool_name, [{"msg": str(e), "loc": ("validation",)}])
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 from pathlib import Path
 
 # Mapping of missing IDs to their titles and epic categories

@@ -409,7 +409,7 @@ def mongodb_apply_knowledge_pack(pack_id: UUID, params: ApplyKnowledgePackReques
                 high_severity=contradiction_result.high_severity_count,
                 critical=contradiction_result.critical_severity_count,
             )
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in mongodb_apply_knowledge_pack)
         # Contradiction detection is advisory — never block apply on its failure
         log.warning("contradiction_detection_failed", pack_id=str(pack_id), error=str(exc))
 

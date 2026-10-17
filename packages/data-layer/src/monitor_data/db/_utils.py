@@ -85,7 +85,7 @@ def _run_on_overflow_thread(coro: Coroutine[Any, Any, Any], timeout: float | Non
     def _target() -> None:
         try:
             result["value"] = asyncio.run(coro)
-        except BaseException as exc:  # propagate to caller  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+        except BaseException as exc:  # propagate to caller  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _target)
             result["error"] = exc
 
     t = threading.Thread(target=_target, daemon=True, name="monitor-db-overflow")

@@ -56,7 +56,6 @@ def load_v5_system() -> dict:
 def clan_disciplines() -> list:
     # Pull discipline names from the ingested corebook entities.
     from neo4j import GraphDatabase  # noqa
-    import subprocess
     return ["Potence", "Obtenebration", "Dominate", "Animalism", "Auspex", "Celerity",
             "Fortitude", "Obfuscate", "Presence", "Protean", "Dementation"]
 
@@ -68,7 +67,7 @@ def list_roster() -> list:
     try:
         res = mongodb_list_character_sheets(CharacterSheetFilter(limit=50))
         return list(getattr(res, "sheets", []) or [])
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[dim](roster query: {exc})[/dim]")
         return []
 
@@ -96,7 +95,6 @@ async def create_character(game_system: dict) -> dict:
     while not res.get("complete") and i < 12:
         res = await loop.process_player_input(answers[i] if i < len(answers) else "Continue.")
         i += 1
-    choices = (res.get("character") or {}).get("choices", {})
     concept = "A brooding Lasombra elder — shadow-bound, political, and merciless."
 
     log("\n[Review] GM applies the system's creation rules to finalize numbers…")
@@ -121,7 +119,7 @@ def persist_character(sheet: dict) -> None:
             universe_id=UNIVERSE_ID, id=UUID(sheet["id"]), name=sheet["name"],
             entity_type="character", sub_type="character", is_archetype=False,
             description=f"{sheet['concept']} (Clan {sheet['clan']})"))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[yellow]entity create warning: {exc}[/yellow]")
     try:
         mongodb_create_character_sheet(CharacterSheetCreate(
@@ -138,7 +136,7 @@ def persist_character(sheet: dict) -> None:
             notes=f"Clan {sheet['clan']}",
         ))
         console.print("[green]Character persisted to roster.[/green]")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[yellow]persist warning: {exc}[/yellow]")
 
 
@@ -155,7 +153,7 @@ async def play_scene(story_id: UUID, actor: dict, scene_no: int, title: str,
         mongodb_create_working_state(WorkingStateCreate(
             entity_id=UUID(actor["id"]), scene_id=scene_id, story_id=story_id,
             base_stats=actor["attributes"], resources=actor["resources"]))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[dim](working state: {exc})[/dim]")
 
     loop = SceneLoop(scene_id=scene_id, story_id=story_id, universe_id=UNIVERSE_ID,

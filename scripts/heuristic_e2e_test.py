@@ -145,7 +145,7 @@ def main() -> int:
         print(f"Input:  {content[:80]}{'...' if len(content) > 80 else ''}")
         try:
             result = _send_turn(session_id, content)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: script boundary: reports and continues
             print(f"  ERROR: {exc}")
             return 1
         diag = _diagnose_turn(label, content, result)

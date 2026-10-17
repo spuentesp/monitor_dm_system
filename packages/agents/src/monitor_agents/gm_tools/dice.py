@@ -33,7 +33,7 @@ def _roll_dice_sync(formula: str, modifier: int = 0) -> dict[str, Any]:
             "total": total,
             "method": "random",
         }
-    except Exception as exc:  # noqa: BLE001  # reason: falls back to `{"formula": formula, "modifier": modifie` on failure
+    except Exception as exc:  # noqa: BLE001  # reason: falls back to `{"formula": formula, "modifier": modifie` on failure (in _roll_dice_sync)
         return {"formula": formula, "modifier": modifier, "error": str(exc), "method": "fail"}
 
 

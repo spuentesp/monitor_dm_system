@@ -171,7 +171,7 @@ async def _plain_stream(body: ChatCompletionRequest) -> StreamingResponse:
                     ],
                 }
                 yield f"data: {json.dumps(chunk)}\n\n"
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _event_generator)
             logger.warning("openai_stream_failed", exc_info=True)
             err_chunk = {
                 "id": completion_id,

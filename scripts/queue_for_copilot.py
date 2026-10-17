@@ -54,7 +54,7 @@ def get_use_cases() -> dict:
             data = yaml.safe_load(f.read_text())
             if data and "id" in data:
                 cases[data["id"]] = data
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # reason: script boundary: reports and continues
             print(f"Warning: Could not parse {f}: {e}")
 
     return cases

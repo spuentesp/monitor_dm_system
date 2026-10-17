@@ -20,15 +20,13 @@ Run:
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
 if str(WORKSPACE_ROOT) not in sys.path:
@@ -138,8 +136,6 @@ async def _run_single_turn(
     from monitor_agents.loops.scene_loop import (
         SceneState,
         load_context,
-        resolve_action,
-        narrate,
         extract_facts,
         check_consistency,
     )
@@ -271,7 +267,7 @@ async def _run_single_turn(
             patch.object(Narrator, "_resolve_tone_context", new_callable=AsyncMock,
                          return_value="grim, terse, industrial"),
             patch.object(Narrator, "_format_resolution",
-                         return_value=f"propose_roll:STR" if resolution_type == "propose_roll" else resolution_type),
+                         return_value="propose_roll:STR" if resolution_type == "propose_roll" else resolution_type),
             patch.object(Narrator, "_persist_turn", new_callable=AsyncMock, return_value=f"turn-{turn_num}"),
             patch.object(Narrator, "_parse_proposed_changes", return_value=[]),
         ):
@@ -305,7 +301,7 @@ async def _run_single_turn(
         cc_result = await check_consistency(state)
         violations = cc_result.get("consistency_violations", [])
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: falls back to `f"{type(exc).__name__}: {exc}"` on failure
         error = f"{type(exc).__name__}: {exc}"
         import traceback
         traceback.print_exc()
@@ -469,8 +465,8 @@ async def main_async() -> int:
         "",
         "## Summary",
         "",
-        f"| Metric | Value |",
-        f"|--------|-------|",
+        "| Metric | Value |",
+        "|--------|-------|",
         f"| Turns run | {report.turns_run} |",
         f"| Turns with narrative | {report.turns_with_narrative} |",
         f"| Empty narratives | {report.empty_narratives} |",

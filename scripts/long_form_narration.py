@@ -357,13 +357,6 @@ def _write_markdown(
     rolls_seen = sum(
         1 for t in observations if (t.resolution_type or "").startswith("scene_turn")
     )
-    combat = sum(
-        1
-        for t in observations
-        if "momentum" in str(t.metadata.get("effects", [])).lower()
-        or "fiction_advances" in (t.effects or [])
-        and t.success_level in {"success", "critical_success"}
-    )
     lines = [
         "# Long-Form Narration Replay",
         "",

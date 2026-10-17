@@ -669,7 +669,7 @@ def extract_pdf_tables(pdf_bytes: bytes) -> list[dict]:
             for table in table_finder.tables:
                 try:
                     extracted = table.extract()
-                except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure
+                except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure (in extract_pdf_tables)
                     extracted = []
                 if extracted:
                     tables.append(

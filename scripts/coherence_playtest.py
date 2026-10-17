@@ -28,14 +28,11 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import sys
-import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 # Ensure the workspace root is on sys.path so `monitor_agents` imports resolve
 WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
@@ -273,7 +270,7 @@ def _build_markdown_log(
         if t.error:
             lines.append(f"**GM (ERROR):** _{t.error[:300]}_")
         elif t.narrative_text:
-            lines.append(f"**GM:**")
+            lines.append("**GM:**")
             lines.append("")
             lines.append(t.narrative_text)
         else:
@@ -377,7 +374,7 @@ async def main_async(args: argparse.Namespace) -> int:
             logger.error("No multiverses found. Run live_ingestion first.")
             return 1
         multiverse_id = multiverses[0]["id"]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error("Could not list multiverses: %s", exc)
         return 1
 
@@ -392,7 +389,7 @@ async def main_async(args: argparse.Namespace) -> int:
         })
         universe_id = u_res["id"]
         logger.info("Created universe: %s", universe_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error("Could not create universe: %s", exc)
         return 1
 
@@ -405,7 +402,7 @@ async def main_async(args: argparse.Namespace) -> int:
         )
         story_id = s_res["id"] if isinstance(s_res, dict) else s_res.id
         logger.info("Created story: %s", story_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
         logger.error("Could not create story: %s", exc)
         return 1
 

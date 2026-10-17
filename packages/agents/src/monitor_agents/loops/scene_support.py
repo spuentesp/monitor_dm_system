@@ -388,7 +388,7 @@ async def _analyze_narrative_conditions(
                 cond_name = cond.get("name", "")
                 if cond_name:
                     condition_tags.append(cond_name.lower().replace(" ", "_"))
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _analyze_narrative_conditions)
             log.debug("condition tag extraction failed", exc_info=True)
     return condition_tags
 
@@ -556,7 +556,7 @@ def canonical_state_tags(
                     tag = _tagify_effect(depleted)
                     if tag:
                         add_tags.append(tag)
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in canonical_state_tags)
             log.debug("effect tag extraction failed", exc_info=True)
 
     # Condition tags are already system-derived; pass them through directly.

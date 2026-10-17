@@ -46,5 +46,5 @@ def check_stat(
 
         console.print(Panel(panel_content, title="Resolution Result", border_style=success_color))
 
-    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in check_stat)
         console.print(f"[red]Error: {e}[/red]")

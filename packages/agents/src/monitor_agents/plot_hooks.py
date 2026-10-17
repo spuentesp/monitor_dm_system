@@ -217,7 +217,7 @@ class PlotHookAgent(BaseAgent):
             canon_names = extract_canon_entity_names(entities)
             grounded = filter_ungrounded_hooks(result.hooks, canon_names, min_grounded=1)
             return grounded[:max_hooks]
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in suggest_hooks)
             logger.warning("LLM hook generation failed, using heuristics", exc_info=True)
             return self._heuristic_hooks(threads, scenes, entities, max_hooks)
 
@@ -302,7 +302,7 @@ class PlotHookAgent(BaseAgent):
                 max_tokens=2048,
             )
             return result.contradictions
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in detect_contradictions)
             logger.warning("LLM contradiction detection failed", exc_info=True)
             return self._heuristic_contradictions(facts)
 
@@ -499,7 +499,7 @@ class PlotHookAgent(BaseAgent):
             )
             if result.handouts:
                 return result.handouts[0]
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in generate_handout)
             logger.warning("LLM handout generation failed, using template", exc_info=True)
 
         return self._template_handout(handout_type, tone, spoiler_level, entity_summaries, fact_list)

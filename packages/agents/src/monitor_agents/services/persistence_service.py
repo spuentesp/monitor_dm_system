@@ -116,7 +116,7 @@ class PersistenceService:
                 # mongodb_create_memory is a sync tool from Layer 1
                 res = await anyio.to_thread.run_sync(mongodb_create_memory, params)
                 created_ids.append(res.memory_id)
-            except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in persist_memories)
                 logger.warning("Failed to persist memory for entity %s: %s", entity_id, e)
                 # mongodb_create_memory raises ValueError specifically for its
                 # not-found validation checks (entity/scene/linked-fact) — any
@@ -371,7 +371,7 @@ class PersistenceService:
                 )
                 proposal_id = str(created_proposal.proposal_id)
                 confidence = float(created_proposal.confidence)
-            except Exception:  # noqa: BLE001  # reason: falls back to `str(uuid4())` on failure
+            except Exception:  # noqa: BLE001  # reason: falls back to `str(uuid4())` on failure (in _add_modification)
                 proposal_id = str(uuid4())
                 confidence = 0.75
 
@@ -419,5 +419,5 @@ class PersistenceService:
             cache.delete_prefix(f"solo_play:turn_context:{scene_id}")
             if include_entities:
                 cache.delete(f"solo_play:scene_entities:{scene_id}")
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in clear_scene_runtime_cache)
             log.warning("cache invalidation failed after scene turn", exc_info=True)

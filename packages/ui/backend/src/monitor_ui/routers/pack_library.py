@@ -1010,7 +1010,7 @@ class CreateKGRequest(BaseModel):
 async def list_kgs() -> list[dict]:  # type: ignore[type-arg]
     try:
         result = mongodb_list_knowledge_packs(KnowledgePackFilter(tag=None, limit=30))
-    except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure
+    except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure (in list_kgs)
         return []
     return [_pack_to_dict(pack) for pack in result.packs]
 
@@ -1240,7 +1240,7 @@ async def batch_review_proposals(body: BatchProposalRequest) -> dict:  # type: i
                 accepted += 1
             else:
                 rejected += 1
-        except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response
+        except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic/batch response (in batch_review_proposals)
             errors.append({"proposal_id": item.proposal_id, "error": str(exc)})
 
     return {

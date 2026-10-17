@@ -31,7 +31,7 @@ def _resolve_oracle_sync(
             k: (str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v)
             for k, v in result.items()
         }
-    except Exception as exc:  # noqa: BLE001  # reason: falls back to `{"question": question, "error": str(exc)` on failure
+    except Exception as exc:  # noqa: BLE001  # reason: falls back to `{"question": question, "error": str(exc)` on failure (in _resolve_oracle_sync)
         return {"question": question, "error": str(exc), "method": "fail"}
 
 

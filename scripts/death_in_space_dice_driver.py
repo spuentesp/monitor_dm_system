@@ -94,7 +94,7 @@ def main() -> int:
     log_lines.append(f"- **API**: `{base}`")
     log_lines.append(f"- **Session ID**: `{session_id}`")
     log_lines.append(f"- **Universe**: `{universe.get('name')}`")
-    log_lines.append(f"- **Player mode:** `scripted` (dice-driving extra turns)")
+    log_lines.append("- **Player mode:** `scripted` (dice-driving extra turns)")
     log_lines.append(f"- **Benchmark:** `{benchmark.get('name')}`")
     log_lines.append(f"- **Generated at**: {stamp}")
     log_lines.append("")
@@ -106,7 +106,6 @@ def main() -> int:
     fallback_count = 0
     total_gm_chars = 0
     dice_rolls: list[dict] = []
-    last_rolls: list[dict] = []
 
     for i, line in enumerate(TURNS):
         log_lines.append(f"## Turn {i}\n")
@@ -137,9 +136,6 @@ def main() -> int:
             payload = metadata.get(key)
             if payload:
                 dice_rolls.append({"turn": i, "key": key, "value": payload})
-                if key == "rolls":
-                    last_rolls = payload if isinstance(payload, list) else [payload]
-
         transcript.append({"role": "player", "text": line})
         transcript.append({"role": "gm", "text": text, "metadata": metadata})
 

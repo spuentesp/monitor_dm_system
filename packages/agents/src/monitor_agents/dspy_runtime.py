@@ -96,7 +96,7 @@ class _MonitorLitellmLogger(litellm.integrations.custom_logger.CustomLogger):
                 _format_messages(messages),
                 resp_text,
             )
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in log_success_event)
             log.debug("LLM log callback failed", exc_info=True)
 
     def log_failure_event(self, kwargs: dict, response_obj: Any, start_time: float, end_time: float) -> None:
@@ -117,7 +117,7 @@ class _MonitorLitellmLogger(litellm.integrations.custom_logger.CustomLogger):
                 _format_messages(messages),
                 error,
             )
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in log_failure_event)
             log.debug("LLM log callback failed", exc_info=True)
 
 
@@ -480,7 +480,7 @@ def describe_dspy_target(
             "model": client.model,
             "base_url": client.base_url,
         }
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in describe_dspy_target)
         logging.getLogger(__name__).debug(
             "Could not resolve DSPy target metadata for %s/%s: %s",
             normalized,
@@ -629,7 +629,7 @@ def get_dspy_lm(
                                 loop.create_task(cb(kind, data))
                             elif kind == "thinking_end":
                                 loop.create_task(cb(kind, None))
-                        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+                        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _emit)
                             log.debug("stream callback dispatch failed", exc_info=True)
 
                     for chunk in response:
@@ -664,7 +664,7 @@ def get_dspy_lm(
                                     _emit("thinking_chunk", text)
 
                     return [full_text]
-                except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+                except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _emit)
                     # Fallback to standard (non-streaming) execution below.
                     log.debug("streaming execution failed; falling back to non-streaming", exc_info=True)
 

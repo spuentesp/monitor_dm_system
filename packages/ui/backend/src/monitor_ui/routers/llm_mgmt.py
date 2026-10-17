@@ -211,7 +211,7 @@ def _discover_ollama_model_sync(base_url: str) -> str:
             if models:
                 # reason: ollama /api/tags response shape is JSON-decoded dynamically; models[0] is typed as Any until the response model is declared
                 return models[0]  # type: ignore
-    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _discover_ollama_model_sync)
         log.debug("ollama model discovery failed", exc_info=True)
     return "qwen2.5:latest"
 
@@ -946,7 +946,7 @@ async def test_provider(provider_id: str) -> TestResult:
         else:
             return TestResult(ok=False, error=f"Test not implemented for {provider}")
 
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in test_provider)
         with suppress(Exception):
             await postgres.provider_upsert({**p, "status": "error", "latency_ms": None})
         return TestResult(ok=False, error=str(exc))
@@ -1098,7 +1098,7 @@ async def list_models(provider: str) -> list[str]:
                     data = resp.json().get("data", [])
                     return sorted([m["id"] for m in data], reverse=True)
 
-    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in list_models)
         log.debug("LLM provider model listing failed", exc_info=True)
 
     return AVAILABLE_MODELS.get(provider, [])

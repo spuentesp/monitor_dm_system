@@ -293,14 +293,14 @@ def nlp_health_check() -> dict[str, Any]:
             # Run a quick entity extraction as health check
             _call_sync(backend.detect_entities("health check test"))
             return NLPHealthCheckResponse(healthy=True, backend=settings.nlp_backend).to_dict()
-        except Exception:  # noqa: BLE001  # reason: falls back to `NLPHealthCheckResponse(healthy=False, ba` on failure
+        except Exception:  # noqa: BLE001  # reason: falls back to `NLPHealthCheckResponse(healthy=False, ba` on failure (in nlp_health_check)
             return NLPHealthCheckResponse(healthy=False, backend=settings.nlp_backend).to_dict()
 
     try:
         gliner = get_gliner_client()
         healthy = _call_sync(gliner.health_check())
         return NLPHealthCheckResponse(healthy=healthy, backend=settings.nlp_backend).to_dict()
-    except Exception:  # noqa: BLE001  # reason: falls back to `NLPHealthCheckResponse(healthy=False, ba` on failure
+    except Exception:  # noqa: BLE001  # reason: falls back to `NLPHealthCheckResponse(healthy=False, ba` on failure (in nlp_health_check)
         return NLPHealthCheckResponse(healthy=False, backend=settings.nlp_backend).to_dict()
 
 

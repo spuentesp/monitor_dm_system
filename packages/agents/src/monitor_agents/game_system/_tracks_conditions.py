@@ -381,7 +381,7 @@ def _eval_track_max(track: dict[str, Any]) -> int | None:
     if max_formula:
         try:
             return int(eval(str(max_formula), {"__builtins__": {}}, {}))
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _eval_track_max)
             log.debug("track max formula evaluation failed", exc_info=True)
     return track.get("max_value")
 

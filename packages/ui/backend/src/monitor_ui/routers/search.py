@@ -182,7 +182,7 @@ async def semantic_search(
         except ValueError:
             # Empty collection or bad filter — skip
             continue
-        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in semantic_search)
             # Log but don't fail the whole search
             import structlog
 
@@ -265,7 +265,7 @@ async def universe_search(
                 all_results.append(item)
         except ValueError:
             continue
-        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in universe_search)
             import structlog
 
             log = structlog.get_logger()

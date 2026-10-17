@@ -50,7 +50,6 @@ async def main() -> None:
     with open(os.path.join(_LOGDIR, "current_session.json")) as f:
         session = json.load(f)
     universe_id = session["universe_id"]
-    multiverse_id = session["multiverse_id"]
     console.print(f"Universe: {universe_id}")
 
     system_id = seed_vtm_system()

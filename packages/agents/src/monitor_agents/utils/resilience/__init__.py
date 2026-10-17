@@ -245,7 +245,7 @@ class LLMFallbackChain:
                     model,
                 )
                 return await func(*args, **kwargs)
-            except Exception as exc:  # noqa: BLE001  # reason: falls back to `exc` on failure
+            except Exception as exc:  # noqa: BLE001  # reason: falls back to `exc` on failure (in invoke)
                 last_error = exc
                 logger.warning("LLM fallback %s/%s failed: %s", provider, model, exc)
         raise FallbackExhausted(f"All {len(self.fallbacks)} LLM fallbacks failed") from last_error

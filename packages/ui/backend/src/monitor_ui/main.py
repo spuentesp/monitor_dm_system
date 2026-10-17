@@ -110,7 +110,7 @@ def _start_watchdog_if_enabled() -> None:
             return
         loop.create_task(wd.start())
         logger.info("StaleJobWatchdog: scheduled start on running loop")
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _get_collection)
         logger.warning("Could not start StaleJobWatchdog: %s", exc)
 
 
@@ -126,7 +126,7 @@ def _ensure_builtin_game_systems() -> None:
         from monitor_data.tools.mongodb_tools import _ensure_builtin_systems_seeded
 
         _ensure_builtin_systems_seeded()
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _ensure_builtin_game_systems)
         logger.warning("Could not seed built-in game systems on startup: %s", exc)
 
 
@@ -179,7 +179,7 @@ def _recover_stale_jobs() -> None:
                 "Recovered %d stale pending/running ingestion job(s) → marked failed",
                 result.modified_count,
             )
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _recover_stale_jobs)
         logger.warning("Could not recover stale jobs on startup: %s", exc)
 
 
@@ -192,7 +192,7 @@ def _shutdown_runtime() -> None:
             summary["cleared_pending"],
             summary["recovered_jobs"],
         )
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _shutdown_runtime)
         logger.warning("Could not finish runtime shutdown cleanup: %s", exc)
     _stop_watchdog()
 
@@ -211,7 +211,7 @@ def _stop_watchdog() -> None:
         except RuntimeError:
             return
         loop.create_task(wd.stop())
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _stop_watchdog)
         logger.warning("Could not stop StaleJobWatchdog: %s", exc)
 
 
@@ -309,7 +309,7 @@ def create_app() -> FastAPI:
                 payload["components"] = {s.db_type: s.status for s in statuses}
                 if any(s.status != "online" for s in statuses):
                     payload["status"] = "degraded"
-            except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+            except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in health)
                 payload["status"] = "degraded"
                 payload["components_error"] = str(exc)
         return payload

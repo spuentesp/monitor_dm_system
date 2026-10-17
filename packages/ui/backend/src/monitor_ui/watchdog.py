@@ -122,7 +122,7 @@ class StaleJobWatchdog:
         result = WatchdogTickResult()
         try:
             coll = self._get_collection()
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in tick_once)
             logger.warning("StaleJobWatchdog: cannot reach Mongo: %s", exc)
             return result
 
@@ -141,7 +141,7 @@ class StaleJobWatchdog:
                     last_progress = last_progress.replace(tzinfo=UTC)
                 if last_progress < cutoff:
                     stale.append(doc)
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in tick_once)
             logger.warning("StaleJobWatchdog: query failed: %s", exc)
             return result
 
@@ -180,7 +180,7 @@ class StaleJobWatchdog:
                 }
                 coll.update_one(update_filter, update_doc)
                 result.failed += 1
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in tick_once)
                 logger.warning(
                     "StaleJobWatchdog: could not fail stale job %s: %s",
                     doc.get("job_id") or doc.get("_id"),
@@ -201,7 +201,7 @@ class StaleJobWatchdog:
         while not self._stop_event.is_set():
             try:
                 await self.tick_once()
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _run)
                 logger.warning("StaleJobWatchdog: tick error: %s", exc)
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self._interval)

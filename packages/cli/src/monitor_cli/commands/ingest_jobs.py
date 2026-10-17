@@ -183,7 +183,7 @@ def show_job(
         # Fallback: search by _id
         try:
             doc = coll.find_one({"_id": uuid_obj})
-        except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
+        except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure (in show_job)
             doc = None
     if not doc:
         console.print(f"[red]Job {job_id} not found.[/red]")

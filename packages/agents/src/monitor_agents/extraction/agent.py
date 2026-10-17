@@ -102,7 +102,7 @@ class ExtractionAgent(BaseAgent):
                 known_entities_str,
                 universe_context,
             )
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in extract_new_entities)
             logger.warning("Narrative entity extraction failed", exc_info=True)
             return {}
 
@@ -211,7 +211,7 @@ class ExtractionAgent(BaseAgent):
                 str(resolution.get("success_level") if resolution else "narrative"),
                 actor_name,
             )
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in extract_memories)
             logger.warning("Memory extraction failed", exc_info=True)
             return {"memories_to_persist": []}
 

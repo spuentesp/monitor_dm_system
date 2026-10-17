@@ -166,7 +166,7 @@ async def promote_character(
                 "updated_at": now,
             }
             _mongodb.get_mongodb_client().get_collection("proposed_changes").insert_one(doc)
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _emit)
             logger.warning("promotion_proposal_create_failed", exc_info=True)
             skipped.append(str(exc))
             return

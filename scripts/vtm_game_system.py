@@ -8,8 +8,7 @@ VTM uses a d10 dice pool counting successes vs a difficulty.
 """
 from __future__ import annotations
 
-import os
-from uuid import uuid4, UUID
+from uuid import UUID
 from datetime import datetime, timezone
 
 VTM_SYSTEM_ID = UUID("11111111-1111-4111-8111-111111111111")  # stable id for reuse

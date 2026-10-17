@@ -103,7 +103,7 @@ class WorldArchitect(BaseAgent):
                 from monitor_data.tools.mongodb_tools import mongodb_get_world_profile
 
                 prior_profile = mongodb_get_world_profile(universe_id)
-            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in process_turn)
                 log.debug("world profile load failed; building default profile", exc_info=True)
         world_profile = build_world_profile(
             world_summary,
@@ -116,7 +116,7 @@ class WorldArchitect(BaseAgent):
                 from monitor_data.tools.mongodb_tools import mongodb_upsert_world_profile
 
                 mongodb_upsert_world_profile(universe_id, world_profile)
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in process_turn)
                 logger.debug("Could not persist world profile: %s", exc)
         world_profile_context = render_world_profile_context(world_profile)
         coverage_summary = world_profile.coverage_summary
@@ -258,7 +258,7 @@ class WorldArchitect(BaseAgent):
         filter_params = RandomTableFilter(universe_id=universe_id, limit=50)
         try:
             table_list = mongodb_list_random_tables(filter_params)
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in seed_universe)
             logger.warning("Could not list random tables: %s", exc)
             table_list = None
 
@@ -280,7 +280,7 @@ class WorldArchitect(BaseAgent):
                         "description": f"Generated from {tbl.name}: {result.get('value', default)}",
                         "source_table": tbl.name,
                     }
-                except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+                except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _roll_table)
                     log.debug("random table roll failed; trying next table", exc_info=True)
                     continue
             return {"name": default, "description": f"Procedurally generated {default}"}
@@ -341,7 +341,7 @@ class WorldArchitect(BaseAgent):
                         "entity_type": result.entity_type.value,
                     }
                 )
-            except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response
+            except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response (in _roll_table)
                 errors.append(f"Failed to create {ent['name']}: {exc}")
 
         return {
@@ -396,7 +396,7 @@ class WorldArchitect(BaseAgent):
             try:
                 roll_res = mongodb_roll_on_table(UUID(table.table_id))  # type: ignore[arg-type]
                 seeds.append(roll_res)
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in populate_scene_procedurally)
                 logger.warning("Failed to roll on table %s: %s", table.table_id, exc)
 
         # 3. Convert seeds to Entity Proposals
@@ -512,7 +512,7 @@ class WorldArchitect(BaseAgent):
                     for s in sources[:10]
                 ]
 
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _load_world_state)
             logger.debug("_load_world_state failed: %s", exc)
 
         return summary
@@ -604,7 +604,7 @@ class WorldArchitect(BaseAgent):
             for table_filter in filters:
                 try:
                     table_list = mongodb_list_random_tables(table_filter)
-                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _load_coverage_snapshot_sync)
                     logger.debug("coverage: random table listing failed: %s", exc)
                     continue
                 for table in table_list.tables:
@@ -616,10 +616,10 @@ class WorldArchitect(BaseAgent):
                 profile = mongodb_get_world_profile(universe_id)
                 if profile and profile.narrative_frame:
                     snapshot.narrative_frame_terms = list(profile.narrative_frame)
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _load_coverage_snapshot_sync)
                 logger.debug("coverage: world profile lookup failed: %s", exc)
 
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _load_coverage_snapshot_sync)
             logger.debug("_load_coverage_snapshot failed: %s", exc)
 
         return snapshot
@@ -895,7 +895,7 @@ class WorldArchitect(BaseAgent):
                     if res and "id" in res:
                         newly_created["multiverse_id"] = UUID(res["id"])
                     committed += 1
-                except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response
+                except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response (in _commit_proposals)
                     errors.append(f"multiverse: {exc}")
                 continue
 
@@ -928,7 +928,7 @@ class WorldArchitect(BaseAgent):
                     if res and "id" in res:
                         newly_created["universe_id"] = UUID(res["id"])
                     committed += 1
-                except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response
+                except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response (in _commit_proposals)
                     errors.append(f"universe: {exc}")
                 continue
 
@@ -966,7 +966,7 @@ class WorldArchitect(BaseAgent):
                                     u_doc = neo4j_get_universe(universe_id)
                                     if u_doc:
                                         sys_name = u_doc.default_system_name or "generic"
-                                except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+                                except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _commit_proposals)
                                     log.debug("default system name lookup failed", exc_info=True)
 
                             await library.add_source(
@@ -977,7 +977,7 @@ class WorldArchitect(BaseAgent):
                                 metadata={"reason": proposal.get("payload", {}).get("reason")},
                             )
                         committed += 1
-                except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response
+                except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response (in _commit_proposals)
                     errors.append(f"web_fetch: {exc}")
                 continue
 
@@ -998,7 +998,7 @@ class WorldArchitect(BaseAgent):
             try:
                 await keeper._commit_to_neo4j(verdict, proposal)
                 committed += 1
-            except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response
+            except Exception as exc:  # noqa: BLE001  # reason: collects per-item errors in batch response (in _commit_proposals)
                 errors.append(f"{proposal.get('summary', 'unknown')}: {exc}")
                 logger.warning("Failed to commit proposal: %s", exc)
 

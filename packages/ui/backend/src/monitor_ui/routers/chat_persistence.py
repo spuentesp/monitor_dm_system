@@ -32,7 +32,7 @@ def _redis_get_json(key: str) -> Any | None:
         from monitor_data.db.redis import get_redis_client
 
         return get_redis_client().get_json(key)
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _redis_get_json)
         logger.debug("redis get failed for %s: %s", key, exc)
         return None
 
@@ -42,7 +42,7 @@ def _redis_set_json(key: str, value: Any) -> None:
         from monitor_data.db.redis import get_redis_client
 
         get_redis_client().set_json(key, value, ttl=_CHAT_CACHE_TTL_SECONDS)
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _redis_set_json)
         logger.debug("redis set failed for %s: %s", key, exc)
 
 
@@ -51,7 +51,7 @@ def _redis_delete(*keys: str) -> int:
         from monitor_data.db.redis import get_redis_client
 
         return get_redis_client().delete(*keys)
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _redis_delete)
         logger.debug("redis delete failed for %s: %s", keys, exc)
         return 0
 
@@ -69,7 +69,7 @@ def _publish_chat_event(session_id: str, event_type: str, payload: dict[str, Any
                 **payload,
             },
         )
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _publish_chat_event)
         logger.debug("publish_chat_event failed for %s: %s", session_id, exc)
 
 
@@ -99,7 +99,7 @@ def db_save_session(session: dict[str, Any]) -> None:
         rows.sort(key=lambda row: row.get("updated_at", ""), reverse=True)
         _redis_set_json(_SESSION_INDEX_KEY, rows[:200])
         _publish_chat_event(session["id"], "session_saved", {"updated_at": session.get("updated_at")})
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in db_save_session)
         logger.debug("db_save_session failed: %s", exc)
 
 
@@ -121,7 +121,7 @@ def db_load_sessions() -> list[dict[str, Any]]:
             if session_id:
                 _redis_set_json(_session_cache_key(str(session_id)), row)
         return rows
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in db_load_sessions)
         logger.debug("db_load_sessions failed: %s", exc)
         return []
 
@@ -163,7 +163,7 @@ def db_save_message(msg: dict[str, Any]) -> None:
                     "timestamp": msg.get("timestamp"),
                 },
             )
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in db_save_message)
         logger.debug("db_save_message failed: %s", exc)
 
 
@@ -182,7 +182,7 @@ def db_load_messages(session_id: str) -> list[dict[str, Any]]:
         rows = list(col.find({"session_id": session_id}, {"_id": 0}, sort=[("timestamp", 1)]))
         _redis_set_json(cache_key, rows[-_CHAT_MESSAGES_LIMIT:])
         return rows
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in db_load_messages)
         logger.debug("db_load_messages failed: %s", exc)
         return []
 

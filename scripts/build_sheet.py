@@ -108,7 +108,8 @@ No prose."""
     out_attrs: Dict[str, int] = {}
     for a in attrs:
         d = attr_defs.get(a, {})
-        lo = int(d.get("min_value", 1)); hi = int(d.get("max_value", 5))
+        lo = int(d.get("min_value", 1))
+        hi = int(d.get("max_value", 5))
         out_attrs[a] = _clamp(data.get("attributes", {}).get(a, lo), lo, hi)
 
     out_skills = {k: _clamp(v, 1, 5) for k, v in (data.get("skills") or {}).items() if k in skills}

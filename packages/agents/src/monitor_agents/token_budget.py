@@ -57,7 +57,7 @@ def _get_encoder(encoding_name: str) -> tiktoken.Encoding | _FallbackEncoding:
     """Cache tiktoken encoders to avoid re-initialization, with offline fallback."""
     try:
         return tiktoken.get_encoding(encoding_name)
-    except Exception:  # noqa: BLE001  # reason: falls back to `_FallbackEncoding()` on failure
+    except Exception:  # noqa: BLE001  # reason: falls back to `_FallbackEncoding()` on failure (in _get_encoder)
         return _FallbackEncoding()
 
 

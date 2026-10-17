@@ -82,7 +82,7 @@ async def play_scene(story_id, actor, n, title, setting, turns):
         mongodb_create_working_state(WorkingStateCreate(
             entity_id=UUID(actor["id"]), scene_id=scene_id, story_id=story_id,
             base_stats=actor["attributes"], resources=actor["resources"]))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[dim](ws: {exc})[/dim]")
     loop = SceneLoop(scene_id=scene_id, story_id=story_id, universe_id=actor["universe_id"],
                      system_id=DIS_SYSTEM_ID, play_mode="dice_game_system", roll_mode="auto",
@@ -146,7 +146,7 @@ async def main():
             resources={k: v["max"] for k, v in sheet["resources"].items()},
             background=sheet["concept"]))
         console.print("[green]DiS character saved to roster.[/green]")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
         console.print(f"[yellow]persist: {exc}[/yellow]")
 
     # 3. PLAY — 5 scenes

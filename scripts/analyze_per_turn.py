@@ -11,7 +11,6 @@ Adds:
 from __future__ import annotations
 
 import json
-from collections import defaultdict
 from pathlib import Path
 
 LOG_DIR = Path("tests/e2e/logs/full_loop")

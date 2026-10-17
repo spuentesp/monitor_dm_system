@@ -371,7 +371,7 @@ def main() -> int:
 
     try:
         systems = fetch_systems(args.system)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # reason: script boundary: reports and continues
         print(f"\n  ERROR: Cannot reach API at {API_BASE}: {e}")
         return 1
 

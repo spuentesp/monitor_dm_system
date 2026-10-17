@@ -46,6 +46,8 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
+
 import argparse
 import asyncio
 import json
@@ -60,14 +62,12 @@ from pathlib import Path
 from typing import Any
 
 # Hard timeouts so a stuck cloud provider can't wedge the harness.
-try:
+with contextlib.suppress(Exception):  # optional litellm tuning: defaults stand on failure
     import litellm
 
     litellm.request_timeout = int(os.environ.get("LITELLM_REQUEST_TIMEOUT", "45"))
     litellm.num_retries = int(os.environ.get("LITELLM_NUM_RETRIES", "0"))
     litellm.drop_params = True
-except Exception:  # noqa: BLE001
-    pass
 
 sys.path.insert(0, "packages/agents/src")
 sys.path.insert(0, "packages/data-layer/src")

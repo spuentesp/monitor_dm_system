@@ -237,7 +237,7 @@ async def _resolve_context(
             conversation_id=conversation_id,
             scene_id=scene_id,
         )
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _resolve_context)
         log.warning(
             "image_gen.context_assembly_failed",
             error=str(exc),
@@ -263,7 +263,7 @@ async def _generate(
         )
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _generate)
         raise HTTPException(status_code=502, detail=f"Image provider failed (retryable): {exc}")
 
 
@@ -422,7 +422,7 @@ def _identity_provenance(context: CanonicalVisualContext | None) -> tuple[UUID |
 async def _upload(minio: MinIOClient, key: str, png: bytes) -> None:
     try:
         await minio.upload(key, png, content_type="image/png")
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _upload)
         raise HTTPException(status_code=502, detail=f"Image storage failed (retryable): {exc}")
 
 
@@ -434,7 +434,7 @@ async def _persist_asset(minio: MinIOClient, params: GeneratedAssetCreate) -> Ge
     """
     try:
         return mongodb_create_generated_asset(params)
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _persist_asset)
         log.error(
             "image_gen.asset_persistence_failed",
             minio_key=params.minio_key,
@@ -442,7 +442,7 @@ async def _persist_asset(minio: MinIOClient, params: GeneratedAssetCreate) -> Ge
         )
         try:
             await minio.delete(params.minio_key)
-        except Exception as cleanup_exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as cleanup_exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _persist_asset)
             log.warning(
                 "image_gen.asset_cleanup_failed",
                 minio_key=params.minio_key,
@@ -561,7 +561,7 @@ async def _portrait_agreements(char: dict[str, Any]) -> tuple[tuple[str, ...], t
                 sort=[("updated_at", -1)],
             )
         )
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _portrait_agreements)
         log.warning("image_gen.portrait_session_lookup_failed", character_id=str(char_id), error=str(exc))
         return (), ()
     if not session:

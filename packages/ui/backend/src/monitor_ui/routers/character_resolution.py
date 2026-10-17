@@ -59,7 +59,7 @@ def resolve_actor_character(
                 skills={},
                 resources={},
             )
-    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in resolve_actor_character)
         log.debug("character resolution document parse failed", exc_info=True)
 
     # 2. Check Neo4j entities
@@ -96,7 +96,7 @@ def resolve_actor_character(
                 skills=dict(props.get("skills", {})),
                 resources=dict(props.get("resources", {})),
             )
-    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in resolve_actor_character)
         log.debug("character resolution document parse failed", exc_info=True)
 
     return None

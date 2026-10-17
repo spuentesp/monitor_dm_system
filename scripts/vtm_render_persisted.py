@@ -15,7 +15,6 @@ import asyncio
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -45,7 +44,7 @@ async def render(story_id: str, actor_id: str | None) -> Path:
         out_path = out_dir / f"vtm_embrace_persisted_{ts}.md"
 
         lines: list[str] = []
-        lines.append(f"# VtM Embrace — Persisted Transcript")
+        lines.append("# VtM Embrace — Persisted Transcript")
         lines.append("")
         lines.append(f"_Rendered at {ts} UTC from MongoDB scenes for story_id={story_id}_")
         if actor_id:

@@ -217,7 +217,7 @@ async def apply_npc_emotion_updates(state: Any, predicted: dict[str, str]) -> in
                 NPCProfileUpdate(**update_params),
             )
             writes += 1
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in apply_npc_emotion_updates)
             logger.debug("apply_npc_emotion_updates: write failed for %s: %s", entity_id, exc)
     return writes
 
@@ -603,7 +603,7 @@ class Narrator(BaseAgent):
 
                 compact_gc = GameSystemRuntime(game_context).compact_for_narrator()
                 system_name = compact_gc.get("name", "")
-            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _generate_once)
                 logger.debug("GameSystemRuntime unavailable, using raw game_context name")
                 compact_gc = {"name": game_context.get("name", "")}
                 system_name = game_context.get("name", "")
@@ -690,7 +690,7 @@ class Narrator(BaseAgent):
                     tc_prompt = tc.to_narrator_prompt()
                     if tc_prompt:
                         profile_context += "\n\nTURN CONTEXT:\n" + tc_prompt
-                except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+                except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _generate_once)
                     # If TurnContext construction fails, inject raw dict
                     profile_context += "\n\nTURN CONTEXT:\n" + json.dumps(turn_ctx, default=str)[:2000]
             elif hasattr(turn_ctx, "to_narrator_prompt"):
@@ -793,7 +793,7 @@ class Narrator(BaseAgent):
                 if narrative_text.strip():
                     break
                 logger.warning("Narrator returned empty narrative_text (attempt %d)", attempt + 1)
-            except Exception as exc:  # noqa: BLE001  # reason: falls back to `classify_llm_error(exc)` on failure
+            except Exception as exc:  # noqa: BLE001  # reason: falls back to `classify_llm_error(exc)` on failure (in _generate_once)
                 info = classify_llm_error(exc)
                 if info.error_class == LLMErrorClass.UNKNOWN:
                     # Unrecognized failure shape — almost certainly the DSPy
@@ -841,7 +841,7 @@ class Narrator(BaseAgent):
             ms.entity_context = context.get("entities") or []
             try:
                 await apply_npc_emotion_updates(ms, emo_dict)
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _generate_once)
                 logger.debug("npc emotion dispatch failed: %s", exc)
 
         if not narrative_text.strip():
@@ -1019,7 +1019,7 @@ class Narrator(BaseAgent):
             try:
                 pred = self._compat_check(draft=draft_text, outcome_summary=outcome_summary)
                 compat = self._normalize_compat(getattr(pred, "verdict", None))  # type: ignore[no-untyped-call]
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _reconcile_gm_draft)
                 logger.info(
                     "narrator.reconcile.compat_check_failed (%s); using DIVERGES",
                     exc,
@@ -1092,7 +1092,7 @@ class Narrator(BaseAgent):
                 session_tone=session_tone,
                 gm_profile=gm_profile,
             )
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _reconcile_gm_draft)
             logger.warning("narrator.refine.failed; using gm_draft verbatim: %s", exc)
             narrative_text = draft_text
             degraded = (

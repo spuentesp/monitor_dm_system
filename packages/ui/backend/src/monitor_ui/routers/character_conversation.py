@@ -77,7 +77,7 @@ async def ensure_conversatory_universe() -> str:
             if getattr(u, "name", None) == _CONVERSATORY_UNIVERSE_NAME:
                 _conversatory_universe_id = str(u.id)
                 return _conversatory_universe_id
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in ensure_conversatory_universe)
         log.warning("conversatory_universe_lookup_failed", error=str(exc))
 
     # Not found — create the multiverse → universe chain via CanonKeeper.
@@ -341,7 +341,7 @@ async def delete_incarnation(character_id: str, universe_id: str) -> bool:
         from monitor_data.tools.neo4j_tools.entities import neo4j_delete_entity
 
         await asyncio.to_thread(neo4j_delete_entity, uuid.UUID(entity_id))
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in delete_incarnation)
         log.warning("incarnation_delete_neo4j_failed", error=str(exc))
     try:
         # No mongodb_delete_npc_profile tool exists; drop the doc directly.
@@ -351,7 +351,7 @@ async def delete_incarnation(character_id: str, universe_id: str) -> bool:
             get_mongodb_client().get_collection("npc_profiles").delete_one({"entity_id": entity_id})
 
         await asyncio.to_thread(_drop_profile_doc)
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _drop_profile_doc)
         log.warning("incarnation_delete_mongo_failed", error=str(exc))
 
     delete_version(character_id, universe_id)
@@ -452,13 +452,13 @@ async def start_conversation(
                 {"conversation_id": conversation_id},
                 {"$set": {"player_persona": persona_text}},
             )
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in start_conversation)
             log.warning("conversation_persona_persist_failed", exc_info=True)
     # Stamp last_chatted_at on the incarnation so the roster can surface
     # "recently used" versions.
     try:
         touch_version(character_id, str(backing["universe_id"]))
-    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in start_conversation)
         log.debug("last_chatted_at stamp failed", exc_info=True)
 
     opening_raw = char.get("first_message") or f"{char['name']} turns to face you."
@@ -568,7 +568,7 @@ async def send_message(
             {"conversation_id": conversation_id},
             {"$set": {"pending_proposals": list(getattr(loop.state, "pending_proposals", []) or [])}},
         )
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in send_message)
         log.warning("conversation_proposals_persist_failed", conversation_id=conversation_id, exc_info=True)
         from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
         from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
@@ -652,7 +652,7 @@ async def end_conversation(conversation_id: str, character_id: str | None = None
     try:
         proposals = await loop.finish()
         return {"ended": True, "proposals": len(proposals or [])}
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in end_conversation)
         log.warning("conversation_finish_failed", conversation_id=conversation_id, exc_info=True)
         from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
         from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource

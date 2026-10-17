@@ -25,6 +25,9 @@ Run from the repo root with the dev infra up:
 
 from __future__ import annotations
 
+import contextlib
+
+import argparse  # noqa: F401  # reason: referenced in the quoted Namespace annotation below
 import asyncio
 import os
 import sys
@@ -134,10 +137,8 @@ async def main(args: "argparse.Namespace | None" = None) -> None:
             )
         finally:
             # The Analyzer BaseAgent holds a few async resources; close cleanly.
-            try:
+            with contextlib.suppress(Exception):  # best-effort cleanup: close analyzer resources
                 await analyzer.close()  # type: ignore[attr-defined]
-            except Exception:
-                pass
 
         # Drop any self-references and placeholder names that slipped through.
         # (Belt-and-braces — the prompt was patched to forbid both, but a
@@ -172,17 +173,15 @@ async def main(args: "argparse.Namespace | None" = None) -> None:
                 }
             },
         )
-        print(f"Updated knowledge_pack.entity_relationships in MongoDB.")
+        print("Updated knowledge_pack.entity_relationships in MongoDB.")
 
         # Now create the relationships in Neo4j directly via the MCP tool
         # wrapper, using exact-name match for both endpoints.
         from monitor_agents.canonkeeper.agent import CanonKeeper
 
         keeper = CanonKeeper(agent_id="rerun-rel-canonize-1")
-        try:
+        with contextlib.suppress(Exception):  # warm-up call: failure ignored on purpose
             from_id = await keeper._resolve_name_to_uuid("__init__", "")  # warm up
-        except Exception:
-            pass
 
         committed = 0
         skipped_missing = 0
@@ -228,10 +227,8 @@ async def main(args: "argparse.Namespace | None" = None) -> None:
                 print(f"  ERR   {r.from_entity!r} -> {r.to_entity!r}: {result_text['error']}")
                 continue
             committed += 1
-        try:
+        with contextlib.suppress(Exception):  # best-effort cleanup: close keeper resources
             await keeper.close()  # type: ignore[attr-defined]
-        except Exception:
-            pass
 
         print()
         print(

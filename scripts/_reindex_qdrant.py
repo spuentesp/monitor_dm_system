@@ -24,7 +24,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from pathlib import Path
 
 sys.path.insert(0, "packages/data-layer/src")
 sys.path.insert(0, "packages/agents/src")
@@ -33,14 +32,11 @@ sys.path.insert(0, "packages/agents/src")
 def _resolve_universe() -> str | None:
     """Pick the universe to reindex. Prefer explicit --universe-id, else
     fall back to the most recent Neo4j universe."""
-    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--universe-id", default=None)
     args, _unknown = parser.parse_known_args()
     if args.universe_id:
         return args.universe_id
-    from monitor_data.db.neo4j import Neo4jClient
-    from monitor_data.db import get_neo4j_client
     return None
 
 

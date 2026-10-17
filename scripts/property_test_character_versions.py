@@ -22,9 +22,10 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
+
 import os
 import sys
-import time
 from typing import Any, Dict, List
 
 import requests
@@ -94,7 +95,7 @@ def get_profile(character_id: str) -> Dict[str, Any]:
     is more reliable for property tests — NPCVoice is the system under
     test, so we don't want to depend on its loader path.
     """
-    try:
+    with contextlib.suppress(Exception):  # intentional fall-through to direct-Mongo read (tracked upstream)
         r = requests.get(
             f"{BASE}/entities/characters/{character_id}/profile", timeout=10
         )
@@ -103,8 +104,6 @@ def get_profile(character_id: str) -> Dict[str, Any]:
         # 502 is expected when the backing entity isn't visible to the
         # server-side Neo4j lookup (separate bug, tracked separately).
         # Fall through to the direct-Mongo read.
-    except Exception:
-        pass
 
     # Fallback: direct data-layer read (only works server-side / with .env).
     try:
@@ -217,7 +216,7 @@ def main() -> int:
     # Confirm entity_id is None on the freshly-created card.
     char_doc = requests.get(f"{BASE}/entities/characters/{simple_id}", timeout=5).json()
     if char_doc.get("entity_id") is None and char_doc.get("versions") == []:
-        ok(f"simple card has no incarnation (entity_id=null, versions=[])")
+        ok("simple card has no incarnation (entity_id=null, versions=[])")
     else:
         fail(
             f"simple card entity_id={char_doc.get('entity_id')} versions={char_doc.get('versions')}"
@@ -360,7 +359,7 @@ def _create_extra_universe() -> str | None:
     # No public universe-creation endpoint was wired for the test; fall back
     # to None and let the caller degrade the test. (We could add one, but
     # adding a heavy dependency for a property test isn't worth it.)
-    try:
+    with contextlib.suppress(Exception):  # best-effort create: returns None on failure
         r = requests.post(
             f"{BASE}/entities/universes",
             json={
@@ -373,8 +372,6 @@ def _create_extra_universe() -> str | None:
         )
         if r.status_code in (200, 201):
             return r.json().get("id")
-    except Exception:  # noqa: BLE001
-        pass
     return None
 
 

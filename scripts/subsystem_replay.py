@@ -19,7 +19,6 @@ Run::
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -207,7 +206,7 @@ def _main(args: argparse.Namespace) -> int:
         f"- **Session ID**: `{sid}`",
         f"- **Universe ID**: `{uid}`",
         f"- **Goals played**: `{turns}`",
-        f"- **Subsystems covered**: relationship, lore, faction, social, npc_voice",
+        "- **Subsystems covered**: relationship, lore, faction, social, npc_voice",
         f"- **Generated at**: `{datetime.now(timezone.utc).isoformat()}`",
         "",
         "---",

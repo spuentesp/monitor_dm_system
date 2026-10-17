@@ -796,7 +796,7 @@ class Indexer(BaseAgent):
                         section_excerpt=block.text[:200],
                     )
                     return result.category  # type: ignore[no-any-return]
-                except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+                except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _classify)
                     if not categorizer_broken:
                         categorizer_broken = True
                         logger.warning(

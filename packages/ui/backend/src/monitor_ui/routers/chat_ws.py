@@ -60,7 +60,7 @@ async def send_payload(websocket: WebSocket, payload: dict[str, Any]) -> bool:
     try:
         await websocket.send_text(json.dumps(payload))
         return True
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in send_payload)
         logger.debug("websocket send failed for %s: %s", payload.get("type"), exc)
         return False
 
@@ -101,7 +101,7 @@ def publish_redis_event(session_id: str, payload: dict[str, Any]) -> None:
                 "payload": payload,
             },
         )
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in publish_redis_event)
         logger.debug("publish websocket fanout failed for %s: %s", session_id, exc)
 
 
@@ -115,7 +115,7 @@ def _ensure_listener(session_id: str) -> None:
         from monitor_data.db.redis import get_redis_client
 
         client = get_redis_client()
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _ensure_listener)
         logger.debug("Redis websocket fanout unavailable for %s: %s", session_id, exc)
         return
 
@@ -176,11 +176,11 @@ async def _listen_for_events(session_id: str) -> None:
                 await broadcast_local(session_id, payload)
     except asyncio.CancelledError:
         raise
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _listen_for_events)
         logger.debug("Redis websocket listener stopped for %s: %s", session_id, exc)
     finally:
         if client is not None and pubsub is not None:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(Exception):  # intentional: best-effort pubsub close on listener shutdown
                 await asyncio.to_thread(client.close_pubsub, pubsub)
         _WS_FANOUT_TASKS.pop(session_id, None)
 
@@ -230,7 +230,7 @@ async def fanout_completed_gm_message(
                 {"type": "phase", "phase": phase, "message_id": message_id},
                 exclude=exclude,
             )
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in fanout_completed_gm_message)
             logger.debug(
                 "ws.phase emit failed (phase=%s, session=%s): %s",
                 phase,

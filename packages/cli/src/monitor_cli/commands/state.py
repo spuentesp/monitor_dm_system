@@ -47,7 +47,7 @@ def list_states(
 
         console.print(table)
 
-    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in list_states)
         console.print(f"[red]Error: {e}[/red]")
 
 
@@ -69,7 +69,7 @@ def get_state(entity_id: str, scene_id: str) -> None:
 
         console.print_json(data=state)
 
-    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in get_state)
         console.print(f"[red]Error: {e}[/red]")
 
 
@@ -96,5 +96,5 @@ def add_modification(
     try:
         result_json = run_async(agent.call_tool("mongodb_add_modification", args))
         console.print_json(result_json)
-    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in add_modification)
         console.print(f"[red]Error: {e}[/red]")

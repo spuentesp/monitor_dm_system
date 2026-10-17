@@ -145,7 +145,7 @@ def _interrupt_ingest_runtime(reason: str, *, close_executor: bool) -> dict[str,
             },
         )
         recovered_jobs = int(result.modified_count)
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _interrupt_ingest_runtime)
         logger.warning("Could not mark stale ingestion jobs failed during runtime cleanup: %s", exc)
 
     if close_executor and _ingest_executor is not None:
@@ -369,7 +369,7 @@ def _run_ingest_in_thread(
                                     "universe_id": str(universe_uid),
                                 },
                             )
-                    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+                    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _patched_create_job)
                         logger.debug("Failed to record file in WorldLibrary: %s", exc)
 
             finally:
@@ -406,7 +406,7 @@ def _run_ingest_in_thread(
                             completed_at=datetime.now(UTC),
                         ),
                     )
-                except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+                except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _patched_create_job)
                     log.warning("timeout status update failed", exc_info=True)
         except Exception as exc:
             logger.exception("Background ingestion failed for '%s': %s", source_title, exc)
@@ -663,7 +663,7 @@ async def list_sources() -> list[dict]:  # type: ignore
     # Include documents that pre-date or are missing ingestion_job records
     try:
         all_docs = await asyncio.to_thread(mongodb_list_documents)
-    except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure
+    except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure (in list_sources)
         all_docs = []
 
     seen_file_keys: set[tuple[str, str]] = {(s["filename"], str(s["metadata"].get("universe_id", ""))) for s in sources}
@@ -923,7 +923,7 @@ async def delete_source(source_id: str) -> None:
     # Remove Neo4j Source node and its relationships
     try:
         neo4j_delete_source(uid)
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in delete_source)
         logger.warning("Could not delete Neo4j Source node %s: %s", uid, exc)
 
     # Remove Qdrant vectors for this source to avoid stale embeddings
@@ -942,7 +942,7 @@ async def delete_source(source_id: str) -> None:
             points_selector=Filter(must=[FieldCondition(key="source_id", match=MatchValue(value=str(uid)))]),
         )
         logger.info("Deleted Qdrant snippets for source %s", uid)
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in delete_source)
         logger.warning("Could not delete Qdrant snippets for %s: %s", uid, exc)
 
 
@@ -1002,7 +1002,7 @@ async def rescan_source(
         if universe_uid is not None:
             try:
                 existing = neo4j_get_universe(universe_uid)
-            except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
+            except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure (in rescan_source)
                 existing = None
             if existing is None:
                 logger.info(
@@ -1045,7 +1045,7 @@ async def rescan_source(
         try:
             mongodb = get_mongodb_client()
             mongodb.get_collection("ingestion_jobs").delete_many({"source_id": str(src_uid)})
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in rescan_source)
             logger.warning(
                 "Could not clean up old ingestion jobs for rescan of %s: %s",
                 src_uid,
@@ -1265,7 +1265,7 @@ async def clear_llm_cache() -> dict:  # type: ignore
             cache.reset_memory_cache()
             cleared["memory_cache"] = True
             logger.info("Cleared DSPy in-memory cache")
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in clear_llm_cache)
         logger.warning("Could not clear DSPy cache: %s", exc)
         cleared["error"] = str(exc)
 
@@ -1348,7 +1348,7 @@ async def list_jobs() -> list[dict]:  # type: ignore
     for doc in all_docs:
         try:
             source = _source_from_doc(doc)
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in list_jobs)
             logger.warning(
                 "Skipping malformed document %s in list_jobs: %s",
                 getattr(doc, "doc_id", "?"),
@@ -1440,7 +1440,7 @@ async def stream_job(job_id: str):  # type: ignore
                 job = await asyncio.to_thread(mongodb_get_ingestion_job, uid)
                 if job:
                     break
-            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _event_generator)
                 log.debug("ingestion job lookup failed; retrying", exc_info=True)
             await asyncio.sleep(1)
 
@@ -1451,7 +1451,7 @@ async def stream_job(job_id: str):  # type: ignore
         while True:
             try:
                 job = await asyncio.to_thread(mongodb_get_ingestion_job, uid)
-            except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+            except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _event_generator)
                 yield 'event: error\ndata: {"error": "database unavailable"}\n\n'
                 return
             if job is None:

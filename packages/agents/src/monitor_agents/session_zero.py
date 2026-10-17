@@ -755,7 +755,7 @@ async def ask_session_zero_question(
             prior_answers=answers_text.strip(),
             categories_asked=categories_text,
         )
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in ask_session_zero_question)
         logger.warning(
             "Session Zero question LLM call failed (%s); using fallback",
             exc,
@@ -833,7 +833,7 @@ async def summarize_session_zero_answers(
             world_lore=lore_text,
             interview_transcript=transcript.strip(),
         )
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in summarize_session_zero_answers)
         logger.warning(
             "Session Zero summary LLM call failed (%s); using fallback",
             exc,

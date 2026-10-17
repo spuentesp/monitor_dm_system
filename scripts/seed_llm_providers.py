@@ -60,7 +60,7 @@ def _discover_ollama_model(base_url: str) -> str:
             if models:
                 print(f"  [ollama] auto-discovered models: {models}")
                 return models[0]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # reason: script boundary: reports and continues
         print(f"  [ollama] model discovery failed: {exc} — using default")
     return "llama3"
 

@@ -53,7 +53,6 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import sys
 import time
 import traceback
@@ -205,7 +204,6 @@ async def _spin_world(keeper: Any, *, multiverse: Optional[str] = None) -> Dict[
     bootstrap when a parallel run happens to land on the same UUID space,
     and Story IDs have a uniqueness constraint in Neo4j.
     """
-    from monitor_agents.canonkeeper.agent import CanonKeeper
 
     m_res = await keeper.create_multiverse(
         {
@@ -524,7 +522,6 @@ async def test_character_play() -> TestResult:
 
     # The NPCProfile schema is anchored on a Neo4j EntityInstance. Create
     # that first via the same path the API uses, then attach the profile.
-    from monitor_data.tools.neo4j_tools import neo4j_create_entity
     from monitor_data.tools.mongodb_tools import mongodb_create_npc_profile
 
     entity_id = uuid4()

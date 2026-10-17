@@ -126,7 +126,7 @@ class LorebookKeywordExtractor(dspy.Module):  # type: ignore[misc]
             keywords = json.loads(str(raw).strip())
             if isinstance(keywords, list) and all(isinstance(k, str) for k in keywords):
                 return [k.lower().strip() for k in keywords[:8] if k.strip()]
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in forward)
             log.debug("LLM keyword extraction not usable; using fallback keywords", exc_info=True)
         return _fallback_keywords(content)
 
@@ -167,7 +167,7 @@ class LorebookIngestionModule(dspy.Module):  # type: ignore[misc]
                 tags=list(draft.get("tags") or []),
                 confidence=float(draft.get("confidence", 0.5)),
             )
-        except Exception:  # noqa: BLE001  # reason: falls back to `LorebookEntryDraft(` on failure
+        except Exception:  # noqa: BLE001  # reason: falls back to `LorebookEntryDraft(` on failure (in forward)
             return LorebookEntryDraft(
                 keywords=[],
                 content=chunk[:500],

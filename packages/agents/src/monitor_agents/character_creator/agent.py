@@ -180,7 +180,7 @@ class CharacterCreator(BaseAgent):
                         "properties": {},
                     },
                 )
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in create_character)
                 logger.warning("Failed to create DERIVES_FROM relationship: %s", exc)
 
         # Create character sheet in MongoDB
@@ -196,7 +196,7 @@ class CharacterCreator(BaseAgent):
                     "equipment": equipment or [],
                 },
             )
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in create_character)
             logger.warning("Failed to create character sheet: %s", exc)
 
         return {

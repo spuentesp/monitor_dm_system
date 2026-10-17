@@ -105,7 +105,6 @@ def _validate(doc: dict[str, Any], system_id: str) -> list[str]:
 
 def _plan_writes(doc: dict[str, Any], system_id: str) -> dict[str, Any]:
     """Build the MongoDB ``$set`` payload (no I/O)."""
-    steps_obj = (doc.get("character_creation") or {}).get("steps") or []
     set_payload: dict[str, Any] = {
         "updated_at": datetime.now(timezone.utc),
         "hand_authored": True,

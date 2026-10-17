@@ -147,5 +147,5 @@ def bootstrap_story_scene(
             session["scene_id"] = scene_id
 
         return story_id, scene_id, None
-    except Exception as exc:  # noqa: BLE001  # reason: falls back to `story_id, scene_id, str(exc)` on failure
+    except Exception as exc:  # noqa: BLE001  # reason: falls back to `story_id, scene_id, str(exc)` on failure (in bootstrap_story_scene)
         return story_id, scene_id, str(exc)

@@ -72,7 +72,7 @@ class ApplicationExitHandler(BaseAgent):
                 if scenes:
                     scene = scenes[0] if isinstance(scenes[0], dict) else {}
                     return scene
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in check_active_scene)
                 logger.warning("Failed to check active scene: %s", exc)
 
         # Default: no active scene
@@ -124,7 +124,7 @@ class ApplicationExitHandler(BaseAgent):
             if isinstance(result, dict):
                 return result
             return {**scene, "status": "saved"}
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in auto_save_scene)
             logger.warning("Failed to auto-save scene %s: %s", scene_id, exc)
             return scene
 
@@ -152,7 +152,7 @@ class ApplicationExitHandler(BaseAgent):
                 "status": "saved",
                 "last_modified": "2025-01-19T12:30:00Z",
             }
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in save_scene)
             logger.warning("Failed to save scene %s: %s", scene_id, exc)
             return scene
 
@@ -173,7 +173,7 @@ class ApplicationExitHandler(BaseAgent):
         for tool_name in close_tools:
             try:
                 await self.call_tool(tool_name, {})
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in close_all_connections)
                 logger.debug("Close %s failed: %s", tool_name, exc)
 
     async def exit_application(self, user_id: str | None = None) -> None:

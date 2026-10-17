@@ -105,7 +105,7 @@ def main() -> None:
     for p in sorted(LOG_DIR.glob("*.json")):
         try:
             data = load_json(p)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: script boundary: reports and continues
             print(f"skip {p}: {exc}")
             continue
         rows.append(summarize_one(path_label(p), data))

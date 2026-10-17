@@ -150,7 +150,7 @@ async def _run_play(
             profile = SceneLoop.get_gm_profile(resolved_gm_profile)
             if profile:
                 tone = profile.get("name", tone)
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _run_play)
             log.debug("GM profile tone lookup failed", exc_info=True)
 
     # Start or resume the story loop to handle world state and scene progression
@@ -332,7 +332,7 @@ async def _run_play(
                     )
                     break
 
-            except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+            except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _run_play)
                 console.print(f"[red]Error during turn:[/red] {exc}")
                 console.print("[dim]You can continue playing or type /quit to exit.[/dim]")
 
@@ -386,7 +386,7 @@ async def _select_universe_interactive() -> UUID | None:
         raw_universes = await agent.call_tool("neo4j_list_universes", {"filters": {}})
         universes_data = json.loads(raw_universes) if isinstance(raw_universes, str) else raw_universes
         universes = universes_data if isinstance(universes_data, list) else []
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _select_universe_interactive)
         logger.debug(f"Failed to list universes: {exc}")
         universes = []
 
@@ -453,7 +453,7 @@ async def _create_universe_interactive() -> UUID | None:
         )
         console.print(f"[green]Universe '{name}' created![/green]")
         return UUID(u_res["id"])
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _create_universe_interactive)
         console.print(f"[red]Error creating universe:[/red] {exc}")
         return None
 
@@ -470,7 +470,7 @@ async def _select_story_interactive(universe_id: UUID) -> UUID | None:
         )
         stories_data = json.loads(raw_stories) if isinstance(raw_stories, str) else raw_stories
         stories = stories_data.get("stories", []) if isinstance(stories_data, dict) else []
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _select_story_interactive)
         logger.debug(f"Failed to list stories: {exc}")
         stories = []
 
@@ -521,7 +521,7 @@ async def _create_story_interactive(universe_id: UUID) -> UUID | None:
         s_id = s_res.get("id") if isinstance(s_res, dict) else getattr(s_res, "id", None)
         console.print(f"[green]Story '{title}' started![/green]")
         return UUID(str(s_id))
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _create_story_interactive)
         console.print(f"[red]Error starting story:[/red] {exc}")
         return None
 
@@ -541,7 +541,7 @@ async def _select_character_interactive(universe_id: UUID, story_id: UUID) -> UU
         )
         entities_data = json.loads(raw_entities) if isinstance(raw_entities, str) else raw_entities
         characters = entities_data.get("entities", []) if isinstance(entities_data, dict) else []
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _select_character_interactive)
         logger.debug(f"Failed to list characters: {exc}")
         characters = []
 
@@ -608,7 +608,7 @@ async def _show_inventory(story_id: UUID) -> None:
 
         console.print(table)
         console.print(f"Total Gold: [yellow]{inv.get('gold', 0)}[/yellow]")
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _show_inventory)
         console.print(f"[red]Error fetching inventory:[/red] {exc}")
 
 
@@ -631,7 +631,7 @@ async def _run_npc_studio(universe_id: UUID, scene_id: UUID, story_id: UUID) -> 
         raw_entities = await agent.call_tool("neo4j_get_entities_by_scene", {"scene_id": str(scene_id)})
         entities = json.loads(raw_entities) if isinstance(raw_entities, str) else raw_entities
         npcs = [e for e in entities if e.get("entity_type") == "character"]
-    except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure
+    except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure (in _run_npc_studio)
         npcs = []
 
     if not npcs:
@@ -888,7 +888,7 @@ async def _create_new_character(
             console.print(f"[red]Error:[/red] Game system '{game_system_name}' not found.")
             console.print("[dim]Available systems can be listed with: monitor list systems[/dim]")
             raise typer.Exit(code=1)
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _create_new_character)
         console.print(f"[red]Error:[/red] Failed to load game system: {exc}")
         raise typer.Exit(code=1)
 
@@ -909,7 +909,7 @@ async def _create_new_character(
         sz_loop = build_cli_session_zero_loop(game_context, universe_id)
         if sz_loop is not None:
             await _run_cli_session_zero(sz_loop)
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _create_new_character)
         console.print(f"[dim]Session Zero skipped: {exc}[/dim]")
 
     char_loop = CharacterCreationLoop(
@@ -921,7 +921,7 @@ async def _create_new_character(
     # Start the loop and get the first prompt
     try:
         result = await char_loop.start()
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _create_new_character)
         console.print(f"[red]Error:[/red] Failed to start character creation: {exc}")
         raise typer.Exit(code=1)
 
@@ -966,7 +966,7 @@ async def _create_new_character(
         # Process player input
         try:
             result = await char_loop.process_player_input(player_input)
-        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _create_new_character)
             console.print(f"[red]Error:[/red] Failed to process input: {exc}")
             console.print("[dim]You can continue or type 'quit' to cancel.[/dim]")
             continue
@@ -1041,6 +1041,6 @@ async def _save_character_to_neo4j(character_data: dict[str, Any], universe_id: 
         result = await ck.create_entity(entity_create)
         character_id = UUID(result.get("id", uuid.uuid4()))
         return character_id
-    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _save_character_to_neo4j)
         console.print(f"[red]Error:[/red] Failed to save character to Neo4j: {exc}")
         raise typer.Exit(code=1)

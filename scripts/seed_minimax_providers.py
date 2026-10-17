@@ -116,7 +116,7 @@ async def main() -> int:
                 "indexer", "minimax-m27", notes="MiniMax for live game tests"
             )
             print("  ✓ assigned node=indexer → minimax-m27")
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001  # reason: script boundary: reports and continues
             print(f"  ! could not reassign indexer ({exc})")
     finally:
         await pg.close()
@@ -130,7 +130,7 @@ async def main() -> int:
 
         reset_retrieval_service()
         print("  reset retrieval-service singleton")
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001  # reason: script boundary: reports and continues
         print(f"  ! could not clear embedding cache ({exc})")
 
     print("\nMiniMax providers seeded. Live tests can now run on MiniMax M3.")

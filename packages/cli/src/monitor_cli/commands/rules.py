@@ -44,7 +44,7 @@ def import_system(
 
     except json.JSONDecodeError:
         console.print(f"[red]Invalid JSON file: {file_path}[/red]")
-    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in import_system)
         console.print(f"[red]Error: {e}[/red]")
 
 
@@ -84,5 +84,5 @@ def list_systems() -> None:
 
         console.print(table)
 
-    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance
+    except Exception as e:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in list_systems)
         console.print(f"[red]Error: {e}[/red]")

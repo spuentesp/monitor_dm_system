@@ -64,6 +64,9 @@ def changed_production_files(base: str, root: Path) -> list[Path]:
             continue
         if "/tests/" in f"/{name}":
             continue
+        # Fixture/e2e helper trees are test scaffolding, not mutation targets.
+        if "/fixtures/" in f"/{name}" or "/e2e/" in f"/{name}":
+            continue
         out.append(Path(name))
     return out
 
@@ -223,10 +226,16 @@ def evaluate_gate(
             "entries to scripts/mutation_allowlist.toml with a justification."
         )
         return 1
-    print(
-        f"mutation-diff: {len(in_diff)} in-diff survivor(s) allowlisted; "
-        f"{len(outside)} pre-existing survivor(s) outside the diff."
-    )
+    if in_diff:
+        print(
+            f"mutation-diff: {len(in_diff)} in-diff survivor(s) covered by the "
+            f"allowlist; {len(outside)} pre-existing survivor(s) outside the diff."
+        )
+    else:
+        print(
+            f"mutation-diff: no surviving mutants on changed lines; "
+            f"{len(outside)} pre-existing survivor(s) outside the diff."
+        )
     return 0
 
 
@@ -291,15 +300,41 @@ def package_root(file: Path, root: Path) -> Path:
         if (current / "pyproject.toml").exists():
             return current.relative_to(root)
         current = current.parent
-    return Path(".")
+    raise RuntimeError(
+        f"no package root for {file}: expected a pyproject.toml above it "
+        f"(mutation targets must live inside a workspace package)"
+    )
+
+
+def tests_for_module(module: Path, root: Path) -> list[Path]:
+    """Test files that actually exercise the module (by import), package-wide
+    fallback when no test imports it directly."""
+    dotted = str(module.with_suffix("")).replace("/", ".").split("src.", 1)[-1]
+    pkg = package_root(module, root)
+    pkg_tests = root / pkg / "tests"
+    if not pkg_tests.is_dir():
+        return []
+    selected = []
+    for test_file in sorted(pkg_tests.rglob("test_*.py")):
+        try:
+            text = test_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if dotted in text or module.stem in text and f"import {module.stem}" in text:
+            selected.append(test_file.relative_to(root))
+    if selected:
+        return selected
+    return sorted(p.relative_to(root) for p in pkg_tests.rglob("test_*.py"))
 
 
 def write_generated_config(module: Path, root: Path, tmp_dir: Path) -> Path:
     pkg = package_root(module, root)
-    # Owning package's tests only: the suite that actually covers the module
-    # without dragging the whole repo's unit tree into every mutant run.
+    # Tests that actually exercise the module (by import), falling back to the
+    # owning package's test tree — never the whole repo's suites.
+    targets = tests_for_module(module, root) or [f"{pkg}/tests"]
+    target_str = " ".join(str(p) for p in targets)
     test_command = (
-        f"python -m pytest {pkg}/tests -x -q --timeout=15 "
+        f"python -m pytest {target_str} -x -q --timeout=15 "
         f"--tb=line -p no:cacheprovider --no-header"
     )
     config_text = (

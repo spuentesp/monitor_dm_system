@@ -138,7 +138,7 @@ def main() -> None:
     ]:
         try:
             rows = list(mdb.get_collection(coll).find({}))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report
             sections.append({"collection": coll, "error": str(exc)})
             continue
         sections.append(
@@ -157,7 +157,7 @@ def main() -> None:
                     neo, label, scope_property=scope, canonical=canon, limit=limit
                 )
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report
             sections.append({"label": label, "error": str(exc)})
 
     import json

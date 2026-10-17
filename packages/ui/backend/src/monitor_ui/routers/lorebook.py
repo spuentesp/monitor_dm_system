@@ -189,7 +189,7 @@ async def import_lorebook(
             data = LorebookEntryCreate(**raw_entry)
             entry = mongodb_create_lorebook_entry(character_id=character_id, data=data)
             created.append(entry)
-        except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001  # reason: records error in diagnostic/batch response
+        except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001  # reason: records error in diagnostic/batch response (in import_lorebook)
             errors.append(str(exc))
 
     mongodb_save_scan_config(character_id, config)

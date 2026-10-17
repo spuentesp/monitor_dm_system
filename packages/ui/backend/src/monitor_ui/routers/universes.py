@@ -136,7 +136,7 @@ def _universe_counts(universe_ids: list[str]) -> dict[str, dict[str, int]]:
             if row["id"] in counts:
                 counts[row["id"]]["entity_count"] = row["entity_count"]
                 counts[row["id"]]["story_count"] = row["story_count"]
-    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _universe_counts)
         log.debug("universe counts aggregation failed", exc_info=True)
 
     try:
@@ -151,7 +151,7 @@ def _universe_counts(universe_ids: list[str]) -> dict[str, dict[str, int]]:
         ):
             if row["_id"] in counts:
                 counts[row["_id"]]["session_count"] = row["n"]
-    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _universe_counts)
         log.debug("session counts aggregation failed", exc_info=True)
 
     return counts

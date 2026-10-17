@@ -99,7 +99,7 @@ async def _async_fallback_to_builtin_profiles(
     if hasattr(mcp_tools, "mongodb_get_default_tone_library"):
         try:
             default_lib = await mcp_tools.mongodb_get_default_tone_library()
-        except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure
+        except Exception:  # noqa: BLE001  # reason: falls back to `None` on failure (in _async_fallback_to_builtin_profiles)
             default_lib = None
 
         if default_lib:
@@ -129,7 +129,7 @@ async def _async_fallback_to_builtin_profiles(
                             if unknown:
                                 base += " Additional tone direction: " + ", ".join(unknown) + "."
                         return base
-                except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully
+                except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _async_fallback_to_builtin_profiles)
                     log.debug("tone tag resolution failed; using safe fallback", exc_info=True)  # Fall through to safe fallback
 
     # Absolute last resort — use the emergency strings (should never reach here

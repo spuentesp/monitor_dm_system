@@ -11,7 +11,6 @@ import re
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 from collections import defaultdict
-import json
 
 
 class UseCaseAnalyzer:
@@ -116,7 +115,6 @@ class UseCaseAnalyzer:
                     # Check for multi-use case tests
                     multi_match = multi_test_pattern.match(test_file.name)
                     if multi_match:
-                        use_case_refs = multi_match.group(1)
                         # Split and convert M_1_M_2 to M-1 and M-2
                         parts = use_case_ref.split('_')
                         for i in range(0, len(parts), 2):
@@ -279,7 +277,7 @@ class UseCaseAnalyzer:
             f"- **Tested Use Cases:** {len(self.tested_use_cases)}",
             f"- **Untested Use Cases:** {len(untested)}",
             f"- **Current Coverage:** {(len(self.tested_use_cases) / len(self.all_use_cases) * 100):.1f}%",
-            f"- **Target Coverage:** 85%",
+            "- **Target Coverage:** 85%",
             f"- **Gap:** {len(untested)} use cases to test",
             "",
             "## Epic Breakdown",
@@ -367,7 +365,7 @@ class UseCaseAnalyzer:
             "",
             "### Medium-term Actions (Next 2-3 Sprints)",
             "",
-            f"1. **Complete Phase 2 & 3**",
+            "1. **Complete Phase 2 & 3**",
             f"   - Phase 2: {len(plan[1]['use_cases'])} use cases, ~{plan[1]['estimated_tests']} tests",
             f"   - Phase 3: {len(plan[2]['use_cases'])} use cases, ~{plan[2]['estimated_tests']} tests",
             "",
@@ -378,7 +376,7 @@ class UseCaseAnalyzer:
             "",
             "### Long-term Actions (Ongoing)",
             "",
-            f"1. **Complete Phases 4-6**",
+            "1. **Complete Phases 4-6**",
             f"   - Remaining: {len(untested) - len(plan[0]['use_cases']) - len(plan[1]['use_cases']) - len(plan[2]['use_cases'])} use cases",
             "",
             "2. **Maintain Test Coverage**",
@@ -503,8 +501,8 @@ class UseCaseAnalyzer:
         print(f"Tested Use Cases: {len(self.tested_use_cases)}")
         print(f"Untested Use Cases: {len(self.all_use_cases) - len(self.tested_use_cases)}")
         print(f"Current Coverage: {(len(self.tested_use_cases) / len(self.all_use_cases) * 100):.1f}%")
-        print(f"Target Coverage: 85%")
-        print(f"\nReport saved to: TESTING_ROADMAP.md")
+        print("Target Coverage: 85%")
+        print("\nReport saved to: TESTING_ROADMAP.md")
         print("=" * 80)
 
 

@@ -172,3 +172,8 @@ line-length = 100
 # turns a failing pipeline green by disabling it. E722 (bare except) is already
 # on via the default E7 ruleset; listed here so the policy is explicit.
 extend-select = ["BLE001", "S110", "S112", "E722"]
+
+[tool.ruff.lint.per-file-ignores]
+# CLI/ops scripts bootstrap sys.path before their imports by design; the
+# import-not-at-top pattern is deliberate there, not an ordering mistake.
+"scripts/*" = ["E402"]

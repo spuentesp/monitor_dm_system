@@ -72,7 +72,7 @@ async def _run(
             auto_sync=not lock_after_sync,
         )
         if pair is None:
-            print(f"[sync] ERROR: failed to derive pair", file=sys.stderr)
+            print("[sync] ERROR: failed to derive pair", file=sys.stderr)
             return 2
 
         # Run the validator to confirm the new pair boots.

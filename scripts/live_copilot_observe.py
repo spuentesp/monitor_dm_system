@@ -29,6 +29,8 @@ Requires the dockerized stack up + an LLM provider (the co-pilot agents use it).
 
 from __future__ import annotations
 
+import contextlib
+
 import argparse
 import json
 import os
@@ -124,13 +126,11 @@ def observe(base_url: str, *, judge_model: str, do_judge: bool) -> dict[str, Any
 
     # Resolve a story for the universe (session-prep + threads need it).
     story_id = None
-    try:
+    with contextlib.suppress(Exception):  # best-effort story lookup: observation continues
         stories = _api(http, "GET", base_url, "/stories", params={"universe_id": universe_id})
         items = stories.get("stories") if isinstance(stories, dict) else stories
         if items:
             story_id = items[0].get("id")
-    except Exception:  # noqa: BLE001
-        pass
 
     report: dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
