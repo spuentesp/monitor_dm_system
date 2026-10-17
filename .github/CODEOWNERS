@@ -2,3 +2,16 @@
 # Enable "Require review from Code Owners" in branch protection to enforce.
 tests/verification/** @spuentesp
 tests/property/** @spuentesp
+scripts/sealed_suite_guard.py @spuentesp
+
+# Enforcement surface: the guard, the mutation gate, its allowlist, the CI
+# workflows and their meta-tests are the machinery that polices the suites
+# above. A PR must not be able to rewrite the checks that police it — these
+# edits require maintainer review like the sealed suites themselves.
+scripts/mutation_diff.py @spuentesp
+scripts/mutation_allowlist.toml @spuentesp
+tests/unit/test_sealed_suite_guard.py @spuentesp
+tests/unit/test_mutation_diff.py @spuentesp
+.github/workflows/** @spuentesp
+.github/CODEOWNERS @spuentesp
+.pre-commit-config.yaml @spuentesp

@@ -100,14 +100,25 @@ def git_diff_u0(base: str, root: Path, paths: list[Path]) -> str:
 
 
 def extract_survivors(session_db: Path) -> list[Survivor]:
-    """Read surviving mutants out of a Cosmic Ray session database."""
+    """Read surviving mutants out of a Cosmic Ray session database.
+
+    An item whose tests never ran (worker exception / no-test / skipped) is a
+    configuration error, never a silent kill: fail closed so a broken
+    test-command cannot mark every mutant "killed".
+    """
     from cosmic_ray.work_db import WorkDB
-    from cosmic_ray.work_item import TestOutcome
+    from cosmic_ray.work_item import TestOutcome, WorkerOutcome
 
     survivors: list[Survivor] = []
     db = WorkDB(session_db, WorkDB.Mode.open)
     try:
         for work_item, result in db.completed_work_items:
+            if result.worker_outcome != WorkerOutcome.NORMAL or result.test_outcome is None:
+                raise RuntimeError(
+                    f"mutation session did not run cleanly (worker={result.worker_outcome}, "
+                    f"test={result.test_outcome}, job={work_item.job_id}): fix the test-command "
+                    f"before trusting any verdict"
+                )
             if result.test_outcome != TestOutcome.SURVIVED:
                 continue
             for spec in work_item.mutations:
@@ -148,7 +159,7 @@ def filter_in_diff(
 def evaluate_gate(
     in_diff: list[Survivor],
     outside: list[Survivor],
-    allowlist: dict[tuple[str, str, int], str],
+    allowlist: dict[tuple[str, str, int, int], str],
 ) -> int:
     """Policy: only in-diff survivors block, and only when not allowlisted."""
     for survivor in outside:
@@ -160,7 +171,7 @@ def evaluate_gate(
     blocking = [
         s
         for s in in_diff
-        if (s.module_path, s.operator_name, s.occurrence) not in allowlist
+        if (s.module_path, s.operator_name, s.occurrence, s.line) not in allowlist
     ]
     if blocking:
         print("[FAIL] mutation-diff: surviving mutants on changed lines:")
@@ -182,7 +193,12 @@ def evaluate_gate(
     return 0
 
 
-def load_allowlist(path: Path) -> dict[tuple[str, str, int], str]:
+def load_allowlist(path: Path) -> dict[tuple[str, str, int, int], str]:
+    """Load justified equivalent mutants, keyed AND line-anchored.
+
+    The key includes the mutant's source line: occurrence renumbering across
+    edits must never let an entry whitelist an unrelated survivor.
+    """
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
@@ -191,11 +207,16 @@ def load_allowlist(path: Path) -> dict[tuple[str, str, int], str]:
         raise AllowlistError(f"allowlist file unreadable: {path}: {exc}") from exc
     except tomllib.TOMLDecodeError as exc:
         raise AllowlistError(f"allowlist TOML invalid in {path}: {exc}") from exc
-    entries: dict[tuple[str, str, int], str] = {}
+    entries: dict[tuple[str, str, int, int], str] = {}
     try:
         rows = data.get("survivors", [])
         for entry in rows:
-            key = (str(entry["module_path"]), str(entry["operator_name"]), int(entry["occurrence"]))
+            key = (
+                str(entry["module_path"]),
+                str(entry["operator_name"]),
+                int(entry["occurrence"]),
+                int(entry["line"]),
+            )
             justification = entry.get("justification", "")
             if not isinstance(justification, str) or not justification.strip():
                 raise AllowlistError(
@@ -209,15 +230,10 @@ def load_allowlist(path: Path) -> dict[tuple[str, str, int], str]:
     return entries
 
 
-FALLBACK_OPERATOR_SET = (
-    "core/Boolean",
-    "core/Break",
-    "core/Continue",
-    "core/Deletion",
-    "core/Number",
-    "core/String",
-    "core/Variable",
-)
+# NOTE: cosmic-ray 8 runs the FULL registered operator battery per module; a
+# `[cosmic-ray.operators] enabled` list does NOT restrict it (that table only
+# parameterizes argument-taking operators). Budgets below assume the full
+# battery; bound scope by which modules the PR touches, not by operator names.
 
 
 def load_known_configs(root: Path) -> dict[str, Path]:
@@ -243,17 +259,17 @@ def package_root(file: Path, root: Path) -> Path:
 
 def write_generated_config(module: Path, root: Path, tmp_dir: Path) -> Path:
     pkg = package_root(module, root)
+    # Owning package's tests only: the suite that actually covers the module
+    # without dragging the whole repo's unit tree into every mutant run.
     test_command = (
-        f"python -m pytest {pkg}/tests tests/unit -x -q --timeout=15 "
+        f"python -m pytest {pkg}/tests -x -q --timeout=15 "
         f"--tb=line -p no:cacheprovider --no-header"
     )
-    operators = "\n".join(f'    "{op}",' for op in FALLBACK_OPERATOR_SET)
     config_text = (
         f'[cosmic-ray]\nmodule-path = "{module}"\npython-version = ""\n'
         f"timeout = 30\nexcluded-modules = []\n"
         f'test-command = "{test_command}"\n\n'
-        f'[cosmic-ray.distributor]\nname = "local"\nnum-workers = 8\n\n'
-        f"[cosmic-ray.operators]\nenabled = [\n{operators}\n]\n"
+        f'[cosmic-ray.distributor]\nname = "local"\nnum-workers = 8\n'
     )
     config_path = tmp_dir / f"generated-{str(module).replace('/', '__')}.toml"
     config_path.write_text(config_text, encoding="utf-8")
@@ -276,6 +292,24 @@ def run_session(
         session_dir = Path(tempfile.mkdtemp(prefix="mutation-session-"))
     session_dir.mkdir(parents=True, exist_ok=True)
     session_db = session_dir / f"{config.stem}.session.sqlite3"
+    import tomllib as _tomllib
+
+    test_command = _tomllib.loads(config.read_text(encoding="utf-8"))["cosmic-ray"]["test-command"]
+    try:
+        baseline = subprocess.run(
+            test_command, shell=True, cwd=root, capture_output=True, text=True, timeout=module_budget_secs
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"mutation budget exceeded: the baseline test-command ran longer than "
+            f"{module_budget_secs}s: {test_command}"
+        ) from exc
+    if baseline.returncode != 0:
+        raise RuntimeError(
+            f"mutation baseline failed: the unmutated test-command must pass before "
+            f"mutants run (exit {baseline.returncode}): {test_command}\n"
+            f"{baseline.stderr.strip() or baseline.stdout.strip()}"
+        )
     commands = (
         (["uv", "run", "cosmic-ray", "init", str(config), str(session_db)], 60),
         (["uv", "run", "cosmic-ray", "exec", str(config), str(session_db)], module_budget_secs),
@@ -317,6 +351,8 @@ def main(argv: list[str] | None = None) -> int:
             print("mutation-diff: no production Python changes; nothing to do.")
             return 0
 
+        # Fail fast on a malformed allowlist — before any expensive session runs.
+        allowlist = load_allowlist(Path(args.allowlist))
         hunks = parse_hunk_ranges(git_diff_u0(args.base, ROOT, changed))
         known = load_known_configs(ROOT)
 
@@ -329,7 +365,6 @@ def main(argv: list[str] | None = None) -> int:
                 survivors.extend(extract_survivors(session))
 
         in_diff, outside = filter_in_diff(survivors, hunks)
-        allowlist = load_allowlist(Path(args.allowlist))
         return evaluate_gate(in_diff, outside, allowlist)
     except (RuntimeError, AllowlistError) as exc:
         print(f"[ERROR] {exc}")

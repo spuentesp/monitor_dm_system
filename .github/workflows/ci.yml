@@ -39,7 +39,10 @@ jobs:
           LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           ALLOW=$(python3 -c "import json,os,sys; labels=json.loads(os.environ['LABELS_JSON']); sys.stdout.write('--allow-sealed' if 'sealed-override' in labels else '')")
-          python3 scripts/sealed_suite_guard.py --base "${BASE_SHA}" ${ALLOW}
+          # Run the guard FROM THE BASE REF: the PR being policed must not be
+          # able to rewrite the check that polices it.
+          git show "${BASE_SHA}:scripts/sealed_suite_guard.py" > /tmp/sealed_suite_guard_base.py
+          python3 /tmp/sealed_suite_guard_base.py --base "${BASE_SHA}" ${ALLOW}
 
   typecheck:
     runs-on: ubuntu-latest

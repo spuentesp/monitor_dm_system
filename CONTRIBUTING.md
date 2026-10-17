@@ -64,7 +64,12 @@ via: open the PR, explain why the sealed suite must change, and ask a maintainer
 Mutation gate: `mutation-diff.yml` runs Cosmic Ray on the modules your PR touches and
 fails when a mutant on a changed line survives. Kill it with a real assertion; the only
 exception is `scripts/mutation_allowlist.toml`, which requires a written justification
-(use it for proven equivalent mutants only).
+including the mutant's source `line` (use it for proven equivalent mutants only).
+
+Silent swallowing policy: `except Exception: pass/continue` is banned in `packages/**`
+(ruff S110/S112/BLE001). `contextlib.suppress(...)` is the idiomatic form for *intentional*
+tolerance (teardown, branch-coverage drivers) and must carry an intent comment — it is not
+a loophole for hiding failures in production code.
 
 ## Optional Tools
 - `pre-commit install` to run the sealed-suite guard before commits.

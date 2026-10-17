@@ -10,7 +10,10 @@ concurrency:
 jobs:
   mutation-diff:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Budget model: run_session caps each module's cosmic-ray exec at 600s;
+    # 60 minutes absorbs ~6 touched modules with overhead. Larger PRs fail
+    # closed with guidance (split the PR or run the gate locally).
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:

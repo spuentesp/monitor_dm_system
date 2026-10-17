@@ -151,3 +151,21 @@ def test_staged_rename_detection_sees_both_sides(tmp_path: Path) -> None:
         os.chdir(old_cwd)
     assert "tests/property/test_sealed.py" in staged
     assert "tests/unit/test_sealed.py" in staged
+
+
+def test_codeowners_owns_the_enforcement_surface() -> None:
+    """C1 pin: the guard, gate, allowlist, workflows and meta-tests must be
+    CODEOWNERS-protected — a PR must not rewrite the checks that police it."""
+    owners = (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+    for required in (
+        "tests/verification/**",
+        "tests/property/**",
+        "scripts/sealed_suite_guard.py",
+        "scripts/mutation_diff.py",
+        "scripts/mutation_allowlist.toml",
+        "tests/unit/test_sealed_suite_guard.py",
+        "tests/unit/test_mutation_diff.py",
+        ".github/workflows/**",
+        ".github/CODEOWNERS",
+    ):
+        assert required in owners, f"{required} must be CODEOWNERS-protected"

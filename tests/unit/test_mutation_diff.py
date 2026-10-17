@@ -179,7 +179,7 @@ def test_gate_fails_on_unallowlisted_in_diff_survivor() -> None:
 
 def test_gate_allowlist_entry_passes() -> None:
     survivor = md.Survivor("packages/agents/src/x.py", "core/Number", 0, 10, "f")
-    key = ("packages/agents/src/x.py", "core/Number", 0)
+    key = ("packages/agents/src/x.py", "core/Number", 0, 10)
     assert md.evaluate_gate([survivor], [], allowlist={key: "equivalent mutant: flip has no effect"}) == 0
 
 
@@ -190,10 +190,11 @@ def test_load_allowlist_roundtrip(tmp_path: Path) -> None:
         'module_path = "packages/agents/src/x.py"\n'
         'operator_name = "core/Number"\n'
         'occurrence = 0\n'
+        'line = 12\n'
         'justification = "equivalent mutant: constant is unused"\n'
     )
     loaded = md.load_allowlist(allow)
-    assert loaded == {("packages/agents/src/x.py", "core/Number", 0): "equivalent mutant: constant is unused"}
+    assert loaded == {("packages/agents/src/x.py", "core/Number", 0, 12): "equivalent mutant: constant is unused"}
 
 
 def test_allowlist_entry_without_justification_is_error(tmp_path: Path) -> None:
@@ -203,6 +204,7 @@ def test_allowlist_entry_without_justification_is_error(tmp_path: Path) -> None:
         'module_path = "packages/agents/src/x.py"\n'
         'operator_name = "core/Number"\n'
         'occurrence = 0\n'
+        'line = 12\n'
     )
     with pytest.raises(md.AllowlistError, match="justification"):
         md.load_allowlist(allow)
@@ -262,6 +264,7 @@ def test_load_allowlist_non_string_justification_is_rejected(tmp_path: Path) -> 
         'module_path = "m.py"\n'
         'operator_name = "core/Number"\n'
         'occurrence = 0\n'
+        'line = 3\n'
         'justification = 5\n'
     )
     with pytest.raises(md.AllowlistError, match="justification"):
@@ -316,3 +319,94 @@ def test_run_session_writes_session_outside_config_dir(tmp_path: Path) -> None:
         db = md.run_session(config, tmp_path, session_dir=tmp_path / "sessions")
     assert db.parent == tmp_path / "sessions"
     assert db.name.endswith(".session.sqlite3")
+
+
+def test_extract_survivors_rejects_anomalous_worker_outcomes(tmp_path: Path) -> None:
+    """I1 pin: a session where tests never ran (worker exception / no-test /
+    skipped) must be a config error (exit 2), never a silent zero-survivor pass."""
+    from cosmic_ray.work_db import WorkDB
+    from cosmic_ray.work_item import (
+        MutationSpec,
+        WorkerOutcome,
+        WorkItem,
+        WorkResult,
+    )
+
+    db_path = tmp_path / "session.sqlite3"
+    db = WorkDB(db_path, WorkDB.Mode.create)
+    try:
+        spec = MutationSpec(
+            module_path=Path("m.py"),
+            operator_name="core/Number",
+            occurrence=0,
+            start_pos=(3, 0),
+            end_pos=(3, 5),
+        )
+        db.add_work_item(WorkItem.single("job-exception", spec))
+        db.set_result(
+            "job-exception",
+            WorkResult(worker_outcome=WorkerOutcome.EXCEPTION, output="boom"),
+        )
+    finally:
+        db.close()
+    with pytest.raises(RuntimeError, match="did not run cleanly"):
+        md.extract_survivors(db_path)
+
+
+def test_run_session_requires_green_baseline(tmp_path: Path, monkeypatch) -> None:
+    """I1 pin: the unmutated test-command must pass before any mutant runs —
+    a broken test-command must never mark every mutant 'killed'."""
+    config = tmp_path / "cfg.toml"
+    config.write_text(
+        '[cosmic-ray]\nmodule-path = "m.py"\ntest-command = "false"\n'
+    )
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        # The baseline runs the shell test-command ("false" -> rc 1); the
+        # cosmic-ray subcommands are lists and would otherwise "succeed".
+        rc = 1 if isinstance(cmd, str) else 0
+        return type("P", (), {"returncode": rc, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(md.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="baseline"):
+        md.run_session(config, tmp_path)
+    assert not any("exec" in c for c in calls), "exec must not run when the baseline is red"
+
+
+def test_allowlist_entries_are_line_anchored(tmp_path: Path) -> None:
+    """I5 pin: an allowlist entry only covers the mutant at its recorded line —
+    occurrence renumbering must not whitelist an unrelated survivor."""
+    allow = tmp_path / "allow.toml"
+    allow.write_text(
+        '[[survivors]]\n'
+        'module_path = "m.py"\n'
+        'operator_name = "core/Number"\n'
+        'occurrence = 0\n'
+        'line = 10\n'
+        'justification = "equivalent mutant: constant unused"\n'
+    )
+    loaded = md.load_allowlist(allow)
+    anchored = md.Survivor("m.py", "core/Number", 0, 10, "f")
+    drifted = md.Survivor("m.py", "core/Number", 0, 42, "f")
+    assert md.evaluate_gate([anchored], [], allowlist=loaded) == 0
+    assert md.evaluate_gate([drifted], [], allowlist=loaded) == 1
+
+
+def test_allowlist_is_validated_before_mutation_runs(monkeypatch, tmp_path: Path) -> None:
+    """Minor pin: a malformed allowlist must fail fast (exit 2), before any
+    expensive mutation session runs."""
+    monkeypatch.setattr(md, "changed_production_files", lambda base, root: [Path("packages/x.py")])
+    monkeypatch.setattr(md, "git_diff_u0", lambda *a, **k: "")
+    monkeypatch.setattr(md, "parse_hunk_ranges", lambda *a, **k: {})
+    monkeypatch.setattr(
+        md, "run_session",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no mutation run before allowlist validation")),
+    )
+    monkeypatch.setattr(md, "load_known_configs", lambda root: {})
+    monkeypatch.setattr(md, "write_generated_config", lambda *a, **k: Path("x.toml"))
+    bad = tmp_path / "bad_allow.toml"
+    bad.write_text("survivors = [unclosed\n")
+    code = md.main(["--base", "HEAD", "--allowlist", str(bad)])
+    assert code == 2

@@ -138,6 +138,12 @@ class StrictMCPWireBridge:
 # pipeline muerto. Estos contadores exigen que cada tool crítico se invoque al menos
 # N veces en cada escenario y que ninguna respuesta haya fallado en silencio.
 
+MIN_NODE_INVOCATIONS: Dict[str, int] = {
+    # Pipeline nodes (harness stages) that a no-op bypass would skip entirely.
+    "ingest_manual_end_to_end": 1,
+    "execute_scene_turn_with_cold_checkpoint": 1,
+}
+
 MIN_TOOL_INVOCATIONS: Dict[str, int] = {
     "ingest_store_document": 1,
     "qdrant_upsert_chunk": 1,
@@ -150,10 +156,11 @@ MIN_TOOL_INVOCATIONS: Dict[str, int] = {
 
 
 class InvocationLedger:
-    """Cuenta invocaciones reales de tools MCP a partir del audit log del puente."""
+    """Cuenta invocaciones reales de tools MCP y de nodos del pipeline."""
 
-    def __init__(self, bridge: StrictMCPWireBridge) -> None:
+    def __init__(self, bridge: StrictMCPWireBridge, phases: List[str] | None = None) -> None:
         self._bridge = bridge
+        self._phases: List[str] = phases if phases is not None else []
 
     def tool_counts(self) -> Dict[str, int]:
         counts: Dict[str, int] = {}
@@ -176,11 +183,30 @@ class InvocationLedger:
             f"tools por debajo del mínimo {missing}"
         )
 
+    def node_counts(self) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for phase in self._phases:
+            counts[phase] = counts.get(phase, 0) + 1
+        return counts
+
+    def assert_nodes_invoked(self, minimums: Dict[str, int]) -> None:
+        counts = self.node_counts()
+        missing = {
+            node: {"invoked": counts.get(node, 0), "required": minimum}
+            for node, minimum in minimums.items()
+            if counts.get(node, 0) < minimum
+        }
+        assert not missing, (
+            "Topología de nodos incompleta (posible no-op bypass): "
+            f"nodos por debajo del mínimo {missing}"
+        )
+
     def assert_no_failed_responses(self) -> None:
         failed = [
             entry["tool"]
             for entry in self._bridge.call_audit_log
-            if isinstance(entry["response"], dict) and entry["response"].get("ok") is False
+            if isinstance(entry["response"], dict)
+            and (entry["response"].get("ok") is False or "error" in entry["response"])
         ]
         assert not failed, (
             f"Respuestas fallidas tragadas durante el escenario de aceptación: {failed}"
@@ -638,6 +664,7 @@ class IntegratedMonitorRuntimeHarness:
         self.stores.mount_mcp_tools(self.mcp)
         self.oracle = MonitorCrossStoreOracle(self.stores)
         self.llm_transport = DeterministicRawLLMTransport(seed=seed)
+        self.phase_log: List[str] = []
 
     def ingest_manual_end_to_end(
         self,
@@ -647,6 +674,7 @@ class IntegratedMonitorRuntimeHarness:
         timeline_branch: str = "main",
         initial_tick: int = 0,
     ) -> List[str]:
+        self.phase_log.append("ingest_manual_end_to_end")
         store_res = self.mcp.call_tool(
             "ingest_store_document",
             {
@@ -734,6 +762,7 @@ class IntegratedMonitorRuntimeHarness:
         fact_key: str,
         new_fact_value: str,
     ) -> Dict[str, Any]:
+        self.phase_log.append("execute_scene_turn_with_cold_checkpoint")
         ckpt_res = self.mcp.call_tool("langgraph_load_checkpoint", {"thread_id": thread_id})
         if ckpt_res["found"]:
             state = json.loads(ckpt_res["serialized_state_json"])
@@ -881,7 +910,8 @@ class MonitorDMSystemVerificationSuite(unittest.TestCase):
             "fallen_in_battle",
         )
 
-        ledger = InvocationLedger(harness.mcp)
+        ledger = InvocationLedger(harness.mcp, harness.phase_log)
+        ledger.assert_nodes_invoked(MIN_NODE_INVOCATIONS)
         ledger.assert_topology(MIN_TOOL_INVOCATIONS)
         ledger.assert_no_failed_responses()
         assert ledger.trace() == snapshot(
@@ -1008,7 +1038,8 @@ class MonitorDMSystemVerificationSuite(unittest.TestCase):
                     new_status,
                 )
 
-                ledger = InvocationLedger(harness.mcp)
+                ledger = InvocationLedger(harness.mcp, harness.phase_log)
+                ledger.assert_nodes_invoked(MIN_NODE_INVOCATIONS)
                 ledger.assert_topology(MIN_TOOL_INVOCATIONS)
                 ledger.assert_no_failed_responses()
 
