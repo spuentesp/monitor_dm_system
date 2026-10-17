@@ -130,8 +130,8 @@ class TestFinalizeProgression:
         assert len(keeper.created_facts) == 2
         assert "STR" in keeper.created_facts[0]["statement"]
         assert "DEX" in keeper.created_facts[1]["statement"]
-        assert keeper.created_facts[0]["fact_type"] == "state_change"
-        assert keeper.created_facts[0]["entity_ids"] == [state.entity_id]
+        assert keeper.created_facts[0]["fact_type"] == "state"
+        assert keeper.created_facts[0]["entity_ids"] == [str(state.entity_id)]
         assert keeper.created_facts[0]["properties"] == {"upgrade_id": "str_up"}
 
 

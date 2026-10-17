@@ -21,14 +21,25 @@ from monitor_data.schemas.knowledge_packs import (
 from monitor_ui.routers import ingest, ingest_shared
 
 
+@pytest.fixture(autouse=True)
+def _clear_ingest_futures():
+    yield
+    ingest._ingest_futures.clear()
+
+
 class _DummyFuture:
-    """Future-like handle: the router tracks queued work via add_done_callback."""
+    """Future-like handle honoring the router's contract: add_done_callback + cancel."""
 
     def __init__(self):
         self._callback = None
+        self.cancelled = False
 
     def add_done_callback(self, callback):
         self._callback = callback
+
+    def cancel(self):
+        self.cancelled = True
+        return True
 
 
 class _DummyLoop:
