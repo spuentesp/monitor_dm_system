@@ -45,8 +45,8 @@ async def finalize_progression(state: ProgressionState) -> dict[str, Any]:
             {
                 "universe_id": str(state.universe_id),
                 "statement": f"Character {state.entity_id} increased {upgrade['stat']} via progression.",
-                "fact_type": "state_change",
-                "entity_ids": [state.entity_id],
+                "fact_type": "state",
+                "entity_ids": [str(state.entity_id)],
                 "properties": {"upgrade_id": upgrade["id"]},
             }
         )

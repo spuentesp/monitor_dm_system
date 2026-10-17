@@ -70,6 +70,7 @@ CANON_KEEPER_WRITE_TOOLS: frozenset[str] = frozenset(
         # Stories
         "neo4j_create_story",
         "neo4j_update_story",
+        "neo4j_update_story_status",
         # Mechanics
         "neo4j_create_ability_system",
         "neo4j_create_track",

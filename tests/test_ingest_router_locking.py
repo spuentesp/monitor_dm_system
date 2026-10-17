@@ -21,13 +21,23 @@ from monitor_data.schemas.knowledge_packs import (
 from monitor_ui.routers import ingest, ingest_shared
 
 
+class _DummyFuture:
+    """Future-like handle: the router tracks queued work via add_done_callback."""
+
+    def __init__(self):
+        self._callback = None
+
+    def add_done_callback(self, callback):
+        self._callback = callback
+
+
 class _DummyLoop:
     def __init__(self):
         self.calls = 0
 
     def run_in_executor(self, executor, func):
         self.calls += 1
-        return None
+        return _DummyFuture()
 
 
 class _DummyCollection:
