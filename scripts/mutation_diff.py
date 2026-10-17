@@ -19,7 +19,9 @@ Exit codes: 0 clean, 1 blocking survivor, 2 configuration/environment error.
 from __future__ import annotations
 
 import argparse
+import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -134,6 +136,41 @@ def extract_survivors(session_db: Path) -> list[Survivor]:
     finally:
         db.close()
     return survivors
+
+
+def _run_process_group(
+    command: str | list[str],
+    cwd: Path,
+    timeout: int,
+    shell: bool = False,
+) -> "subprocess.CompletedProcess[str]":
+    """Run a command in its own process group; on timeout kill the WHOLE group.
+
+    Killing only the direct child (e.g. the `uv run` wrapper) would leak its
+    grandchildren (cosmic-ray/pytest workers) on the runner.
+    """
+    proc = subprocess.Popen(
+        command,
+        shell=shell,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        raise subprocess.TimeoutExpired(command, timeout) from exc
+    return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
 
 
 class AllowlistError(ValueError):
@@ -296,8 +333,8 @@ def run_session(
 
     test_command = _tomllib.loads(config.read_text(encoding="utf-8"))["cosmic-ray"]["test-command"]
     try:
-        baseline = subprocess.run(
-            test_command, shell=True, cwd=root, capture_output=True, text=True, timeout=module_budget_secs
+        baseline = _run_process_group(
+            test_command, root, module_budget_secs, shell=True
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
@@ -316,9 +353,7 @@ def run_session(
     )
     for command, budget in commands:
         try:
-            proc = subprocess.run(
-                command, cwd=root, capture_output=True, text=True, timeout=budget
-            )
+            proc = _run_process_group(command, root, budget)
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
                 f"mutation budget exceeded: {' '.join(command)} ran longer than "

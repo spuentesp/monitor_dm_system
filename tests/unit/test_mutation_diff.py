@@ -280,9 +280,9 @@ def test_run_session_budget_exceeded_raises_actionable_error(tmp_path: Path, mon
     config.write_text('[cosmic-ray]\nmodule-path = "m.py"\ntest-command = "true"\n')
 
     def fake_run(*args, **kwargs):
-        raise sp.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout", 0))
+        raise sp.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout", 3))
 
-    monkeypatch.setattr(md.subprocess, "run", fake_run)
+    monkeypatch.setattr(md, "_run_process_group", fake_run)
     with pytest.raises(RuntimeError, match="mutation budget exceeded"):
         md.run_session(config, tmp_path)
 
@@ -307,15 +307,12 @@ def test_run_session_writes_session_outside_config_dir(tmp_path: Path) -> None:
 
     config = tmp_path / "cosmic-ray-x.toml"
     config.write_text('[cosmic-ray]\nmodule-path = "m.py"\ntest-command = "true"\n')
-    sessions = []
+    import unittest.mock as um
 
-    def fake_run(cmd, **kwargs):
-        if cmd[:3] == ["uv", "run", "cosmic-ray"]:
-            sessions.append(Path(cmd[3] if cmd[2] == "init" else cmd[3]))
+    def fake_run(cmd, *args, **kwargs):
         return sp.CompletedProcess(cmd, 0, "", "")
 
-    import unittest.mock as um
-    with um.patch.object(md.subprocess, "run", side_effect=fake_run):
+    with um.patch.object(md, "_run_process_group", side_effect=fake_run):
         db = md.run_session(config, tmp_path, session_dir=tmp_path / "sessions")
     assert db.parent == tmp_path / "sessions"
     assert db.name.endswith(".session.sqlite3")
@@ -362,14 +359,14 @@ def test_run_session_requires_green_baseline(tmp_path: Path, monkeypatch) -> Non
     )
     calls = []
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, *args, **kwargs):
         calls.append(cmd)
         # The baseline runs the shell test-command ("false" -> rc 1); the
         # cosmic-ray subcommands are lists and would otherwise "succeed".
         rc = 1 if isinstance(cmd, str) else 0
         return type("P", (), {"returncode": rc, "stdout": "", "stderr": ""})()
 
-    monkeypatch.setattr(md.subprocess, "run", fake_run)
+    monkeypatch.setattr(md, "_run_process_group", fake_run)
     with pytest.raises(RuntimeError, match="baseline"):
         md.run_session(config, tmp_path)
     assert not any("exec" in c for c in calls), "exec must not run when the baseline is red"
@@ -410,3 +407,32 @@ def test_allowlist_is_validated_before_mutation_runs(monkeypatch, tmp_path: Path
     bad.write_text("survivors = [unclosed\n")
     code = md.main(["--base", "HEAD", "--allowlist", str(bad)])
     assert code == 2
+
+
+def test_group_kill_reaps_grandchildren(tmp_path: Path) -> None:
+    """A budget timeout must kill the whole process group: killing only the
+    'uv run' wrapper leaks cosmic-ray/pytest grandchildren on the runner."""
+    import os
+    import subprocess
+    import time
+
+    pidfile = tmp_path / "grandchild.pid"
+    cmd = f"sleep 30 & echo $! > {pidfile}; wait"
+    with pytest.raises(subprocess.TimeoutExpired):
+        md._run_process_group(cmd, tmp_path, timeout=1, shell=True)
+    assert pidfile.exists(), "grandchild must have started"
+    pid = int(pidfile.read_text().strip())
+    deadline = time.time() + 5
+    alive = True
+    while time.time() < deadline:
+        try:
+            os.kill(pid, 0)
+        except (ProcessLookupError, PermissionError):
+            alive = False
+            break
+        stat = Path(f"/proc/{pid}/stat")
+        if stat.exists() and stat.read_text().split()[2] == "Z":
+            alive = False
+            break
+        time.sleep(0.1)
+    assert not alive, f"grandchild {pid} survived the group kill (would leak on CI runners)"
