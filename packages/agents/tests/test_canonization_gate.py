@@ -355,7 +355,7 @@ class TestCanonKeeperVerdictSchema:
         assert "Arc 2" in v.reasoning
 
     def test_invalid_decision_value_raises(self):
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(Exception):
             CanonKeeperVerdict(
                 proposal_id=str(uuid4()),
                 decision="MAYBE",

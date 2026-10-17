@@ -142,7 +142,7 @@ def test_create_conversation_multi_npc(mock_mongo: Mock) -> None:
 @patch("monitor_data.tools.mongodb_tools.conversations.get_mongodb_client")
 def test_create_conversation_requires_at_least_one_npc(mock_mongo: Mock) -> None:
     """Creating a session with zero NPCs raises validation error."""
-    with pytest.raises(Exception):  # noqa: B017
+    with pytest.raises(Exception):
         ConversationSessionCreate(
             universe_id=uuid4(),
             mode=ConversationMode.DIRECT,

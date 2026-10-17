@@ -77,7 +77,7 @@ def _coerce_json_list(raw: Any) -> list[Any]:
     try:
         parsed = json.loads(text)
         return parsed if isinstance(parsed, list) else []
-    except (ValueError, TypeError):
+    except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
         return []
 
 

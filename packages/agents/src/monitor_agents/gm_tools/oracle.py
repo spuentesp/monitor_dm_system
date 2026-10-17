@@ -21,7 +21,7 @@ def _resolve_oracle_sync(
 
     try:
         like = Likelihood(likelihood)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
         like = Likelihood.FIFTY_FIFTY
 
     try:

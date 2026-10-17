@@ -176,7 +176,7 @@ def test_model_pair_is_frozen():
         rerank_model="r",
         rerank_provider="p",
     )
-    with pytest.raises(Exception):  # FrozenInstanceError  # noqa: B017
+    with pytest.raises(Exception):  # FrozenInstanceError
         p.name = "y"  # type: ignore[misc]
 
 

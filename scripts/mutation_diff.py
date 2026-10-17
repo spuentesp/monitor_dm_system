@@ -92,6 +92,7 @@ def git_diff_u0(base: str, root: Path, paths: list[Path]) -> str:
         cwd=root,
         capture_output=True,
         text=True,
+        timeout=60,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"git diff -U0 failed: {proc.stderr.strip()}")
@@ -254,18 +255,27 @@ def write_generated_config(module: Path, root: Path, tmp_dir: Path) -> Path:
         f'[cosmic-ray.distributor]\nname = "local"\nnum-workers = 8\n\n'
         f"[cosmic-ray.operators]\nenabled = [\n{operators}\n]\n"
     )
-    config_path = tmp_dir / f"generated-{module.name}.toml"
+    config_path = tmp_dir / f"generated-{str(module).replace('/', '__')}.toml"
     config_path.write_text(config_text, encoding="utf-8")
     return config_path
 
 
-def run_session(config: Path, root: Path, module_budget_secs: int = 600) -> Path:
+def run_session(
+    config: Path,
+    root: Path,
+    module_budget_secs: int = 600,
+    session_dir: Path | None = None,
+) -> Path:
     """Initialize and execute a Cosmic Ray session for one config; return the DB path.
 
     module_budget_secs bounds one module's `cosmic-ray exec`; exceeding it is a
     budget error (exit 2 with guidance), never a false survivor verdict.
+    session_dir keeps session DBs out of the repo root (defaults to a temp dir).
     """
-    session_db = config.with_suffix(".session.sqlite3")
+    if session_dir is None:
+        session_dir = Path(tempfile.mkdtemp(prefix="mutation-session-"))
+    session_dir.mkdir(parents=True, exist_ok=True)
+    session_db = session_dir / f"{config.stem}.session.sqlite3"
     commands = (
         (["uv", "run", "cosmic-ray", "init", str(config), str(session_db)], 60),
         (["uv", "run", "cosmic-ray", "exec", str(config), str(session_db)], module_budget_secs),
@@ -315,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
             tmp_dir = Path(tmp)
             for module in changed:
                 config = known.get(str(module)) or write_generated_config(module, ROOT, tmp_dir)
-                session = run_session(config, ROOT)
+                session = run_session(config, ROOT, session_dir=tmp_dir)
                 survivors.extend(extract_survivors(session))
 
         in_diff, outside = filter_in_diff(survivors, hunks)

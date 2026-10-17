@@ -282,3 +282,37 @@ def test_run_session_budget_exceeded_raises_actionable_error(tmp_path: Path, mon
     monkeypatch.setattr(md.subprocess, "run", fake_run)
     with pytest.raises(RuntimeError, match="mutation budget exceeded"):
         md.run_session(config, tmp_path)
+
+
+def test_write_generated_config_names_are_unique_per_module(tmp_path: Path) -> None:
+    root = tmp_path
+    a = tmp_path / "packages" / "one" / "agent.py"
+    b = tmp_path / "packages" / "two" / "agent.py"
+    a.parent.mkdir(parents=True)
+    b.parent.mkdir(parents=True)
+    a.write_text("x = 1\n")
+    b.write_text("y = 2\n")
+    (tmp_path / "packages" / "one" / "pyproject.toml").write_text("[project]\nname='one'\n")
+    (tmp_path / "packages" / "two" / "pyproject.toml").write_text("[project]\nname='two'\n")
+    cfg_a = md.write_generated_config(Path("packages/one/agent.py"), root, tmp_path)
+    cfg_b = md.write_generated_config(Path("packages/two/agent.py"), root, tmp_path)
+    assert cfg_a != cfg_b, "modules sharing a basename must get distinct generated configs"
+
+
+def test_run_session_writes_session_outside_config_dir(tmp_path: Path) -> None:
+    import subprocess as sp
+
+    config = tmp_path / "cosmic-ray-x.toml"
+    config.write_text('[cosmic-ray]\nmodule-path = "m.py"\ntest-command = "true"\n')
+    sessions = []
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:3] == ["uv", "run", "cosmic-ray"]:
+            sessions.append(Path(cmd[3] if cmd[2] == "init" else cmd[3]))
+        return sp.CompletedProcess(cmd, 0, "", "")
+
+    import unittest.mock as um
+    with um.patch.object(md.subprocess, "run", side_effect=fake_run):
+        db = md.run_session(config, tmp_path, session_dir=tmp_path / "sessions")
+    assert db.parent == tmp_path / "sessions"
+    assert db.name.endswith(".session.sqlite3")

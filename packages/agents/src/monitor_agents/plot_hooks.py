@@ -594,7 +594,7 @@ class PlotHookAgent(BaseAgent):
             if entity_id:
                 entity_facts.setdefault(entity_id, []).append(f)
 
-        for entity_id, entity_fact_list in entity_facts.items():  # noqa: B007
+        for entity_id, entity_fact_list in entity_facts.items():
             if len(entity_fact_list) < 2:
                 continue
             for i, fa in enumerate(entity_fact_list):

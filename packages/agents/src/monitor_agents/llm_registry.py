@@ -343,7 +343,7 @@ class LLMRegistry:
         if isinstance(params, str):
             try:
                 params = json.loads(params)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
                 params = {}
         if not isinstance(params, dict):
             params = {}

@@ -75,7 +75,7 @@ def resolve_actor_character(
             if isinstance(props, str):
                 try:
                     props = json.loads(props)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
                     props = {}
 
             # Neo4j Entity IDs can be string or UUID in the driver

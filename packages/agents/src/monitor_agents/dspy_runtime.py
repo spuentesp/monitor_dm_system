@@ -209,7 +209,7 @@ def _load_node_roles_from_env() -> dict[str, ModelRole]:
         import json as _json
 
         overrides = _json.loads(raw)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
         return out
     if not isinstance(overrides, dict):
         return out

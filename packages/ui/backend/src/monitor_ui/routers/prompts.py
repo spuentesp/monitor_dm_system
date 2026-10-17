@@ -334,7 +334,7 @@ async def list_modules() -> list[PromptModuleSummary]:
             try:
                 parsed = json.loads(raw)
                 has_override = "instructions" in parsed
-            except (ValueError, TypeError):
+            except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
                 log.debug("prompt override JSON parse failed", exc_info=True)
 
         result.append(

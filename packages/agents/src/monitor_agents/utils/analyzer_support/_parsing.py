@@ -102,7 +102,7 @@ def parse_source_profile(profile_text: str) -> EmbeddedSourceProfile | None:
 
     try:
         return EmbeddedSourceProfile(**normalized)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
         return None
 
 

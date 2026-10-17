@@ -529,7 +529,7 @@ class TestGMAwarenessStructure:
 
     def test_verdict_rejects_invalid_severity_string(self):
         """Pydantic must reject arbitrary strings for severity."""
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(Exception):
             GMAwareness(
                 intent_type=IntentType.ACTION,
                 action_type=ActionType.NONE,

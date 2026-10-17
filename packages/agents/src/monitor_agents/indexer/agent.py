@@ -704,7 +704,7 @@ class Indexer(BaseAgent):
         if isinstance(raw, str):
             try:
                 return base64.b64decode(raw)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
                 return raw.encode()
         return cast(bytes | None, raw)
 

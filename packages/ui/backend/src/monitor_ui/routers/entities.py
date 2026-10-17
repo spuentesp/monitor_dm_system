@@ -516,7 +516,7 @@ async def get_npc(npc_id: str) -> NPCDetail:
         if isinstance(props, str):
             try:
                 props = _json.loads(props)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
                 props = {}
 
         return NPCDetail(

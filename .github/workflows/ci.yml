@@ -36,12 +36,9 @@ jobs:
       - name: Guard sealed verification suites
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
-          ALLOW=""
-          case ",${LABELS}," in
-            *,sealed-override,*) ALLOW="--allow-sealed" ;;
-          esac
+          ALLOW=$(python3 -c "import json,os,sys; labels=json.loads(os.environ['LABELS_JSON']); sys.stdout.write('--allow-sealed' if 'sealed-override' in labels else '')")
           python3 scripts/sealed_suite_guard.py --base "${BASE_SHA}" ${ALLOW}
 
   typecheck:

@@ -32,7 +32,7 @@ def gm_tool_check_conditions() -> Any:
             import json as _json
 
             ctx = _json.loads(context) if context else {}
-        except (ValueError, TypeError):
+        except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
             ctx = {}
         payload: dict[str, Any] = {
             "event": event,
