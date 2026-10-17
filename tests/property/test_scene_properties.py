@@ -394,3 +394,4 @@ class TestSceneInvariantProperties:
         assert scene.scene_id is not None
         assert scene.story_id is not None
         assert scene.universe_id is not None
+# smoke-check: sealed-suite guard must block this without sealed-override
