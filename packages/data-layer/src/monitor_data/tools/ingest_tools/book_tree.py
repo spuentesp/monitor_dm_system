@@ -1,0 +1,519 @@
+"""Lossless, deterministic PDF → book tree decomposition (prototype).
+
+Unlike `extract_pdf_structure`, which copies whole page ranges into each TOC entry (so a
+parent repeats its children and same-page siblings share text), this assigns every text
+block to exactly one division by its position in reading order. Nothing is selected or
+sampled: text is only ever classified, and `DecompositionReport` proves nothing was lost.
+
+Structural heuristics here (fonts, margins, punctuation) describe page layout rather than
+game meaning, so they fall outside docs/architecture/DE_HEURISTIC_PRINCIPLE.md.
+
+See docs/architecture/BOOK_DECOMPOSITION_PLAN.md.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+import statistics
+from collections import Counter
+from dataclasses import dataclass, field
+from typing import Any
+from uuid import NAMESPACE_URL, uuid5
+
+import fitz
+
+from monitor_data.schemas.book_graph import (
+    BookNode,
+    BookNodeKind,
+    BookTree,
+    DecompositionReport,
+)
+from monitor_data.tools.ingest_tools.pdf_processing import _open_pdf
+
+DECOMPOSER_VERSION = "4"
+_NEXT_LINE_GAP = 1.5
+_CANNOT_END_SENTENCE = frozenset(
+    "a an the of in on at to for from by with and or but as that which who whose than if when "
+    "while your their his her its is are was were be can may will not into over under through "
+    "use uses".split()
+)
+
+_TERMINAL = (".", "!", "?", ":", ";", '"', "”", "’", ")", "]")
+_ABBREVIATIONS = frozenset(
+    {"e.g.", "i.e.", "etc.", "vs.", "cf.", "mr.", "mrs.", "ms.", "dr.", "st.", "p.", "pp."}
+    | {"vol.", "no.", "fig.", "ed.", "approx.", "sr.", "jr."}
+)
+_SENTENCE_END = re.compile(r"[.!?]+[\"”’')\]]*\s+")
+_OPENERS = "\"“‘'([¿¡"
+_SOFT_HYPHEN = "\xad"
+_MARGIN_FRACTION = 0.08
+_COLUMN_GAP_FRACTION = 0.2
+_FULL_WIDTH_FRACTION = 0.6
+_INDENT_POINTS = 6.0
+_HEADING_FONT_RATIO = 1.15
+_HEADING_MAX_WORDS = 15
+_FURNITURE_MIN_PAGES = 3
+_FURNITURE_PAGE_FRACTION = 0.05
+
+
+def alnum_count(text: str) -> int:
+    """Count letters and digits. Unaffected by whitespace and dehyphenation."""
+    return sum(ch.isalnum() for ch in text)
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split text into sentences so that `" ".join(result)` equals the normalized text."""
+    normalized = " ".join(text.split())
+    if not normalized:
+        return []
+    sentences: list[str] = []
+    start = 0
+    for match in _SENTENCE_END.finditer(normalized + " "):
+        end = match.end()
+        following = normalized[end : end + 1]
+        if not following:
+            break
+        if not (following.isupper() or following.isdigit() or following in _OPENERS):
+            continue
+        last_word = normalized[start : match.start() + 1].rsplit(" ", 1)[-1].lower()
+        is_initial = len(last_word) == 2 and last_word[0].isalpha()
+        is_list_marker = normalized[start:end].strip() == last_word and last_word[:-1].isdigit()
+        if last_word in _ABBREVIATIONS or is_initial or is_list_marker:
+            continue
+        sentences.append(normalized[start:end].strip())
+        start = end
+    sentences.append(normalized[start:].strip())
+    return sentences
+
+
+def join_lines(lines: list[str]) -> str:
+    """Join PDF lines into text, undoing end-of-line hyphenation."""
+    joined = ""
+    for raw in lines:
+        line = " ".join(raw.split())
+        if not line:
+            continue
+        if joined.endswith(_SOFT_HYPHEN):
+            joined = joined[:-1] + line
+        elif joined.endswith("-") and line[0].islower():
+            joined = joined[:-1] + line
+        else:
+            joined = f"{joined} {line}" if joined else line
+    return " ".join(joined.replace(_SOFT_HYPHEN + " ", "").replace(_SOFT_HYPHEN, "").split())
+
+
+@dataclass
+class _Line:
+    text: str
+    x0: float
+    size: float
+    style: str = ""
+
+
+@dataclass
+class _Block:
+    page: int
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    lines: list[_Line]
+    kind: BookNodeKind = BookNodeKind.PARAGRAPH
+    toc_index: int | None = None
+    last_page: int | None = None  # Set when a paragraph continues onto a later page.
+
+    @property
+    def text(self) -> str:
+        return join_lines([line.text for line in self.lines])
+
+    @property
+    def max_size(self) -> float:
+        return max(line.size for line in self.lines)
+
+    @property
+    def style(self) -> str | None:
+        """The font and color of most of this block's words."""
+        words: Counter[str] = Counter()
+        for line in self.lines:
+            words[line.style] += len(line.text.split())
+        return words.most_common(1)[0][0] or None
+
+
+@dataclass
+class _Builder:
+    doc_id: str
+    nodes: list[BookNode] = field(default_factory=list)
+    seen: Counter[str] = field(default_factory=Counter)
+
+    def add(
+        self,
+        kind: BookNodeKind,
+        parent: str | None,
+        text: str,
+        page_start: int,
+        page_end: int,
+        style: str | None = None,
+    ) -> str:
+        node_id = self._content_id(kind, parent, text)
+        self.nodes.append(
+            BookNode(
+                id=node_id,
+                doc_id=self.doc_id,
+                kind=kind,
+                parent_id=parent,
+                seq=len(self.nodes),
+                text=text,
+                page_start=page_start,
+                page_end=page_end,
+                style=style,
+            )
+        )
+        return node_id
+
+    def _content_id(self, kind: BookNodeKind, parent: str | None, text: str) -> str:
+        """Derive an ID from content, so reprocessing a book reuses the same IDs.
+
+        A paragraph's ID doesn't depend on its position or section, so fixing the decomposer
+        only changes the IDs of text that actually changed. Sentences are scoped to their
+        paragraph. Identical text is told apart by the order it occurs in.
+        """
+        scope = parent if kind == BookNodeKind.SENTENCE else ""
+        digest = hashlib.sha256(" ".join(text.split()).encode()).hexdigest()
+        key = f"{self.doc_id}:{kind.value}:{scope}:{digest}"
+        occurrence = self.seen[key]
+        self.seen[key] += 1
+        if kind == BookNodeKind.BOOK:
+            return str(uuid5(NAMESPACE_URL, f"{self.doc_id}:book"))
+        return str(uuid5(NAMESPACE_URL, f"{key}:{occurrence}"))
+
+
+def _line_style(spans: list[dict[str, Any]]) -> str:
+    """Name the font and color of most of a line's characters."""
+    characters: Counter[str] = Counter()
+    for span in spans:
+        characters[f"{span['font']}|{span['color']}"] += len(span["text"].strip())
+    return characters.most_common(1)[0][0]
+
+
+def _block_from(page: int, bbox: tuple[float, float, float, float], lines: list[_Line]) -> _Block:
+    return _Block(page, bbox[0], bbox[1], bbox[2], bbox[3], lines)
+
+
+def _read_page_blocks(page: fitz.Page, page_num: int) -> tuple[list[_Block], int]:
+    """Read text blocks, splitting a block where an indented line starts a new paragraph."""
+    blocks: list[_Block] = []
+    images = 0
+    for raw in page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)["blocks"]:
+        if raw.get("type", 0) != 0:
+            images += 1
+            continue
+        lines = [
+            _Line(
+                text="".join(span["text"] for span in line["spans"]),
+                x0=line["bbox"][0],
+                size=max(span["size"] for span in line["spans"]),
+                style=_line_style(line["spans"]),
+            )
+            for line in raw["lines"]
+            if line["spans"]
+        ]
+        lines = [line for line in lines if line.text.strip()]
+        if not lines:
+            continue
+        left = min(line.x0 for line in lines)
+        current: list[_Line] = []
+        for line in lines:
+            starts_new = current and line.x0 > left + _INDENT_POINTS and current[-1].text.rstrip().endswith(_TERMINAL)
+            if starts_new:
+                blocks.append(_block_from(page_num, raw["bbox"], current))
+                current = []
+            current.append(line)
+        blocks.append(_block_from(page_num, raw["bbox"], current))
+    return blocks, images
+
+
+def order_blocks(blocks: list[_Block], page_width: float) -> list[_Block]:
+    """Put blocks in reading order: full-width bands split the page into column runs."""
+    ordered: list[_Block] = []
+    band: list[_Block] = []
+
+    def flush_band() -> None:
+        columns: list[float] = []
+        keyed: list[tuple[int, float, _Block]] = []
+        for block in sorted(band, key=lambda b: b.x0):
+            if not columns or block.x0 - columns[-1] > page_width * _COLUMN_GAP_FRACTION:
+                columns.append(block.x0)
+            keyed.append((len(columns) - 1, block.y0, block))
+        ordered.extend(item[2] for item in sorted(keyed, key=lambda k: (k[0], k[1])))
+        band.clear()
+
+    for block in sorted(blocks, key=lambda b: b.y0):
+        if block.x1 - block.x0 >= page_width * _FULL_WIDTH_FRACTION:
+            flush_band()
+            ordered.append(block)
+        else:
+            band.append(block)
+    flush_band()
+    return ordered
+
+
+def _furniture_key(block: _Block) -> str:
+    return re.sub(r"\d+", "#", " ".join(block.text.split()).casefold())
+
+
+def _mark_furniture(pages: list[list[_Block]], heights: list[float]) -> None:
+    """Mark text repeated in the page margins, plus bare page numbers there."""
+    in_margin: list[tuple[_Block, str]] = []
+    seen_on: dict[str, set[int]] = {}
+    for blocks, height in zip(pages, heights, strict=True):
+        for block in blocks:
+            margin = height * _MARGIN_FRACTION
+            if block.y1 <= margin or block.y0 >= height - margin:
+                key = _furniture_key(block)
+                in_margin.append((block, key))
+                seen_on.setdefault(key, set()).add(block.page)
+    threshold = max(_FURNITURE_MIN_PAGES, int(len(pages) * _FURNITURE_PAGE_FRACTION))
+    for block, key in in_margin:
+        if key == "#" or len(seen_on[key]) >= threshold:
+            block.kind = BookNodeKind.FURNITURE
+
+
+def _words_key(text: str) -> str:
+    return re.sub(r"[^\w]+", " ", text.casefold()).strip()
+
+
+def _compact_key(text: str) -> str:
+    """Compare with spaces removed, so letter-spaced 'T h e  E n d' matches 'The End'."""
+    return re.sub(r"[\W_]+", "", text.casefold())
+
+
+def _locate_toc_entries(toc: list[list[Any]], reading: list[_Block]) -> int:
+    """Attach TOC entries to blocks on their own pages. Returns how many titles were found.
+
+    Bookmark order often isn't page order (sidebars get listed out of sequence), so each
+    entry is searched on its own page, with no shared cursor through the book.
+    """
+    by_page: dict[int, list[_Block]] = {}
+    for block in reading:
+        if block.kind != BookNodeKind.FURNITURE:
+            by_page.setdefault(block.page, []).append(block)
+
+    located = 0
+    unlocated: list[int] = []
+    for index, entry in enumerate(toc):
+        match = _find_title_block(entry[1], by_page.get(entry[2] - 1, []))
+        if match is None:
+            unlocated.append(index)
+            continue
+        located += 1
+        match.toc_index = index
+        if _compact_key(match.text) == _compact_key(entry[1]):
+            match.kind = BookNodeKind.HEADING
+    # Title not on the page: start the division at the top of it, if that block is free.
+    for index in unlocated:
+        blocks = by_page.get(toc[index][2] - 1, [])
+        if blocks and blocks[0].toc_index is None:
+            blocks[0].toc_index = index
+    return located
+
+
+def _find_title_block(title: str, blocks: list[_Block]) -> _Block | None:
+    """Find a TOC title among a page's blocks, preferring an exact match over a prefix."""
+    compact = _compact_key(title)
+    words = _words_key(title)
+    if not compact:
+        return None
+    free = [block for block in blocks if block.toc_index is None]
+    for block in free:
+        if compact in (_compact_key(block.text), _compact_key(block.lines[0].text)):
+            return block
+    for block in free:
+        if _words_key(block.text).startswith(words + " "):
+            return block
+    return None
+
+
+def _body_font_size(reading: list[_Block]) -> float:
+    sizes = [line.size for block in reading for line in block.lines for _ in range(max(1, len(line.text)))]
+    return statistics.median(sizes) if sizes else 0.0
+
+
+def _classify_block(block: _Block, body_size: float) -> None:
+    if block.kind != BookNodeKind.PARAGRAPH:
+        return
+    text = block.text
+    words = text.split()
+    single_letters = sum(len(word) == 1 for word in words)
+    if len(words) >= 4 and single_letters >= len(words) * 0.5:
+        block.kind = BookNodeKind.HEADING  # Letter-spaced display type.
+        return
+    if (
+        body_size
+        and block.max_size >= body_size * _HEADING_FONT_RATIO
+        and len(words) <= _HEADING_MAX_WORDS
+        and not text.endswith((".", "!", "?"))
+    ):
+        block.kind = BookNodeKind.HEADING
+        return
+    lines = block.lines
+    if len(lines) >= 3:
+        short = sum(len(line.text.split()) <= 6 for line in lines)
+        numeric = sum(any(ch.isdigit() for ch in line.text) for line in lines)
+        if short >= len(lines) * 0.6 and numeric >= len(lines) * 0.5:
+            block.kind = BookNodeKind.TABLE
+
+
+def decompose_pdf(pdf_bytes: bytes, doc_id: str, title: str) -> BookTree:
+    """Decompose a PDF into a tree where every piece of its text appears exactly once."""
+    doc = _open_pdf(pdf_bytes)
+    try:
+        toc = doc.get_toc(simple=False)
+        pages: list[list[_Block]] = []
+        heights: list[float] = []
+        images = 0
+        no_text = 0
+        extracted = 0
+        for page_num in range(doc.page_count):
+            page = doc[page_num]
+            raw_text = page.get_text("text", flags=fitz.TEXTFLAGS_TEXT)
+            extracted += alnum_count(raw_text)
+            no_text += not raw_text.strip()
+            blocks, page_images = _read_page_blocks(page, page_num)
+            images += page_images
+            pages.append(order_blocks(blocks, page.rect.width))
+            heights.append(page.rect.height)
+        page_total = doc.page_count
+    finally:
+        doc.close()
+
+    _mark_furniture(pages, heights)
+    reading = [block for blocks in pages for block in blocks]
+    located = _locate_toc_entries(toc, reading)
+    body_size = _body_font_size(reading)
+    for block in reading:
+        _classify_block(block, body_size)
+
+    builder = _Builder(doc_id)
+    root = builder.add(BookNodeKind.BOOK, None, title, 0, max(page_total - 1, 0))
+    _build_tree(builder, root, toc, reading)
+    report = _build_report(builder, len(toc), located, page_total, no_text, images)
+    report.alnum_extracted = extracted
+    return BookTree(
+        doc_id=doc_id,
+        title=title,
+        decomposer_version=DECOMPOSER_VERSION,
+        content_hash=hashlib.sha256(pdf_bytes).hexdigest(),
+        nodes=builder.nodes,
+        report=report,
+    )
+
+
+def _build_tree(builder: _Builder, root: str, toc: list[list[Any]], reading: list[_Block]) -> None:
+    """Add every division, then every block in reading order under its division.
+
+    Parents come from TOC nesting and text placement comes from page position, so a
+    bookmark listed out of page order can't drag the text around it to the wrong place.
+    """
+    division_ids: list[str] = []
+    stack: list[tuple[int, str]] = [(0, root)]  # (TOC level, node ID); level 0 is the book.
+    for level, entry_title, page_1indexed, *_ in toc:
+        while stack[-1][0] >= level:
+            stack.pop()
+        page = page_1indexed - 1
+        node = builder.add(BookNodeKind.DIVISION, stack[-1][1], entry_title, page, page)
+        division_ids.append(node)
+        stack.append((level, node))
+
+    current = root
+    open_paragraph: _Block | None = None
+    paragraph_parent = root
+
+    def flush() -> None:
+        nonlocal open_paragraph
+        if open_paragraph is not None:
+            _add_paragraph(builder, paragraph_parent, open_paragraph)
+            open_paragraph = None
+
+    for block in reading:
+        if block.toc_index is not None:
+            flush()
+            current = division_ids[block.toc_index]
+        if block.kind == BookNodeKind.FURNITURE:
+            # Furniture can interrupt a paragraph across pages without ending it.
+            builder.add(block.kind, current, block.text, block.page, block.page)
+        elif block.kind != BookNodeKind.PARAGRAPH:
+            flush()
+            builder.add(block.kind, current, block.text, block.page, block.page)
+        elif open_paragraph is not None and _continues(open_paragraph, block):
+            open_paragraph.lines = open_paragraph.lines + block.lines
+            open_paragraph.last_page = block.page
+            open_paragraph.y1 = block.y1
+        else:
+            flush()
+            paragraph_parent = current
+            open_paragraph = _Block(block.page, block.x0, block.y0, block.x1, block.y1, list(block.lines))
+    flush()
+
+
+def _continues(previous: _Block, following: _Block) -> bool:
+    """True when a paragraph clearly carries on across a block or page break.
+
+    A word in another font, such as an italic "Dune" or a bold game term, can start a new block in
+    the middle of a sentence. It begins with a capital, so the next line must also sit directly
+    below, and the sentence must have stopped on a word that can't end one.
+    """
+    before = previous.text
+    after = following.text
+    if not after or before.endswith(_TERMINAL):
+        return False
+    if after[0].islower():
+        return True
+    last_word = before.split()[-1].casefold() if before.split() else ""
+    return (
+        last_word in _CANNOT_END_SENTENCE
+        and following.page == (previous.last_page or previous.page)
+        and -previous.max_size <= following.y0 - previous.y1 <= previous.max_size * _NEXT_LINE_GAP
+        and following.x0 < previous.x1
+        and previous.x0 < following.x1
+    )
+
+
+def _add_paragraph(builder: _Builder, parent: str, block: _Block) -> None:
+    text = block.text
+    last_page = block.page if block.last_page is None else block.last_page
+    paragraph = builder.add(BookNodeKind.PARAGRAPH, parent, text, block.page, last_page, style=block.style)
+    for sentence in split_sentences(text):
+        builder.add(BookNodeKind.SENTENCE, paragraph, sentence, block.page, last_page)
+
+
+def _build_report(
+    builder: _Builder,
+    toc_entries: int,
+    located: int,
+    page_total: int,
+    no_text: int,
+    images: int,
+) -> DecompositionReport:
+    leaf_kinds = {
+        BookNodeKind.PARAGRAPH,
+        BookNodeKind.TABLE,
+        BookNodeKind.HEADING,
+        BookNodeKind.FURNITURE,
+    }
+    nodes = builder.nodes
+    paragraphs = [n for n in nodes if n.kind == BookNodeKind.PARAGRAPH]
+    sentences = [n for n in nodes if n.kind == BookNodeKind.SENTENCE]
+    return DecompositionReport(
+        pages_total=page_total,
+        pages_without_text=no_text,
+        image_blocks=images,
+        toc_entries=toc_entries,
+        toc_entries_located=located,
+        node_counts=dict(Counter(n.kind.value for n in nodes)),
+        words_total=sum(len(n.text.split()) for n in nodes if n.kind in leaf_kinds),
+        fragment_paragraphs=sum(len(n.text.split()) <= 3 for n in paragraphs),
+        alnum_in_leaves=sum(alnum_count(n.text) for n in nodes if n.kind in leaf_kinds),
+        alnum_in_paragraphs=sum(alnum_count(n.text) for n in paragraphs),
+        alnum_in_sentences=sum(alnum_count(n.text) for n in sentences),
+    )
