@@ -60,9 +60,7 @@ class MongoExtractionLog:
     def append(self, outcome: WindowOutcome) -> None:
         data = outcome.model_dump(mode="json")
         key = hashlib.sha256(outcome.model_dump_json().encode()).hexdigest()[:32]
-        mongodb_upsert_book_records(
-            self.doc_id, BookRecordType.OUTCOME, [BookRecord(key=key, data=data)]
-        )
+        mongodb_upsert_book_records(self.doc_id, BookRecordType.OUTCOME, [BookRecord(key=key, data=data)])
 
     def read(self) -> list[WindowOutcome]:
         return [
@@ -73,18 +71,14 @@ class MongoExtractionLog:
     @contextmanager
     def exclusive(self) -> Iterator[None]:
         """Hold the document's lease, renewing it until the work ends or the process dies."""
-        if not mongodb_acquire_book_lease(
-            self.doc_id, self._owner, self._lease_seconds, now=self._clock()
-        ):
+        if not mongodb_acquire_book_lease(self.doc_id, self._owner, self._lease_seconds, now=self._clock()):
             raise LogBusy(f"Another run is working on document {self.doc_id}")
         stop = threading.Event()
 
         def renew() -> None:
             while not stop.wait(self._lease_seconds / 3):
                 try:
-                    mongodb_acquire_book_lease(
-                        self.doc_id, self._owner, self._lease_seconds, now=self._clock()
-                    )
+                    mongodb_acquire_book_lease(self.doc_id, self._owner, self._lease_seconds, now=self._clock())
                 except Exception as exc:  # noqa: BLE001  # reason: the next renewal retries; a lost lease only risks repeated work, since writes are idempotent
                     log.warning("book_lease_renew_failed", error=str(exc)[:200])
 
@@ -150,12 +144,7 @@ class MongoCoverageLog(_MongoKeyedLog):
         return saved
 
     def append(self, finished: dict[str, list[ParagraphGap]]) -> None:
-        self._write(
-            {
-                key: {"gaps": [gap.model_dump(mode="json") for gap in gaps]}
-                for key, gaps in finished.items()
-            }
-        )
+        self._write({key: {"gaps": [gap.model_dump(mode="json") for gap in gaps]} for key, gaps in finished.items()})
 
 
 def save_tree(tree: BookTree) -> None:
@@ -166,9 +155,7 @@ def save_tree(tree: BookTree) -> None:
         [BookRecord(key=node.id, data=node.model_dump(mode="json")) for node in tree.nodes],
     )
     meta = tree.model_dump(mode="json", exclude={"nodes"})
-    mongodb_upsert_book_records(
-        tree.doc_id, BookRecordType.TREE_META, [BookRecord(key=_TREE_META_KEY, data=meta)]
-    )
+    mongodb_upsert_book_records(tree.doc_id, BookRecordType.TREE_META, [BookRecord(key=_TREE_META_KEY, data=meta)])
 
 
 def load_tree(doc_id: str) -> BookTree | None:
@@ -179,10 +166,7 @@ def load_tree(doc_id: str) -> BookTree | None:
     metas = mongodb_list_book_records(doc_id, BookRecordType.TREE_META)
     if not metas:
         return None
-    nodes = [
-        BookNode.model_validate(record.data)
-        for record in mongodb_list_book_records(doc_id, BookRecordType.NODE)
-    ]
+    nodes = [BookNode.model_validate(record.data) for record in mongodb_list_book_records(doc_id, BookRecordType.NODE)]
     nodes.sort(key=lambda node: node.seq)
     data = metas[0].data
     return BookTree(
@@ -205,10 +189,7 @@ def save_review(doc_id: str, result: ReviewResult) -> None:
     mongodb_upsert_book_records(
         doc_id,
         BookRecordType.LEDGER,
-        [
-            BookRecord(key=entry.claim_id, data=entry.model_dump(mode="json"))
-            for entry in result.ledger
-        ],
+        [BookRecord(key=entry.claim_id, data=entry.model_dump(mode="json")) for entry in result.ledger],
     )
     mongodb_upsert_book_records(
         doc_id,

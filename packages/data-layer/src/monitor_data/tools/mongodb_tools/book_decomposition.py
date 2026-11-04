@@ -26,9 +26,7 @@ def _record_id(doc_id: str, record_type: BookRecordType, key: str) -> str:
     return f"{doc_id}:{record_type.value}:{key}"
 
 
-def mongodb_upsert_book_records(
-    doc_id: str, record_type: BookRecordType, records: Sequence[BookRecord]
-) -> int:
+def mongodb_upsert_book_records(doc_id: str, record_type: BookRecordType, records: Sequence[BookRecord]) -> int:
     """Write records in batches, replacing any with the same key. Returns how many were sent."""
     collection = get_mongodb_client().get_collection(RECORDS_COLLECTION)
     now = datetime.now(UTC)
@@ -65,9 +63,7 @@ def mongodb_delete_book_records(doc_id: str) -> int:
     return int(client.get_collection(RECORDS_COLLECTION).delete_many({"doc_id": doc_id}).deleted_count)
 
 
-def mongodb_acquire_book_lease(
-    doc_id: str, owner: str, ttl_seconds: float, now: datetime | None = None
-) -> bool:
+def mongodb_acquire_book_lease(doc_id: str, owner: str, ttl_seconds: float, now: datetime | None = None) -> bool:
     """Take or renew a document's lease. False means another live owner holds it.
 
     A lease expires by itself, so a crashed worker can't block a document forever.
