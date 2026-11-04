@@ -114,10 +114,18 @@ logger = logging.getLogger(__name__)
 # Override via environment variable MONITOR_MAX_INGEST_FILE_BYTES.
 _MAX_FILE_SIZE_BYTES: int = int(os.environ.get("MONITOR_MAX_INGEST_FILE_BYTES", str(200 * 1024 * 1024)))
 
-# Per-stage timeout for the analyzer (default 180 min). The UI route's 45-minute
-# MONITOR_INGEST_TIMEOUT fires first unless raised, so this mainly guards callers
-# without that job timeout.
+# Per-stage timeout for the analyzer (default 180 min), for callers with no job
+# timeout. Callers that have one pass `analyze_timeout_for_job`, so a wedged provider
+# fails this stage with a clear message before the job timeout hides the reason.
 _ANALYZE_STAGE_TIMEOUT_SECS: int = int(os.environ.get("MONITOR_ANALYZE_TIMEOUT", str(180 * 60)))
+_ANALYZE_JOB_MARGIN_SECS = 5 * 60
+_MIN_ANALYZE_TIMEOUT_SECS = 60
+
+
+def analyze_timeout_for_job(job_timeout_seconds: int) -> int:
+    """Set the analyzer's limit inside a job's limit, leaving time to report the failure."""
+    inside_job = max(job_timeout_seconds - _ANALYZE_JOB_MARGIN_SECS, _MIN_ANALYZE_TIMEOUT_SECS)
+    return min(_ANALYZE_STAGE_TIMEOUT_SECS, inside_job)
 
 
 async def _is_job_cancelled(job_id: UUID) -> bool:
@@ -241,6 +249,7 @@ class IngestionPipeline(BaseAgent):
         content_type: str | None = None,
         reuse_source_id: UUID | None = None,
         reuse_doc_id: UUID | None = None,
+        analyze_timeout_seconds: int | None = None,
     ) -> IngestionJobResponse:
         """
         Ingest a raw file through the full pipeline.
@@ -565,6 +574,7 @@ class IngestionPipeline(BaseAgent):
             # Per-stage guard: the analyzer fans out many LLM calls; a wedged
             # provider should fail *this stage* with a clear message rather than
             # silently riding the 45-minute whole-job timeout.
+            analyze_timeout = analyze_timeout_seconds or _ANALYZE_STAGE_TIMEOUT_SECS
             try:
                 analysis_result = await asyncio.wait_for(
                     self._analyzer.analyze(
@@ -578,11 +588,11 @@ class IngestionPipeline(BaseAgent):
                         analysis_layers=selected_layers,
                         auto_apply=auto_apply,
                     ),
-                    timeout=_ANALYZE_STAGE_TIMEOUT_SECS,
+                    timeout=analyze_timeout,
                 )
             except TimeoutError as exc:
                 raise RuntimeError(
-                    f"Analysis stage timed out after {_ANALYZE_STAGE_TIMEOUT_SECS // 60} "
+                    f"Analysis stage timed out after {analyze_timeout // 60} "
                     "minutes — the LLM provider may be unreachable or overloaded."
                 ) from exc
 

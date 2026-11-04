@@ -50,6 +50,7 @@ def test_paused_or_failed_decomposition_resumes(started, status):
     args = started.call_args.args
     assert args[0] == job.job_id and args[1] == b"pdf" and args[3] == "Book"
     assert args[4] == KnowledgePackType.RULEBOOK
+    assert args[5] == job.source_id
 
 
 @pytest.mark.unit
@@ -149,3 +150,21 @@ def test_deleting_a_source_removes_its_book_progress():
     assert response.status_code == 204
     collections["book_records"].delete_many.assert_called_once_with({"doc_id": {"$in": [str(doc)]}})
     collections["book_leases"].delete_many.assert_called_once_with({"_id": {"$in": [str(doc)]}})
+
+
+@pytest.mark.unit
+def test_deleting_a_source_asks_canonkeeper_to_remove_stored_structure_when_enabled(monkeypatch):
+    monkeypatch.setenv("MONITOR_BOOK_NEO4J", "1")
+    uid, doc = uuid.uuid4(), uuid.uuid4()
+    collections = {}
+    mongo = SimpleNamespace(get_collection=lambda name: collections.setdefault(name, MagicMock()))
+    mongo.get_collection("documents").find.return_value = [{"doc_id": str(doc)}]
+    delete = AsyncMock()
+    with (
+        patch.object(ingest, "get_mongodb_client", return_value=mongo),
+        patch.object(ingest, "neo4j_delete_source"),
+        patch.object(ingest, "get_minio_client"),
+        patch.object(ingest.CanonKeeper, "delete_book_structure", delete),
+    ):
+        assert client.delete(f"/api/ingest/sources/{uid}").status_code == 204
+    delete.assert_awaited_once_with(str(doc))

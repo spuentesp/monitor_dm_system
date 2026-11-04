@@ -27,9 +27,11 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
-from monitor_agents.ingestion.agent import IngestionPipeline
+from monitor_agents.canonkeeper.agent import CanonKeeper
+from monitor_agents.ingestion.agent import IngestionPipeline, analyze_timeout_for_job
 from monitor_agents.ingestion.book_stage import (
     book_decomposition_enabled,
+    book_structure_enabled,
     create_decomposition_job,
     is_decomposition_job,
     run_decomposition_job,
@@ -367,6 +369,7 @@ def _run_ingest_in_thread(
                         content_type=content_type,
                         reuse_source_id=reuse_source_id,
                         reuse_doc_id=reuse_doc_id,
+                        analyze_timeout_seconds=analyze_timeout_for_job(_JOB_TIMEOUT_SECS),
                     )
                 )
 
@@ -464,6 +467,7 @@ def _start_decomposition(
     doc_id: UUID,
     title: str,
     pack_type: Any,
+    source_id: UUID | None = None,
 ) -> None:
     """Run a decomposition on its own worker, outside the ingest slot and its timeout."""
     global _decomposition_executor
@@ -484,6 +488,7 @@ def _start_decomposition(
                     doc_id=doc_id,
                     title=title,
                     pack_type=pack_type,
+                    source_id=source_id,
                 )
             )
         finally:
@@ -504,7 +509,7 @@ def _maybe_start_decomposition(ingest_job: Any, file_bytes: bytes, filename: str
         return
     try:
         job = create_decomposition_job(ingest_job, pack_type)
-        _start_decomposition(job.job_id, file_bytes, ingest_job.doc_id, title, pack_type)
+        _start_decomposition(job.job_id, file_bytes, ingest_job.doc_id, title, pack_type, ingest_job.source_id)
     except Exception:  # noqa: BLE001  # reason: the ingest succeeded; a failed extra stage is logged, not raised
         logger.exception("Could not start book decomposition for '%s'", title)
 
@@ -1004,6 +1009,13 @@ async def delete_source(source_id: str) -> None:
         mongodb.get_collection("book_records").delete_many({"doc_id": {"$in": doc_ids}})
         mongodb.get_collection("book_leases").delete_many({"_id": {"$in": doc_ids}})
 
+    if book_structure_enabled():
+        for doc_id in doc_ids:
+            try:
+                await CanonKeeper(agent_id="book-structure").delete_book_structure(doc_id)
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully; the source delete continues
+                logger.warning("Could not delete book structure for %s: %s", doc_id, exc)
+
     # Remove Neo4j Source node and its relationships
     try:
         neo4j_delete_source(uid)
@@ -1291,7 +1303,7 @@ async def resume_job(job_id: str) -> dict[str, str]:
         raise HTTPException(404, "Source document record not found")
     file_bytes = await get_minio_client().download(doc.minio_ref)
     title = job.source_title.removesuffix(" (decomposition)")
-    _start_decomposition(uid, file_bytes, job.doc_id, title, stored_pack_type(job.doc_id))
+    _start_decomposition(uid, file_bytes, job.doc_id, title, stored_pack_type(job.doc_id), job.source_id)
     return {"job_id": job_id, "status": "running", "message": "Decomposition resumed"}
 
 
