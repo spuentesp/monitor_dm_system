@@ -9,6 +9,7 @@ from __future__ import annotations
 import anyio
 import asyncio
 import logging
+import functools
 import uuid
 from collections import OrderedDict
 from typing import Any
@@ -661,9 +662,13 @@ async def run_end_scene(
             # memories. Best-effort; failure must not break scene transition.
             try:
                 from monitor_data.tools.mongodb_tools import mongodb_forget_stale_memories
+                # anyio's run_sync takes positional args only; bind the keyword-only
+                # story_id with a partial (passing it as kwarg raised TypeError, which
+                # the handler below swallowed, so hygiene silently never ran).
                 forget_count = await anyio.to_thread.run_sync(
-                    mongodb_forget_stale_memories,
-                    story_id=uuid.UUID(story_id),
+                    functools.partial(
+                        mongodb_forget_stale_memories, story_id=uuid.UUID(story_id)
+                    )
                 )
                 if forget_count:
                     logger.info("run_end_scene: forgot %d stale memories", forget_count)

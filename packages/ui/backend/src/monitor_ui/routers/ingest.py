@@ -86,7 +86,7 @@ _ingest_pending_requests: list[dict[str, Any]] = []
 # queue_token. Drains on completion via a done-callback so this stays bounded
 # at "currently running ingests". The thread-executor + asyncio.run model is
 # preserved — only observability + a shutdown hook are added.
-_ingest_futures: dict[str, concurrent.futures.Future] = {}
+_ingest_futures: dict[str, asyncio.Future[Any]] = {}
 
 # Overall job timeout (seconds). Set MONITOR_INGEST_TIMEOUT to override.
 # Default: 45 minutes — enough for the largest PDFs on modest hardware.
@@ -151,8 +151,15 @@ def _interrupt_ingest_runtime(reason: str, *, close_executor: bool) -> dict[str,
     if close_executor and _ingest_executor is not None:
         # Cancel the Futures we registered via loop.run_in_executor(...) so
         # the worker threads finish promptly when the executor shuts down.
-        for fut in _ingest_futures.values():
-            fut.cancel()
+        for token, fut in list(_ingest_futures.items()):
+            try:
+                fut.cancel()
+            except RuntimeError as exc:
+                # asyncio futures schedule their callbacks on their loop; if that
+                # loop is already closed (shutdown after loop teardown) cancel()
+                # raises. The worker is abandoned by cancel_futures below anyway,
+                # so shutdown must carry on instead of crashing.
+                logger.warning("Could not cancel ingest future %s: %s", token, exc)
         _ingest_futures.clear()
         executor = _ingest_executor
         _ingest_executor = None
@@ -815,8 +822,9 @@ async def upload_source(
                         content_type=file.content_type,
                     ),
                 )
-                fut.add_done_callback(lambda f: _ingest_futures.pop(queue_token, None))
-                _ingest_futures[queue_token] = fut
+                if queue_token is not None:
+                    fut.add_done_callback(lambda f: _ingest_futures.pop(queue_token, None))
+                    _ingest_futures[queue_token] = fut
             except Exception as exc:
                 raise HTTPException(500, f"Could not queue ingestion pipeline: {exc}") from exc
         else:
