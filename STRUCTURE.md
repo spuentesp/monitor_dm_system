@@ -96,8 +96,8 @@ packages/agents/
     ├── loops/                 # LangGraph loops: scene_loop.py, story_loop.py,
     │                          #   combat_loop.py, conversation_loop.py,
     │                          #   character_creation_loop.py, session_zero_loop.py,
-    │                          #   progression_loop.py, ingestion_loop.py,
-    │                          #   world_building_loop.py, session_bootstrap.py
+    │                          #   progression_loop.py, world_building_loop.py,
+    │                          #   session_bootstrap.py
     ├── services/              # Persistence and retrieval services
     ├── analyzer/, classifiers/, parsers/
     ├── game_system/           # Game-system (ruleset) support
