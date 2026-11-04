@@ -199,7 +199,9 @@ def mongodb_update_ingestion_job(job_id: UUID, params: IngestionJobUpdate) -> In
         return normalized
 
     fields_set = set(getattr(params, "model_fields_set", set()))
-    update_fields: dict[str, Any] = {}
+    # Any update means the job is alive. The stale-job watchdog reads this, and without it every
+    # job counted as stale once its age passed the limit, however well it was progressing.
+    update_fields: dict[str, Any] = {"stage_last_progress_at": datetime.now(UTC)}
     if params.status is not None:
         update_fields["status"] = params.status.value
     if params.current_stage is not None:
