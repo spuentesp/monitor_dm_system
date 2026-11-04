@@ -1,6 +1,6 @@
 # Book Decomposition Plan
 
-> Status: built into the pipeline behind flags, 2026-11-04. Off by default, and not yet run with live models. See the
+> Status: built into the pipeline behind flags, 2026-11-04. Off by default, with one chapter run on live models so far. See the
 > [implementation plan](BOOK_DECOMPOSITION_IMPLEMENTATION_PLAN.md). The prototype script and Kimi client this document
 > mentions have been removed, so its commands are historical. Its measurements still apply.
 > Use case: [`I-17`](../use-cases/epic-2-ingestion-I/I-17/I-17-specification.md).

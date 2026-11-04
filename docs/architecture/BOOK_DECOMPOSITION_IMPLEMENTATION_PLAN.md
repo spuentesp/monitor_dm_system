@@ -1,7 +1,7 @@
 # Book Decomposition Implementation Plan
 
 > Status: **implemented on branch `feat/book-decomposition-i17`, 2026-11-04**. Storage has run on real MongoDB and
-> Neo4j with scripted models. It hasn't run with live models, because LLM work is paused.
+> Neo4j, and one chapter has run with live models. Claim quality still needs labels.
 > Use case: [`I-17`](../use-cases/epic-2-ingestion-I/I-17/I-17-specification.md).
 > Design and measurements: [Book Decomposition Plan](BOOK_DECOMPOSITION_PLAN.md).
 
@@ -22,6 +22,8 @@ This moves the prototype into the real ingestion pipeline, one file at a time. *
 | **J. Prototype retired** | Kimi client, prototype script and its fixtures deleted | Full suite |
 
 **Full Dune on real MongoDB 7 and Neo4j 5, with scripted models:** all 10,173 sentences covered, 9,909 claims kept, one pack with 4,619 rules and 5,290 lore facts, and 16,975 book nodes written to Neo4j in 2.4 seconds, in 63 seconds overall. A rerun made no extraction or verification calls and created no second pack. This proves the plumbing at full-book size, not claim quality, and real model calls will take far longer.
+
+**First live run (2026-11-04), Chapter 7, pages 198–215, on real MongoDB with Mistral medium extracting and Mistral large reviewing:** all 576 sentences covered, no failed windows, 778 claims reviewed and 683 kept, with 55 merged, 38 sent to a person, 1 set aside as an example and 1 rejected. Extraction used about 122k input and 47k output tokens. The run was cut off by a 10-minute shell limit during review, and the resumed job reused all 778 saved checks and created one pack. It also showed that models write freeform entity types, so all 153 entities had become plain facts, which is now fixed. **Quality isn't measured yet:** 30 of these claims await labels in `out/dune-live-ch7`.
 
 To repeat the storage tests: `RUN_INTEGRATION=1 MONITOR_TEST_MONGO_URI=... MONITOR_TEST_NEO4J_URI=... uv run pytest packages/agents/tests/test_book_real_databases.py`. The Neo4j test connects without a password, so it needs a local server with authentication off. CI doesn't set these variables, so it skips them.
 
@@ -66,11 +68,11 @@ Every step below was checked against the code on 2026-11-04.
 
 ## Outside this plan
 
-These aren't steps here: the plan calls no live model, and it leaves retiring the Analyzer for later.
+These aren't steps here: the plan's steps call no live model, and it leaves retiring the Analyzer for later.
 
 | Item | Why it's separate |
 |---|---|
-| First live run | LLM work is paused at the owner's request, so claim quality is unmeasured |
+| Measuring claim quality | One live chapter has run. Its 30-claim sample needs a person's labels |
 | One pack per book | With the flag on, the Analyzer still runs too, until the fields below are covered or found unnecessary |
 | Short Dune quotes in a public repo | The owner's call |
 

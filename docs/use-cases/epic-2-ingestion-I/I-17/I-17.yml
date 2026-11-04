@@ -10,7 +10,7 @@ status: "in-progress"
 
 summary: |
   Turn a whole book into a traceable graph of sentences and claims, resumable after failure.
-  Built behind MONITOR_BOOK_DECOMPOSITION, off by default. Not yet run with live models.
+  Built behind MONITOR_BOOK_DECOMPOSITION, off by default. One chapter has run with live models; claim quality is not measured yet.
 
 acceptance_criteria:
   - "No extracted text is lost between the PDF and the tree"
