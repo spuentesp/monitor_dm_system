@@ -1,10 +1,48 @@
 # Book Decomposition Implementation Plan
 
-> Status: ready to execute, written 2026-11-04 on branch `feat/book-decomposition-i17`.
+> Status: **implemented on branch `feat/book-decomposition-i17`, 2026-11-04**, apart from the decisions listed
+> under [What's left](#whats-left). Not yet run with live models or a real MongoDB.
 > Use case: [`I-17`](../use-cases/epic-2-ingestion-I/I-17/I-17-specification.md).
 > Design and measurements: [Book Decomposition Plan](BOOK_DECOMPOSITION_PLAN.md).
 
 This moves the prototype into the real ingestion pipeline, one file at a time. **No step calls a live model.** Tests use scripted models, and PDF work is measured directly from the PDF.
+
+## What was built
+
+| Phase | Result | Measured or tested |
+|---|---|---|
+| **B. PDF reader** | `extract_pdf_structure` reads through the book tree | On Dune: section text from 5.01× the book to about 1×, chunks from 3,730 to 889, all 19,630 lines accounted for, including 102 the old reader lost before the first bookmark |
+| **C. Analyzer sampling** | Reads all matches, then an even, repeatable sample, and logs truncation | 9 sampler tests. Chunks reaching the model are still capped at 512 |
+| **D. Small fixes** | Audit doc and timeout comment corrected, and the unused loop, triage, mechanics and vision code plus a stale artifact removed | Full suite |
+| **E. Storage** | `book_records` and `book_leases`, with MongoDB backends for outcomes, checks, coverage, trees and reviews | Mongomock tests, including resume and leases |
+| **F. Pipeline stage** | A separate background job behind `MONITOR_BOOK_DECOMPOSITION`, with pause, resume, cancel and UI progress | Backend and frontend tests. 40 Dune pages ran through the real service with scripted models |
+| **G. Packs** | Reviewed claims become one review-ready pack with evidence. Rules go in `game_system_data.rules` | Mapper tests. The pack path is covered by the service tests |
+| **H. Code checks** | Ruled tables, titles inside text, examples past sidebars, sample-character and book-description checks, and verb false alarms | On Dune: fragments from 1,055 to 766, empty divisions from 33 to 27, no text lost. On saved claims: the 2 sample-character claims and 4 book descriptions are caught |
+| **I. Graph** | `domain` on claims, stored rules and lore trees, a graph step behind `MONITOR_BOOK_GRAPH`, and graph search removed. **The Neo4j loader wasn't built** (see What's left) | Scripted model tests |
+| **J. Prototype retired** | Kimi client, prototype script and its fixtures deleted | Full suite |
+
+Full-book timing on Dune without a database: tree in 45 seconds, and review bookkeeping over 10,173 scripted claims in 19 seconds.
+
+**Changes from the plan below:**
+
+- **Storage (E):** one `book_records` collection with typed records, instead of one collection per type.
+- **Not MCP tools (E3, E4):** the MongoDB storage functions aren't exported, so they need no auth entries.
+- **Separate job (F4, F5):** decomposition runs as its own job after the normal ingest, on its own worker, instead of as a stage inside `ingest_file`. So the Analyzer still runs and its pack still exists. A book gets two packs for now.
+- **Book with no bookmarks (H3):** already handled by font-detected headings in B2, so this needed no more code.
+- **File logs (J3):** `ExtractionLog` and `CheckLog` stay, because tests and `scripts/answer_key_sheet.py` use them. The sheet can only read existing output folders until something writes that format again.
+- **Neo4j (I4):** not built. A draft loader tripped three guard tests that say only CanonKeeper writes to Neo4j, apart from a named list of exceptions. Adding it to that list would change a project rule, so it was removed and stays blocked. Book structure and graphs are stored in MongoDB meanwhile.
+- **Paragraph check:** with Kimi gone, it uses the review model and is off by default behind `MONITOR_BOOK_COVERAGE`, because Mistral was noisy at it.
+
+## What's left
+
+| Item | Who | Note |
+|---|---|---|
+| Neo4j loader (I4) | **You** | Needs your decision: widen "only CanonKeeper writes Neo4j" to "only CanonKeeper writes canon", in `AGENTS.md` and the guard tests' exception list. Then it's a small change |
+| Analyzer timeout (D2) | **You** | Check real job durations. Only the comment changed |
+| First live run | **You to start LLM work again** | Live models and a real MongoDB are untested |
+| Two packs per book (G4) | Later | See below |
+
+**Fields only the Analyzer fills today (G4):** `random_tables`, `agendas`, `topologies`, `character_profiles`, `generation_templates`, `tone_profiles`, `plot_threads`, `entity_relationships`, chunk and section summaries, `source_mindscape`, `source_profile_data`, and the structured game system: attributes, skills, resources, tracks, conditions and the rest. Decomposition fills `axioms`, `lore_facts`, simple `entity_archetypes` and `game_system_data.rules`. So the Analyzer can't be retired for books until these are covered or found unnecessary.
 
 ## How to execute this
 

@@ -10,7 +10,7 @@ status: "in-progress"
 
 summary: |
   Turn a whole book into a traceable graph of sentences and claims, resumable after failure.
-  Prototype: runs from a script and isn't connected to IngestionPipeline yet.
+  Built behind MONITOR_BOOK_DECOMPOSITION, off by default. Not yet run with live models.
 
 acceptance_criteria:
   - "No extracted text is lost between the PDF and the tree"
