@@ -8,7 +8,7 @@ import dspy
 logger = logging.getLogger(__name__)
 
 
-class ExtractMechanics(dspy.Signature):
+class ExtractMechanics(dspy.Signature):  # type: ignore[misc]  # dspy is untyped (Any base)
     """Extract mechanical TTRPG rules from text into structured JSON."""
     
     text: str = dspy.InputField(desc="A chunk of text from a TTRPG rulebook containing mechanics or hybrid rules.")

@@ -2331,7 +2331,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         data = self._parse_tool_result(result)
         for entity in data.get("entities", []):
             if (entity.get("name") or "").strip().lower() == target:
-                return entity["id"]
+                return str(entity["id"])
         return None
 
     def _store_runtime_ref_on_proposal(

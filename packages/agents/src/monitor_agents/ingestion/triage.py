@@ -1,6 +1,6 @@
 import dspy
 
-class TriageTag(dspy.Signature):
+class TriageTag(dspy.Signature):  # type: ignore[misc]  # dspy is untyped (Any base)
     """Classify a chunk of a TTRPG rulebook into one or more categories."""
     
     text: str = dspy.InputField(desc="A chunk of text from a TTRPG rulebook.")

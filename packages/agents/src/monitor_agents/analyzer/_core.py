@@ -3343,10 +3343,10 @@ class Analyzer(BaseAgent):
                 rescued = rescue_result.relationships or []
                 # Deduplicate against the main batch results.
                 for r in rescued:
-                    key = (r.from_entity, r.to_entity)
-                    if key not in all_rels_keys and r.from_entity in rescue_names:
+                    rel_key = (r.from_entity, r.to_entity)
+                    if rel_key not in all_rels_keys and r.from_entity in rescue_names:
                         all_rels.append(r)
-                        all_rels_keys.add(key)
+                        all_rels_keys.add(rel_key)
             except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _run_batch)
                 logger.warning("Orphan rescue pass failed for '%s': %s", source_name, exc)
 
