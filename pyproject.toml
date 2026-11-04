@@ -49,6 +49,7 @@ dev = [
     "hypothesis>=6.0.0",
     "pytest-cov>=7.1.0",
     "pytest-timeout>=2.3",
+    "pytest-xdist>=3.5",
     "pytest-socket>=0.7",
     "cosmic-ray>=8.0",
     "inline-snapshot>=0.20",

@@ -14,12 +14,13 @@ layer: 0
 
 | Gate | State |
 |------|-------|
-| Unit/integration suite | ~5,900 tests, hermetic (no keys/network), ~5 min — `uv run pytest packages tests -q` |
+| Unit/integration suite | 8,363 passed, 226 skipped (2026-11-03), hermetic (no keys/network), ~5.5 min with `-n auto` — `uv run pytest packages tests -q -n auto` |
 | E2E (full stack) | 147 tests incl. three mode walkthroughs — `RUN_E2E=1 RUN_INTEGRATION=1 uv run pytest tests/e2e -q --timeout=300` |
-| Lint / format | `uv run ruff check packages` / `uv run ruff format packages` |
-| Types | `uv run mypy packages/*/src --cache-dir /tmp/mypy-cache` (strict) |
+| Lint / format | `uv run ruff check packages scripts` (incl. BLE001/S110/S112/E722) / `uv run ruff format packages` |
+| Types | `uv run mypy packages/data-layer/src packages/agents/src packages/cli/src packages/ui/backend/src --cache-dir /tmp/mypy-cache` (strict) |
 | Layer boundaries | `python scripts/check_layer_dependencies.py` |
-| Mutation testing | **Removed** — cosmic-ray hangs on the async stack; claims formally dropped (T-017) |
+| Mutation testing | **Local only, not in CI** (workflows removed 2026-11-03 as too costly) — `make test-mutation` / `scripts/mutation_diff.py --base <ref>`; allowlist in `scripts/mutation_allowlist.toml`. No mutation score is claimed (T-017 stands). |
+| Sealed suites | `tests/verification/**` and `tests/property/**` guarded by `scripts/sealed_suite_guard.py` + CODEOWNERS; changes need the maintainer `sealed-override` label |
 | Live LLM-vs-LLM playtests | `scripts/live_llm_gm_vs_player_test.py`; transcripts in `docs/testing/live_gm_vs_player/` |
 
 ## Live smoke
@@ -29,6 +30,15 @@ Live multi-world verification 2026-07-23: three 9-turn LLM-GM-vs-LLM-player sess
 (Fallout 2d20, VtM V20, Death in Space) against the real chat API — 0 errors; transcripts
 in `docs/testing/live_gm_vs_player/`. Server-authoritative tap-to-roll and
 auto-roll-and-weave live-verified the same day.
+
+## Hardening (2026-10-16/17)
+
+Anti-reward-hacking program (spec: `docs/superpowers/specs/2026-10-16-anti-reward-hacking-design.md`):
+sealed T_test suites, diff-scoped mutation gate (process-group kill on timeout,
+line-anchored allowlist), DST suite with tool/node invocation-topology counters,
+~500 blind-`except` sites annotated or narrowed, and six pre-existing failures fixed
+(raw-UUID MCP args, invalid `fact_type`, CanonKeeper write-tool parity, test doubles).
+2026-11-02: strict mypy back to zero errors; CI lint scope now `packages scripts`.
 
 ## Shipped (verified 2026-07-23)
 
@@ -265,7 +275,7 @@ target is < 40s per turn, which current performance meets.** No active work.
 
 ## Deferred (formal)
 
-- Mutation testing (tooling incompatible with async stack).
+- Whole-repo mutation score (tooling incompatible with async stack; only the local diff check exists).
 - Autonomous PC (see gap 7).
 - Latency optimization (see above).
 

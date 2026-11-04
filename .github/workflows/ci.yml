@@ -3,26 +3,32 @@ name: CI
 on:
   push:
     branches: [master, main]
+    paths-ignore: ["docs/**", "**/*.md"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lint:
+  static:
+    name: Lint, layers, types
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.11"
+          enable-cache: true
       - run: uv sync --frozen || uv sync
       - name: Ruff
-        run: uv run ruff check packages
+        run: uv run ruff check packages scripts
       - name: Layer boundaries
         run: uv run python scripts/check_layer_dependencies.py
+      - name: mypy (strict, zero-error baseline)
+        run: uv run mypy packages/data-layer/src packages/agents/src packages/cli/src packages/ui/backend/src --cache-dir /tmp/mypy-cache
 
   sealed-suite-guard:
     name: Sealed-suite guard (T_test)
@@ -44,32 +50,27 @@ jobs:
           git show "${BASE_SHA}:scripts/sealed_suite_guard.py" > /tmp/sealed_suite_guard_base.py
           python3 /tmp/sealed_suite_guard_base.py --base "${BASE_SHA}" ${ALLOW}
 
-  typecheck:
+  tests:
+    name: Hermetic test suite
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # Informational until the strict-mypy backlog is cleared (FINAL_FABLE T-020+)
-    continue-on-error: true
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.11"
+          enable-cache: true
       - run: uv sync --frozen || uv sync
-      - name: mypy
-        run: uv run mypy packages/data-layer/src packages/agents/src --cache-dir /tmp/mypy-cache
-
-  unit-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.11"
-      - run: uv sync --frozen || uv sync
-      - name: Hermetic unit suite (no network, fake keys — enforced by conftest.py)
-        run: uv run pytest packages tests -q --tb=short -p no:cacheprovider --cov=packages --cov-branch --cov-report=xml --cov-report=term-missing
+      # No network, fake keys (enforced by conftest.py). Includes tests/contracts,
+      # tests/property, tests/behavior and tests/verification.
+      - name: Tests
+        if: github.event_name != 'push'
+        run: uv run pytest packages tests -q --tb=short -p no:cacheprovider -n auto
+      - name: Tests with coverage (master pushes only; branch coverage is slow)
+        if: github.event_name == 'push'
+        run: uv run pytest packages tests -q --tb=short -p no:cacheprovider -n auto --cov=packages --cov-branch --cov-report=xml
       - name: Upload coverage to Codecov
+        if: github.event_name == 'push'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

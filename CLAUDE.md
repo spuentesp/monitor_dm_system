@@ -23,8 +23,8 @@
 - Sealed suites: never modify or delete `tests/verification/**` or `tests/property/**`
   (T_test). CI blocks it via `scripts/sealed_suite_guard.py`; only a maintainer applying
   the `sealed-override` label can land such changes. Never weaken asserts or hardcode
-  responses to turn tests green — the mutation gate (`scripts/mutation_diff.py`) rejects
-  survivors on changed lines.
+  responses to turn tests green — the local mutation check (`scripts/mutation_diff.py`, not run in CI)
+  flags survivors on changed lines.
 
 ## Forbidden Patterns (From AGENTS.md)
 

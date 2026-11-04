@@ -4,22 +4,14 @@
 
 <!-- CI / build -->
 [![CI](https://github.com/spuentesp/monitor_dm_system/actions/workflows/ci.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/ci.yml)
-[![Nightly Integration](https://github.com/spuentesp/monitor_dm_system/actions/workflows/nightly-integration.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/nightly-integration.yml)
-[![Contract Tests](https://github.com/spuentesp/monitor_dm_system/actions/workflows/contract-tests.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/contract-tests.yml)
-[![Property Tests](https://github.com/spuentesp/monitor_dm_system/actions/workflows/property-tests.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/property-tests.yml)
-[![Behavior Tests](https://github.com/spuentesp/monitor_dm_system/actions/workflows/behavior-tests.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/behavior-tests.yml)
-[![Mutation Tests](https://github.com/spuentesp/monitor_dm_system/actions/workflows/mutation.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/mutation.yml)
+[![Weekly Integration](https://github.com/spuentesp/monitor_dm_system/actions/workflows/nightly-integration.yml/badge.svg)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/nightly-integration.yml)
 <!-- Coverage — activate after signing up at codecov.io and adding CODECOV_TOKEN secret -->
 [![codecov](https://codecov.io/gh/spuentesp/monitor_dm_system/branch/master/graph/badge.svg)](https://codecov.io/gh/spuentesp/monitor_dm_system)
-<!-- Mutation score — activate after creating a Gist and adding GIST_TOKEN + MUTATION_GIST_ID secrets (see docs/contributing/BADGES.md) -->
-[![Mutation Score](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/spuentesp/386eae7028a78258f28a73b498f48f31/raw/mutation-score.json)](https://github.com/spuentesp/monitor_dm_system/actions/workflows/mutation.yml)
 
 <!-- Stack & meta -->
 ![Python 3.11](https://img.shields.io/badge/python-3.11-blue?logo=python&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-5%2C900%2B-brightgreen)
-![Contract Tests](https://img.shields.io/badge/contracts-deal-blueviolet)
+![Tests](https://img.shields.io/badge/tests-8%2C300%2B-brightgreen)
 ![Property Tests](https://img.shields.io/badge/property--based-hypothesis-orange)
-![Mutation Tested](https://img.shields.io/badge/mutation--tested-cosmic--ray-red)
 ![License: AGPL](https://img.shields.io/badge/license-AGPL-lightgrey)
 
 **An Auto-GM system for tabletop RPGs and narrative games, built on a data-first, canonization-driven architecture.**
@@ -106,7 +98,7 @@ uv run monitor playtest live --turns 3     # scripted live session via CLI
 ### 4. Run the test suite (hermetic — no keys, no network)
 
 ```bash
-uv run pytest packages tests -q            # ~5,900 tests, < 6 minutes
+uv run pytest packages tests -q -n auto         # ~8,300 tests, ~6 minutes with -n auto
 RUN_E2E=1 RUN_INTEGRATION=1 uv run pytest tests/e2e -q --timeout=300  # full-stack e2e
 ```
 
