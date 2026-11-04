@@ -28,6 +28,14 @@ _NUMBER_WORDS = {
 _NUMBER = re.compile(r"\b(\d+|" + "|".join(_NUMBER_WORDS) + r")\b", re.IGNORECASE)
 _OVERSTUFFED_WORDS_ADDED = 25
 _COMBINED_WORDS_ADDED = 12
+_MIN_STEM = 3
+_BOOK_DESCRIPTION = re.compile(
+    r"^(?:(?:this|the following|the next|the previous|that)\s+(?:section|chapter|page|sidebar|table)\b"
+    r"|(?:see|refer to)\s+(?:page|chapter|the\s+section)\b)"
+    r"|\b(?:described|explained|detailed|covered)\s+(?:later|earlier|below|above)\b"
+    r"|\b(?:later|earlier)\s+in\s+this\s+(?:chapter|section|book)\b",
+    re.IGNORECASE,
+)
 _CLOSE_MATCH = 0.4
 _COMMON_WORDS = frozenset("a an the is are of to in and or for with using use it its this that be can may".split())
 _NAME = re.compile(r"(?<=[a-z,] )[A-Z][a-z]{2,}\b")
@@ -56,13 +64,24 @@ def check_numbers(statement: str, source: str) -> list[ClaimFlag]:
     return [ClaimFlag(Flag.NUMBER_NOT_IN_SOURCE, str(n)) for n in sorted(missing)]
 
 
+def _word_forms(word: str) -> set[str]:
+    """A capitalized verb such as "Keeps" is the same word as "Keep" in the source."""
+    lower = word.casefold()
+    forms = {lower}
+    for ending in ("s", "es", "ed", "ing"):
+        stem = lower.removesuffix(ending)
+        if stem != lower and len(stem) >= _MIN_STEM:
+            forms.add(stem)
+    return forms
+
+
 def check_names(statement: str, source: str, heading: str = "") -> list[ClaimFlag]:
     """Flag a mid-sentence capitalized name that neither the source nor its heading contains."""
     known = f"{source} {heading}".casefold()
     return [
         ClaimFlag(Flag.NAME_NOT_IN_SOURCE, name)
         for name in sorted(set(_NAME.findall(statement)))
-        if name.casefold() not in known
+        if not any(form in known for form in _word_forms(name))
     ]
 
 
@@ -91,6 +110,11 @@ def closely_matches(statement: str, cited_sentences: str) -> bool:
 
 def _meaningful_words(text: str) -> set[str]:
     return set(re.findall(r"[a-z]+", text.casefold())) - _COMMON_WORDS
+
+
+def describes_the_book(statement: str) -> bool:
+    """True when a claim is about the book's layout, not about the game or the setting."""
+    return bool(_BOOK_DESCRIPTION.search(statement.strip()))
 
 
 def combines_rules(longest_member: str, canonical: str) -> bool:

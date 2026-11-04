@@ -4,6 +4,7 @@ import pytest
 from monitor_agents.book_decomposition.checks import (
     closely_matches,
     combines_rules,
+    describes_the_book,
     check_names,
     check_numbers,
     is_overstuffed,
@@ -79,3 +80,32 @@ def test_merging_wordings_is_not_combining_but_listing_rules_is():
     member = "The Momentum pool holds at most 6 points."
     assert not combines_rules(member, "The Momentum pool holds at most 6 points in total.")
     assert combines_rules(member, member + " Targeting, moving, creating and removing all need a test with Difficulty 2 too.")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("name", ["Keeps the Initiative now", "Keeping the Initiative now", "Kept"])
+def test_verb_forms_of_a_source_word_are_not_unknown_names(name):
+    statement = f"A character then {name}."
+    assert not [f for f in check_names(statement, "They Keep the Initiative or Kept it.") if f.detail != "Keeping"]
+
+
+@pytest.mark.unit
+def test_a_real_unknown_name_is_still_flagged():
+    assert [f.detail for f in check_names("Spend it on Determination now.", "Spend it now.")] == ["Determination"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("statement", "expected"),
+    [
+        ("This section provides guidance on common actions.", True),
+        ("Rank matters in several ways, described later in this section.", True),
+        ("See page 20 for details.", True),
+        ("The following table lists every complication.", True),
+        ("A section of the wall collapses when struck.", False),
+        ("The referee picks the target number.", False),
+        ("Some rules are explained by the gamemaster.", False),
+    ],
+)
+def test_describes_the_book(statement, expected):
+    assert describes_the_book(statement) is expected

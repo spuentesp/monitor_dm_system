@@ -19,6 +19,7 @@ from monitor_agents.book_decomposition.review import (
     format_for_stacking,
     format_for_verification,
     quantity_clusters,
+    sample_character_names,
     restrict_to_pages,
     review_claims,
     terms_not_fully_compared,
@@ -993,3 +994,73 @@ async def test_stopping_the_run_still_saves_paragraph_checks_in_progress(tmp_pat
     with pytest.raises(RunStopped):
         await review_claims(tree, [outcome], Stopping(), coverage_log=log, coverage_batch_size=1)
     assert len(log.read()) == 1
+
+
+SIDEBAR_STYLE = "Book|white"
+
+
+@pytest.mark.unit
+def test_example_resumes_after_a_boxed_sidebar_on_the_next_page():
+    tree = _styled_tree([
+        (PARA, BODY, BODY_STYLE),
+        (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
+        (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
+        (BookNodeKind.HEADING, "Overview", None),
+        (PARA, "A sidebar with its own steps.", SIDEBAR_STYLE),
+        (PARA, "Tobin also wears a cloak.", EXAMPLE_STYLE),
+    ])
+    resumed = next(n for n in tree.nodes if n.id == "p5")
+    resumed.page_start = resumed.page_end = 3  # The page after the labeled example.
+    assert "p5" in example_continuations(tree)
+
+
+@pytest.mark.unit
+def test_body_text_ends_an_example_even_after_a_sidebar():
+    tree = _styled_tree([
+        (PARA, BODY, BODY_STYLE),
+        (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
+        (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
+        (PARA, "A sidebar with its own steps.", SIDEBAR_STYLE),
+        (PARA, BODY, BODY_STYLE),
+        (PARA, "A quote in the example style.", EXAMPLE_STYLE),
+    ])
+    assert "p5" not in example_continuations(tree)
+
+
+def _names_tree() -> BookTree:
+    rows = [(PARA, BODY, BODY_STYLE)]
+    rows += [(PARA, f"Example: Mira rolls and Momentum is spent {i}.", EXAMPLE_STYLE) for i in range(4)]
+    rows += [(PARA, "Players spend Momentum and the momentum pool grows.", BODY_STYLE)]
+    return _styled_tree(rows)
+
+
+@pytest.mark.unit
+def test_sample_names_come_from_examples_and_exclude_ordinary_words():
+    tree = _names_tree()
+    names = sample_character_names(tree, example_continuations(tree))
+    assert "Mira" in names
+    assert "Momentum" not in names  # Also written in lowercase.
+
+
+@pytest.mark.unit
+async def test_kept_claim_naming_a_sample_character_goes_to_a_person():
+    tree = _names_tree()
+    statement = "Mira holds several useful assets."
+    outcome = _outcome(_item(statement, 0))
+    result = await review_claims(tree, [outcome], _Model(), check_coverage=False)
+    assert _status(result, statement) == ClaimStatus.NEEDS_HUMAN
+    assert "Mira" in next(e.reason for e in result.ledger)
+
+
+@pytest.mark.unit
+async def test_claim_that_describes_the_book_is_rejected():
+    statement = "This section provides guidance on common actions."
+    result = await review_claims(_tree([statement]), [_outcome(_item(statement, 0))], _Model())
+    assert _status(result, statement) == ClaimStatus.REJECTED
+
+
+@pytest.mark.unit
+async def test_gap_that_describes_the_book_is_not_made_into_a_claim():
+    gap = CoverageGap(label="P1", missing="This section provides guidance.", quote="the gamemaster may veto them")
+    result = await review_claims(_tree([VETO]), [_outcome(_item("Players may add traits.", 0))], _Model(gaps=[gap]))
+    assert result.report.claims_from_gaps == 0

@@ -49,6 +49,7 @@ from monitor_agents.book_decomposition.checks import (
     check_numbers,
     closely_matches,
     combines_rules,
+    describes_the_book,
     is_overstuffed,
     quote_is_in,
     unresolved_flags,
@@ -68,6 +69,9 @@ _QUANTITY = re.compile(r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|t
 _MID_SENTENCE_NAME = re.compile(r"(?<=[a-z,] )[A-Z][a-z]{2,}\b")
 _QUANTITY_OVERLAP = 2
 _COVERAGE_BATCH = 8
+_MAX_SIDEBAR_PAGES = 1
+_MIN_NAME_USES = 3
+_MAX_NAME_USE_OUTSIDE = 0.4
 _MIN_LABELED = 2  # One labeled paragraph in a style could be a coincidence.
 _LAYOUT_NOTE = (
     "NOTE: this source continues a worked example, though it has no label. Use verdict=example "
@@ -96,6 +100,7 @@ class Claim:
     section_text: str = ""  # The whole section, where a name a claim resolved was given.
     cited_text: str = ""
     paragraph_ids: tuple[str, ...] = ()
+    sample_names: frozenset[str] = frozenset()
 
 
 def _claim_id(atom: ProvenancedAtom) -> str:
@@ -162,26 +167,67 @@ def example_continuations(tree: BookTree) -> set[str]:
     found: set[str] = set()
     run_style: str | None = None
     run_parent: str | None = None
+    run_page = 0
+    interrupted = False  # A heading or a new section passed, which usually ends a passage.
+    sidebar_passed = False  # But a boxed sidebar can sit in the middle of an example.
     for node in tree.nodes:
         if node.kind in (BookNodeKind.SENTENCE, BookNodeKind.FURNITURE):
             continue
         if node.kind != BookNodeKind.PARAGRAPH:
-            run_style = None  # A heading or table ends the passage.
+            interrupted = True
         elif _starts_example(node.text):
             usable = node.style != body_style and labeled_styles[node.style or ""] >= _MIN_LABELED
             run_style = node.style if usable else None
-            run_parent = node.parent_id
-        elif run_style and node.style == run_style and node.parent_id == run_parent:
-            found.add(node.id)
+            run_parent, run_page = node.parent_id, node.page_end
+            interrupted = sidebar_passed = False
+        elif run_style and node.style == run_style:
+            same_place = node.parent_id == run_parent and not interrupted
+            resumes = sidebar_passed and node.page_start - run_page <= _MAX_SIDEBAR_PAGES
+            if same_place or resumes:
+                found.add(node.id)
+                run_parent, run_page = node.parent_id, node.page_end
+                interrupted = sidebar_passed = False
+            else:
+                run_style = None
+        elif node.style == body_style:
+            run_style = None  # Back in the main text, so the example is over.
         else:
-            run_style = None
+            sidebar_passed = True
     return found
+
+
+def sample_character_names(tree: BookTree, continuations: set[str]) -> frozenset[str]:
+    """Find names that belong to a book's worked examples, using how the book itself uses them.
+
+    A name counts when it's never written in lowercase, as "The" is, and nearly always appears
+    inside examples.
+    """
+    in_examples: Counter[str] = Counter()
+    elsewhere: Counter[str] = Counter()
+    lowercase: set[str] = set()
+    for node in tree.nodes:
+        if node.kind != BookNodeKind.PARAGRAPH:
+            continue
+        is_example = _starts_example(node.text) or node.id in continuations
+        for word in re.findall(r"[A-Za-z]{3,}", node.text):
+            if word[0].isupper() and word[1:].islower():
+                (in_examples if is_example else elsewhere)[word] += 1
+            elif word.islower():
+                lowercase.add(word)
+    return frozenset(
+        name
+        for name, count in in_examples.items()
+        if count >= _MIN_NAME_USES
+        and name.casefold() not in lowercase
+        and elsewhere[name] <= count * _MAX_NAME_USE_OUTSIDE
+    )
 
 
 def build_claims(tree: BookTree, outcomes: Iterable[WindowOutcome]) -> list[Claim]:
     """Attach full source paragraphs to atoms in reading order, dropping exact repeats."""
     by_id = {node.id: node for node in tree.nodes}
     continuations = example_continuations(tree)
+    sample_names = sample_character_names(tree, continuations)
     nearest = _nearest_headings(tree)
     sections: dict[str | None, list[str]] = defaultdict(list)
     for node in tree.nodes:
@@ -222,6 +268,7 @@ def build_claims(tree: BookTree, outcomes: Iterable[WindowOutcome]) -> list[Clai
                 section_text=context,
                 cited_text=cited,
                 paragraph_ids=tuple(paragraphs),
+                sample_names=sample_names,
             )
     seq = {node.id: node.seq for node in tree.nodes}
     return sorted(claims.values(), key=lambda c: seq[c.source_node_ids[0]])
@@ -873,6 +920,8 @@ def claims_from_gaps(tree: BookTree, gaps: Sequence[ParagraphGap]) -> list[Claim
     nearest = _nearest_headings(tree)
     claims: dict[str, Claim] = {}
     for gap in gaps:
+        if describes_the_book(gap.missing):
+            continue
         paragraph = by_id[gap.paragraph_id]
         children = sentences[paragraph.id]
         holding = [s for s in children if quote_is_in(s.text, gap.quote)]
@@ -903,11 +952,21 @@ def _kept(claim: Claim, statement: str, status: ClaimStatus, reason: str) -> _Wo
 
     A model's approval can't outrank this, and neither can its correction. So a person decides.
     """
+    if describes_the_book(statement):
+        return _Working(claim, statement, ClaimStatus.REJECTED, "filler: describes the book, not the game")
     source = f"{claim.source_text} {claim.heading}"
     doubts = unresolved_flags(statement, source, claim.section_text or source)
     if doubts:
         details = ", ".join(item.detail for item in doubts)
         return _Working(claim, statement, ClaimStatus.NEEDS_HUMAN, f"Not in the source: {details}. {reason}")
+    names = set(re.findall(r"[A-Za-z]{3,}", statement)) & claim.sample_names
+    if names:
+        return _Working(
+            claim,
+            statement,
+            ClaimStatus.NEEDS_HUMAN,
+            f"Names a sample character from the book's examples: {', '.join(sorted(names))}. {reason}",
+        )
     if is_overstuffed(claim.atom.statement, statement):
         return _Working(
             claim,
