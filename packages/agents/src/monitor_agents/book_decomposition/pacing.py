@@ -33,8 +33,6 @@ log = structlog.get_logger()
 _INITIAL_BACKOFF_SECONDS = 15.0
 _MAX_BACKOFF_SECONDS = 300.0
 _RUN_ENDING_TEXT = (
-    "hit your usage limit",
-    "reached your 5-hour usage limit",
     "usage limit reached",
     "usage limit exceeded",
     "insufficient balance",
