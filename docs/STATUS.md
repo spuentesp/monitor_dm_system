@@ -33,7 +33,7 @@ auto-roll-and-weave live-verified the same day.
 
 ## Book decomposition (I-17, 2026-11-04)
 
-The PDF reader now uses a lossless book tree, for all uploads. On Dune, sections went from 5× the book's text to about 1×, and chunks from 3,730 to 889. The Analyzer's sample is now repeatable and spans the book. Decomposition itself is off by default: `MONITOR_BOOK_DECOMPOSITION=1` runs it as a resumable background job. `MONITOR_BOOK_COVERAGE` and `MONITOR_BOOK_GRAPH` add optional steps. It hasn't run with live models yet. See [the implementation plan](architecture/BOOK_DECOMPOSITION_IMPLEMENTATION_PLAN.md).
+The PDF reader now uses a lossless book tree, for all uploads. On Dune, sections went from 5× the book's text to about 1×, and chunks from 3,730 to 889. The Analyzer's sample is now repeatable and spans the book. Decomposition itself is off by default: `MONITOR_BOOK_DECOMPOSITION=1` runs it as a resumable background job. `MONITOR_BOOK_COVERAGE`, `MONITOR_BOOK_GRAPH` and `MONITOR_BOOK_NEO4J` add optional steps. Storage has run on real MongoDB and Neo4j, but nothing has run with live models yet. See [the implementation plan](architecture/BOOK_DECOMPOSITION_IMPLEMENTATION_PLAN.md).
 
 ## Hardening (2026-10-16/17)
 

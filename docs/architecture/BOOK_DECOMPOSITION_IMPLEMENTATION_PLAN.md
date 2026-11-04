@@ -1,7 +1,7 @@
 # Book Decomposition Implementation Plan
 
-> Status: **implemented on branch `feat/book-decomposition-i17`, 2026-11-04**, apart from the decisions listed
-> under [What's left](#whats-left). Not yet run with live models or a real MongoDB.
+> Status: **implemented on branch `feat/book-decomposition-i17`, 2026-11-04**. Storage has run on real MongoDB and
+> Neo4j with scripted models. It hasn't run with live models, because LLM work is paused.
 > Use case: [`I-17`](../use-cases/epic-2-ingestion-I/I-17/I-17-specification.md).
 > Design and measurements: [Book Decomposition Plan](BOOK_DECOMPOSITION_PLAN.md).
 
@@ -13,15 +13,17 @@ This moves the prototype into the real ingestion pipeline, one file at a time. *
 |---|---|---|
 | **B. PDF reader** | `extract_pdf_structure` reads through the book tree | On Dune: section text from 5.01× the book to about 1×, chunks from 3,730 to 889, all 19,630 lines accounted for, including 102 the old reader lost before the first bookmark |
 | **C. Analyzer sampling** | Reads all matches, then an even, repeatable sample, and logs truncation | 9 sampler tests. Chunks reaching the model are still capped at 512 |
-| **D. Small fixes** | Audit doc and timeout comment corrected, and the unused loop, triage, mechanics and vision code plus a stale artifact removed | Full suite |
-| **E. Storage** | `book_records` and `book_leases`, with MongoDB backends for outcomes, checks, coverage, trees and reviews | Mongomock tests, including resume and leases |
+| **D. Small fixes** | Audit doc corrected, the analyzer's limit now sits 5 minutes inside the job's, and the unused loop, triage, mechanics and vision code plus a stale artifact removed | Timeout tests and the full suite |
+| **E. Storage** | `book_records` and `book_leases`, with MongoDB backends for outcomes, checks, coverage, trees and reviews | Mongomock tests, plus `test_book_real_databases.py` on real MongoDB: bulk writes, leases, resume and one pack per book |
 | **F. Pipeline stage** | A separate background job behind `MONITOR_BOOK_DECOMPOSITION`, with pause, resume, cancel and UI progress | Backend and frontend tests. 40 Dune pages ran through the real service with scripted models |
 | **G. Packs** | Reviewed claims become one review-ready pack with evidence. Rules go in `game_system_data.rules` | Mapper tests. The pack path is covered by the service tests |
 | **H. Code checks** | Ruled tables, titles inside text, examples past sidebars, sample-character and book-description checks, and verb false alarms | On Dune: fragments from 1,055 to 766, empty divisions from 33 to 27, no text lost. On saved claims: the 2 sample-character claims and 4 book descriptions are caught |
-| **I. Graph** | `domain` on claims, stored rules and lore trees, a graph step behind `MONITOR_BOOK_GRAPH`, and graph search removed. **The Neo4j loader wasn't built** (see What's left) | Scripted model tests |
+| **I. Graph** | `domain` on claims, stored rules and lore trees, a graph step behind `MONITOR_BOOK_GRAPH`, graph search removed, and book structure stored in Neo4j through CanonKeeper behind `MONITOR_BOOK_NEO4J` | Scripted model tests, and `test_book_real_databases.py` on real Neo4j |
 | **J. Prototype retired** | Kimi client, prototype script and its fixtures deleted | Full suite |
 
-Full-book timing on Dune without a database: tree in 45 seconds, and review bookkeeping over 10,173 scripted claims in 19 seconds.
+**Full Dune on real MongoDB 7 and Neo4j 5, with scripted models:** all 10,173 sentences covered, 9,909 claims kept, one pack with 4,619 rules and 5,290 lore facts, and 16,975 book nodes written to Neo4j in 2.4 seconds, in 63 seconds overall. A rerun made no extraction or verification calls and created no second pack. This proves the plumbing at full-book size, not claim quality, and real model calls will take far longer.
+
+To repeat the storage tests: `RUN_INTEGRATION=1 MONITOR_TEST_MONGO_URI=... MONITOR_TEST_NEO4J_URI=... uv run pytest packages/agents/tests/test_book_real_databases.py`. The Neo4j test connects without a password, so it needs a local server with authentication off. CI doesn't set these variables, so it skips them.
 
 **Changes from the plan below:**
 
@@ -30,16 +32,15 @@ Full-book timing on Dune without a database: tree in 45 seconds, and review book
 - **Separate job (F4, F5):** decomposition runs as its own job after the normal ingest, on its own worker, instead of as a stage inside `ingest_file`. So the Analyzer still runs and its pack still exists. A book gets two packs for now.
 - **Book with no bookmarks (H3):** already handled by font-detected headings in B2, so this needed no more code.
 - **File logs (J3):** `ExtractionLog` and `CheckLog` stay, because tests and `scripts/answer_key_sheet.py` use them. The sheet can only read existing output folders until something writes that format again.
-- **Neo4j (I4):** not built. A draft loader tripped three guard tests that say only CanonKeeper writes to Neo4j, apart from a named list of exceptions. Adding it to that list would change a project rule, so it was removed and stays blocked. Book structure and graphs are stored in MongoDB meanwhile.
+- **Neo4j (I4):** CanonKeeper does the writing, with `neo4j_merge_book_tree` authorized for CanonKeeper alone. That keeps the existing rule, so no decision or guard change was needed, which replaces this plan's earlier "widen the rule" recommendation. `BookNode` records never touch canon labels. It's off by default, because it adds book text to Neo4j.
+- **Analyzer timeout (D2):** the UI route now passes a limit of the job's limit minus 5 minutes, so 40 minutes by default. A stuck provider now fails with a clear message instead of the generic job timeout. Callers with no job limit keep 180 minutes, and `MONITOR_ANALYZE_TIMEOUT` still caps it. An analysis taking 40–45 minutes used to pass if everything else was quick, and now fails. Real durations could still justify changing it.
 - **Paragraph check:** with Kimi gone, it uses the review model and is off by default behind `MONITOR_BOOK_COVERAGE`, because Mistral was noisy at it.
 
 ## What's left
 
 | Item | Who | Note |
 |---|---|---|
-| Neo4j loader (I4) | **You** | Needs your decision: widen "only CanonKeeper writes Neo4j" to "only CanonKeeper writes canon", in `AGENTS.md` and the guard tests' exception list. Then it's a small change |
-| Analyzer timeout (D2) | **You** | Check real job durations. Only the comment changed |
-| First live run | **You to start LLM work again** | Live models and a real MongoDB are untested |
+| First live run | **You to restart LLM work** | Live models are untested. Claim quality can't be measured without them |
 | Two packs per book (G4) | Later | See below |
 
 **Fields only the Analyzer fills today (G4):** `random_tables`, `agendas`, `topologies`, `character_profiles`, `generation_templates`, `tone_profiles`, `plot_threads`, `entity_relationships`, chunk and section summaries, `source_mindscape`, `source_profile_data`, and the structured game system: attributes, skills, resources, tracks, conditions and the rest. Decomposition fills `axioms`, `lore_facts`, simple `entity_archetypes` and `game_system_data.rules`. So the Analyzer can't be retired for books until these are covered or found unnecessary.
@@ -446,9 +447,11 @@ H4 to H7 can be checked on saved claims with no model calls, and their results r
 - **Tighten** the answer patterns, which are loose today, and keep this file for evaluating retrieval.
 - **Decide** when doing this whether it's still used after I2. If it isn't, delete it.
 
-### I4. Neo4j loader: blocked
+### I4. `packages/data-layer/src/monitor_data/tools/neo4j_tools/book_tree.py`
 
-**Your decision:** may `IngestionPipeline` write the book tree to Neo4j, as a record of the file rather than canon? This widens the "only CanonKeeper writes Neo4j" rule, as the plan's section 10 explains. No code until then.
+- **Built:** `neo4j_merge_book_tree`, authorized for CanonKeeper alone and called through `CanonKeeper.record_book_structure`. It's off by default behind `MONITOR_BOOK_NEO4J`.
+- **Why this route:** the rule that only CanonKeeper writes to Neo4j stays as it is, and its guard tests are unchanged apart from registering the new tools.
+- **Found on real Neo4j:** without a uniqueness constraint, `MERGE` slowed down badly on a full book, so the loader creates one first.
 
 ## Phase J: Retire the prototype
 
@@ -472,17 +475,17 @@ H4 to H7 can be checked on saved claims with no model calls, and their results r
 - **Files:** `docs/architecture/BOOK_DECOMPOSITION_PLAN.md`, `docs/use-cases/epic-2-ingestion-I/I-17/I-17-specification.md`, `docs/use-cases/epic-2-ingestion-I/I-17/I-17.yml`, `docs/STATUS.md`.
 - **Commit:** `docs: I-17 describe book decomposition as part of the pipeline`.
 
-## Decisions needed from you
+## Decisions
 
-| When | Decision | My recommendation |
+| Step | Decision | Outcome |
 |---|---|---|
-| A1 | OK to open a draft PR? | Yes. Nothing else checks this branch. |
-| A2 | Where do the labels live? | A private location outside the repo |
-| A2 | Should the short Dune quotes stay in a public repo? | Your call. Removing them also means rewriting this branch's history. |
-| D2 | Analyzer timeout | Check real durations first |
-| Before F3 | Which models run extraction, review and the paragraph check | Mistral medium and large for the first two. The paragraph check is open, as Kimi was better but isn't suitable for production. |
-| G1 | Where do rule claims go in a pack | Read the game system path first |
-| I4 | May `IngestionPipeline` write the book tree to Neo4j | Yes, as a record of the file, not canon |
+| A1 | Open a draft PR | Done: PR #119 |
+| A2 | Where the labels live | Backed up to `~/monitor-dm-labels/`, on the same machine |
+| A2 | Whether short Dune quotes stay in a public repo | **Still yours.** Removing them means rewriting this branch's history |
+| D2 | Analyzer timeout | Set inside the job's limit. Real durations could still justify changing it |
+| F3 | Models for extraction, review and the paragraph check | Defaults are Mistral medium and large, set by environment variables. The paragraph check is off by default |
+| G1 | Where rule claims go in a pack | `game_system_data.rules` |
+| I4 | Who writes the book tree to Neo4j | CanonKeeper, so the existing rule holds |
 
 ## Known limits
 
