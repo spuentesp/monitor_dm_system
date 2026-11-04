@@ -7,6 +7,7 @@ for a person instead of being cut, because cutting could remove a condition.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from uuid import UUID
@@ -27,7 +28,35 @@ from pydantic import ValidationError
 
 from monitor_agents.book_decomposition.review import _heading_path, _nearest_headings
 
-_ENTITY_TYPES = ("character", "faction", "location", "object")
+_ENTITY_TYPE_NAMES = ("character", "faction", "location", "object", "concept", "organization")
+_DEFAULT_ENTITY_TYPE = "concept"
+_MAX_SUB_TYPE = 100
+# Models write freeform types such as "device" or "Ranged Weapon". Schema types are matched first.
+_ENTITY_TYPE_WORDS = {
+    "character": ("person", "people", "npc", "individual", "leader", "noble", "human"),
+    "faction": ("house", "guild", "order", "school"),
+    "location": ("place", "planet", "city", "world", "region", "zone"),
+    "object": (
+        "asset",
+        "item",
+        "device",
+        "weapon",
+        "vehicle",
+        "armor",
+        "armour",
+        "equipment",
+        "tool",
+        "ornithopter",
+        "shield",
+        "launcher",
+        "gun",
+        "knife",
+        "technology",
+        "variant",
+        "unit",
+    ),
+    "organization": ("group", "company", "military"),
+}
 _RULE_NAME_WORDS = 10
 _MAX_RULE_NAME = 200
 _MAX_NOTE = 300
@@ -55,6 +84,18 @@ class MappedClaims:
     @property
     def mapped_count(self) -> int:
         return len(self.axioms) + len(self.entities) + len(self.lore_facts) + len(self.rules)
+
+
+def normalize_entity_type(raw: str | None) -> str:
+    """Map a model's freeform entity type onto the schema's six. Its wording stays as sub_type."""
+    words = set(re.findall(r"[a-z]+", (raw or "").casefold()))
+    for name in _ENTITY_TYPE_NAMES:
+        if name in words:
+            return name
+    for name, known in _ENTITY_TYPE_WORDS.items():
+        if words & set(known):
+            return name
+    return _DEFAULT_ENTITY_TYPE
 
 
 def _evidence(
@@ -106,11 +147,12 @@ def map_claims(claims: Sequence[ReviewedClaim], book: BookTree) -> MappedClaims:
                         evidence_refs=evidence,
                     )
                 )
-            elif claim.kind == AtomKind.ENTITY and claim.name and claim.entity_type in _ENTITY_TYPES:
+            elif claim.kind == AtomKind.ENTITY and claim.name:
                 mapped.entities.append(
                     ExtractedEntityArchetype(
                         name=claim.name,
-                        entity_type=claim.entity_type,
+                        entity_type=normalize_entity_type(claim.entity_type),
+                        sub_type=(claim.entity_type or "")[:_MAX_SUB_TYPE].strip() or None,
                         description=claim.statement,
                         source_ref=ref,
                         evidence_refs=evidence,

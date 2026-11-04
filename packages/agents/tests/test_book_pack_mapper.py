@@ -51,9 +51,31 @@ def test_each_kind_goes_to_its_pack_field_with_evidence():
 
 
 @pytest.mark.unit
-def test_entity_without_a_usable_type_is_kept_as_a_fact():
-    mapped = map_claims([_claim(AtomKind.ENTITY, name="Momentum", entity_type="mechanic")], _book())
-    assert mapped.entities == [] and mapped.lore_facts[0].involved_entities == ["Momentum"]
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("faction", "faction"),
+        ("Asset", "object"),
+        ("Ranged Weapon", "object"),
+        ("ornithopter variant", "object"),
+        ("organization", "organization"),
+        ("planet", "location"),
+        ("Keyword", "concept"),
+        (None, "concept"),
+    ],
+)
+def test_freeform_entity_types_map_to_the_schema_and_keep_their_wording(raw, expected):
+    mapped = map_claims([_claim(AtomKind.ENTITY, name="Thing", entity_type=raw)], _book())
+    assert mapped.lore_facts == []
+    entity = mapped.entities[0]
+    assert entity.entity_type == expected
+    assert entity.sub_type == raw
+
+
+@pytest.mark.unit
+def test_entity_without_a_name_is_kept_as_a_fact():
+    mapped = map_claims([_claim(AtomKind.ENTITY, entity_type="object")], _book())
+    assert mapped.entities == [] and len(mapped.lore_facts) == 1
 
 
 @pytest.mark.unit
