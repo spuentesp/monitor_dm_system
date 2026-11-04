@@ -79,11 +79,17 @@ class DecompositionReport(BaseModel):
     alnum_in_leaves: int = Field(0, description="Alphanumeric characters in the tree's leaves")
     alnum_in_paragraphs: int = 0
     alnum_in_sentences: int = 0
+    alnum_overprint_removed: int = Field(
+        0, description="Characters drawn twice at one spot, as in a shadow effect, and kept once"
+    )
 
     @property
     def is_lossless(self) -> bool:
         """True when no extracted text was lost on the way into the tree."""
-        return self.alnum_extracted == self.alnum_in_leaves and self.alnum_in_paragraphs == self.alnum_in_sentences
+        return (
+            self.alnum_extracted == self.alnum_in_leaves + self.alnum_overprint_removed
+            and self.alnum_in_paragraphs == self.alnum_in_sentences
+        )
 
 
 class BookTree(BaseModel):

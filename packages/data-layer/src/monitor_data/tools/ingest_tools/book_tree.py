@@ -33,7 +33,10 @@ from monitor_data.schemas.book_graph import (
 from monitor_data.tools.ingest_tools._models import SectionBlock
 from monitor_data.tools.ingest_tools.pdf_processing import _open_pdf
 
-DECOMPOSER_VERSION = "5"
+DECOMPOSER_VERSION = "6"
+_OVERPRINT_TOLERANCE = 3.0
+_MIN_OVERPRINT_TAIL = 12
+_TABLE_MIN_MULTI_CELL_SHARE = 0.5
 _MIN_MIDDLE_TITLE_WORDS = 2
 _TABLE_ROW_TOLERANCE = 3.0
 _TABLE_MAX_WORDS_PER_ROW = 24
@@ -212,10 +215,29 @@ def _block_from(page: int, bbox: tuple[float, float, float, float], lines: list[
     return _Block(page, bbox[0], bbox[1], bbox[2], bbox[3], lines)
 
 
-def _read_page_blocks(page: fitz.Page, page_num: int) -> tuple[list[_Block], int]:
-    """Read text blocks, splitting a block where an indented line starts a new paragraph."""
+def _is_overprint(key: str, x1: float, y0: float, seen: list[tuple[str, float, float]]) -> bool:
+    """True when the same words already sit at this spot, as when a PDF draws a text shadow.
+
+    Lines are compared at their right edge, because a bullet or drop cap can move the left one.
+    A drop cap can also make the shadow start a letter later, so a long tail of a kept line counts.
+    """
+    return any(
+        (key == other or (len(key) >= _MIN_OVERPRINT_TAIL and other.endswith(key)))
+        and abs(x1 - other_x1) <= _OVERPRINT_TOLERANCE
+        and abs(y0 - other_y0) <= _OVERPRINT_TOLERANCE
+        for other, other_x1, other_y0 in seen
+    )
+
+
+def _read_page_blocks(page: fitz.Page, page_num: int) -> tuple[list[_Block], int, int]:
+    """Read text blocks, splitting a block where an indented line starts a new paragraph.
+
+    Returns the blocks, the image count, and how many overprinted characters were left out.
+    """
     blocks: list[_Block] = []
     images = 0
+    overprint = 0
+    seen: list[tuple[str, float, float]] = []
     for raw in page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)["blocks"]:
         if raw.get("type", 0) != 0:
             images += 1
@@ -231,7 +253,18 @@ def _read_page_blocks(page: fitz.Page, page_num: int) -> tuple[list[_Block], int
             for line in raw["lines"]
             if line["spans"]
         ]
-        lines = [line for line in lines if line.text.strip()]
+        kept = []
+        for line, raw_line in zip(lines, (r for r in raw["lines"] if r["spans"]), strict=True):
+            if not line.text.strip():
+                continue
+            key = _compact_key(line.text)
+            x1, y0 = raw_line["bbox"][2], raw_line["bbox"][1]
+            if key and _is_overprint(key, x1, y0, seen):
+                overprint += alnum_count(line.text)
+                continue
+            seen.append((key, x1, y0))
+            kept.append(line)
+        lines = kept
         if not lines:
             continue
         left = min(line.x0 for line in lines)
@@ -243,7 +276,7 @@ def _read_page_blocks(page: fitz.Page, page_num: int) -> tuple[list[_Block], int
                 current = []
             current.append(line)
         blocks.append(_block_from(page_num, raw["bbox"], current))
-    return blocks, images
+    return blocks, images, overprint
 
 
 def _table_rows(blocks: list[_Block]) -> list[_Line]:
@@ -284,7 +317,10 @@ def _merge_table_blocks(page: fitz.Page, blocks: list[_Block]) -> list[_Block]:
         if not inside:
             continue
         rows = _table_rows(inside)
-        if max(len(row.text.split()) for row in rows) > _TABLE_MAX_WORDS_PER_ROW:
+        multi_cell = sum(_TABLE_CELL_SEPARATOR in row.text for row in rows)
+        too_long = max(len(row.text.split()) for row in rows) > _TABLE_MAX_WORDS_PER_ROW
+        # A ruled box around prose is not a table, however short its lines are.
+        if too_long or multi_cell < len(rows) * _TABLE_MIN_MULTI_CELL_SHARE:
             continue
         first = inside[0]
         table_block = _Block(first.page, x0, y0, x1, y1, rows, kind=BookNodeKind.TABLE)
@@ -438,12 +474,14 @@ def decompose_pdf(pdf_bytes: bytes, doc_id: str, title: str) -> BookTree:
         images = 0
         no_text = 0
         extracted = 0
+        overprint = 0
         for page_num in range(doc.page_count):
             page = doc[page_num]
             raw_text = page.get_text("text", flags=fitz.TEXTFLAGS_TEXT)
             extracted += alnum_count(raw_text)
             no_text += not raw_text.strip()
-            blocks, page_images = _read_page_blocks(page, page_num)
+            blocks, page_images, page_overprint = _read_page_blocks(page, page_num)
+            overprint += page_overprint
             blocks = _merge_table_blocks(page, blocks)
             images += page_images
             pages.append(order_blocks(blocks, page.rect.width))
@@ -464,6 +502,7 @@ def decompose_pdf(pdf_bytes: bytes, doc_id: str, title: str) -> BookTree:
     _build_tree(builder, root, toc, reading)
     report = _build_report(builder, len(toc), located, page_total, no_text, images)
     report.alnum_extracted = extracted
+    report.alnum_overprint_removed = overprint
     return BookTree(
         doc_id=doc_id,
         title=title,

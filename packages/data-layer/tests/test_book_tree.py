@@ -482,3 +482,71 @@ def test_one_word_title_is_not_matched_inside_a_sentence():
     sections = _sections(pages, [[1, "Zone", 1]])
     assert sections and sections[0].heading_path == ["Zone"]  # Falls back to the page's top block.
     assert len(sections) == 1
+
+
+def _drawn(items) -> bytes:
+    doc = fitz.open()
+    page = doc.new_page()
+    for x_pos, y_pos, text, color in items:
+        page.insert_text((x_pos, y_pos), text, color=color, fontsize=10)
+    return doc.tobytes()
+
+
+BLACK, WHITE = (0, 0, 0), (1, 1, 1)
+
+
+@pytest.mark.unit
+def test_text_drawn_twice_at_one_spot_is_kept_once_and_counted():
+    text = "Siege engines are too large for one crew."
+    tree = decompose_pdf(_drawn([(72, 100, text, BLACK), (72, 100, text, WHITE)]), "d", "T")
+    assert _texts(tree, BookNodeKind.PARAGRAPH) == [text]
+    assert tree.report.alnum_overprint_removed > 0
+    assert tree.report.is_lossless
+
+
+@pytest.mark.unit
+def test_shadow_offset_by_a_point_or_two_is_also_kept_once():
+    text = "Siege engines are too large here."
+    tree = decompose_pdf(_drawn([(72, 100, text, BLACK), (73, 101, text, WHITE)]), "d", "T")
+    assert _texts(tree, BookNodeKind.PARAGRAPH) == [text]
+
+
+@pytest.mark.unit
+def test_same_words_in_another_place_are_kept_both_times():
+    text = "Roll the dice now."
+    tree = decompose_pdf(_drawn([(72, 100, text, BLACK), (72, 300, text, BLACK), (330, 100, text, BLACK)]), "d", "T")
+    assert " ".join(_texts(tree, BookNodeKind.PARAGRAPH)).count(text) == 3
+    assert tree.report.alnum_overprint_removed == 0
+    assert tree.report.is_lossless
+
+
+@pytest.mark.unit
+def test_lost_text_still_fails_the_lossless_check():
+    tree = decompose_pdf(_drawn([(72, 100, "Roll the dice now.", BLACK)]), "d", "T")
+    tree.report.alnum_extracted += 5
+    assert not tree.report.is_lossless
+
+
+@pytest.mark.unit
+def test_ruled_box_around_prose_is_not_a_table():
+    doc = fitz.open()
+    page = doc.new_page()
+    lines = ["Siege engines are machines too large", "for one crew and they turn a", "small fight into a large battle."]
+    for i, line in enumerate(lines):
+        page.insert_text((80, 118 + i * 14), line, fontsize=10)
+    page.draw_rect(fitz.Rect(72, 100, 432, 170))
+    page.draw_line((252, 100), (252, 170))
+    tree = decompose_pdf(doc.tobytes(), "d", "T")
+    assert not [n for n in tree.nodes if n.kind == BookNodeKind.TABLE]
+    assert "small fight into a large battle." in " ".join(_texts(tree, BookNodeKind.PARAGRAPH))
+
+
+@pytest.mark.unit
+def test_shadow_that_starts_a_letter_later_is_kept_once():
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "o help you create the array", fontsize=10)
+    page.insert_text((77.5, 100), "help you create the array", fontsize=10, color=WHITE)
+    tree = decompose_pdf(doc.tobytes(), "d", "T")
+    assert " ".join(_texts(tree, BookNodeKind.PARAGRAPH)).count("help you create") == 1
+    assert tree.report.is_lossless
