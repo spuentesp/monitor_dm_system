@@ -10,8 +10,29 @@ See docs/architecture/BOOK_DECOMPOSITION_PLAN.md.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+class BookRecordType(StrEnum):
+    """The kinds of progress stored for a book."""
+
+    NODE = "node"
+    TREE_META = "tree_meta"
+    OUTCOME = "outcome"
+    CHECK = "check"
+    COVERAGE = "coverage"
+    CLAIM = "claim"
+    LEDGER = "ledger"
+    REPORT = "report"
+
+
+class BookRecord(BaseModel):
+    """One stored item of a book's progress. The key is unique within its document and type."""
+
+    key: str
+    data: dict[str, Any]
 
 
 class BookNodeKind(StrEnum):

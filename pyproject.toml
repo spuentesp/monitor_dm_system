@@ -53,6 +53,7 @@ dev = [
     "pytest-socket>=0.7",
     "cosmic-ray>=8.0",
     "inline-snapshot>=0.20",
+    "mongomock>=4.3.0",
 ]
 
 [tool.uv.sources]
