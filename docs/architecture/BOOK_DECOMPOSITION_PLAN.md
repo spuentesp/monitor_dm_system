@@ -537,6 +537,23 @@ More agents won't fix a context problem, because they'd all share the same blind
   answer key and claims may cite. `out/dune-mistral` uses version 4, with the first run saved in `run1`.
 - Mistral's pricing and how this key is billed haven't been checked.
 
+## Integration map
+
+From a first read of `IngestionPipeline`, `Indexer`, `Analyzer` and `ingest_tools`, as of 2026-11-04. It isn't a line-by-line audit, so details may change as each part is moved.
+
+| Existing part | What it does | Decision |
+|---|---|---|
+| `IngestionPipeline.ingest_file`: upload, MinIO, Source and document records, job status, cancellation | Runs the job | **Keep.** The decomposition runs inside it as a stage. |
+| `extract_pdf_structure` | Reads PDF sections for the indexer | **Replace** with `book_tree`, through an adapter that gives `Indexer` the sections it expects. No model needed. |
+| `Indexer` chunks, embeddings and Qdrant | Search over book text | **Keep** for gameplay retrieval, fed by the better sections. |
+| `Analyzer` Qdrant scrolls, up to `MAX_CATEGORY_CHUNKS` = 512 per category, plus DSPy extraction | Reads a sample of a book and builds a `KnowledgePack` | **Replace for books, behind a flag.** Keep it until the new path matches its output, including game system persistence. |
+| `compute_deduplication`, `detect_contradictions` | Compare a new pack with earlier packs and canon | **Reuse, not a duplicate.** `review.py` works inside one book; these work across books and canon. |
+| `_auto_canonize`, `apply_pack`, `KnowledgePack`, CanonKeeper | Route results to canon | **Reuse.** Reviewed claims become pack items with citations as `evidence_refs`. |
+| `_JOB_TIMEOUT_SECS`, 45 minutes by default | Limits a whole ingest job | **Must change for this path.** Decomposition can take hours, so it needs resumable stages rather than one long job. |
+| `ingestion/triage.py` | Tags chunks | **Unknown.** Check its callers before deciding. |
+
+Order, with the first two needing no model calls: (1) the `book_tree` adapter for `Indexer`, (2) move the extraction log and review ledger from files to MongoDB, (3) add the flagged decomposition stage, (4) map reviewed claims to `KnowledgePack`, (5) retire the Analyzer's sampling for books once results match.
+
 ## 9. Risks
 
 | Risk | Mitigation |
