@@ -1,7 +1,7 @@
 # Book Decomposition Implementation Plan
 
 > Status: **implemented on branch `feat/book-decomposition-i17`, 2026-11-04**. Storage has run on real MongoDB and
-> Neo4j, and one chapter has run with live models. Claim quality still needs labels.
+> Neo4j, and one chapter has run with live models, with 27 of 30 sampled claims labeled canon as written.
 > Use case: [`I-17`](../use-cases/epic-2-ingestion-I/I-17/I-17-specification.md).
 > Design and measurements: [Book Decomposition Plan](BOOK_DECOMPOSITION_PLAN.md).
 
@@ -17,13 +17,27 @@ This moves the prototype into the real ingestion pipeline, one file at a time. *
 | **E. Storage** | `book_records` and `book_leases`, with MongoDB backends for outcomes, checks, coverage, trees and reviews | Mongomock tests, plus `test_book_real_databases.py` on real MongoDB: bulk writes, leases, resume and one pack per book |
 | **F. Pipeline stage** | A separate background job behind `MONITOR_BOOK_DECOMPOSITION`, with pause, resume, cancel and UI progress | Backend and frontend tests. 40 Dune pages ran through the real service with scripted models |
 | **G. Packs** | Reviewed claims become one review-ready pack with evidence. Rules go in `game_system_data.rules` | Mapper tests. The pack path is covered by the service tests |
-| **H. Code checks** | Ruled tables, titles inside text, examples past sidebars, sample-character and book-description checks, and verb false alarms | On Dune: fragments from 1,055 to 766, empty divisions from 33 to 27, no text lost. On saved claims: the 2 sample-character claims and 4 book descriptions are caught |
+| **H. Code checks** | Ruled tables, titles inside text, examples past sidebars, sample-character and book-description checks, and verb false alarms | On Dune: fragments from 1,055 to 896, empty divisions from 33 to 27, no text lost. On saved claims: the 2 sample-character claims and 4 book descriptions are caught |
 | **I. Graph** | `domain` on claims, stored rules and lore trees, a graph step behind `MONITOR_BOOK_GRAPH`, graph search removed, and book structure stored in Neo4j through CanonKeeper behind `MONITOR_BOOK_NEO4J` | Scripted model tests, and `test_book_real_databases.py` on real Neo4j |
 | **J. Prototype retired** | Kimi client, prototype script and its fixtures deleted | Full suite |
 
 **Full Dune on real MongoDB 7 and Neo4j 5, with scripted models:** all 10,173 sentences covered, 9,909 claims kept, one pack with 4,619 rules and 5,290 lore facts, and 16,975 book nodes written to Neo4j in 2.4 seconds, in 63 seconds overall. A rerun made no extraction or verification calls and created no second pack. This proves the plumbing at full-book size, not claim quality, and real model calls will take far longer.
 
-**First live run (2026-11-04), Chapter 7, pages 198–215, on real MongoDB with Mistral medium extracting and Mistral large reviewing:** all 576 sentences covered, no failed windows, 778 claims reviewed and 683 kept, with 55 merged, 38 sent to a person, 1 set aside as an example and 1 rejected. Extraction used about 122k input and 47k output tokens. The run was cut off by a 10-minute shell limit during review, and the resumed job reused all 778 saved checks and created one pack. It also showed that models write freeform entity types, so all 153 entities had become plain facts, which is now fixed. **Quality isn't measured yet:** 30 of these claims await labels in `out/dune-live-ch7`.
+**First live run (2026-11-04), Chapter 7, pages 198–215, on real MongoDB with Mistral medium extracting and Mistral large reviewing:** all 576 sentences covered, no failed windows, 778 claims reviewed and 683 kept, with 55 merged, 38 sent to a person, 1 set aside as an example and 1 rejected. Extraction used about 122k input and 47k output tokens. The run was cut off by a 10-minute shell limit during review, and the resumed job reused all 778 saved checks and created one pack. It also showed that models write freeform entity types, so all 153 entities had become plain facts, which is now fixed. 
+
+**First quality measure (30 kept claims from that run, labeled by a person with nothing pre-filled):**
+
+| Measure | Result |
+|---|---|
+| Canon as written | **27 of 30 (90%)**. With only 30 claims, the true rate could plausibly be anywhere from about 73% to 98% |
+| Flagged as dropping something | 10 of 30 |
+| Scope | 16 general rule, 13 setting canon, 1 single example |
+
+- **The 3 not canon:** one lost its subject, saying "Specialist" where the book means specialist troops. One lifted a sentence about poison out of its poison snooper entry. One came from corrupted source text.
+- **The 10 flagged:** most read as incomplete alone, such as a claim about bodkin blades or the Baradye pistol that doesn't say it's describing an item entry. Linked claims are meant to cover those. At least 2 lost a real limit: hunter-seekers require an inside agent, and kanly must follow the Great Convention. That's still the main known weakness.
+- **What this can't show:** it only samples kept claims, from one mostly equipment and lore chapter of one book, so it says nothing about rules that were wrongly removed or never extracted.
+
+**Corrupted text, found by these labels:** this PDF draws some text twice at one spot as a shadow effect, so paragraphs held repeated phrases. The reader now keeps it once, and the no-text-lost check accounts for what it removed, 4,515 characters on Dune. The same check found that ruled boxes around prose were being treated as tables, which wrongly removed them from sentence splitting. The live run predates both fixes, so re-extracting would change some of its claims.
 
 To repeat the storage tests: `RUN_INTEGRATION=1 MONITOR_TEST_MONGO_URI=... MONITOR_TEST_NEO4J_URI=... uv run pytest packages/agents/tests/test_book_real_databases.py`. The Neo4j test connects without a password, so it needs a local server with authentication off. CI doesn't set these variables, so it skips them.
 
@@ -72,7 +86,7 @@ These aren't steps here: the plan's steps call no live model, and it leaves reti
 
 | Item | Why it's separate |
 |---|---|
-| Measuring claim quality | One live chapter has run. Its 30-claim sample needs a person's labels |
+| Wider quality measure | One chapter is labeled. Rules pages and other books aren't, and nothing yet measures rules wrongly removed |
 | One pack per book | With the flag on, the Analyzer still runs too, until the fields below are covered or found unnecessary |
 | Short Dune quotes in a public repo | The owner's call |
 

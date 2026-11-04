@@ -5,7 +5,7 @@
 
 **Purpose:** Turn an entire book into a traceable graph, with nothing selected or sampled, so that every claim cites the sentences it came from and every sentence has a recorded outcome.
 
-**Status:** Built, off by default behind `MONITOR_BOOK_DECOMPOSITION`. It runs as a separate background job after a PDF ingest, and can pause and resume. One chapter has run with live models; claim quality isn't measured yet.
+**Status:** Built, off by default behind `MONITOR_BOOK_DECOMPOSITION`. It runs as a separate background job after a PDF ingest, and can pause and resume. One chapter has run with live models; a first sample of 30 claims was labeled 90% canon as written.
 
 **Flow:**
 1. System decomposes the PDF into book → division → paragraph → sentence, losing no text, with IDs derived from content.
