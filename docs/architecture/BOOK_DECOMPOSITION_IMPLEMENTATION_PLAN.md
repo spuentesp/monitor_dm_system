@@ -91,6 +91,25 @@ uv run pytest packages tests -q --tb=short -p no:cacheprovider -n auto
 - **Tool:** a throwaway script in the scratch folder, not committed.
 - **Record, on `tiny_rulebook.pdf`, the other PDF fixtures and Dune:** section count, heading paths, characters per section, repeated text, and what `extract_tables_as_sections` returns.
 - **Done when:** the old numbers are written down in the B4 commit message or the design doc.
+- **Result (2026-11-04), current reader:**
+
+| | `tiny_rulebook.pdf` | Dune, 339 pages |
+|---|---|---|
+| Bookmarks / sections | 5 / 5 | 732 / 732 |
+| Empty sections | 0 | 0 |
+| Alphanumeric characters on the pages | 966 | 892,837 |
+| Alphanumeric characters across sections | 966 | **4,474,588 (5.01× the book)** |
+| Lines in more sections than their pages explain | 0 | **19,417 of 19,630** |
+| Lines missing from every section | 0 | 102, not yet examined |
+| Largest section, alphanumeric characters | 287 | 214,558 |
+| Table sections | 0 | 128 |
+| Read time | Under 0.01 s | 4.22 s |
+
+- **What this changes:**
+  - On a bookmarked book, the current reader embeds and analyzes about 5 times the book's text, so the fix should cut chunks and embedding work by far more than the plan first assumed.
+  - Section counts won't stay exactly equal, because bookmarks with no text of their own won't become sections. Earlier work found 57 empty divisions on Dune. Fewer sections can only lower categorization calls, but B3 must report the new count and chunk count.
+  - `tiny_rulebook.pdf` is the only PDF in the repo, and it has no nesting. It can't show this bug, so B2 and B3 need generated PDFs with nested and same-page bookmarks, and one with no bookmarks.
+  - B3 must explain the 102 missing lines: they may be real losses, or differences in how lines were compared.
 
 ### B2. `packages/data-layer/src/monitor_data/tools/ingest_tools/book_tree.py`
 
