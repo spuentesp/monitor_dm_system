@@ -75,7 +75,7 @@ services:
 
   # MinIO - Binary Storage (PDFs, images, etc.)
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     container_name: monitor-minio
     ports:
       - "9000:9000"  # API
