@@ -28,9 +28,17 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from monitor_agents.ingestion.agent import IngestionPipeline
+from monitor_agents.ingestion.book_stage import (
+    book_decomposition_enabled,
+    create_decomposition_job,
+    is_decomposition_job,
+    run_decomposition_job,
+    stored_pack_type,
+)
 from monitor_data.db.minio import get_minio_client
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.db.postgres import get_postgres_client
+from monitor_data.schemas.base import IngestionStatus
 from monitor_data.schemas.ingestion_jobs import IngestionJobFilter
 from monitor_data.schemas.knowledge_packs import KnowledgePackType
 from monitor_data.schemas.llm_config import LLMTaskAttemptResponse
@@ -87,6 +95,8 @@ _ingest_pending_requests: list[dict[str, Any]] = []
 # at "currently running ingests". The thread-executor + asyncio.run model is
 # preserved — only observability + a shutdown hook are added.
 _ingest_futures: dict[str, asyncio.Future[Any]] = {}
+_decomposition_executor: concurrent.futures.ThreadPoolExecutor | None = None
+_decomposition_active: set[str] = set()
 
 # Overall job timeout (seconds). Set MONITOR_INGEST_TIMEOUT to override.
 # Default: 45 minutes — enough for the largest PDFs on modest hardware.
@@ -122,7 +132,7 @@ def prepare_ingest_runtime() -> None:
 
 def _interrupt_ingest_runtime(reason: str, *, close_executor: bool) -> dict[str, Any]:
     """Clear in-memory ingest state and fail any queued/running DB jobs."""
-    global _ingest_executor
+    global _ingest_executor, _decomposition_executor
 
     with _ingest_lock:
         prev = _ingest_active_title
@@ -164,6 +174,11 @@ def _interrupt_ingest_runtime(reason: str, *, close_executor: bool) -> dict[str,
         executor = _ingest_executor
         _ingest_executor = None
         executor.shutdown(wait=False, cancel_futures=True)
+    if close_executor and _decomposition_executor is not None:
+        # Runs can resume, so a shutdown only loses work in progress.
+        _decomposition_executor.shutdown(wait=False, cancel_futures=True)
+        _decomposition_executor = None
+        _decomposition_active.clear()
 
     return {
         "unlocked": True,
@@ -313,6 +328,7 @@ def _run_ingest_in_thread(
 
     async def _run() -> None:
         pipeline = IngestionPipeline()
+        ingest_results: list[Any] = []
 
         async def _ingest_with_capture() -> None:
             # We wrap ingest_file and capture the job_id as soon as MongoDB
@@ -337,7 +353,7 @@ def _run_ingest_in_thread(
             _pipeline_module.mongodb_create_ingestion_job = _patched_create_job  # type: ignore
             try:
                 # 1. Standard ingestion pipeline
-                await pipeline.ingest_file(
+                ingest_results.append(await pipeline.ingest_file(
                     file_bytes=file_bytes,
                     filename=filename,
                     source_title=source_title,
@@ -350,7 +366,7 @@ def _run_ingest_in_thread(
                     content_type=content_type,
                     reuse_source_id=reuse_source_id,
                     reuse_doc_id=reuse_doc_id,
-                )
+                ))
 
                 # 2. Record in World Library for the Architect
                 if universe_uid:
@@ -385,6 +401,10 @@ def _run_ingest_in_thread(
 
         try:
             await asyncio.wait_for(_ingest_with_capture(), timeout=_JOB_TIMEOUT_SECS)
+            if ingest_results:
+                _maybe_start_decomposition(
+                    ingest_results[0], file_bytes, filename, source_title, pack_type_enum
+                )
         except TimeoutError:
             logger.error(
                 "Ingestion timed out after %ds for '%s' (job=%s)",
@@ -436,6 +456,51 @@ def _run_ingest_in_thread(
             source_title,
             _captured_job_id[0],
         )
+
+
+def _start_decomposition(
+    job_id: UUID, pdf_bytes: bytes, doc_id: UUID, title: str, pack_type: Any
+) -> None:
+    """Run a decomposition on its own worker, outside the ingest slot and its timeout."""
+    global _decomposition_executor
+    with _ingest_lock:
+        if _decomposition_executor is None:
+            _decomposition_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="book-decomposition"
+            )
+        _decomposition_active.add(str(job_id))
+        executor = _decomposition_executor
+
+    def work() -> None:
+        try:
+            asyncio.run(
+                run_decomposition_job(
+                    job_id, pdf_bytes, doc_id=doc_id, title=title, pack_type=pack_type
+                )
+            )
+        finally:
+            with _ingest_lock:
+                _decomposition_active.discard(str(job_id))
+
+    executor.submit(work)
+
+
+def _maybe_start_decomposition(
+    ingest_job: Any, file_bytes: bytes, filename: str, title: str, pack_type: Any
+) -> None:
+    """Start decomposing a finished PDF ingest, if the flag is on. Failure can't harm the ingest."""
+    finished = (IngestionStatus.COMPLETED, IngestionStatus.PARTIAL)
+    if (
+        not book_decomposition_enabled()
+        or not filename.lower().endswith(".pdf")
+        or getattr(ingest_job, "status", None) not in finished
+    ):
+        return
+    try:
+        job = create_decomposition_job(ingest_job, pack_type)
+        _start_decomposition(job.job_id, file_bytes, ingest_job.doc_id, title, pack_type)
+    except Exception:  # noqa: BLE001  # reason: the ingest succeeded; a failed extra stage is logged, not raised
+        logger.exception("Could not start book decomposition for '%s'", title)
 
 
 def _check_ingest_busy() -> None:
@@ -1154,7 +1219,7 @@ async def cancel_job(job_id: str) -> dict:  # type: ignore
         result = jobs_col.update_one(
             {
                 "job_id": str(uid),
-                "status": {"$in": ["running", "retrying", "backing_off"]},
+                "status": {"$in": ["running", "retrying", "backing_off", "paused"]},
             },
             {
                 "$set": {
@@ -1194,6 +1259,29 @@ async def cancel_job(job_id: str) -> dict:  # type: ignore
         _sync_ingest_state()
 
     return {"job_id": job_id, "status": "cancelled", "message": "Job cancelled"}
+
+
+@router.post("/jobs/{job_id}/resume", status_code=202)
+async def resume_job(job_id: str) -> dict[str, str]:
+    """Resume a paused or interrupted book decomposition. Finished work isn't repeated."""
+    uid = validate_uuid(job_id, "job_id")
+    with db_op("Database unavailable"):
+        job = mongodb_get_ingestion_job(uid)
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    if not is_decomposition_job(job):
+        raise HTTPException(409, "Only book decomposition jobs can be resumed")
+    resumable = (IngestionStatus.PAUSED, IngestionStatus.FAILED)
+    if job.status not in resumable or str(uid) in _decomposition_active:
+        raise HTTPException(409, f"Job can't be resumed (status={job.status.value})")
+    with db_op("Could not retrieve document record"):
+        doc = mongodb_get_document(job.doc_id)
+    if doc is None:
+        raise HTTPException(404, "Source document record not found")
+    file_bytes = await get_minio_client().download(doc.minio_ref)
+    title = job.source_title.removesuffix(" (decomposition)")
+    _start_decomposition(uid, file_bytes, job.doc_id, title, stored_pack_type(job.doc_id))
+    return {"job_id": job_id, "status": "running", "message": "Decomposition resumed"}
 
 
 @router.delete("/jobs/{job_id}", status_code=204)
