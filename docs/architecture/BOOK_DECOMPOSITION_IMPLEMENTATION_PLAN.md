@@ -1,0 +1,434 @@
+# Book Decomposition Implementation Plan
+
+> Status: ready to execute, written 2026-11-04 on branch `feat/book-decomposition-i17`.
+> Use case: [`I-17`](../use-cases/epic-2-ingestion-I/I-17/I-17-specification.md).
+> Design and measurements: [Book Decomposition Plan](BOOK_DECOMPOSITION_PLAN.md).
+
+This moves the prototype into the real ingestion pipeline, one file at a time. **No step calls a live model.** Tests use scripted models, and PDF work is measured directly from the PDF.
+
+## How to execute this
+
+Work through the steps in order. Each step changes one source file and its test file, and leaves the suite green.
+
+For each step:
+
+1. Do its **Check first** items. If one contradicts the plan, stop and update the plan.
+2. Write the failing test, then make the change.
+3. Run the fast checks below.
+4. Confirm its **Done when**.
+5. Commit, with the use case ID in the message, and push.
+
+```bash
+# Fast checks, every step
+uv run ruff check packages scripts
+uv run mypy packages/data-layer/src packages/agents/src packages/cli/src packages/ui/backend/src --cache-dir /tmp/mypy-cache
+uv run python scripts/check_layer_dependencies.py
+uv run pytest <the step's test files> -q
+
+# Full suite, at the end of each phase
+uv run pytest packages tests -q --tb=short -p no:cacheprovider -n auto
+```
+
+**Rollback:** every step is one commit, so `git revert <sha>` undoes it, unless a step says otherwise.
+
+**Rules that apply throughout:** never touch `tests/verification/**` or `tests/property/**`. Layers stay data-layer → agents → cli. Only CanonKeeper writes canon. Use `structlog`, not `print()`.
+
+## Order at a glance
+
+| Phase | What it delivers | Needs your decision? |
+|---|---|---|
+| [A. Cleanup and safety](#phase-a-cleanup-and-safety) | CI runs on the branch, labels are safe, experiments are sorted | Yes: labels, merge |
+| [B. PDF reader](#phase-b-replace-the-pdf-reader) | Real uploads get the fixed reader | No |
+| [C. Analyzer sampling](#phase-c-fix-the-analyzer-sampling) | The sample is repeatable and spans the book, at the same cost | No |
+| [D. Small fixes and dead code](#phase-d-small-fixes-and-dead-code) | Stale docs and an unused loop are gone | Yes: timeout |
+| [E. Storage in MongoDB](#phase-e-move-storage-to-mongodb) | Progress survives outside local files | No |
+| [F. Pipeline stage](#phase-f-add-the-pipeline-stage) | Decomposition runs inside uploads, behind a flag, and can resume | Yes: which models |
+| [G. KnowledgePack mapping](#phase-g-map-claims-to-knowledgepacks) | Claims can reach `ProposedChange` and canon | Yes: where rules go |
+| [H. Code checks](#phase-h-improve-the-code-checks) | Better tables, headings and example detection | No |
+| [I. Graph](#phase-i-finish-the-graph) | Stored domains and a stricter question test | Yes: Neo4j writer |
+| [J. Retire the prototype](#phase-j-retire-the-prototype) | No parallel code path remains | No |
+
+## Phase A: Cleanup and safety
+
+**Already done:** the 4 local servers are stopped, and the graph viewers, graph output and browser profiles are deleted. Paid results and labels were kept.
+
+### A1. Open a draft PR
+
+- **No file changes.** Run `gh pr create --draft`.
+- **Why first:** CI only runs on pull requests and on pushes to `master`, so nothing has checked this branch. The branch also changes CI itself, and a broken required check would block every later step.
+- **Done when:** the `static` and `tests` jobs pass. Fix any failure before Phase B.
+
+### A2. Protect the labels
+
+- **The risk:** the only copies of your hand labels are `out/dune/answer-key.jsonl` and `out/dune-mistral/answer-key.jsonl`, in a gitignored folder. The repo is public and the row files hold book text, so they can't simply be committed.
+- **Your decision:** where should they live? I recommend a private location outside the repo. The label files hold IDs and values and little book text, but check their notes first.
+- **Done when:** a copy exists outside this working tree.
+
+### A3. Decide what each experiment becomes
+
+| Item | Decision | Reason | Done in |
+|---|---|---|---|
+| `book_decomposition/kimi_cli.py` | **Retire** | It reports no token counts, hits a 5-hour limit, and depends on a logged-in command line. It isn't suitable for production. | J1 |
+| `graph` and `graph-questions` commands | **Retire the commands, keep the logic** | They become library code and tests. | J2 |
+| `book_decomposition/knowledge_graph.py` | **Keep, reduced** | The graph structure is useful, but its search lost to keywords. | I2 |
+| `scripts/prototype_book_decomposition.py` | **Retire last** | It's the only way to run the work until Phase F. | J3 |
+| `scripts/answer_key_sheet.py` and `.html` | **Keep** as a developer tool | It's how quality gets measured. | Stays |
+| `book_decomposition/answer_key.py` | **Keep** | Same reason. | Stays |
+| `out/` | **Keep paid logs and labels** | They cost tokens, and old claims still cite the old tree. | Stays |
+
+## Phase B: Replace the PDF reader
+
+**Goal:** every PDF upload gets the lossless reader, with no change to how much the Indexer spends.
+
+**Verified constraints:**
+
+- `extract_pdf_structure` has a cache wrapper pinned by 4 tests, and 8 indexer tests patch it by name. So its name, signature and wrapper stay. Only `_extract_pdf_structure_uncached` changes.
+- The Indexer makes up to one model call per section. So one bookmark division must stay one `SectionBlock`, or live upload costs change.
+- `IngestedChunk.stable_id` includes the chunk's position and text, so re-ingesting a changed document produces new chunk IDs.
+
+### B1. Measure before changing anything
+
+- **Tool:** a throwaway script in the scratch folder, not committed.
+- **Record, on `tiny_rulebook.pdf`, the other PDF fixtures and Dune:** section count, heading paths, characters per section, repeated text, and what `extract_tables_as_sections` returns.
+- **Done when:** the old numbers are written down in the B4 commit message or the design doc.
+
+### B2. `packages/data-layer/src/monitor_data/tools/ingest_tools/book_tree.py`
+
+- **Add** `sections_from_tree(tree: BookTree) -> list[SectionBlock]`.
+- **Behavior:**
+  - One `SectionBlock` per division that has text, with its full heading path and depth.
+  - A PDF with no bookmarks splits on `HEADING` nodes, or it would become one giant section.
+  - Running headers and page numbers are left out.
+  - A nested parent holds only its own text.
+- **Check first:** importing `SectionBlock` from `_models.py` must not create an import cycle.
+- **Test file:** `packages/data-layer/tests/test_book_tree.py`.
+- **Done when:** tests cover nested bookmarks, same-page siblings, no bookmarks, an empty division, and no text repeated across sections.
+- **Commit:** `feat(ingest): I-17 convert a book tree to section blocks`.
+
+### B3. `packages/data-layer/src/monitor_data/tools/ingest_tools/pdf_processing.py`
+
+- **Change** `_extract_pdf_structure_uncached` to call `decompose_pdf`, then `sections_from_tree`.
+- **Keep:** the public function, the cache, `_deep_copy_sections`, and the empty-bytes guard.
+- **Check first:**
+  - `decompose_pdf` needs a document ID and title. Use the content hash and an empty title, as neither reaches the sections.
+  - Find out which tests depend on old quirks. Fix a test only if it pinned a bug, and say so in the commit.
+- **Test files:** `packages/data-layer/tests/test_db/test_ingest_tools.py`, `packages/agents/tests/test_indexer.py`, `packages/agents/tests/test_ingestion_fixture_regression.py`.
+- **Done when:**
+  - All three test files pass, including `test_real_section_scoring_ranks_schema_sections_above_lore`.
+  - Section counts match B1 on bookmarked PDFs, or each difference is explained.
+  - Text that a parent used to repeat is gone, and no text is lost.
+- **Commit:** `fix(ingest): I-17 read PDF sections through the lossless book tree`.
+
+### B4. `packages/agents/tests/test_ingestion_fixture_regression.py`
+
+- **Add** a regression test on the real fixture: no text appears in two sections, and every extracted word is present.
+- **Check first:** how does re-ingesting an existing document treat old Qdrant points? `ingest_file` looks documents up by content hash, so an unchanged file may never re-index, but this is unverified. If old points can linger, add a step here before continuing.
+- **Done when:** the test fails against the old reader and passes against the new one.
+- **Commit:** `test(ingest): I-17 pin that PDF sections neither repeat nor lose text`.
+
+## Phase C: Fix the Analyzer sampling
+
+**Goal:** a repeatable sample spread across the book, at the same cost.
+
+**Verified:** `_core.py` scrolls Qdrant until `MAX_CATEGORY_CHUNKS` (512) in two places, near lines 1758 and 1895. Scroll order follows chunk IDs, which are hashes, so which chunks get read is effectively arbitrary.
+
+**Not doing:** removing the cap. Reading everything would multiply model calls on every upload. Phase F replaces this path for books instead.
+
+### C1. `packages/agents/src/monitor_agents/analyzer/_sampling.py` (new)
+
+- **Add** `select_spread(chunks, limit)`: order by `chunk_index`, then take evenly spaced chunks up to `limit`, always including the first and last.
+- **Test file:** `packages/agents/tests/test_analyzer_sampling.py` (new).
+- **Done when:** the result doesn't depend on input order, is unchanged under the limit, and spans the book when over it.
+- **Commit:** `feat(analyzer): I-17 add a repeatable, book-wide chunk sampler`.
+
+### C2. `packages/agents/src/monitor_agents/analyzer/_core.py`, category scroll (near line 1758)
+
+- **Change:** scroll every match first without the early cap, then apply `select_spread`.
+- **Check first:**
+  - Is `chunk_index` always in the payload? Handle older points without it.
+  - Scrolling everything loads all the payload text. If that's too heavy, scroll IDs and `chunk_index` first, then fetch the chosen points.
+- **Test file:** find the existing tests with `grep -l _MAX_CATEGORY_CHUNKS packages/agents/tests/*`, or add to the file from C1.
+- **Done when:** a fake Qdrant with 2,000 chunks gives the same 512 on every run, spread across the book, and the same number of chunks as before reaches the model.
+- **Commit:** `fix(analyzer): I-17 sample category chunks across the whole book`.
+
+### C3. `packages/agents/src/monitor_agents/analyzer/_core.py`, source fallback scroll (near line 1896)
+
+- **Same change and test as C2.** Also read the third scroll near line 3014 and decide if it needs this.
+- **Commit:** `fix(analyzer): I-17 sample fallback chunks across the whole book`.
+
+### C4. `packages/agents/src/monitor_agents/analyzer/_core.py`, truncation warning
+
+- **Change:** log how many chunks were read of how many found, so truncation is visible.
+- **Done when:** a test sees the counts in the log output.
+- **Commit:** `feat(analyzer): I-17 report how much of a book the sample covers`.
+
+## Phase D: Small fixes and dead code
+
+### D1. `docs/architecture/INGESTION_PIPELINE_AUDIT.md`
+
+- **Fix** line 518, which says `extract_pdf_structure` isn't cached. It is, per `pdf_processing.py` and `docs/STATUS.md`.
+- **Commit:** `docs: correct the audit's claim about PDF structure caching`.
+
+### D2. `packages/agents/src/monitor_agents/ingestion/agent.py`, analyzer timeout
+
+- **Verified problem:** the comment says the default is 30 minutes and tighter than the job timeout, but the value is 180 minutes. On the UI route, the 45-minute `_JOB_TIMEOUT_SECS` always fires first, so this guard can't run there. It has been like this since the initial commit.
+- **Your decision:** this changes behavior on every upload. What do real jobs take? Check durations in the `ingestion_jobs` collection before choosing:
+  - 30 minutes, matching the comment and giving a clear stage failure, or
+  - keep the value, and just correct the comment.
+- **Until decided:** only the comment changes.
+- **Commit:** `fix(ingest): correct the analyzer timeout comment`.
+
+### D3. `packages/agents/src/monitor_agents/loops/ingestion_loop.py`
+
+- **Verified:** a search of Python imports finds only its tests calling it. `TriageAgent` and `MechanicsArchitect` are used only from this loop.
+- **Check first:** look for non-Python references, such as configs, string-based loading and docs. Keep it if any turn up.
+- **Delete, in separate commits:** the loop and `packages/agents/tests/test_ingestion_loop.py`, then `ingestion/triage.py`, then `ingestion/mechanics_architect.py`, plus their tests. Check `ingestion/vision.py` the same way.
+- **Done when:** the full suite passes and nothing references them.
+- **Commit:** `chore(ingest): remove the unused ingestion loop`, and so on.
+
+## Phase E: Move storage to MongoDB
+
+**Goal:** the same resume and audit behavior, without local files. The file backend stays until Phase J, so the script keeps working.
+
+**Verified:** `server.py` registers anything with the `mongodb_` prefix that `mongodb_tools` exports as an MCP tool, so every new tool needs an entry in `middleware/auth.py`.
+
+**Design:**
+
+| Today | Collection | Unique key |
+|---|---|---|
+| `tree.json` | `book_nodes` | `doc_id` + `node_id` |
+| `ExtractionLog` | `book_outcomes` | `doc_id` + `window_id` + `run_key` |
+| `CheckLog` | `book_checks` | `doc_id` + `check_key` + fingerprint |
+| `CoverageLog` | `book_coverage` | `doc_id` + `key` + fingerprint |
+| Ledger and reviewed claims | `book_claims` | `doc_id` + `claim_id` + `review_run` |
+| `flock` | `book_leases` | `doc_id`, with an expiry |
+
+Writes are upserts, so a repeated write is harmless and a crash can't leave a half-written line. A tree can have over 18,000 nodes, so nodes get their own documents, bulk-written.
+
+### E1. `packages/data-layer/src/monitor_data/schemas/book_graph.py`
+
+- **Add** record models for outcomes, checks, coverage, claims and leases.
+- **Test file:** `packages/data-layer/tests/test_book_graph_schemas.py` (new).
+- **Commit:** `feat(data): I-17 add book decomposition storage schemas`.
+
+### E2. `packages/data-layer/src/monitor_data/tools/mongodb_tools/book_decomposition.py` (new)
+
+- **Add** bulk upserts and reads per collection, using `mongodb_tools/ingestion_jobs.py` as the pattern, plus lease acquire, renew and release.
+- **Lease behavior:** a second worker is refused while a lease is live, and can take over after it expires.
+- **Check first:** where existing collections create their indexes. Unique indexes are what make upserts safe.
+- **Test file:** `packages/data-layer/tests/test_tools/test_book_decomposition_tools.py` (new). Patch `get_mongodb_client` as `test_ingestion_job_tools.py` does.
+- **Commit:** `feat(data): I-17 add book decomposition MongoDB tools`.
+
+### E3. `packages/data-layer/src/monitor_data/middleware/auth.py`
+
+- **Add** writes for `IngestionPipeline` only, and reads for `*`.
+- **Check first:** whether these should be MCP tools at all. If they shouldn't be, don't export them, as was done for `book_tree`.
+- **Done when:** a test proves another agent is refused a write.
+- **Commit:** `feat(data): I-17 restrict book decomposition writes to the pipeline`.
+
+### E4. `packages/data-layer/src/monitor_data/tools/mongodb_tools/__init__.py`
+
+- **Export** the tools, if E3 says so.
+- **Commit:** `feat(data): I-17 export book decomposition tools`.
+
+### E5. `packages/agents/src/monitor_agents/book_decomposition/store.py` (new)
+
+- **Add** a `BookStore` protocol, a `FileBookStore` wrapping today's formats, and a `MongoBookStore` calling E2.
+- **Test file:** `packages/agents/tests/test_book_store.py` (new). The same tests run against both backends.
+- **Commit:** `feat(agents): I-17 add a book store with file and MongoDB backends`.
+
+### E6. `packages/agents/src/monitor_agents/book_decomposition/ledger.py`
+
+- **Change:** read and write through `BookStore`, and replace `flock` with the lease.
+- **Test file:** `packages/agents/tests/test_book_recovery.py`.
+- **Done when:** the crash, torn-write, resume and double-run tests pass on both backends.
+- **Commit:** `refactor(agents): I-17 run the extraction log through the book store`.
+
+### E7. `packages/agents/src/monitor_agents/book_decomposition/runner.py`
+
+- **Change:** take a `BookStore` and renew the lease while running.
+- **Test file:** `packages/agents/tests/test_book_recovery.py`.
+- **Commit:** `refactor(agents): I-17 run ingestion rounds through the book store`.
+
+### E8. `packages/agents/src/monitor_agents/book_decomposition/review.py`
+
+- **Change:** route `CheckLog` and `CoverageLog` through `BookStore`, and save the ledger and reviewed claims.
+- **Also fix:** review saves its ledger only at the end, so a stopped review shows nothing. Save progress as it goes.
+- **Test file:** `packages/agents/tests/test_book_review.py`.
+- **Commit:** `refactor(agents): I-17 store review progress through the book store`.
+
+## Phase F: Add the pipeline stage
+
+**Goal:** a flagged stage inside `IngestionPipeline`. With the flag off, nothing changes.
+
+**Verified problem:** the UI route wraps the whole job in a 45-minute `asyncio.wait_for`, and decomposition takes hours. So this stage must run outside that wait, and must be able to pause and resume.
+
+**Your decision before F3:** which models to use for extraction, review and the paragraph check. Tests use scripted models, so the code can be built first.
+
+### F1. `packages/data-layer/src/monitor_data/schemas/ingestion_jobs.py`
+
+- **Add** `IngestionStage.DECOMPOSE`, a `paused` state, and coverage fields: sentences total, done and quarantined, claims kept, pause reason.
+- **Check first:** how `IngestionStatus` is defined and used, since a new status may affect code that assumes jobs end.
+- **Test file:** `packages/data-layer/tests/test_tools/test_ingestion_job_tools.py`.
+- **Commit:** `feat(data): I-17 add a decompose stage and coverage to ingestion jobs`.
+
+### F2. `packages/ui/backend/src/monitor_ui/routers/ingest_shared.py`
+
+- **Change:** map the new stage and status for the API.
+- **Check first:** `packages/ui/frontend/src/lib/types.ts` and `IngestionJobsList.tsx`, as an unknown stage may break the list.
+- **Commit:** `feat(ui): I-17 report the decompose stage through the API`.
+
+### F3. `packages/agents/src/monitor_agents/book_decomposition/service.py` (new)
+
+- **Add** `decompose_book(pdf_bytes, doc_id, title, store, extractor, review_model, guard, on_progress)`, which runs tree, extraction and review, and returns complete, partial or paused.
+- **Test file:** `packages/agents/tests/test_book_service.py` (new), with scripted models.
+- **Done when:** a test kills the run partway, and the rerun finishes without resending finished sentences.
+- **Commit:** `feat(agents): I-17 orchestrate book decomposition as a service`.
+
+### F4. `packages/agents/src/monitor_agents/ingestion/agent.py`
+
+- **Add** the stage, after indexing, behind `MONITOR_BOOK_DECOMPOSITION` (default off), for PDFs only.
+- **Keep:** all existing stages and their order. Search chunks are still built.
+- **Test file:** `packages/agents/tests/test_ingestion_book_stage.py` (new).
+- **Done when:** with the flag off, calls and outputs match today's, and with it on, a scripted run updates job progress and cancellation still works.
+- **Commit:** `feat(ingest): I-17 run book decomposition as a flagged pipeline stage`.
+
+### F5. `packages/ui/backend/src/monitor_ui/routers/ingest.py`
+
+- **Change:** run this stage outside the 45-minute wait, record a pause, and add `POST /ingest/jobs/{id}/resume`.
+- **Check first:** the executor and shutdown behavior. A long job must not hold the only worker slot.
+- **Test file:** `packages/ui/backend/tests/test_ingest_resume.py` (new).
+- **Done when:** a paused job resumes, a double resume is refused by the lease, and non-book jobs keep the existing timeout.
+- **Commit:** `feat(ui): I-17 pause and resume long book ingests`.
+
+### F6. `packages/ui/frontend/src/lib/types.ts`
+
+- **Add** the new stage, status and fields.
+- **Commit:** `feat(ui): I-17 add decomposition job types`.
+
+### F7. `packages/ui/frontend/src/components/forge/ingest/IngestionJobsList.tsx`
+
+- **Show** coverage, pause reason and a Resume button, with a matching test file.
+- **Commit:** `feat(ui): I-17 show decomposition progress and resume`.
+
+## Phase G: Map claims to KnowledgePacks
+
+**Goal:** reviewed claims flow into the existing pack path, so the existing duplicate and contradiction checks and CanonKeeper still apply.
+
+**Verified:** packs have `axioms` (500 character limit) and `lore_facts` (1,000 character limit), with `evidence_refs` whose `ref` is limited to 300 characters. They have no general rule item, though a `GameRule` schema and `game_system_data` exist.
+
+### G1. Decide where rules go
+
+- **Your decision, after reading `GameRule` and `EmbeddedGameSystem`:** rules go either in `game_system_data`, or in a new rules list on the pack. Check `_game_system_persistence.py` first, as the former may be the existing route. No code changes in this step.
+
+### G2. `packages/agents/src/monitor_agents/book_decomposition/pack_mapper.py` (new)
+
+- **Add** `claims_to_pack(claims, source, tree)`:
+
+| Claim | Goes to |
+|---|---|
+| axiom | `axioms` |
+| fact, relationship | `lore_facts` |
+| entity | `entity_archetypes`, if its fields fit; otherwise `lore_facts` |
+| rule | The G1 decision |
+| example, rejected, needs a person | **Not in the pack** |
+
+- **Evidence:** one `ProfileEvidenceRef` per cited sentence: `ref` holds the document and sentence IDs, `section_path` the headings, and `page_hint` the page.
+- **Too long for a field:** never cut it. Send it to a person instead, because cutting could remove a condition.
+- **Test file:** `packages/agents/tests/test_book_pack_mapper.py` (new).
+- **Done when:** every mapped item has evidence, and every claim is accounted for as mapped or held back.
+- **Commit:** `feat(agents): I-17 map reviewed claims to a KnowledgePack`.
+
+### G3. `packages/agents/src/monitor_agents/book_decomposition/service.py`
+
+- **Change:** create the pack after review, in the same status today's Analyzer uses, so it waits for approval as usual.
+- **Test file:** `packages/agents/tests/test_book_service.py`.
+- **Commit:** `feat(agents): I-17 create a KnowledgePack from a decomposed book`.
+
+### G4. Compare with the Analyzer
+
+- **Add** a scripted comparison test: which pack fields does the Analyzer fill that this path doesn't?
+- **Done when:** a written list exists in the design doc. It decides when the Analyzer's book path can be retired, and that retirement isn't in this plan.
+
+## Phase H: Improve the code checks
+
+Each change here can alter paragraph text, and so paragraph IDs. So each one reports how many IDs changed, and bumps `DECOMPOSER_VERSION`. `out/dune` keeps its old tree, because its labels depend on it.
+
+| Step | File | Change | Done when |
+|---|---|---|---|
+| **H1** | `ingest_tools/book_tree.py` | Detect tables from word positions and repeated rows | The complication table on page 163 becomes one table, and the 20% fragment rate on Dune falls, with no text lost |
+| **H2** | `ingest_tools/book_tree.py` | Find the headings on the page 155 difficulty list, and attach bookmarks that currently fail to place | The 57 empty divisions on Dune fall, and each remaining one is explained |
+| **H3** | `ingest_tools/book_tree.py` | Build sections from fonts for books with no bookmarks | A no-bookmark fixture gets real sections |
+| **H4** | `book_decomposition/review.py` | Find why the page 176 example paragraphs aren't flagged, then fix it | They're flagged, and quotes and sidebars still aren't |
+| **H5** | `book_decomposition/checks.py` and `review.py` | Collect names from labeled examples, and send kept claims naming them to a person | On saved claims, the 2 sample-character claims on page 173 are flagged, with the false alarm count reported |
+| **H6** | `book_decomposition/checks.py` | Stop treating ordinary capitalized words such as "Keeps" as names, by matching word stems | On saved claims, "Keeps" is no longer flagged and the numbers check is unchanged |
+| **H7** | `book_decomposition/checks.py` | Hold back claims that only describe the book, such as "This section provides guidance", and pure pointers | Tested on saved claims, with what it removed read by hand |
+
+Test files: `packages/data-layer/tests/test_book_tree.py`, `packages/agents/tests/test_book_review.py`, `packages/agents/tests/test_book_checks.py`.
+
+H4 to H7 can be checked on saved claims with no model calls, and their results read by hand. This can't prove claim quality improved overall. That needs labels.
+
+## Phase I: Finish the graph
+
+### I1. `packages/data-layer/src/monitor_data/schemas/book_graph.py`
+
+- **Add** a `domain` field (rules or lore) on `ReviewedClaim`, stored through `BookStore`.
+- **Without a model:** the domain comes from the claim kind and its chapter. A model's label can replace it later.
+- **Test file:** `packages/agents/tests/test_book_knowledge_graph.py`.
+- **Commit:** `feat(data): I-17 store a rules or lore domain on claims`.
+
+### I2. `packages/agents/src/monitor_agents/book_decomposition/knowledge_graph.py`
+
+- **Remove** `graph_search` and `keyword_search`.
+- **De-scoped, and why:** graph search lost 12 to 15 to plain keywords, so it isn't worth keeping as a retrieval path. The graph stays as structure, for linking and browsing. The existing retrieval service stays the search path.
+- **Keep:** assembly, citation checks, fixed predicate lists, merging and domain trees.
+- **Commit:** `refactor(agents): I-17 remove graph search that lost to keywords`.
+
+### I3. `tests/fixtures/ingestion/dune_graph_questions.json`
+
+- **Tighten** the answer patterns, which are loose today, and keep this file for evaluating retrieval.
+- **Decide** when doing this whether it's still used after I2. If it isn't, delete it.
+
+### I4. Neo4j loader: blocked
+
+**Your decision:** may `IngestionPipeline` write the book tree to Neo4j, as a record of the file rather than canon? This widens the "only CanonKeeper writes Neo4j" rule, as the plan's section 10 explains. No code until then.
+
+## Phase J: Retire the prototype
+
+### J1. Delete `book_decomposition/kimi_cli.py`
+
+- **When:** after Phase F's models are chosen. Also delete `packages/agents/tests/test_book_kimi_cli.py`, and remove the Kimi-specific text from `pacing.py`.
+- **Commit:** `chore(agents): I-17 remove the Kimi command line client`.
+
+### J2. Remove the `graph` and `graph-questions` commands
+
+- **File:** `scripts/prototype_book_decomposition.py`.
+- **Commit:** `chore(scripts): I-17 remove experimental graph commands`.
+
+### J3. Delete `scripts/prototype_book_decomposition.py`
+
+- **When:** after Phase F works end to end. Decide then whether `FileBookStore` is still needed for tests or local runs.
+- **Commit:** `chore(scripts): I-17 retire the prototype script`.
+
+### J4. Update the docs
+
+- **Files:** `docs/architecture/BOOK_DECOMPOSITION_PLAN.md`, `docs/use-cases/epic-2-ingestion-I/I-17/I-17-specification.md`, `docs/use-cases/epic-2-ingestion-I/I-17/I-17.yml`, `docs/STATUS.md`.
+- **Commit:** `docs: I-17 describe book decomposition as part of the pipeline`.
+
+## Decisions needed from you
+
+| When | Decision | My recommendation |
+|---|---|---|
+| A1 | OK to open a draft PR? | Yes. Nothing else checks this branch. |
+| A2 | Where do the labels live? | A private location outside the repo |
+| A2 | Should the short Dune quotes stay in a public repo? | Your call. Removing them also means rewriting this branch's history. |
+| D2 | Analyzer timeout | Check real durations first |
+| Before F3 | Which models run extraction, review and the paragraph check | Mistral medium and large for the first two. The paragraph check is open, as Kimi was better but isn't suitable for production. |
+| G1 | Where do rule claims go in a pack | Read the game system path first |
+| I4 | May `IngestionPipeline` write the book tree to Neo4j | Yes, as a record of the file, not canon |
+
+## Known limits
+
+- **Unverified until the step's Check first:** re-ingest behavior for old Qdrant points, `chunk_index` on older points, how indexes are created, how the frontend handles an unknown stage, and references outside Python to the unused loop.
+- **No quality proof:** without models, tests show the code behaves as designed. Whether claims get better needs live runs and labels, once you restart LLM work.
+- **Line numbers** are from 2026-11-04 and will drift.

@@ -3,7 +3,7 @@
 > Status: prototype, 2026-11-04. It runs from a script and writes local files, and it's **not connected to
 > `IngestionPipeline` or the UI yet**. It has run on parts of Dune; the VtM PDF hasn't been decomposed
 > (see [Phase 1](#phase-1--vtm-spike)). Claim quality isn't proven: see [the claim truth plan](#8-claim-truth-plan).
-> Next: map its overlap with the existing pipeline, then replace the old parts in place.
+> Next: the [implementation plan](BOOK_DECOMPOSITION_IMPLEMENTATION_PLAN.md).
 > Use case: [`I-17`](../use-cases/epic-2-ingestion-I/I-17/I-17-specification.md).
 
 ## 1. The goal

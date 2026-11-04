@@ -27,6 +27,7 @@ Welcome to the MONITOR Agent Documentation. This structure is designed to be hig
 - [Forge Mode Plan](./architecture/FORGE_MODE_PLAN.md): Full implementation plan for the World Design / authoring mode.
 - [GM as Authority](./architecture/GM_AS_AUTHORITY.md): **How narration works now** — the GMAgent → Narrator → Resolver pipeline, the `gm_tools` registry, and `GMVerdict`.
 - [Book Decomposition Plan](./architecture/BOOK_DECOMPOSITION_PLAN.md): Proposed replacement for ingestion's retrieval design: every book becomes a lossless graph, with each sentence accounted for (prototype stage).
+- [Book Decomposition Implementation Plan](./architecture/BOOK_DECOMPOSITION_IMPLEMENTATION_PLAN.md): The step-by-step, file-by-file work to move the prototype into the ingestion pipeline.
 - [Retrieval Service](./architecture/RETRIEVAL_SERVICE.md): The single owner of embeddings + Qdrant (pinned model, model/dim guard, HyDE + rerank, `nearest`).
 - [De-heuristic Principle](./architecture/DE_HEURISTIC_PRINCIPLE.md): Why classification is semantic/LLM, never keyword tables — and what that removed.
 - [Play & Forge Direction](./architecture/PLAY_AND_FORGE_DIRECTION.md): Product direction for mode-first play and the authoring/playing split.
