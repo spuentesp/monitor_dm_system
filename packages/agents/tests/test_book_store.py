@@ -78,10 +78,12 @@ class _Extractor:
 
     def __init__(self, stop_after: int | None = None) -> None:
         self.stop_after = stop_after
+        self.guard: RunGuard | None = None
         self.units_sent: list[str] = []
 
     async def __call__(self, window):
         if self.stop_after is not None and len(self.units_sent) >= self.stop_after:
+            self.guard.stop("stopped")  # As a real guard does before raising.
             raise RunStopped("stopped")
         self.units_sent.extend(unit.node_id for unit in window.units)
         return ExtractorResult(
@@ -112,8 +114,9 @@ async def test_interrupted_run_resumes_without_resending_finished_units(mongo):
     assert len(windows) > 2
     log = MongoExtractionLog("d")
     first = _Extractor(stop_after=2)
-    result = await run_until_settled(windows, first, log, RunGuard(), concurrency=1, run_key="r")
-    assert result.status == IngestStatus.PAUSED or result.states.pending
+    first.guard = RunGuard()
+    result = await run_until_settled(windows, first, log, first.guard, concurrency=1, run_key="r")
+    assert result.status == IngestStatus.PAUSED
 
     second = _Extractor()
     final = await run_until_settled(windows, second, MongoExtractionLog("d"), RunGuard(), concurrency=1, run_key="r")

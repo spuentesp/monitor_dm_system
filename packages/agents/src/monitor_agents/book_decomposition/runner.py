@@ -19,7 +19,7 @@ import structlog
 from monitor_agents.book_decomposition.extractor import WindowExtractor
 from monitor_agents.book_decomposition.ledger import OutcomeLog, UnitStates, reconcile
 from monitor_agents.book_decomposition.pacing import RunGuard, StopKind
-from monitor_agents.book_decomposition.pipeline import extract_windows
+from monitor_agents.book_decomposition.pipeline import WindowOutcome, extract_windows
 from monitor_agents.book_decomposition.windows import Window, window_id
 
 log = structlog.get_logger()
@@ -66,6 +66,7 @@ async def run_until_settled(
     max_rounds: int = DEFAULT_MAX_ROUNDS,
     wait_for_quota_seconds: float = 0.0,
     retry_quarantined: bool = False,
+    on_saved: Callable[[WindowOutcome], None] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> IngestResult:
     """Process the given windows, which can be any part of a book, until nothing is left to try.
@@ -83,6 +84,8 @@ async def run_until_settled(
 
     def on_outcome(outcome) -> None:  # type: ignore[no-untyped-def]  # reason: WindowOutcome is implied by extract_windows
         extraction_log.append(outcome.model_copy(update={"run_key": run_key}))
+        if on_saved is not None:
+            on_saved(outcome)
 
     states = current()
     while states.pending and rounds < max_rounds:
