@@ -114,9 +114,9 @@ logger = logging.getLogger(__name__)
 # Override via environment variable MONITOR_MAX_INGEST_FILE_BYTES.
 _MAX_FILE_SIZE_BYTES: int = int(os.environ.get("MONITOR_MAX_INGEST_FILE_BYTES", str(200 * 1024 * 1024)))
 
-# Per-stage timeout for the analyzer (default 30 min). Generous enough not to
-# false-fail a large rulebook, but tighter than the 45-min whole-job timeout so
-# a wedged provider fails the analyze stage with a clear message first.
+# Per-stage timeout for the analyzer (default 180 min). The UI route's 45-minute
+# MONITOR_INGEST_TIMEOUT fires first unless raised, so this mainly guards callers
+# without that job timeout.
 _ANALYZE_STAGE_TIMEOUT_SECS: int = int(os.environ.get("MONITOR_ANALYZE_TIMEOUT", str(180 * 60)))
 
 
