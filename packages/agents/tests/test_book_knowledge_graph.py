@@ -1,15 +1,13 @@
 """Tests for the knowledge graph: only what traces back to claims is kept (prototype, I-17)."""
 
-from pathlib import Path
-
 import pytest
+from monitor_agents.book_decomposition.pacing import RunStopped
 from monitor_agents.book_decomposition.knowledge_graph import (
     GRAPH_INSTRUCTIONS,
     LORE_PREDICATES,
     RULE_PREDICATES,
     GraphBatch,
     GraphEdge,
-    GraphLog,
     GraphNode,
     GraphReport,
     KnowledgeGraph,
@@ -18,8 +16,8 @@ from monitor_agents.book_decomposition.knowledge_graph import (
     build_domain_tree,
     claim_domains,
     format_claims,
-    graph_search,
-    keyword_search,
+    build_graphs,
+    MergeAnswer,
 )
 from monitor_data.schemas.book_graph import (
     AtomKind,
@@ -94,15 +92,6 @@ def test_self_link_is_dropped():
 @pytest.mark.unit
 def test_format_claims_labels_each_claim():
     assert format_claims(CLAIMS).splitlines()[1] == "[C2] (rule) Threat opposes Momentum."
-
-
-@pytest.mark.unit
-def test_graph_log_survives_a_torn_line(tmp_path: Path):
-    log = GraphLog(tmp_path / "graph.jsonl")
-    log.append("k", GraphBatch())
-    with log.path.open("a", encoding="utf-8") as handle:
-        handle.write('{"key": "torn')
-    assert list(log.read()) == ["k"]
 
 
 @pytest.mark.unit
@@ -183,6 +172,7 @@ def test_claim_with_no_valid_domain_label_goes_by_its_kind():
     fact = ReviewedClaim(id="f", kind=AtomKind.FACT, statement="The Guild exists.", source_node_ids=["s"], pages=[0], merged_from=[])
     rule = _claim("r", "Roll two dice.")
     answer = GraphBatch(claim_domains={"C1": "lore", "C2": "nonsense"})
+    rule.domain = "rules"
     assert claim_domains([rule, fact], [([rule, fact], answer)]) == {"r": "lore", "f": "lore"}
     assert claim_domains([rule, fact], []) == {"r": "rules", "f": "lore"}
 
@@ -204,26 +194,65 @@ def test_each_domain_tree_nests_only_its_claims_under_the_books_headings():
     assert tree.children[0].children[0].claim_ids == ["r"]
 
 
-@pytest.mark.unit
-def test_graph_search_finds_a_linked_claim_keyword_search_can_miss():
-    cost = _claim("cost", "It takes 1 token.")
-    named = _claim("named", "Players may choose to Fight On.")
-    named.linked_claim_ids = ["cost"]
-    graph = KnowledgeGraph(
-        nodes=[GraphNode(id="resist defeat", name="Resist Defeat", type="mechanic"), GraphNode(id="player", name="player", type="concept")],
-        edges=[GraphEdge(subject="player", predicate="used_in", object="resist defeat", claim_ids=["named"])],
-    )
-    found = graph_search("What is the price to Resist Defeat?", [graph], [cost, named], limit=8)
-    assert "cost" in found
-    assert "cost" not in keyword_search("What is the price to Resist Defeat?", [cost, named], limit=8)
+class _Store:
+    def __init__(self):
+        self.saved = {}
+
+    def read(self):
+        return dict(self.saved)
+
+    def append(self, key, answer):
+        self.saved[key] = answer
+
+
+class _GraphModel:
+    def __init__(self, fail_merge=False, stop=False, fail_batch=False):
+        self.calls = 0
+        self.fail_merge = fail_merge
+        self.stop = stop
+        self.fail_batch = fail_batch
+
+    async def propose(self, claims):
+        self.calls += 1
+        if self.stop:
+            raise RunStopped("quota")
+        if self.fail_batch:
+            raise RuntimeError("bad answer")
+        return MIXED
+
+    async def find_duplicates(self, names):
+        if self.fail_merge:
+            raise RuntimeError("no")
+        return MergeAnswer(groups=[["space travel", "space travel"]])
 
 
 @pytest.mark.unit
-def test_graph_search_returns_nothing_when_the_question_names_no_node():
-    graph = KnowledgeGraph(nodes=[GraphNode(id="zone", name="zone", type="concept")])
-    assert graph_search("How do dragons fly?", [graph], CLAIMS, limit=8) == []
+async def test_build_graphs_separates_domains_and_resumes_from_saved_batches():
+    store = _Store()
+    model = _GraphModel()
+    graphs, domains = await build_graphs(LORE_CLAIMS, model, store)
+    assert [e.subject for e in graphs["rules"].edges] == ["momentum"]
+    assert [e.subject for e in graphs["lore"].edges] == ["spacing guild"]
+    assert set(domains) == {"a", "b"}
+    again = _GraphModel()
+    await build_graphs(LORE_CLAIMS, again, store)
+    assert again.calls == 0
 
 
 @pytest.mark.unit
-def test_keyword_search_ranks_by_shared_words():
-    assert keyword_search("What opposes Momentum?", CLAIMS, limit=1) == ["b"]
+async def test_failed_merge_leaves_the_graph_usable():
+    graphs, _ = await build_graphs(LORE_CLAIMS, _GraphModel(fail_merge=True), _Store())
+    assert graphs["rules"].edges
+
+
+@pytest.mark.unit
+async def test_failed_batch_is_counted_and_the_rest_continue():
+    graphs, domains = await build_graphs(LORE_CLAIMS, _GraphModel(fail_batch=True), _Store())
+    assert graphs["rules"].report.batches_failed == 1
+    assert set(domains) == {"a", "b"}
+
+
+@pytest.mark.unit
+async def test_a_stopped_run_raises_so_it_can_pause():
+    with pytest.raises(RunStopped):
+        await build_graphs(LORE_CLAIMS, _GraphModel(stop=True), _Store())

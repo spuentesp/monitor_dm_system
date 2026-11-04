@@ -24,6 +24,12 @@ from monitor_data.tools.mongodb_tools.knowledge_packs import (
 )
 
 from monitor_agents.book_decomposition.extractor import WindowExtractor
+from monitor_agents.book_decomposition.knowledge_graph import (
+    GraphModel,
+    build_domain_tree,
+    build_graphs,
+    graph_fingerprint,
+)
 from monitor_agents.book_decomposition.pack_mapper import build_pack, map_claims
 from monitor_agents.book_decomposition.pacing import RunGuard, RunStopped
 from monitor_agents.book_decomposition.pipeline import WindowOutcome
@@ -40,7 +46,10 @@ from monitor_agents.book_decomposition.store import (
     MongoCheckLog,
     MongoCoverageLog,
     MongoExtractionLog,
+    MongoGraphLog,
     load_tree,
+    save_domain_trees,
+    save_graphs,
     save_review,
     save_tree,
 )
@@ -90,6 +99,7 @@ async def decompose_book(
     check_coverage: bool = False,
     concurrency: int = 4,
     on_progress: Callable[[DecompositionProgress], None] | None = None,
+    graph_model: GraphModel | None = None,
 ) -> DecomposeResult:
     """Decompose a book and create its review-pending pack. Safe to call repeatedly."""
     key = str(doc_id)
@@ -147,6 +157,24 @@ async def decompose_book(
             publish()
             return DecomposeResult(DecomposeStatus.PAUSED, progress)
         save_review(key, review)
+        domains = {claim.id: claim.domain for claim in review.claims}
+        if graph_model is not None:
+            try:
+                graphs, domains = await build_graphs(
+                    review.claims,
+                    graph_model,
+                    MongoGraphLog(key, graph_fingerprint()),
+                    concurrency=concurrency,
+                )
+            except RunStopped as exc:
+                progress.pause_reason = str(exc)
+                publish()
+                return DecomposeResult(DecomposeStatus.PAUSED, progress)
+            save_graphs(key, graphs, domains)
+        save_domain_trees(
+            key,
+            {domain: build_domain_tree(tree, review.claims, domains, domain) for domain in ("rules", "lore")},
+        )
 
         mapped = map_claims(review.claims, tree)
         if mapped.held_back:

@@ -26,6 +26,7 @@ class BookRecordType(StrEnum):
     CLAIM = "claim"
     LEDGER = "ledger"
     REPORT = "report"
+    GRAPH = "graph"
 
 
 class BookRecord(BaseModel):
@@ -269,6 +270,7 @@ class ReviewedClaim(BaseModel):
     source_node_ids: list[str]
     pages: list[int]
     merged_from: list[str]
+    domain: str = Field("lore", description="rules or lore; each gets its own tree and graph")
     paragraph_ids: list[str] = Field(default_factory=list)
     linked_claim_ids: list[str] = Field(
         default_factory=list, description="Claims from the same paragraphs; read them together"

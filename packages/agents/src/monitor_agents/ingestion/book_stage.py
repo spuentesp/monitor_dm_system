@@ -40,6 +40,7 @@ from monitor_agents.book_decomposition.extractor import (
     build_lm,
     prompt_fingerprint,
 )
+from monitor_agents.book_decomposition.knowledge_graph import DspyGraphModel, GraphModel
 from monitor_agents.book_decomposition.ledger import LogBusy
 from monitor_agents.book_decomposition.pacing import RunGuard
 from monitor_agents.book_decomposition.review import DspyReviewModel
@@ -56,6 +57,10 @@ _DEFAULT_REVIEW_MODEL = "mistral/mistral-large-latest"
 _DEFAULT_MAX_OUTPUT_TOKENS = 2_000_000
 _REQUESTS_PER_MINUTE = 20.0
 _SETTINGS_KEY = "settings"
+
+
+def _default_graph_model(model: str, guard: RunGuard) -> GraphModel:
+    return DspyGraphModel(build_lm(model), guard)
 
 
 def book_decomposition_enabled() -> bool:
@@ -116,6 +121,7 @@ async def run_decomposition_job(
     pack_type: KnowledgePackType = KnowledgePackType.MISC,
     make_extractor: Callable[[str], object] | None = None,
     make_review_model: Callable[[str, RunGuard], object] | None = None,
+    make_graph_model: Callable[[str, RunGuard], GraphModel] | None = None,
 ) -> None:
     """Run or resume a decomposition job, and record how it ended on the job."""
     guard = RunGuard(
@@ -167,6 +173,11 @@ async def run_decomposition_job(
             accept_run=lambda key: key.startswith(f"{prefix}-"),
             check_coverage=os.environ.get("MONITOR_BOOK_COVERAGE", "0") == "1",
             on_progress=on_progress,
+            graph_model=(
+                (make_graph_model or _default_graph_model)(review_model_name, guard)
+                if os.environ.get("MONITOR_BOOK_GRAPH", "0") == "1"
+                else None
+            ),
         )
         _record_result(job_id, result)
     except LogBusy as exc:

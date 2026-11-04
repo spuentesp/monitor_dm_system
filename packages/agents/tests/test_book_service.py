@@ -8,8 +8,8 @@ import fitz
 import mongomock
 import pytest
 from monitor_agents.book_decomposition.extractor import ExtractorResult
+from monitor_agents.book_decomposition.knowledge_graph import GraphBatch, MergeAnswer
 from monitor_agents.book_decomposition.pacing import RunGuard, RunStopped
-from monitor_agents.book_decomposition.review import _heading_path  # noqa: F401
 from monitor_agents.book_decomposition.service import DecomposeStatus, decompose_book
 from monitor_agents.ingestion.book_stage import (
     book_decomposition_enabled,
@@ -24,6 +24,7 @@ from monitor_data.schemas.book_graph import (
     ClaimCheck,
     ClaimVerdict,
     CoverageAudit,
+    BookRecordType,
     ExtractedAtom,
     SkipAudit,
     StackDecision,
@@ -250,3 +251,44 @@ async def test_unexpected_failure_marks_the_job_failed_with_the_reason(mongo):
     final = await _run_job(job, b"this is not a pdf", _Extractor(), _Review())
     assert final.status == IngestionStatus.FAILED
     assert final.errors and final.last_error is not None
+
+
+class _Graph:
+    async def propose(self, claims):
+        return GraphBatch.model_validate({"claim_domains": {"C1": "rules"}, "relationships": [{"subject": "Momentum", "predicate": "used_in", "object": "Rule", "cites": ["C1"]}]})
+
+    async def find_duplicates(self, names):
+        return MergeAnswer()
+
+
+@pytest.mark.unit
+async def test_domain_trees_and_graphs_are_stored_when_asked_for(mongo):
+    doc, job = uuid.uuid4(), uuid.uuid4()
+    extractor = _Extractor()
+    extractor.guard = RunGuard()
+    await decompose_book(
+        _pdf(),
+        doc_id=doc,
+        job_id=job,
+        title="Book",
+        pack_type=KnowledgePackType.RULEBOOK,
+        extractor=extractor,
+        review_model=_Review(),
+        guard=extractor.guard,
+        run_key="m-1",
+        accept_run=lambda key: key.startswith("m-"),
+        concurrency=1,
+        graph_model=_Graph(),
+    )
+    keys = {r.key for r in storage.mongodb_list_book_records(str(doc), BookRecordType.REPORT)}
+    assert {"tree-rules", "tree-lore", "graph-rules", "graph-lore", "claim-domains", "review"} <= keys
+
+
+@pytest.mark.unit
+async def test_domain_trees_are_stored_without_a_graph_model(mongo):
+    doc, job = uuid.uuid4(), uuid.uuid4()
+    await _run(_pdf(), doc, job, _Extractor(), _Review())
+    records = {r.key: r for r in storage.mongodb_list_book_records(str(doc), BookRecordType.REPORT)}
+    assert "tree-rules" in records and "graph-rules" not in records
+    assert records["tree-rules"].data["children"]
+    assert "graph-lore" not in records

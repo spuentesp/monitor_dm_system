@@ -1127,6 +1127,7 @@ def _finalize(working: dict[str, _Working], report: ReviewReport) -> ReviewResul
                 source_node_ids=list(dict.fromkeys(n for m in members for n in m.claim.source_node_ids)),
                 pages=sorted({m.claim.page for m in members}),
                 merged_from=[m.claim.id for m in members[1:]],
+                domain="rules" if atom.kind == AtomKind.RULE else "lore",
                 paragraph_ids=list(dict.fromkeys(p for m in members for p in m.claim.paragraph_ids)),
             )
         )

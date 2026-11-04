@@ -1064,3 +1064,10 @@ async def test_gap_that_describes_the_book_is_not_made_into_a_claim():
     gap = CoverageGap(label="P1", missing="This section provides guidance.", quote="the gamemaster may veto them")
     result = await review_claims(_tree([VETO]), [_outcome(_item("Players may add traits.", 0))], _Model(gaps=[gap]))
     assert result.report.claims_from_gaps == 0
+
+
+@pytest.mark.unit
+async def test_rules_and_other_kinds_get_their_domain():
+    outcome = _outcome(_item("Roll two dice.", 0), _item("The Guild is old.", 1, AtomKind.FACT))
+    result = await review_claims(_tree(["Roll two dice.", "The Guild is old."]), [outcome], _Model())
+    assert {c.statement: c.domain for c in result.claims} == {"Roll two dice.": "rules", "The Guild is old.": "lore"}

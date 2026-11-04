@@ -32,6 +32,7 @@ from monitor_data.tools.mongodb_tools.book_decomposition import (
 )
 from pydantic import ValidationError
 
+from monitor_agents.book_decomposition.knowledge_graph import GraphBatch, KnowledgeGraph, TreeNode
 from monitor_agents.book_decomposition.ledger import LogBusy
 from monitor_agents.book_decomposition.pipeline import WindowOutcome
 from monitor_agents.book_decomposition.review import ReviewResult
@@ -147,6 +148,18 @@ class MongoCoverageLog(_MongoKeyedLog):
         self._write({key: {"gaps": [gap.model_dump(mode="json") for gap in gaps]} for key, gaps in finished.items()})
 
 
+class MongoGraphLog(_MongoKeyedLog):
+    """Finished graph batches."""
+
+    record_type = BookRecordType.GRAPH
+
+    def read(self) -> dict[str, GraphBatch]:
+        return {key: GraphBatch.model_validate(data) for key, data in self._read_rows()}
+
+    def append(self, key: str, answer: GraphBatch) -> None:
+        self._write({key: answer.model_dump(mode="json")})
+
+
 def save_tree(tree: BookTree) -> None:
     """Store a tree's nodes and details, so a resumed run needn't parse the PDF again."""
     mongodb_upsert_book_records(
@@ -176,6 +189,28 @@ def load_tree(doc_id: str) -> BookTree | None:
         content_hash=data["content_hash"],
         nodes=nodes,
         report=DecompositionReport.model_validate(data["report"]),
+    )
+
+
+def save_graphs(
+    doc_id: str,
+    graphs: dict[str, KnowledgeGraph],
+    domains: dict[str, str],
+) -> None:
+    """Store each domain's graph and each claim's domain."""
+    records = [
+        BookRecord(key=f"graph-{domain}", data=graph.model_dump(mode="json")) for domain, graph in graphs.items()
+    ]
+    records.append(BookRecord(key="claim-domains", data=domains))
+    mongodb_upsert_book_records(doc_id, BookRecordType.REPORT, records)
+
+
+def save_domain_trees(doc_id: str, trees: dict[str, TreeNode]) -> None:
+    """Store the rules and lore trees, each following the book's own headings."""
+    mongodb_upsert_book_records(
+        doc_id,
+        BookRecordType.REPORT,
+        [BookRecord(key=f"tree-{domain}", data=tree.model_dump(mode="json")) for domain, tree in trees.items()],
     )
 
 
