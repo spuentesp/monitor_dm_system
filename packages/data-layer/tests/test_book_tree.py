@@ -11,6 +11,7 @@ from monitor_data.tools.ingest_tools.book_tree import (
     _Block,
     _continues,
     _Line,
+    sections_from_tree,
     alnum_count,
     decompose_pdf,
     join_lines,
@@ -342,3 +343,85 @@ def test_capitalized_block_that_does_not_continue_the_sentence(before, after):
 @pytest.mark.unit
 def test_lowercase_block_continues_even_on_the_next_page():
     assert _continues(_block("It often does", 700), _block("and enemies yield.", 50, page=1))
+
+
+def _sections(pages, toc=None):
+    return sections_from_tree(decompose_pdf(_pdf(pages, toc), "d", "T"))
+
+
+@pytest.mark.unit
+def test_nested_bookmarks_do_not_repeat_child_text_in_the_parent():
+    sections = _sections(
+        [
+            [(72, 100, "Chapter text stands alone here.")],
+            [(72, 100, "Combat rules stand alone here.")],
+        ],
+        [[1, "Chapter", 1], [2, "Combat", 2]],
+    )
+    by_name = {section.heading_path[-1]: section for section in sections}
+    assert by_name["Chapter"].text == "Chapter text stands alone here."
+    assert by_name["Combat"].text == "Combat rules stand alone here."
+    assert by_name["Combat"].heading_path == ["Chapter", "Combat"]
+    assert (by_name["Chapter"].depth, by_name["Combat"].depth) == (0, 1)
+
+
+@pytest.mark.unit
+def test_same_page_bookmarks_each_get_only_their_own_text():
+    sections = _sections(
+        [[(72, 100, "First section"), (72, 130, "First body sentence."), (72, 400, "Second section"), (72, 430, "Second body sentence.")]],
+        [[1, "First section", 1], [1, "Second section", 1]],
+    )
+    joined = " ".join(section.text for section in sections)
+    assert joined.count("First body sentence.") == 1 and joined.count("Second body sentence.") == 1
+    assert "Second body sentence." not in sections[0].text
+
+
+@pytest.mark.unit
+def test_bookmark_with_no_text_of_its_own_is_not_a_section():
+    sections = _sections(
+        [[(72, 100, "Child"), (72, 130, "Only the child has body text here.")]],
+        [[1, "Parent", 1], [2, "Child", 1]],
+    )
+    assert [section.heading_path for section in sections] == [["Parent", "Child"]]
+
+
+@pytest.mark.unit
+def test_text_before_the_first_bookmark_keeps_its_own_section():
+    sections = _sections(
+        [[(72, 100, "A foreword sits before any bookmark.")], [(72, 100, "Chapter body text.")]],
+        [[1, "Chapter", 2]],
+    )
+    assert sections[0].heading_path == ["(untitled)"]
+    assert "foreword" in sections[0].text
+    assert "foreword" not in sections[1].text
+
+
+@pytest.mark.unit
+def test_book_with_no_bookmarks_splits_at_its_headings():
+    doc = fitz.open()
+    page = doc.new_page()
+    body = "Ordinary body text sets the main size of this page for the reader to follow."
+    page.insert_text((72, 60), body, fontsize=10)
+    page.insert_text((72, 120), "Combat Rules", fontsize=20)
+    page.insert_text((72, 160), body.replace("Ordinary", "Combat"), fontsize=10)
+    page.insert_text((72, 220), "Magic Rules", fontsize=20)
+    page.insert_text((72, 260), body.replace("Ordinary", "Magic"), fontsize=10)
+    sections = sections_from_tree(decompose_pdf(doc.tobytes(), "d", "T"))
+    assert [section.heading_path for section in sections] == [["(untitled)"], ["Combat Rules"], ["Magic Rules"]]
+    assert "Magic body" not in sections[1].text
+
+
+@pytest.mark.unit
+def test_running_headers_are_left_out_but_all_body_text_is_kept():
+    pages = [[(72, 20, "The Running Header"), (72, 300, f"Body number {i} is here.")] for i in range(6)]
+    sections = _sections(pages)
+    joined = " ".join(section.text for section in sections)
+    assert "Running Header" not in joined
+    assert all(f"Body number {i}" in joined for i in range(6))
+
+
+@pytest.mark.unit
+def test_book_with_no_text_has_no_sections():
+    doc = fitz.open()
+    doc.new_page()
+    assert sections_from_tree(decompose_pdf(doc.tobytes(), "d", "T")) == []

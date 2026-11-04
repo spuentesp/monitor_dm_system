@@ -29,9 +29,12 @@ from monitor_data.schemas.book_graph import (
     BookTree,
     DecompositionReport,
 )
+from monitor_data.tools.ingest_tools._models import SectionBlock
 from monitor_data.tools.ingest_tools.pdf_processing import _open_pdf
 
 DECOMPOSER_VERSION = "4"
+_UNTITLED_SECTION = "(untitled)"
+_SECTION_CONTENT = (BookNodeKind.PARAGRAPH, BookNodeKind.TABLE, BookNodeKind.HEADING)
 _NEXT_LINE_GAP = 1.5
 _CANNOT_END_SENTENCE = frozenset(
     "a an the of in on at to for from by with and or but as that which who whose than if when "
@@ -517,3 +520,59 @@ def _build_report(
         alnum_in_paragraphs=sum(alnum_count(n.text) for n in paragraphs),
         alnum_in_sentences=sum(alnum_count(n.text) for n in sentences),
     )
+
+
+def sections_from_tree(tree: BookTree) -> list[SectionBlock]:
+    """Convert a tree to sections, so each piece of the book's text is in exactly one of them.
+
+    Each bookmark with text of its own becomes one section, holding only that text. Text before
+    the first bookmark gets its own section. A book with no bookmarks splits at its headings.
+    Running headers and page numbers are left out.
+    """
+    by_id = {node.id: node for node in tree.nodes}
+    has_divisions = any(node.kind == BookNodeKind.DIVISION for node in tree.nodes)
+    groups: dict[str, list[BookNode]] = {}
+    order: list[str] = []
+    paths: dict[str, list[str]] = {}
+    current = ""
+    for node in tree.nodes:
+        if node.kind not in _SECTION_CONTENT:
+            continue
+        parent = by_id.get(node.parent_id or "")
+        if parent is not None and parent.kind == BookNodeKind.DIVISION:
+            key = parent.id
+            paths[key] = _division_path(parent, by_id)
+        elif has_divisions or (node.kind != BookNodeKind.HEADING and not current):
+            key = current = current or _UNTITLED_SECTION
+            paths[key] = [_UNTITLED_SECTION]
+        elif node.kind == BookNodeKind.HEADING:
+            key = current = node.id
+            paths[key] = [" ".join(node.text.split())]
+        else:
+            key = current
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(node)
+    sections = []
+    for key in order:
+        nodes = groups[key]
+        sections.append(
+            SectionBlock(
+                heading_path=paths[key],
+                depth=len(paths[key]) - 1,
+                page_start=min(node.page_start for node in nodes),
+                page_end=max(node.page_end for node in nodes),
+                text="\n\n".join(node.text for node in nodes),
+            )
+        )
+    return sections
+
+
+def _division_path(division: BookNode, by_id: dict[str, BookNode]) -> list[str]:
+    path = []
+    node: BookNode | None = division
+    while node is not None and node.kind == BookNodeKind.DIVISION:
+        path.append(" ".join(node.text.split()))
+        node = by_id.get(node.parent_id or "")
+    return list(reversed(path))
