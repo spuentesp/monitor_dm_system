@@ -36,12 +36,43 @@ To repeat the storage tests: `RUN_INTEGRATION=1 MONITOR_TEST_MONGO_URI=... MONIT
 - **Analyzer timeout (D2):** the UI route now passes a limit of the job's limit minus 5 minutes, so 40 minutes by default. A stuck provider now fails with a clear message instead of the generic job timeout. Callers with no job limit keep 180 minutes, and `MONITOR_ANALYZE_TIMEOUT` still caps it. An analysis taking 40–45 minutes used to pass if everything else was quick, and now fails. Real durations could still justify changing it.
 - **Paragraph check:** with Kimi gone, it uses the review model and is off by default behind `MONITOR_BOOK_COVERAGE`, because Mistral was noisy at it.
 
-## What's left
+## Audit against the plan
 
-| Item | Who | Note |
-|---|---|---|
-| First live run | **You to restart LLM work** | Live models are untested. Claim quality can't be measured without them |
-| Two packs per book (G4) | Later | See below |
+Every step below was checked against the code on 2026-11-04.
+
+| Steps | State |
+|---|---|
+| A1–A3 | Done. PR #119 is open, labels are backed up, and each experiment has a decision |
+| B1–B4, C1–C4 | Done and measured |
+| D1–D3 | Done |
+| E1, E2, E5–E8 | Done, and run on real MongoDB. E3 and E4 don't apply, because these aren't MCP tools |
+| F1–F7 | Done, with the differences listed above |
+| G1–G4 | Done |
+| H1–H7 | Done. H3 needed no new code |
+| I1–I4 | Done. I3's fixture was deleted, because nothing uses it after I2 |
+| J1–J4 | Done |
+
+**The plan's open checks, now settled:**
+
+| Check | Answer |
+|---|---|
+| Old Qdrant points on re-ingest | A rescan deliberately reuses existing chunks, so old and new don't mix. Retrying a failed index now clears the source's chunks first. So **documents already indexed keep their old chunks until deleted and uploaded again** |
+| `chunk_index` on older points | Handled: a missing value counts as 0, and the order is still repeatable |
+| How indexes are created | `MongoDBClient._create_indexes`, which now covers `book_records` |
+| Frontend and an unknown stage | It displays the stage as plain text, so nothing breaks |
+| References to the unused loop | Only docs, which were updated |
+
+**Found by this audit:** nothing ever set `stage_last_progress_at`, so the stale-job watchdog failed every job 45 minutes after it started, however well it was progressing. Every job update now sets it, and decomposition jobs send a heartbeat during quiet stretches.
+
+## Outside this plan
+
+These aren't steps here: the plan calls no live model, and it leaves retiring the Analyzer for later.
+
+| Item | Why it's separate |
+|---|---|
+| First live run | LLM work is paused at the owner's request, so claim quality is unmeasured |
+| One pack per book | With the flag on, the Analyzer still runs too, until the fields below are covered or found unnecessary |
+| Short Dune quotes in a public repo | The owner's call |
 
 **Fields only the Analyzer fills today (G4):** `random_tables`, `agendas`, `topologies`, `character_profiles`, `generation_templates`, `tone_profiles`, `plot_threads`, `entity_relationships`, chunk and section summaries, `source_mindscape`, `source_profile_data`, and the structured game system: attributes, skills, resources, tracks, conditions and the rest. Decomposition fills `axioms`, `lore_facts`, simple `entity_archetypes` and `game_system_data.rules`. So the Analyzer can't be retired for books until these are covered or found unnecessary.
 
@@ -489,6 +520,5 @@ H4 to H7 can be checked on saved claims with no model calls, and their results r
 
 ## Known limits
 
-- **Unverified until the step's Check first:** re-ingest behavior for old Qdrant points, `chunk_index` on older points, how indexes are created, how the frontend handles an unknown stage, and references outside Python to the unused loop.
-- **No quality proof:** without models, tests show the code behaves as designed. Whether claims get better needs live runs and labels, once you restart LLM work.
+- **No quality proof:** tests show the code behaves as designed. Whether claims get better needs live runs and labels.
 - **Line numbers** are from 2026-11-04 and will drift.
