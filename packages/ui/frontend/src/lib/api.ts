@@ -472,6 +472,8 @@ export const ingestApi = {
 
   deleteJob: (id: string) =>
     req<void>(`/ingest/jobs/${id}`, { method: "DELETE" }),
+  resumeJob: (id: string) =>
+    req<{ job_id: string; status: string; message: string }>(`/ingest/jobs/${id}/resume`, { method: "POST" }),
   cancelJob: (id: string) =>
     req<{ job_id: string; status: string; message: string }>(`/ingest/jobs/${id}/cancel`, { method: "POST" }),
   purgeFailedJobs: () =>

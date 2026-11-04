@@ -33,6 +33,27 @@ export const TERMINAL_JOB_STATUSES = new Set([
 
 export const FAILED_JOB_STATUSES = new Set(["failed", "error", "killed"]);
 
+const DECOMPOSE_STAGE = "decompose";
+
+/** Book decomposition resumes where it stopped, so it must not re-run the whole ingest. */
+export function isDecompositionJob(job: Pick<IngestJob, "current_stage">): boolean {
+  return job.current_stage === DECOMPOSE_STAGE;
+}
+
+export function canResumeJob(job: Pick<IngestJob, "current_stage" | "status">): boolean {
+  return isDecompositionJob(job) && (job.status === "paused" || job.status === "failed");
+}
+
+export function decompositionSummary(job: Pick<IngestJob, "decomposition">): string | null {
+  const d = job.decomposition;
+  if (!d) return null;
+  const parts = [`${d.sentences_done}/${d.sentences_total} sentences`];
+  if (d.claims_kept) parts.push(`${d.claims_kept} claims kept`);
+  if (d.sentences_quarantined) parts.push(`${d.sentences_quarantined} need a person`);
+  if (d.claims_held_back) parts.push(`${d.claims_held_back} held back`);
+  return parts.join(" · ");
+}
+
 export const SCAN_TYPES = [
   { value: "setting_supplement", label: "Lore & World",  icon: Layers,   color: "text-cyan-400"   },
   { value: "rulebook",           label: "Ruleset",       icon: Scroll,   color: "text-purple-400" },

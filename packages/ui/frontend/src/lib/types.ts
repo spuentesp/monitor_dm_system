@@ -180,6 +180,15 @@ export interface IngestJobFailedSection {
   reason: string;
 }
 
+export interface IngestJobDecomposition {
+  sentences_total: number;
+  sentences_done: number;
+  sentences_quarantined: number;
+  claims_kept: number;
+  claims_held_back: number;
+  pause_reason: string | null;
+}
+
 export interface IngestJob {
   id: string;
   universe_id?: string;
@@ -204,6 +213,7 @@ export interface IngestJob {
   retried_batches?: number;
   total_attempts?: number;
   failed_sections?: IngestJobFailedSection[];
+  decomposition?: IngestJobDecomposition | null;
   current_provider?: string | null;
   current_model?: string | null;
   last_error?: IngestJobLastError | null;
