@@ -2,7 +2,7 @@
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import fitz
 import mongomock
@@ -292,3 +292,44 @@ async def test_domain_trees_are_stored_without_a_graph_model(mongo):
     assert "tree-rules" in records and "graph-rules" not in records
     assert records["tree-rules"].data["children"]
     assert "graph-lore" not in records
+
+
+@pytest.mark.unit
+async def test_book_structure_goes_through_canonkeeper_only_when_chosen(mongo, monkeypatch):
+    record = AsyncMock(return_value=3)
+    with patch("monitor_agents.canonkeeper.agent.CanonKeeper.record_book_structure", record):
+        job = create_decomposition_job(_source_job())
+        await _run_job(job, _pdf(), _Extractor(), _Review())
+        record.assert_not_awaited()
+        monkeypatch.setenv("MONITOR_BOOK_NEO4J", "1")
+        await run_decomposition_job(
+            job.job_id,
+            _pdf(),
+            doc_id=job.doc_id,
+            title="Book",
+            source_id=job.source_id,
+            make_extractor=lambda _: _Extractor(),
+            make_review_model=lambda _, __: _Review(),
+        )
+    assert record.await_args.args[1] == job.source_id
+
+
+@pytest.mark.unit
+async def test_failed_structure_write_warns_and_the_book_still_finishes(mongo, monkeypatch):
+    monkeypatch.setenv("MONITOR_BOOK_NEO4J", "1")
+    record = AsyncMock(side_effect=RuntimeError("neo4j down"))
+    job = create_decomposition_job(_source_job())
+    with patch("monitor_agents.canonkeeper.agent.CanonKeeper.record_book_structure", record):
+        await run_decomposition_job(
+            job.job_id,
+            _pdf(),
+            doc_id=job.doc_id,
+            title="Book",
+            source_id=job.source_id,
+            make_extractor=lambda _: _Extractor(),
+            make_review_model=lambda _, __: _Review(),
+        )
+    final = ingestion_jobs.mongodb_get_ingestion_job(job.job_id)
+    assert final.status == IngestionStatus.COMPLETED
+    assert any("neo4j down" in warning for warning in final.warnings)
+

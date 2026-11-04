@@ -14,7 +14,7 @@ from uuid import UUID
 
 import structlog
 from monitor_data.schemas.base import IngestionStatus
-from monitor_data.schemas.book_graph import BookRecord, BookRecordType
+from monitor_data.schemas.book_graph import BookRecord, BookRecordType, BookTree
 from monitor_data.schemas.ingestion_jobs import (
     DecompositionProgress,
     IngestionJobCreate,
@@ -65,6 +65,10 @@ def _default_graph_model(model: str, guard: RunGuard) -> GraphModel:
 
 def book_decomposition_enabled() -> bool:
     return os.environ.get("MONITOR_BOOK_DECOMPOSITION", "0").strip().lower() in ("1", "true", "yes")
+
+
+def book_structure_enabled() -> bool:
+    return os.environ.get("MONITOR_BOOK_NEO4J", "0").strip().lower() in ("1", "true", "yes")
 
 
 def is_decomposition_job(job: IngestionJobResponse) -> bool:
@@ -119,6 +123,7 @@ async def run_decomposition_job(
     doc_id: UUID,
     title: str,
     pack_type: KnowledgePackType = KnowledgePackType.MISC,
+    source_id: UUID | None = None,
     make_extractor: Callable[[str], object] | None = None,
     make_review_model: Callable[[str, RunGuard], object] | None = None,
     make_graph_model: Callable[[str, RunGuard], GraphModel] | None = None,
@@ -131,6 +136,18 @@ async def run_decomposition_job(
     extract_model = os.environ.get("MONITOR_BOOK_EXTRACT_MODEL", _DEFAULT_EXTRACT_MODEL)
     review_model_name = os.environ.get("MONITOR_BOOK_REVIEW_MODEL", _DEFAULT_REVIEW_MODEL)
     prefix = _model_key(extract_model)
+
+    async def record_structure(tree: BookTree) -> None:
+        # Only CanonKeeper writes to Neo4j. This is optional, so a failure can't stop the book.
+        from monitor_agents.canonkeeper.agent import CanonKeeper
+
+        try:
+            await CanonKeeper(agent_id="book-structure").record_book_structure(tree, source_id)  # type: ignore[arg-type]  # reason: only used when source_id is set
+        except Exception as exc:  # noqa: BLE001  # reason: optional record; the failure goes on the job and the run continues
+            log.warning("book_structure_failed", job_id=str(job_id), error=str(exc)[:300])
+            mongodb_update_ingestion_job(
+                job_id, IngestionJobUpdate(warnings=[f"Book structure not stored: {exc}"[:300]])
+            )
 
     def on_progress(progress: DecompositionProgress) -> None:
         if _is_cancelled(job_id):
@@ -173,6 +190,7 @@ async def run_decomposition_job(
             accept_run=lambda key: key.startswith(f"{prefix}-"),
             check_coverage=os.environ.get("MONITOR_BOOK_COVERAGE", "0") == "1",
             on_progress=on_progress,
+            on_tree=record_structure if source_id is not None and book_structure_enabled() else None,
             graph_model=(
                 (make_graph_model or _default_graph_model)(review_model_name, guard)
                 if os.environ.get("MONITOR_BOOK_GRAPH", "0") == "1"

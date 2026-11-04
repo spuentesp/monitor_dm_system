@@ -6,6 +6,7 @@ Neo4j Tools Package.
 Exposes all Neo4j tool functions.
 """
 
+from .book_tree import *
 from .agendas import *
 from .core import *
 from .entities import *

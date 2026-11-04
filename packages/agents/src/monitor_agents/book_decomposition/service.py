@@ -7,7 +7,7 @@ or a pause only does what's missing.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -100,10 +100,13 @@ async def decompose_book(
     concurrency: int = 4,
     on_progress: Callable[[DecompositionProgress], None] | None = None,
     graph_model: GraphModel | None = None,
+    on_tree: Callable[[BookTree], Awaitable[None]] | None = None,
 ) -> DecomposeResult:
     """Decompose a book and create its review-pending pack. Safe to call repeatedly."""
     key = str(doc_id)
     tree = _load_or_build_tree(pdf_bytes, key, title)
+    if on_tree is not None:
+        await on_tree(tree)
     windows = build_windows(tree)
     expected = {unit.node_id for window in windows for unit in window.units}
     outcome_log = MongoExtractionLog(key)
