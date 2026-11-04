@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,7 +19,7 @@ client = TestClient(app)
 
 def _job(status=IngestionStatus.PAUSED, stages=(IngestionStage.DECOMPOSE,)):
     return SimpleNamespace(
-        job_id=uuid.uuid4(), doc_id=uuid.uuid4(), status=status, pipeline_stages=list(stages), source_title="Book (decomposition)"
+        job_id=uuid.uuid4(), doc_id=uuid.uuid4(), source_id=uuid.uuid4(), status=status, pipeline_stages=list(stages), source_title="Book (decomposition)"
     )
 
 
@@ -83,7 +83,7 @@ def test_missing_job_is_not_found(started):
 
 
 def _finished_ingest(status=IngestionStatus.COMPLETED):
-    return SimpleNamespace(status=status, doc_id=uuid.uuid4())
+    return SimpleNamespace(status=status, doc_id=uuid.uuid4(), source_id=uuid.uuid4())
 
 
 @pytest.mark.unit
@@ -128,3 +128,24 @@ def test_worker_runs_the_job_off_the_ingest_slot_and_clears_itself():
         executor.submit(lambda: None).result(timeout=5)
     run.assert_awaited_once()
     assert str(job_id) not in ingest._decomposition_active
+
+
+@pytest.mark.unit
+def test_deleting_a_source_removes_its_book_progress():
+    uid, doc = uuid.uuid4(), uuid.uuid4()
+    collections = {}
+
+    def get_collection(name):
+        return collections.setdefault(name, MagicMock())
+
+    mongo = SimpleNamespace(get_collection=get_collection)
+    get_collection("documents").find.return_value = [{"doc_id": str(doc)}]
+    with (
+        patch.object(ingest, "get_mongodb_client", return_value=mongo),
+        patch.object(ingest, "neo4j_delete_source"),
+        patch.object(ingest, "get_minio_client"),
+    ):
+        response = client.delete(f"/api/ingest/sources/{uid}")
+    assert response.status_code == 204
+    collections["book_records"].delete_many.assert_called_once_with({"doc_id": {"$in": [str(doc)]}})
+    collections["book_leases"].delete_many.assert_called_once_with({"_id": {"$in": [str(doc)]}})

@@ -43,10 +43,15 @@ class TestIngestionStage:
         assert IngestionStage.PROPOSE.value == "propose"
         assert IngestionStage.CANONIZE.value == "canonize"
         assert IngestionStage.INDEX.value == "index"
+        assert IngestionStage.DECOMPOSE.value == "decompose"
 
     def test_iteration(self):
         stages = list(IngestionStage)
-        assert len(stages) == 7
+        assert len(stages) == 8
+
+    def test_normal_jobs_leave_out_the_separate_decompose_stage(self):
+        stages = IngestionJobCreate(universe_id=uuid4(), source_id=uuid4(), doc_id=uuid4()).pipeline_stages
+        assert IngestionStage.DECOMPOSE not in stages and len(stages) == 7
 
 
 # =============================================================================

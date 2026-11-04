@@ -353,20 +353,22 @@ def _run_ingest_in_thread(
             _pipeline_module.mongodb_create_ingestion_job = _patched_create_job  # type: ignore
             try:
                 # 1. Standard ingestion pipeline
-                ingest_results.append(await pipeline.ingest_file(
-                    file_bytes=file_bytes,
-                    filename=filename,
-                    source_title=source_title,
-                    # reason: universe_uid: UUID | None passed to IngestionPipeline.ingest_file(universe_id: UUID), which expects a non-None UUID
-                    universe_id=universe_uid,  # type: ignore
-                    pack_name=source_title,
-                    pack_type=pack_type_enum,
-                    analysis_layers=selected_layers,
-                    auto_apply=False,
-                    content_type=content_type,
-                    reuse_source_id=reuse_source_id,
-                    reuse_doc_id=reuse_doc_id,
-                ))
+                ingest_results.append(
+                    await pipeline.ingest_file(
+                        file_bytes=file_bytes,
+                        filename=filename,
+                        source_title=source_title,
+                        # reason: universe_uid: UUID | None passed to IngestionPipeline.ingest_file(universe_id: UUID), which expects a non-None UUID
+                        universe_id=universe_uid,  # type: ignore
+                        pack_name=source_title,
+                        pack_type=pack_type_enum,
+                        analysis_layers=selected_layers,
+                        auto_apply=False,
+                        content_type=content_type,
+                        reuse_source_id=reuse_source_id,
+                        reuse_doc_id=reuse_doc_id,
+                    )
+                )
 
                 # 2. Record in World Library for the Architect
                 if universe_uid:
@@ -402,9 +404,7 @@ def _run_ingest_in_thread(
         try:
             await asyncio.wait_for(_ingest_with_capture(), timeout=_JOB_TIMEOUT_SECS)
             if ingest_results:
-                _maybe_start_decomposition(
-                    ingest_results[0], file_bytes, filename, source_title, pack_type_enum
-                )
+                _maybe_start_decomposition(ingest_results[0], file_bytes, filename, source_title, pack_type_enum)
         except TimeoutError:
             logger.error(
                 "Ingestion timed out after %ds for '%s' (job=%s)",
@@ -459,7 +459,11 @@ def _run_ingest_in_thread(
 
 
 def _start_decomposition(
-    job_id: UUID, pdf_bytes: bytes, doc_id: UUID, title: str, pack_type: Any
+    job_id: UUID,
+    pdf_bytes: bytes,
+    doc_id: UUID,
+    title: str,
+    pack_type: Any,
 ) -> None:
     """Run a decomposition on its own worker, outside the ingest slot and its timeout."""
     global _decomposition_executor
@@ -475,7 +479,11 @@ def _start_decomposition(
         try:
             asyncio.run(
                 run_decomposition_job(
-                    job_id, pdf_bytes, doc_id=doc_id, title=title, pack_type=pack_type
+                    job_id,
+                    pdf_bytes,
+                    doc_id=doc_id,
+                    title=title,
+                    pack_type=pack_type,
                 )
             )
         finally:
@@ -485,9 +493,7 @@ def _start_decomposition(
     executor.submit(work)
 
 
-def _maybe_start_decomposition(
-    ingest_job: Any, file_bytes: bytes, filename: str, title: str, pack_type: Any
-) -> None:
+def _maybe_start_decomposition(ingest_job: Any, file_bytes: bytes, filename: str, title: str, pack_type: Any) -> None:
     """Start decomposing a finished PDF ingest, if the flag is on. Failure can't harm the ingest."""
     finished = (IngestionStatus.COMPLETED, IngestionStatus.PARTIAL)
     if (
@@ -991,7 +997,12 @@ async def delete_source(source_id: str) -> None:
     with db_op("Database unavailable"):
         mongodb = get_mongodb_client()
         mongodb.get_collection("ingestion_jobs").delete_many({"source_id": str(uid)})
-        mongodb.get_collection("documents").delete_many({"source_id": str(uid)})
+        documents = mongodb.get_collection("documents")
+        doc_ids = [str(row["doc_id"]) for row in documents.find({"source_id": str(uid)}) if row.get("doc_id")]
+        documents.delete_many({"source_id": str(uid)})
+        # Book decomposition progress belongs to the document, so it goes too.
+        mongodb.get_collection("book_records").delete_many({"doc_id": {"$in": doc_ids}})
+        mongodb.get_collection("book_leases").delete_many({"_id": {"$in": doc_ids}})
 
     # Remove Neo4j Source node and its relationships
     try:
