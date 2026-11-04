@@ -1,5 +1,6 @@
 """A book runs end to end through real storage code and real schemas, with scripted models (I-17)."""
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -333,3 +334,42 @@ async def test_failed_structure_write_warns_and_the_book_still_finishes(mongo, m
     assert final.status == IngestionStatus.COMPLETED
     assert any("neo4j down" in warning for warning in final.warnings)
 
+
+def _raw(mongo, job):
+    return mongo["ingestion_jobs"].find_one({"job_id": str(job.job_id)})
+
+
+@pytest.mark.unit
+def test_any_job_update_counts_as_progress(mongo):
+    job = _source_job()
+    before = _raw(mongo, job).get("stage_last_progress_at")
+    ingestion_jobs.mongodb_update_ingestion_job(job.job_id, IngestionJobUpdate(progress=0.5))
+    after = _raw(mongo, job)["stage_last_progress_at"]
+    assert after is not None and after != before
+
+
+@pytest.mark.unit
+async def test_heartbeat_keeps_a_quiet_stretch_alive_and_stops_afterward(mongo):
+    job = create_decomposition_job(_source_job())
+    stamps = []
+
+    class _SlowReview(_Review):
+        async def verify(self, prompt):
+            first = _raw(mongo, job)["stage_last_progress_at"]
+            await asyncio.sleep(0.15)  # A long review with no progress updates of its own.
+            stamps.append((first, _raw(mongo, job)["stage_last_progress_at"]))
+            return await super().verify(prompt)
+
+    await run_decomposition_job(
+        job.job_id,
+        _pdf(1),
+        doc_id=job.doc_id,
+        title="Book",
+        heartbeat_seconds=0.03,
+        make_extractor=lambda _: _Extractor(),
+        make_review_model=lambda _, __: _SlowReview(),
+    )
+    assert stamps and stamps[0][1] > stamps[0][0]
+    finished = _raw(mongo, job)["stage_last_progress_at"]
+    await asyncio.sleep(0.1)
+    assert _raw(mongo, job)["stage_last_progress_at"] == finished

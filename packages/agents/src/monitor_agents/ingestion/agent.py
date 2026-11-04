@@ -128,6 +128,24 @@ def analyze_timeout_for_job(job_timeout_seconds: int) -> int:
     return min(_ANALYZE_STAGE_TIMEOUT_SECS, inside_job)
 
 
+async def _delete_source_chunks(source_id: UUID) -> None:
+    """Clear a source's chunks before indexing it again, so old and new never mix."""
+    from monitor_data.db.qdrant import get_qdrant_client
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    try:
+        await (
+            get_qdrant_client()
+            .get_client()
+            .delete(
+                collection_name="snippets",
+                points_selector=Filter(must=[FieldCondition(key="source_id", match=MatchValue(value=str(source_id)))]),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: indexing can continue; stale chunks are logged, not fatal
+        logger.warning("Could not clear old chunks for source %s: %s", source_id, exc)
+
+
 async def _is_job_cancelled(job_id: UUID) -> bool:
     """Return True if the job has been externally marked failed/cancelled."""
     try:
@@ -506,6 +524,9 @@ class IngestionPipeline(BaseAgent):
             else:
                 if await _is_job_cancelled(job_id):
                     raise RuntimeError("Job was cancelled before indexing started")
+                if reusing_existing_doc:
+                    # A retry after a failed index can leave chunks with other IDs behind.
+                    await _delete_source_chunks(source_id)
                 await asyncio.to_thread(
                     mongodb_update_ingestion_job,
                     job_id,

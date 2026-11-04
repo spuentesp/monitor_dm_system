@@ -6,6 +6,7 @@ job record, which can pause and resume, and the normal pipeline is unchanged.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from collections.abc import Callable
@@ -57,6 +58,7 @@ _DEFAULT_REVIEW_MODEL = "mistral/mistral-large-latest"
 _DEFAULT_MAX_OUTPUT_TOKENS = 2_000_000
 _REQUESTS_PER_MINUTE = 20.0
 _SETTINGS_KEY = "settings"
+_HEARTBEAT_SECONDS = 60.0
 
 
 def _default_graph_model(model: str, guard: RunGuard) -> GraphModel:
@@ -124,6 +126,7 @@ async def run_decomposition_job(
     title: str,
     pack_type: KnowledgePackType = KnowledgePackType.MISC,
     source_id: UUID | None = None,
+    heartbeat_seconds: float = _HEARTBEAT_SECONDS,
     make_extractor: Callable[[str], object] | None = None,
     make_review_model: Callable[[str, RunGuard], object] | None = None,
     make_graph_model: Callable[[str, RunGuard], GraphModel] | None = None,
@@ -162,6 +165,7 @@ async def run_decomposition_job(
             ),
         )
 
+    heartbeat = asyncio.create_task(_keep_job_alive(job_id, heartbeat_seconds))
     try:
         mongodb_update_ingestion_job(
             job_id,
@@ -217,6 +221,21 @@ async def run_decomposition_job(
                     completed_at=datetime.now(UTC),
                 ),
             )
+    finally:
+        heartbeat.cancel()
+
+
+async def _keep_job_alive(job_id: UUID, seconds: float) -> None:
+    """Tell the stale-job watchdog this worker is alive, during long stretches like review.
+
+    If the process dies, this stops, the watchdog fails the job, and it can then be resumed.
+    """
+    while True:
+        await asyncio.sleep(seconds)
+        try:
+            await asyncio.to_thread(mongodb_update_ingestion_job, job_id, IngestionJobUpdate())
+        except Exception as exc:  # noqa: BLE001  # reason: the next beat retries; a missed beat can't harm the run
+            log.warning("book_heartbeat_failed", job_id=str(job_id), error=str(exc)[:200])
 
 
 def _record_result(job_id: UUID, result: DecomposeResult) -> None:
