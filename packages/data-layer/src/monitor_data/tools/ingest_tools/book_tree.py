@@ -22,6 +22,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 import fitz
+import structlog
 
 from monitor_data.schemas.book_graph import (
     BookNode,
@@ -32,7 +33,11 @@ from monitor_data.schemas.book_graph import (
 from monitor_data.tools.ingest_tools._models import SectionBlock
 from monitor_data.tools.ingest_tools.pdf_processing import _open_pdf
 
-DECOMPOSER_VERSION = "4"
+DECOMPOSER_VERSION = "5"
+_MIN_MIDDLE_TITLE_WORDS = 2
+_TABLE_ROW_TOLERANCE = 3.0
+_TABLE_MAX_WORDS_PER_ROW = 24
+_TABLE_CELL_SEPARATOR = " | "
 _UNTITLED_SECTION = "(untitled)"
 _SECTION_CONTENT = (BookNodeKind.PARAGRAPH, BookNodeKind.TABLE, BookNodeKind.HEADING)
 _NEXT_LINE_GAP = 1.5
@@ -51,6 +56,7 @@ _SENTENCE_END = re.compile(r"[.!?]+[\"”’')\]]*\s+")
 _OPENERS = "\"“‘'([¿¡"
 _SOFT_HYPHEN = "\xad"
 _MARGIN_FRACTION = 0.08
+log = structlog.get_logger()
 _COLUMN_GAP_FRACTION = 0.2
 _FULL_WIDTH_FRACTION = 0.6
 _INDENT_POINTS = 6.0
@@ -112,6 +118,7 @@ class _Line:
     x0: float
     size: float
     style: str = ""
+    y0: float = 0.0
 
 
 @dataclass
@@ -128,6 +135,8 @@ class _Block:
 
     @property
     def text(self) -> str:
+        if self.kind == BookNodeKind.TABLE:
+            return "\n".join(" ".join(line.text.split()) for line in self.lines)
         return join_lines([line.text for line in self.lines])
 
     @property
@@ -217,6 +226,7 @@ def _read_page_blocks(page: fitz.Page, page_num: int) -> tuple[list[_Block], int
                 x0=line["bbox"][0],
                 size=max(span["size"] for span in line["spans"]),
                 style=_line_style(line["spans"]),
+                y0=line["bbox"][1],
             )
             for line in raw["lines"]
             if line["spans"]
@@ -234,6 +244,52 @@ def _read_page_blocks(page: fitz.Page, page_num: int) -> tuple[list[_Block], int
             current.append(line)
         blocks.append(_block_from(page_num, raw["bbox"], current))
     return blocks, images
+
+
+def _table_rows(blocks: list[_Block]) -> list[_Line]:
+    """Rebuild table rows from their cells, which a PDF stores as separate text blocks."""
+    cells = sorted((line for block in blocks for line in block.lines), key=lambda line: line.y0)
+    rows: list[list[_Line]] = []
+    for cell in cells:
+        if rows and abs(cell.y0 - rows[-1][0].y0) <= _TABLE_ROW_TOLERANCE:
+            rows[-1].append(cell)
+        else:
+            rows.append([cell])
+    joined = []
+    for row in rows:
+        row.sort(key=lambda line: line.x0)
+        text = _TABLE_CELL_SEPARATOR.join(cell.text.strip() for cell in row)
+        joined.append(_Line(text=text, x0=row[0].x0, size=row[0].size, style=row[0].style, y0=row[0].y0))
+    return joined
+
+
+def _merge_table_blocks(page: fitz.Page, blocks: list[_Block]) -> list[_Block]:
+    """Merge the blocks inside each ruled table into one table block, keeping all their text.
+
+    Prose laid out in a grid can look like a table, so a region with long rows stays as it was.
+    """
+    try:
+        found = page.find_tables().tables
+    except Exception as exc:  # noqa: BLE001  # reason: PyMuPDF's detection can fail on odd pages; the text is kept as paragraphs either way
+        log.warning("book_table_detection_failed", page=page.number, error=str(exc)[:200])
+        return blocks
+    merged = list(blocks)
+    for table in found:
+        if table.row_count < 2 or table.col_count < 2:
+            continue
+        x0, y0, x1, y1 = table.bbox
+        inside = [
+            block for block in merged if x0 <= (block.x0 + block.x1) / 2 <= x1 and y0 <= (block.y0 + block.y1) / 2 <= y1
+        ]
+        if not inside:
+            continue
+        rows = _table_rows(inside)
+        if max(len(row.text.split()) for row in rows) > _TABLE_MAX_WORDS_PER_ROW:
+            continue
+        first = inside[0]
+        table_block = _Block(first.page, x0, y0, x1, y1, rows, kind=BookNodeKind.TABLE)
+        merged = [table_block if block is first else block for block in merged if block is first or block not in inside]
+    return merged
 
 
 def order_blocks(blocks: list[_Block], page_width: float) -> list[_Block]:
@@ -334,6 +390,11 @@ def _find_title_block(title: str, blocks: list[_Block]) -> _Block | None:
     for block in free:
         if _words_key(block.text).startswith(words + " "):
             return block
+    # A title set into its text. One word could just be a word, so it takes at least two.
+    if len(words.split()) >= _MIN_MIDDLE_TITLE_WORDS:
+        for block in free:
+            if f" {words} " in f" {_words_key(block.text)} ":
+                return block
     return None
 
 
@@ -383,6 +444,7 @@ def decompose_pdf(pdf_bytes: bytes, doc_id: str, title: str) -> BookTree:
             extracted += alnum_count(raw_text)
             no_text += not raw_text.strip()
             blocks, page_images = _read_page_blocks(page, page_num)
+            blocks = _merge_table_blocks(page, blocks)
             images += page_images
             pages.append(order_blocks(blocks, page.rect.width))
             heights.append(page.rect.height)

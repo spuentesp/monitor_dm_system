@@ -425,3 +425,60 @@ def test_book_with_no_text_has_no_sections():
     doc = fitz.open()
     doc.new_page()
     assert sections_from_tree(decompose_pdf(doc.tobytes(), "d", "T")) == []
+
+
+def _ruled_table_pdf() -> bytes:
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 60), "Ordinary body text sits above the table on this page.", fontsize=10)
+    rows = [("1", "Calm", "5"), ("2", "Tense", "6 or 7"), ("3", "Grim", "8-9")]
+    for r, row in enumerate(rows):
+        for c, cell in enumerate(row):
+            page.insert_text((80 + c * 120, 118 + r * 20), cell, fontsize=10)
+    for r in range(len(rows) + 1):
+        page.draw_line((72, 100 + r * 20), (432, 100 + r * 20))
+    for c in range(4):
+        page.draw_line((72 + c * 120, 100), (72 + c * 120, 160))
+    return doc.tobytes()
+
+
+@pytest.mark.unit
+def test_ruled_table_becomes_one_table_with_its_rows_intact():
+    tree = decompose_pdf(_ruled_table_pdf(), "d", "T")
+    tables = [n.text for n in tree.nodes if n.kind == BookNodeKind.TABLE]
+    assert tables == ["1 | Calm | 5\n2 | Tense | 6 or 7\n3 | Grim | 8-9"]
+    assert tree.report.is_lossless
+    assert "Ordinary body text" in " ".join(n.text for n in tree.nodes if n.kind == BookNodeKind.PARAGRAPH)
+
+
+@pytest.mark.unit
+def test_table_rows_stay_together_in_sections():
+    sections = sections_from_tree(decompose_pdf(_ruled_table_pdf(), "d", "T"))
+    assert "2 | Tense | 6 or 7" in sections[0].text
+
+
+@pytest.mark.unit
+def test_failed_table_detection_keeps_the_text(monkeypatch):
+    def fail(self, *args, **kwargs):
+        raise RuntimeError("bad page")
+
+    monkeypatch.setattr(fitz.Page, "find_tables", fail)
+    tree = decompose_pdf(_ruled_table_pdf(), "d", "T")
+    assert tree.report.is_lossless
+    assert "Tense" in " ".join(n.text for n in tree.nodes)
+    assert not [n for n in tree.nodes if n.kind == BookNodeKind.TABLE and " | " in n.text]
+
+
+@pytest.mark.unit
+def test_title_set_into_a_paragraph_starts_its_section():
+    pages = [[(72, 100, "An opening line here."), (72, 140, "As it happens The Spacing Guild rules travel here.")]]
+    sections = _sections(pages, [[1, "Start", 1], [1, "The Spacing Guild", 1]])
+    assert any(s.heading_path == ["The Spacing Guild"] and "rules travel" in s.text for s in sections)
+
+
+@pytest.mark.unit
+def test_one_word_title_is_not_matched_inside_a_sentence():
+    pages = [[(72, 100, "You may move your asset to any zone here.")]]
+    sections = _sections(pages, [[1, "Zone", 1]])
+    assert sections and sections[0].heading_path == ["Zone"]  # Falls back to the page's top block.
+    assert len(sections) == 1
