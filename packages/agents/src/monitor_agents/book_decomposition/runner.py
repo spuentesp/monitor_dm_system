@@ -17,7 +17,7 @@ import asyncio
 import structlog
 
 from monitor_agents.book_decomposition.extractor import WindowExtractor
-from monitor_agents.book_decomposition.ledger import ExtractionLog, UnitStates, reconcile
+from monitor_agents.book_decomposition.ledger import OutcomeLog, UnitStates, reconcile
 from monitor_agents.book_decomposition.pacing import RunGuard, StopKind
 from monitor_agents.book_decomposition.pipeline import extract_windows
 from monitor_agents.book_decomposition.windows import Window, window_id
@@ -57,7 +57,7 @@ def plan_windows(windows: Collection[Window], pending: Collection[str]) -> list[
 async def run_until_settled(
     windows: Collection[Window],
     extractor: WindowExtractor,
-    extraction_log: ExtractionLog,
+    extraction_log: OutcomeLog,
     guard: RunGuard,
     *,
     run_key: str = "",

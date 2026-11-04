@@ -515,6 +515,14 @@ def _check_key(claim: Claim) -> str:
     return f"{claim.id}:{hashlib.sha256(notes.encode()).hexdigest()[:8]}"
 
 
+class CheckStore(Protocol):
+    """Where finished verifier checks are kept. The review works with any backend."""
+
+    def read(self) -> dict[str, ClaimCheck]: ...
+
+    def append(self, checks: dict[str, ClaimCheck]) -> None: ...
+
+
 class CheckLog:
     """Finished verification checks, saved per claim as they arrive.
 
@@ -744,6 +752,14 @@ class CoverageModel(Protocol):
     async def find_gaps(self, prompt: str) -> CoverageAudit: ...
 
 
+class CoverageStore(Protocol):
+    """Where finished paragraph checks are kept."""
+
+    def read(self) -> dict[str, list[ParagraphGap]]: ...
+
+    def append(self, finished: dict[str, list[ParagraphGap]]) -> None: ...
+
+
 class CoverageLog:
     """Finished paragraph checks, saved as they arrive. A torn last line is ignored and redone."""
 
@@ -789,7 +805,7 @@ async def audit_coverage(
     *,
     batch_size: int = _COVERAGE_BATCH,
     concurrency: int = DEFAULT_CONCURRENCY,
-    coverage_log: CoverageLog | None = None,
+    coverage_log: CoverageStore | None = None,
 ) -> None:
     """Ask what each paragraph says that all of its claims together don't.
 
@@ -1137,11 +1153,11 @@ async def review_claims(
     model: ReviewModel,
     *,
     concurrency: int = DEFAULT_CONCURRENCY,
-    check_log: CheckLog | None = None,
+    check_log: CheckStore | None = None,
     check_coverage: bool = True,
     coverage_model: CoverageModel | None = None,
     coverage_batch_size: int = _COVERAGE_BATCH,
-    coverage_log: CoverageLog | None = None,
+    coverage_log: CoverageStore | None = None,
 ) -> ReviewResult:
     """Run the full review: audit skips, verify every claim, stack, then build the ledger."""
     report = ReviewReport()

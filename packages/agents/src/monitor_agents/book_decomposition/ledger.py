@@ -17,6 +17,7 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ContextManager, Protocol
 
 import structlog
 from pydantic import ValidationError
@@ -31,6 +32,16 @@ _CONTENT_FAILURES = ("AdapterParseError", "ValidationError", "TruncatedOutput")
 
 class LogBusy(Exception):
     """Another process is already working on this book."""
+
+
+class OutcomeLog(Protocol):
+    """Where window outcomes are kept. The extraction loop works with any backend."""
+
+    def append(self, outcome: WindowOutcome) -> None: ...
+
+    def read(self) -> list[WindowOutcome]: ...
+
+    def exclusive(self) -> ContextManager[None]: ...
 
 
 class ExtractionLog:
