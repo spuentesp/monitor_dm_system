@@ -289,3 +289,120 @@ async def test_reaching_max_turns_advances_the_story_without_ending_it() -> None
     assert result.metadata["scene_transition"] is True
     assert outcomes[0]["scene_complete"] is False
     assert outcomes[0]["total_minutes_passed"] == 90
+
+
+class _ContextCapture:
+    """Captures what load_context asks for and what narrate passes on."""
+
+    def __init__(self, world: _World) -> None:
+        self.assemble_kwargs: list[dict[str, Any]] = []
+        self.narrate_contexts: list[dict[str, Any]] = []
+        self.resolver_contexts: list[dict[str, Any]] = []
+        self.profile_lookups: list[int] = []
+        self.entity_id = str(uuid4())
+        world.create_context_assembly = self._assembly  # type: ignore[method-assign]
+        world.create_narrator = self._narrator(world)  # type: ignore[method-assign]
+        world.create_resolver = self._resolver(world)  # type: ignore[method-assign]
+
+    def _assembly(self) -> Any:
+        async def assemble(**kwargs: Any) -> dict[str, Any]:
+            self.assemble_kwargs.append(kwargs)
+            return {"entities": [{"id": self.entity_id, "name": "Guard"}], "turns": []}
+
+        return types.SimpleNamespace(
+            assemble=assemble,
+            check_and_compress_if_needed=AsyncMock(side_effect=lambda ctx, player_action="": ctx),
+        )
+
+    def _narrator(self, world: _World) -> Any:
+        original = world.create_narrator()
+
+        async def narrate(**kwargs: Any) -> dict[str, Any]:
+            self.narrate_contexts.append(kwargs["context"])
+            return await original.narrate_turn(**kwargs)
+
+        return lambda: types.SimpleNamespace(narrate_turn=narrate)
+
+    def _resolver(self, world: _World) -> Any:
+        original = world.create_resolver()
+
+        async def resolve(**kwargs: Any) -> Any:
+            self.resolver_contexts.append(kwargs["context"])
+            return await original.resolve_turn(**kwargs)
+
+        return lambda: types.SimpleNamespace(resolve_turn=resolve)
+
+
+@pytest.mark.asyncio
+async def test_player_action_reaches_context_assembly(world: _World) -> None:
+    capture = _ContextCapture(world)
+    await _loop().run("I search the desk")
+
+    assert capture.assemble_kwargs[0]["player_action"] == "I search the desk"
+
+
+@pytest.mark.asyncio
+async def test_npc_profiles_are_loaded_for_this_turns_entities(world: _World) -> None:
+    capture = _ContextCapture(world)
+
+    async def read(fn: Any, *args: Any, **kwargs: Any) -> Any:
+        if getattr(fn, "__name__", "") == "mongodb_get_npc_profiles_by_entities":
+            capture.profile_lookups.append(len(args[0]))
+            return [types.SimpleNamespace(entity_id=capture.entity_id, model_dump=lambda mode: {"traits": {}})]
+        return await _fake_read(fn, *args, **kwargs)
+
+    with patch("monitor_agents.utils.db_readers.run_sync_read", read):
+        await _loop().run("I greet the guard")
+
+    assert capture.profile_lookups == [1]
+    assert capture.narrate_contexts[0]["npc_profiles"][capture.entity_id] == {"traits": {}, "name": "Guard"}
+
+
+@pytest.mark.asyncio
+async def test_recap_reaches_the_narrator_on_the_first_turn_only(world: _World) -> None:
+    capture = _ContextCapture(world)
+
+    async def read(fn: Any, *args: Any, **kwargs: Any) -> Any:
+        if getattr(fn, "__name__", "") == "mongodb_get_recent_turns":
+            return [object()] * len(capture.narrate_contexts)
+        return await _fake_read(fn, *args, **kwargs)
+
+    loop = _loop(opening_recap="Last time, the vault fell.")
+    with patch("monitor_agents.utils.db_readers.run_sync_read", read):
+        await loop.run("first")
+        await loop.run("second")
+
+    assert capture.narrate_contexts[0]["opening_recap"] == "Last time, the vault fell."
+    assert capture.narrate_contexts[1]["opening_recap"] == ""
+
+
+@pytest.mark.asyncio
+async def test_open_foreshadowing_reaches_the_narrator(world: _World) -> None:
+    capture = _ContextCapture(world)
+    item = types.SimpleNamespace(model_dump=lambda mode: {"summary": "A stranger watches."})
+
+    async def read(fn: Any, *args: Any, **kwargs: Any) -> Any:
+        if getattr(fn, "__name__", "") == "mongodb_list_open_foreshadowing":
+            return [item]
+        return await _fake_read(fn, *args, **kwargs)
+
+    with patch("monitor_agents.utils.db_readers.run_sync_read", read):
+        await _loop().run("first")
+
+    assert capture.narrate_contexts[0]["scene_foreshadowing_open"] == [{"summary": "A stranger watches."}]
+
+
+@pytest.mark.asyncio
+async def test_resolver_receives_the_universe(world: _World) -> None:
+    capture = _ContextCapture(world)
+    universe = uuid4()
+
+    async def read(fn: Any, *args: Any, **kwargs: Any) -> Any:
+        if getattr(fn, "__name__", "") == "mongodb_get_scene":
+            return types.SimpleNamespace(universe_id=universe, temporal_mode="present", time_ref=None)
+        return await _fake_read(fn, *args, **kwargs)
+
+    with patch("monitor_agents.utils.db_readers.run_sync_read", read):
+        await _loop().run("first")
+
+    assert capture.resolver_contexts[0]["universe_id"] == str(universe)

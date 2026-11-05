@@ -362,6 +362,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     context = await agent.assemble(
         scene_id=state.scene_id,
         story_id=state.story_id,
+        player_action=state.user_input,
         universe_id=str(universe_id) if universe_id else None,
         system_id=state.system_id,
         system_source_type=state.system_source_type,
@@ -424,7 +425,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     # any failure leaves npc_profiles empty and the NPC STATE block degrades.
     npc_profiles: dict[str, Any] = {}
     try:
-        entity_ids = [UUID(str(e["id"])) for e in state.entity_context if isinstance(e, dict) and e.get("id")]
+        entity_ids = [UUID(str(e["id"])) for e in context.get("entities", []) if isinstance(e, dict) and e.get("id")]
         if entity_ids:
             from monitor_data.tools.mongodb_tools import mongodb_get_npc_profiles_by_entities
 
@@ -432,7 +433,11 @@ async def load_context(state: SceneState) -> dict[str, Any]:
                 mongodb_get_npc_profiles_by_entities,
                 entity_ids,
             )
-            npc_profiles = {str(p.entity_id): p.model_dump(mode="json") for p in profiles}
+            # Profiles don't carry a name; the entity does.
+            names = {str(e.get("id")): e.get("name") for e in context.get("entities", []) if isinstance(e, dict)}
+            npc_profiles = {
+                str(p.entity_id): {**p.model_dump(mode="json"), "name": names.get(str(p.entity_id))} for p in profiles
+            }
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in load_context)
         logger.warning("load_context: npc profile fetch failed: %s", exc)
 
@@ -532,6 +537,7 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
             "entities": state.entity_context,
             "turns": state.previous_turns,
             "source_profile": source_profile,
+            "universe_id": str(state.universe_id) if state.universe_id else None,
             "pending_roll": state.pending_roll,
             "agreements": {
                 "lines": list(state.agreements_lines or []),
@@ -604,6 +610,9 @@ async def narrate(state: SceneState) -> dict[str, Any]:
             "recent_chat": state.recent_chat,
             "pacing": state.pacing,
             "npc_profiles": state.npc_profiles,
+            "scene_foreshadowing_open": state.scene_foreshadowing_open,
+            # The recap opens the scene, so it only belongs on the first turn.
+            "opening_recap": state.opening_recap if not state.durable_turn_count else "",
             "agreements": {
                 "lines": list(state.agreements_lines or []),
                 "veils": list(state.agreements_veils or []),
