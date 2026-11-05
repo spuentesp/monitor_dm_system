@@ -1,7 +1,7 @@
 import uuid
 import logging
 from typing import Any
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, SkipValidation
 
 from langgraph.graph import StateGraph, START, END
 
@@ -23,7 +23,9 @@ class SceneOrchestratorState(BaseModel):
 
     session_id: str
     user_content: str
-    session: dict[str, Any]
+    # SkipValidation keeps the caller's dict: validating dict[str, Any] copies it,
+    # and the caller re-saves its own dict after the turn, dropping our changes.
+    session: SkipValidation[dict[str, Any]]
     actor_context: dict[str, Any] | None = None
 
     # Callbacks from Layer 3 to avoid circular imports
