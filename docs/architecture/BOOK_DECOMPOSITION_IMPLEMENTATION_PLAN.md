@@ -35,7 +35,10 @@ This moves the prototype into the real ingestion pipeline, one file at a time. *
 
 - **The 3 not canon:** one lost its subject, saying "Specialist" where the book means specialist troops. One lifted a sentence about poison out of its poison snooper entry. One came from corrupted source text.
 - **The 10 flagged:** most read as incomplete alone, such as a claim about bodkin blades or the Baradye pistol that doesn't say it's describing an item entry. Linked claims are meant to cover those. At least 2 lost a real limit: hunter-seekers require an inside agent, and kanly must follow the Great Convention. That's still the main known weakness.
-- **What this can't show:** it only samples kept claims, from one mostly equipment and lore chapter of one book, so it says nothing about rules that were wrongly removed or never extracted.
+- **What this can't show:** it only samples kept claims, from part of one mostly equipment and lore chapter (pages 198–215 of a chapter ending on page 225), so it says nothing about rules that were wrongly removed or never extracted.
+- **A flaw in this sample:** 5 of the 30 claims were shown with their wording from before review, not the wording that reached the pack. Those 5 are being labeled again in final wording, so treat 27 of 30 as provisional.
+
+**Second live run (2026-11-04), Chapter 5, pages 150–169, on the fixed reader:** all 585 sentences covered, no failed windows, 500 claims reviewed and 416 kept, with 20 merged, 35 set aside as examples, 25 sent to a person and 4 rejected. Extraction used about 84k input and 34k output tokens, and the job took about 8 minutes. The pack holds 337 rules, 38 entities, 35 axioms and 6 facts. Earlier prompt work used this chapter, so its quality may read better than an unseen one. Its sample also covers removed claims, without showing the labeler which were removed, to measure rules wrongly removed.
 
 **Corrupted text, found by these labels:** this PDF draws some text twice at one spot as a shadow effect, so paragraphs held repeated phrases. The reader now keeps it once, and the no-text-lost check accounts for what it removed, 4,515 characters on Dune. The same check found that ruled boxes around prose were being treated as tables, which wrongly removed them from sentence splitting. The live run predates both fixes, so re-extracting would change some of its claims.
 
