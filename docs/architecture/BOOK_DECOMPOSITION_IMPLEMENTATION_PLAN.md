@@ -50,7 +50,7 @@ This moves the prototype into the real ingestion pipeline, one file at a time. *
 | Sent to a person | 6 | 5 | 1, canon |
 | Chapter 7 claims in final wording | 5 | 5 | 1, canon |
 
-- **A real rule was rejected:** the Determination re-roll rule was marked as refuted by another claim saying "an entire dice pool", while the book says "any number". Contradiction settling can remove a correct rule.
+- **A book conflict was settled without a person:** pages 159 and 166 say Determination re-rolls an entire dice pool, while the detailed rule on page 166 says any number of dice, and the example on page 167 re-rolls only some. Review kept "entire" and rejected "any number" as refuted, but it should have sent this to a person.
 - **Sending claims to a person is doing its job, with false alarms:** most held claims were fine, but none reached the pack, so they depend on someone reviewing them.
 - **Set-aside examples:** the rules they restate are often stated elsewhere, so most aren't lost.
 
