@@ -23,6 +23,7 @@ Reuses the provisioning pattern from entities._persist_generated_entity.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import uuid
 from collections import OrderedDict
 from typing import Any
@@ -55,6 +56,8 @@ _conversatory_universe_id: str | None = None
 # Live ConversationLoop cache, keyed by conversation_id (string).
 _LOOPS: OrderedDict[str, Any] = OrderedDict()
 _LOOPS_MAX = 64
+
+_CLIENT_FINGERPRINT_MESSAGES = 2
 
 
 # ---------------------------------------------------------------------------
@@ -473,6 +476,71 @@ async def start_conversation(
         "version_id": str(backing["version_id"]),
         "opening": opening,
     }
+
+
+def client_history_fingerprint(messages: list[tuple[str, str]]) -> str | None:
+    """Identify a position in a client-held chat by its last two messages.
+
+    OpenAI-shaped clients resend their history instead of holding a session id.
+    Only the tail is used because they also drop old messages to fit their
+    context. Returns None until the history contains a player message: every new
+    chat with a card starts from the same greeting, so that can't identify one.
+    """
+    tail = messages[-_CLIENT_FINGERPRINT_MESSAGES:]
+    if not any(role == "user" for role, _ in tail):
+        return None
+    normalized = "\n".join(f"{role}:{' '.join(text.split())}" for role, text in tail)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+async def find_client_conversation(character_id: str, persona_id: str | None, fingerprint: str) -> str | None:
+    """Return the active conversation a client's history continues, if any."""
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    def _find() -> dict[str, Any] | None:
+        return get_mongodb_client().get_collection("conversations").find_one(
+            {
+                "status": "active",
+                "client_session.character_id": character_id,
+                "client_session.persona_character_id": persona_id,
+                "client_session.fingerprints": fingerprint,
+            },
+            {"conversation_id": 1},
+            sort=[("updated_at", -1)],
+        )
+
+    doc = await asyncio.to_thread(_find)
+    return str(doc["conversation_id"]) if doc else None
+
+
+async def remember_client_conversation(
+    conversation_id: str,
+    character_id: str,
+    persona_id: str | None,
+    fingerprints: list[str | None],
+) -> None:
+    """Record the history positions that lead back to this conversation.
+
+    fingerprints holds the position before and after the latest exchange. The
+    earlier one is what a client sends when it regenerates that reply.
+    """
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    def _save() -> None:
+        get_mongodb_client().get_collection("conversations").update_one(
+            {"conversation_id": conversation_id},
+            {
+                "$set": {
+                    "client_session": {
+                        "character_id": character_id,
+                        "persona_character_id": persona_id,
+                        "fingerprints": [f for f in fingerprints if f],
+                    }
+                }
+            },
+        )
+
+    await asyncio.to_thread(_save)
 
 
 async def resume_conversation(character_id: str, conversation_id: str) -> Any | None:
