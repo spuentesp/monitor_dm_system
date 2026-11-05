@@ -88,7 +88,7 @@ These aren't steps here: the plan's steps call no live model, and it leaves reti
 |---|---|
 | Wider quality measure | One chapter is labeled. Rules pages and other books aren't, and nothing yet measures rules wrongly removed |
 | One pack per book | With the flag on, the Analyzer still runs too, until the fields below are covered or found unnecessary |
-| Short Dune quotes in a public repo | The owner's call |
+| Short Dune quotes in a public repo | Removed at the owner's request, 2026-11-04, including from this branch's history |
 
 **Fields only the Analyzer fills today (G4):** `random_tables`, `agendas`, `topologies`, `character_profiles`, `generation_templates`, `tone_profiles`, `plot_threads`, `entity_relationships`, chunk and section summaries, `source_mindscape`, `source_profile_data`, and the structured game system: attributes, skills, resources, tracks, conditions and the rest. Decomposition fills `axioms`, `lore_facts`, simple `entity_archetypes` and `game_system_data.rules`. So the Analyzer can't be retired for books until these are covered or found unnecessary.
 
@@ -491,6 +491,8 @@ H4 to H7 can be checked on saved claims with no model calls, and their results r
 
 ### I3. `tests/fixtures/ingestion/dune_graph_questions.json`
 
+> This file held book text, so it's since been deleted and removed from the branch's history.
+
 - **Tighten** the answer patterns, which are loose today, and keep this file for evaluating retrieval.
 - **Decide** when doing this whether it's still used after I2. If it isn't, delete it.
 
@@ -528,7 +530,7 @@ H4 to H7 can be checked on saved claims with no model calls, and their results r
 |---|---|---|
 | A1 | Open a draft PR | Done: PR #119 |
 | A2 | Where the labels live | Backed up to `~/monitor-dm-labels/`, on the same machine |
-| A2 | Whether short Dune quotes stay in a public repo | **Still yours.** Removing them means rewriting this branch's history |
+| A2 | Whether short Dune quotes stay in a public repo | **Decided: removed.** Tests and help text now use invented examples, and the branch's history was rewritten |
 | D2 | Analyzer timeout | Set inside the job's limit. Real durations could still justify changing it |
 | F3 | Models for extraction, review and the paragraph check | Defaults are Mistral medium and large, set by environment variables. The paragraph check is off by default |
 | G1 | Where rule claims go in a pack | `game_system_data.rules` |

@@ -203,7 +203,7 @@ Files only; it touches no database and isn't wired into the live pipeline.
 | Windows, extractor, pipeline | `packages/agents/src/monitor_agents/book_decomposition/` |
 | CLI | `scripts/prototype_book_decomposition.py` |
 | Tests | `packages/data-layer/tests/test_book_tree.py`, `packages/agents/tests/test_book_decomposition.py` |
-| Dune expected facts | `tests/fixtures/ingestion/dune_ch5_rules_expect.json` |
+| Dune expected facts | Not in the repo, because the file held book text |
 
 The extractor runs through the real DSPy adapter in tests, but with a dummy LM.
 
