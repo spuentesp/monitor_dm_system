@@ -264,6 +264,7 @@ def _record_result(job_id: UUID, result: DecomposeResult) -> None:
             completed_at=datetime.now(UTC),
             activity_log=[
                 f"Decomposition finished: {result.progress.claims_kept} claims kept, "
+                f"{result.progress.claims_for_review} claims to review, "
                 f"{result.progress.sentences_quarantined} sentences need a person"
             ],
         ),

@@ -13,7 +13,7 @@ from enum import StrEnum
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import structlog
-from monitor_data.schemas.book_graph import BookRecord, BookRecordType, BookTree
+from monitor_data.schemas.book_graph import BookRecord, BookRecordType, BookTree, ClaimStatus
 from monitor_data.schemas.ingestion_jobs import DecompositionProgress
 from monitor_data.schemas.knowledge_packs import KnowledgePackType
 from monitor_data.tools.ingest_tools.book_tree import DECOMPOSER_VERSION, decompose_pdf
@@ -201,6 +201,7 @@ async def decompose_book(
             )
     progress.claims_kept = len(review.claims)
     progress.claims_held_back = len(mapped.held_back)
+    progress.claims_for_review = review.report.by_status.get(ClaimStatus.NEEDS_HUMAN.value, 0)
     publish()
     status = DecomposeStatus.COMPLETE_WITH_QUARANTINE if extraction.states.quarantined else DecomposeStatus.COMPLETE
     return DecomposeResult(status, progress, pack_id, review.report)

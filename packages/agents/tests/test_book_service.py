@@ -109,6 +109,15 @@ class _Review:
         return CoverageAudit()
 
 
+class _DoubtingReview(_Review):
+    """Calls the first claim unsupported. It matches its source, so review sends it to a person."""
+
+    async def verify(self, prompt):
+        batch = await super().verify(prompt)
+        batch.checks[0].verdict = ClaimVerdict.UNSUPPORTED
+        return batch
+
+
 def _run(pdf, doc, job, extractor, review, progress=None):
     extractor.guard = RunGuard()
     return decompose_book(
@@ -373,3 +382,10 @@ async def test_heartbeat_keeps_a_quiet_stretch_alive_and_stops_afterward(mongo):
     finished = _raw(mongo, job)["stage_last_progress_at"]
     await asyncio.sleep(0.1)
     assert _raw(mongo, job)["stage_last_progress_at"] == finished
+
+
+@pytest.mark.unit
+async def test_claims_sent_to_a_person_are_counted_on_the_job(mongo):
+    result = await _run(_pdf(), uuid.uuid4(), uuid.uuid4(), _Extractor(), _DoubtingReview())
+    assert result.progress.claims_for_review == 1
+    assert result.progress.claims_kept == 2

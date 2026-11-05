@@ -30,8 +30,15 @@ describe("book decomposition jobs", () => {
     expect(decompositionSummary({ decomposition: base })).toBe("4/10 sentences");
     expect(
       decompositionSummary({
-        decomposition: { ...base, sentences_done: 10, claims_kept: 8, sentences_quarantined: 1, claims_held_back: 2 },
+        decomposition: {
+          ...base,
+          sentences_done: 10,
+          claims_kept: 8,
+          claims_for_review: 3,
+          sentences_quarantined: 1,
+          claims_held_back: 2,
+        },
       }),
-    ).toBe("10/10 sentences · 8 claims kept · 1 need a person · 2 held back");
+    ).toBe("10/10 sentences · 8 claims kept · 3 claims to review · 1 sentences need a person · 2 held back");
   });
 });

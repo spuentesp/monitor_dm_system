@@ -186,6 +186,7 @@ export interface IngestJobDecomposition {
   sentences_quarantined: number;
   claims_kept: number;
   claims_held_back: number;
+  claims_for_review?: number;
   pause_reason: string | null;
 }
 

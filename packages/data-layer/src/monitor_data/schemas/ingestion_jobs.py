@@ -94,6 +94,7 @@ class DecompositionProgress(BaseModel):
     sentences_quarantined: int = Field(0, ge=0)
     claims_kept: int = Field(0, ge=0)
     claims_held_back: int = Field(0, ge=0)
+    claims_for_review: int = Field(0, ge=0, description="Claims review sent to a person; not in the pack")
     pause_reason: str | None = None
 
 

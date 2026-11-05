@@ -49,7 +49,8 @@ export function decompositionSummary(job: Pick<IngestJob, "decomposition">): str
   if (!d) return null;
   const parts = [`${d.sentences_done}/${d.sentences_total} sentences`];
   if (d.claims_kept) parts.push(`${d.claims_kept} claims kept`);
-  if (d.sentences_quarantined) parts.push(`${d.sentences_quarantined} need a person`);
+  if (d.claims_for_review) parts.push(`${d.claims_for_review} claims to review`);
+  if (d.sentences_quarantined) parts.push(`${d.sentences_quarantined} sentences need a person`);
   if (d.claims_held_back) parts.push(`${d.claims_held_back} held back`);
   return parts.join(" · ");
 }
