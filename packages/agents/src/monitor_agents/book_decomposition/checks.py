@@ -37,6 +37,7 @@ _BOOK_DESCRIPTION = re.compile(
     re.IGNORECASE,
 )
 _CLOSE_MATCH = 0.4
+_STATED_MATCH = 0.7
 _COMMON_WORDS = frozenset("a an the is are of to in and or for with using use it its this that be can may".split())
 _NAME = re.compile(r"(?<=[a-z,] )[A-Z][a-z]{2,}\b")
 
@@ -106,6 +107,17 @@ def closely_matches(statement: str, cited_sentences: str) -> bool:
     if not claimed:
         return False
     return len(claimed & _meaningful_words(cited_sentences)) / len(claimed) >= _CLOSE_MATCH
+
+
+def source_states(statement: str, cited_sentences: str) -> bool:
+    """True when a claim is nearly what its own source says, so it can't be called a misreading.
+
+    A changed number is what a misreading most often looks like, so one rules this out.
+    """
+    claimed = _meaningful_words(statement)
+    if not claimed or check_numbers(statement, cited_sentences):
+        return False
+    return len(claimed & _meaningful_words(cited_sentences)) / len(claimed) >= _STATED_MATCH
 
 
 def _meaningful_words(text: str) -> set[str]:

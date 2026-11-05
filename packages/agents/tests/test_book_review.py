@@ -241,6 +241,22 @@ async def test_contradiction_the_source_cannot_settle_goes_to_a_person():
 
 
 @pytest.mark.unit
+async def test_contradiction_goes_to_a_person_when_the_book_states_both_versions():
+    tree = _tree(["Luck: after rolling, swap any number of tokens in your hand.", "After rolling, spend Luck to swap your entire hand."])
+    wrong = "After rolling, a player can spend Luck to swap any number of tokens in their hand."
+    other = "After rolling, a player can spend Luck to swap their entire hand."
+
+    def stacks(_):
+        return [ClaimStack(labels=["C1", "C2"], relation=StackRelation.CONTRADICTION, settled_by_source=True, wrong_labels=["C1"], canonical_statement=other, reason="picked one")]
+
+    result = await review_claims(tree, [_outcome(_item(wrong, 0), _item(other, 1))], _Model(stacks=stacks))
+    assert result.claims == []
+    assert {e.status for e in result.ledger} == {ClaimStatus.NEEDS_HUMAN}
+    assert result.report.contradictions_settled == 0
+    assert result.report.contradictions_for_human == 1
+
+
+@pytest.mark.unit
 async def test_settled_contradiction_without_a_stated_answer_goes_to_a_person():
     tree = _tree(["Momentum pool max is 6.", "Momentum pool max is 8."])
     first, second = "The Momentum pool holds at most 6 points.", "The Momentum pool holds at most 8 points."

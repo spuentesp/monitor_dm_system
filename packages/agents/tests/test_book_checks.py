@@ -3,6 +3,7 @@
 import pytest
 from monitor_agents.book_decomposition.checks import (
     closely_matches,
+    source_states,
     combines_rules,
     describes_the_book,
     check_names,
@@ -109,3 +110,17 @@ def test_a_real_unknown_name_is_still_flagged():
 )
 def test_describes_the_book(statement, expected):
     assert describes_the_book(statement) is expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("statement", "source", "expected"),
+    [
+        ("After rolling, swap any number of tokens.", "Luck: after rolling, swap any number of tokens in hand.", True),
+        ("The pool holds at most 8 points.", "The pool holds at most 6 points.", False),
+        ("Rangers always win duels at night.", "Rangers often sleep at night.", False),
+        ("", "Anything at all.", False),
+    ],
+)
+def test_source_states(statement, source, expected):
+    assert source_states(statement, source) is expected

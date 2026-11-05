@@ -48,6 +48,7 @@ from monitor_agents.book_decomposition.checks import (
     check_names,
     check_numbers,
     closely_matches,
+    source_states,
     combines_rules,
     describes_the_book,
     is_overstuffed,
@@ -438,6 +439,8 @@ class ClaimStackingSignature(dspy.Signature):  # type: ignore[misc]
       actions are different claims, even when they share a number or an effect, so never gather
       them into a list.
     - relation=contradiction: they can't all be true. Read the quoted sources:
+      - If each claim is what its own source says, the book disagrees with itself: set
+        settled_by_source=false, even if one source looks more detailed.
       - If a source shows that a claim misread it, set settled_by_source=true, list the
         misreadings in wrong_labels and give the correct canonical_statement.
       - If the book itself gives conflicting statements, or it could be a general rule and
@@ -1031,7 +1034,9 @@ def _apply_stack(
         return
     wrong = {labels[label].id for label in stack.wrong_labels if label in labels}
     right = [member for member in members if member.id not in wrong]
-    if stack.settled_by_source and wrong and right and stack.canonical_statement:
+    # When the book states both versions, it disagrees with itself, and a person has to decide.
+    book_states_both = any(source_states(m.atom.statement, m.cited_text) for m in members if m.id in wrong)
+    if stack.settled_by_source and wrong and right and stack.canonical_statement and not book_states_both:
         report.contradictions_settled += 1
         working[right[0].id].statement = stack.canonical_statement.strip()
         for member in members:
