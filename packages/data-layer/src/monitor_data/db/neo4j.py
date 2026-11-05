@@ -423,8 +423,10 @@ class Neo4jClient:
     async def verify_connectivity(self) -> bool:
         """Verify Neo4j connection is healthy."""
         try:
+            # The client connects lazily on its first query, so a probe that runs
+            # first must open the driver itself (without the schema setup).
             if self._driver is None:
-                return False
+                self._driver = AsyncGraphDatabase.driver(self._uri, auth=(self._user, self.password))
             await self._driver.verify_connectivity()
             return True
         except Exception:  # noqa: BLE001  # reason: falls back to `False` on failure (in verify_connectivity)
