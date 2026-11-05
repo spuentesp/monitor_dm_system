@@ -33,8 +33,13 @@ from monitor_data.schemas.book_graph import (
 from monitor_data.tools.ingest_tools._models import SectionBlock
 from monitor_data.tools.ingest_tools.pdf_processing import _open_pdf
 
-DECOMPOSER_VERSION = "6"
+DECOMPOSER_VERSION = "7"
 _OVERPRINT_TOLERANCE = 3.0
+_DROP_CAP_SIZE_RATIO = 2.5
+_DROP_CAP_REACH = 40.0
+_DROP_CAP_SLACK = 4.0
+_DROP_CAP_RISE = 0.3  # How far above the letter its first line may start, as a share of its height.
+_SPACED_CAPITALS = frozenset("AI")  # Letters that are words on their own.
 _MIN_OVERPRINT_TAIL = 12
 _TABLE_MIN_MULTI_CELL_SHARE = 0.5
 _MIN_MIDDLE_TITLE_WORDS = 2
@@ -439,6 +444,44 @@ def _body_font_size(reading: list[_Block]) -> float:
     return statistics.median(sizes) if sizes else 0.0
 
 
+def _attach_drop_caps(reading: list[_Block], body_size: float) -> list[_Block]:
+    """Put a large decorated first letter back on its paragraph, which starts just to its right.
+
+    The paragraph then reads "The best" instead of a heading "T" and a paragraph "he best". The
+    letter joins without a space when that makes a word used elsewhere in the book, so "A" and
+    "character" become "A character".
+    """
+    if not body_size:
+        return reading
+    words = {word for block in reading for word in re.findall(r"[a-z]+", block.text.casefold())}
+    attached: set[int] = set()
+    for cap in reading:
+        letter = cap.text.strip()
+        if len(letter) != 1 or not letter.isalpha() or cap.max_size < body_size * _DROP_CAP_SIZE_RATIO:
+            continue
+        candidates = [
+            block
+            for block in reading
+            if block.page == cap.page
+            and block.kind == BookNodeKind.PARAGRAPH
+            and block.text[:1].islower()
+            # Lower lines often run under the letter, so only the first line sits beside it.
+            and cap.x1 - _DROP_CAP_SLACK <= block.lines[0].x0 <= cap.x1 + _DROP_CAP_REACH
+            and cap.y0 - (cap.y1 - cap.y0) * _DROP_CAP_RISE <= block.lines[0].y0 <= cap.y1
+        ]
+        if not candidates:
+            continue
+        target = min(candidates, key=lambda block: block.y0)
+        first = target.lines[0]
+        rest = first.text.lstrip()
+        joined = letter.casefold() + (rest.split()[0].casefold() if rest.split() else "")
+        joined_word = re.match(r"[a-z]+", joined)
+        glue = " " if letter in _SPACED_CAPITALS and not (joined_word and joined_word.group(0) in words) else ""
+        first.text = letter + glue + rest
+        attached.add(id(cap))
+    return [block for block in reading if id(block) not in attached]
+
+
 def _classify_block(block: _Block, body_size: float) -> None:
     if block.kind != BookNodeKind.PARAGRAPH:
         return
@@ -453,6 +496,7 @@ def _classify_block(block: _Block, body_size: float) -> None:
         and block.max_size >= body_size * _HEADING_FONT_RATIO
         and len(words) <= _HEADING_MAX_WORDS
         and not text.endswith((".", "!", "?"))
+        and any(ch.isalpha() for ch in text)  # A large lone number is a value, as in a stat block.
     ):
         block.kind = BookNodeKind.HEADING
         return
@@ -496,6 +540,7 @@ def decompose_pdf(pdf_bytes: bytes, doc_id: str, title: str) -> BookTree:
     body_size = _body_font_size(reading)
     for block in reading:
         _classify_block(block, body_size)
+    reading = _attach_drop_caps(reading, body_size)
 
     builder = _Builder(doc_id)
     root = builder.add(BookNodeKind.BOOK, None, title, 0, max(page_total - 1, 0))

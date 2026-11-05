@@ -550,3 +550,39 @@ def test_shadow_that_starts_a_letter_later_is_kept_once():
     tree = decompose_pdf(doc.tobytes(), "d", "T")
     assert " ".join(_texts(tree, BookNodeKind.PARAGRAPH)).count("help you create") == 1
     assert tree.report.is_lossless
+
+
+def _drop_cap_pdf(letter: str, first_line: str) -> bytes:
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 110), letter, fontsize=40)
+    page.insert_text((104, 84), first_line, fontsize=10)
+    page.insert_text((104, 97), "second line of the same paragraph runs on.", fontsize=10)
+    page.insert_text((72, 123), "and a third line runs back under the letter.", fontsize=10)
+    page.insert_text((72, 300), "Then the rest of the book carries on in plain text.", fontsize=10)
+    return doc.tobytes()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("letter", "first_line", "expected"),
+    [("T", "he best way to learn is", "The best way"), ("A", "character is more than", "A character is")],
+)
+def test_drop_cap_goes_back_on_its_paragraph(letter, first_line, expected):
+    tree = decompose_pdf(_drop_cap_pdf(letter, first_line), "d", "T")
+    paragraphs = _texts(tree, BookNodeKind.PARAGRAPH)
+    assert any(text.startswith(expected) for text in paragraphs)
+    assert letter not in [n.text.strip() for n in tree.nodes if n.kind == BookNodeKind.HEADING]
+    assert tree.report.is_lossless
+
+
+@pytest.mark.unit
+def test_large_lone_number_is_not_a_heading():
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "Ordinary body text sits here on this page today.", fontsize=10)
+    page.insert_text((72, 140), "4", fontsize=16)
+    page.insert_text((72, 180), "More ordinary body text follows the number.", fontsize=10)
+    tree = decompose_pdf(doc.tobytes(), "d", "T")
+    assert "4" not in [n.text.strip() for n in tree.nodes if n.kind == BookNodeKind.HEADING]
+    assert tree.report.is_lossless
