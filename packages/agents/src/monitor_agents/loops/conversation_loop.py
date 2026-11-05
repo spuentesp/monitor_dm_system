@@ -131,6 +131,37 @@ class ConversationState(BaseModel):
 # =============================================================================
 
 
+def _with_exchange_applied(
+    npc_context: dict[str, Any],
+    result: dict[str, Any],
+    player_entity_id: UUID | None,
+    universe_id: UUID,
+) -> dict[str, Any]:
+    """Return the cached NPC context updated with this exchange's social state.
+
+    The context is loaded once per session, and NPCVoice computes each turn from
+    it. Without this, every turn starts again from the session's opening state.
+    """
+    profile = dict(npc_context.get("profile") or {})
+    emotion = result.get("emotional_state_after")
+    if emotion:
+        profile["current_emotional_state"] = emotion
+        profile["current_emotional_state_by_universe"] = {
+            **(profile.get("current_emotional_state_by_universe") or {}),
+            str(universe_id): emotion,
+        }
+
+    snapshot = {k: v for k, v in (result.get("relationship_snapshot") or {}).items() if k != "last_delta"}
+    if snapshot and player_entity_id is not None:
+        player = str(player_entity_id)
+        profile["relationship_states"] = {**(profile.get("relationship_states") or {}), player: snapshot}
+        by_universe = dict(profile.get("relationship_states_by_universe") or {})
+        by_universe[str(universe_id)] = {**(by_universe.get(str(universe_id)) or {}), player: snapshot}
+        profile["relationship_states_by_universe"] = by_universe
+
+    return {**npc_context, "profile": profile}
+
+
 def _extract_conversation_id(result: Any) -> UUID | None:
     """Pull the persisted conversation_id out of a create-conversation response."""
     raw: Any = None
@@ -282,6 +313,10 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
     responses: list[dict[str, Any]] = []
     new_proposals: list[dict[str, Any]] = []
     new_turns: list[dict[str, Any]] = list(state.turns)
+    npc_contexts = dict(state.npc_contexts)
+    # process_player_turn already appended the line being answered.
+    latest = state.turns[-1] if state.turns else {}
+    prior_turns = state.turns[:-1] if latest.get("text") == state.current_player_input else state.turns
 
     # Lorebook scan — light-RP sessions carry the backing character id(s);
     # matched entries become world facts for the voice module. Best-effort:
@@ -289,7 +324,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
     lorebook_context: list[str] = []
     if state.lorebook_character_ids:
         try:
-            history = [t.get("text", "") for t in state.turns[-6:] if t.get("text")]
+            history = [t.get("text", "") for t in prior_turns[-6:] if t.get("text")]
             scan_config = await agent.call_tool(
                 "mongodb_get_scan_config", {"character_id": state.lorebook_character_ids[0]}
             )
@@ -320,7 +355,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     conversation_id=state.conversation_id,
                     npc_id=npc_id,
                     player_said=state.current_player_input,
-                    conversation_history=state.turns,
+                    conversation_history=prior_turns,
                     player_entity_id=state.player_entity_id,
                     scene_id=state.scene_id,
                     story_id=state.story_id,
@@ -366,6 +401,10 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     }
                 )
                 new_proposals.extend(result.get("proposals", []))
+                if str(npc_id) in npc_contexts:
+                    npc_contexts[str(npc_id)] = _with_exchange_applied(
+                        npc_contexts[str(npc_id)], result, state.player_entity_id, state.universe_id
+                    )
                 new_turns.append(
                     {
                         "turn_index": len(new_turns),
@@ -381,7 +420,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     conversation_id=state.conversation_id,
                     npc_id=npc_id,
                     gm_question=state.current_player_input,
-                    conversation_history=state.turns,
+                    conversation_history=prior_turns,
                     source_profile=state.source_profile,
                     npc_data=state.npc_contexts.get(str(npc_id)),
                 )
@@ -424,6 +463,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
 
     return {
         "current_npc_responses": responses,
+        "npc_contexts": npc_contexts,
         "turns": new_turns,
         "pending_proposals": state.pending_proposals + new_proposals,
         "turns_count": state.turns_count + 1,
