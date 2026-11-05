@@ -566,6 +566,7 @@ async def test_dice_result_uses_pending_request_as_resolution_override(monkeypat
         "scene_id": str(uuid4()),
         "tone": "dramatic",
         "play_mode": "dice_game_system",
+        "roll_model": "manual",
         "pending_dice_request": {
             "spec": "1d20+2",
             "reason": "Roll your PRE for me.",

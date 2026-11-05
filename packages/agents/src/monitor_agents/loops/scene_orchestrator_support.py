@@ -2,6 +2,8 @@ import re
 from typing import Any
 
 _ROLL_REQUEST_MARKER = "[ROLL REQUEST]"
+_DICE_RESULT_MARKER = "[DICE RESULT]"
+_PLAIN_DICE_SPEC_RE = re.compile(r"^(?P<amount>\d*)d(?P<sides>\d+)(?P<mod>[+-]\d+)?$", re.IGNORECASE)
 
 
 def _format_dice_spec(modifier: int, *, roll_under: bool = False) -> str:
@@ -49,7 +51,7 @@ def _dice_request_from_resolution(
 
 def _parse_dice_result_message(content: str) -> dict[str, Any] | None:
     """Extract spec, rolls, and total from the websocket dice-result message."""
-    if "[DICE RESULT]" not in content:
+    if _DICE_RESULT_MARKER not in content:
         return None
     match = re.search(
         r"rolled\s+(?P<spec>\S+)(?:\s+\[(?P<rolls>[^\]]*)\])?\s*=\s*(?P<total>-?\d+)",
@@ -181,6 +183,51 @@ def _build_dice_resolution(
     return narrated_input, resolution
 
 
+def _parse_pending_spec(spec: Any) -> tuple[int, int, int] | None:
+    """Return (amount, sides, modifier) for a plain ``NdS+M`` spec, else None."""
+    match = _PLAIN_DICE_SPEC_RE.match(str(spec or "").replace(" ", ""))
+    if not match:
+        return None
+    amount = int(match.group("amount") or 1)
+    sides = int(match.group("sides"))
+    if amount < 1 or sides < 2:
+        return None
+    return amount, sides, int(match.group("mod") or 0)
+
+
+def _manual_roll_rejection(session: dict[str, Any], content: str) -> str | None:
+    """Explain why a submitted roll can't be accepted, or None if it can.
+
+    Only a session in the manual roll model may supply its own dice, and the
+    result must be possible for the spec the server asked for. Messages that
+    aren't a roll for a pending request are not this guard's concern.
+    """
+    pending = session.get("pending_dice_request")
+    if not isinstance(pending, dict) or _DICE_RESULT_MARKER not in content:
+        return None
+
+    if session.get("roll_model") != "manual":
+        return "This session rolls on the server, so typed results aren't accepted. Tap the die to roll."
+
+    spec = str(pending.get("spec") or "1d20")
+    parsed = _parse_dice_result_message(content)
+    limits = _parse_pending_spec(spec)
+    if parsed is None or limits is None:
+        return f"I couldn't read that roll. Enter your {spec} result again."
+
+    amount, sides, modifier = limits
+    total = parsed["total"]
+    if not amount + modifier <= total <= amount * sides + modifier:
+        return f"{total} isn't possible on {spec}. Enter your result again."
+
+    rolls = parsed["rolls"]
+    if rolls and (
+        len(rolls) != amount or any(not 1 <= die <= sides for die in rolls) or sum(rolls) + modifier != total
+    ):
+        return f"Those dice don't add up to {total} on {spec}. Enter your result again."
+    return None
+
+
 def _resolved_roll_from_pending(
     session: dict[str, Any],
     content: str,
@@ -188,18 +235,18 @@ def _resolved_roll_from_pending(
     """Manual roll model: the player supplied a die value."""
     pending = session.get("pending_dice_request")
     parsed = _parse_dice_result_message(content)
-    if not isinstance(pending, dict) or not parsed:
+    if not isinstance(pending, dict) or not parsed or _manual_roll_rejection(session, content):
         return None
 
-    try:
-        modifier = int(pending.get("modifier") or 0)
-    except (TypeError, ValueError):
-        modifier = 0
+    # The server's spec is authoritative, whatever spec the message claims.
+    spec = str(pending.get("spec") or "1d20")
+    limits = _parse_pending_spec(spec)
+    spec_modifier = limits[2] if limits else 0
     total = int(parsed["total"])
     rolls = list(parsed.get("rolls") or [])
-    natural = rolls[0] if rolls else max(1, total - modifier)
+    natural = rolls[0] if rolls else total - spec_modifier
     narrated_input, resolution = _build_dice_resolution(
-        session, pending, spec=parsed["spec"], rolls=rolls, total=total, natural=natural
+        session, pending, spec=spec, rolls=rolls, total=total, natural=natural
     )
     return f"{narrated_input}\n\n{content}", resolution
 

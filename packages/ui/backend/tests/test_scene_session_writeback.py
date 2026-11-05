@@ -152,3 +152,62 @@ async def test_consequence_choice_stays_pending_between_turns(harness: _Harness)
 
     assert harness.sessions[SESSION_ID]["pending_consequence"]["options"] == options
     assert harness.db[SESSION_ID]["pending_consequence"]["options"] == options
+
+
+MANUAL_RESULT = "[DICE RESULT] STR check: rolled 1d20+1 [14] = 15. Continue."
+FORGED_RESULT = "[DICE RESULT] STR check: rolled 1d20+1 [20] = 999. Continue."
+
+
+@pytest.mark.asyncio
+async def test_typed_roll_is_rejected_outside_manual_mode(harness: _Harness) -> None:
+    await harness.turn("I climb the wall")
+    runs = len(harness.overrides)
+
+    text, metadata = await harness.turn(MANUAL_RESULT)
+
+    assert metadata["type"] == "dice_roll_rejected"
+    assert "Tap the die" in text
+    assert metadata["dice_request"]["stat"] == "STR"
+    assert len(harness.overrides) == runs
+    assert "pending_dice_request" in harness.sessions[SESSION_ID]
+
+
+@pytest.mark.asyncio
+async def test_impossible_manual_roll_is_rejected_and_can_be_retried(harness: _Harness) -> None:
+    harness.sessions[SESSION_ID]["roll_model"] = "manual"
+    await harness.turn("I climb the wall")
+    runs = len(harness.overrides)
+
+    _, metadata = await harness.turn(FORGED_RESULT)
+    assert metadata["type"] == "dice_roll_rejected"
+    assert len(harness.overrides) == runs
+
+    await harness.turn(MANUAL_RESULT)
+    override = harness.overrides[-1]
+    assert override is not None
+    assert override["roll_total"] == 15
+    assert "pending_dice_request" not in harness.sessions[SESSION_ID]
+
+
+@pytest.mark.asyncio
+async def test_pending_choice_lets_ooc_and_end_scene_through(harness: _Harness) -> None:
+    options = ["Spend time.", "Attract danger."]
+    harness.sessions[SESSION_ID]["pending_consequence"] = {"options": options}
+
+    text, metadata = await harness.turn("something unrelated")
+    assert metadata["type"] == "consequence_choice_prompt"
+    assert options[0] in text
+
+    with patch("monitor_agents.loops.preplay_support.answer_ooc_question", AsyncMock(return_value="The rules say.")):
+        text, metadata = await harness.turn("((what are the rules?))")
+    assert text == "The rules say."
+    assert harness.sessions[SESSION_ID]["pending_consequence"]["options"] == options
+
+    chat_loops._SCENE_LOOPS[SESSION_ID] = ("signature", harness.loop)
+    try:
+        _, metadata = await harness.turn("/end_scene")
+    finally:
+        chat_loops._SCENE_LOOPS.pop(SESSION_ID, None)
+    assert metadata["type"] == "end_scene"
+    assert "pending_consequence" not in harness.sessions[SESSION_ID]
+    assert "pending_consequence" not in harness.db[SESSION_ID]
