@@ -96,11 +96,13 @@ persisted on the conversation document so resumed sessions keep it.
 Two directive mechanisms are supported:
 
 - **Output directives** (`@@activate <name>` / `@@deactivate <name>`):
-  lines the model emits in its reply are stripped from the player-visible
-  prose and toggle the matching lorebook entry's `is_active` flag (matched
-  by `comment`, case-insensitive, across the conversation's lorebook
-  characters). Unmatched names are skipped silently; failures never break
-  a turn.
+  lines the model emits in its reply are stripped before the reply is saved,
+  remembered or shown, and switch the matching lorebook entry on or off for
+  **that conversation only** (matched by `comment`, case-insensitive, across
+  the conversation's lorebook characters, inactive entries included). The
+  lorebook itself isn't changed, so other conversations with the same card are
+  unaffected. The switches are saved on the conversation and survive a resume.
+  Unmatched names are skipped silently; failures never break a turn.
 - **Content decorators** (import time): leading `@@position` / `@@depth` /
   `@@probability` / `@@order` lines at the top of an entry's content
   override the structured fields and are stripped from stored content, per

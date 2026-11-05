@@ -128,6 +128,10 @@ class ConversationState(BaseModel):
     # Rendered card text for a character imported from a card. Empty for story NPCs.
     character_card: str = ""
 
+    # Lorebook entry id → active, set by the character's @@activate / @@deactivate
+    # directives. Applies to this conversation only; the lorebook isn't changed.
+    lorebook_overrides: dict[str, bool] = Field(default_factory=dict)
+
 
 # =============================================================================
 # NODES
@@ -317,6 +321,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
     new_proposals: list[dict[str, Any]] = []
     new_turns: list[dict[str, Any]] = list(state.turns)
     npc_contexts = dict(state.npc_contexts)
+    lorebook_overrides = dict(state.lorebook_overrides)
     # process_player_turn already appended the line being answered.
     latest = state.turns[-1] if state.turns else {}
     prior_turns = state.turns[:-1] if latest.get("text") == state.current_player_input else state.turns
@@ -340,6 +345,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     "config": scan_config if isinstance(scan_config, dict) else {},
                     "turn_index": len(state.turns),
                     "increment_triggers": True,
+                    "active_overrides": state.lorebook_overrides,
                 },
             )
             if isinstance(lore_result, dict):
@@ -372,11 +378,12 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     lorebook_context=lorebook_context,
                     player_persona=state.player_persona,
                     character_card=state.character_card,
+                    parse_directives=bool(state.lorebook_character_ids),
                 )
                 npc_name = state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
                 # Lorebook output directives (@@activate / @@deactivate) are
-                # runtime commands, not prose: strip them from the visible
-                # text and toggle the targeted entries. Best-effort.
+                # runtime commands, not prose. NPCVoice strips them before saving;
+                # the parse here only covers a voice that didn't. Best-effort.
                 npc_text = result["npc_response"]
                 if state.lorebook_character_ids and isinstance(npc_text, str):
                     try:
@@ -385,9 +392,12 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                             parse_output_directives,
                         )
 
-                        npc_text, directives = parse_output_directives(npc_text)
+                        npc_text, leftover = parse_output_directives(npc_text)
+                        directives = [*(result.get("lorebook_directives") or []), *leftover]
                         if directives:
-                            await apply_lorebook_directives(agent, state.lorebook_character_ids, directives)
+                            lorebook_overrides = await apply_lorebook_directives(
+                                agent, state.lorebook_character_ids, directives, lorebook_overrides
+                            )
                     except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in generate_npc_responses)
                         logger.warning(
                             "conversation_loop: lorebook directives failed, continuing",
@@ -468,6 +478,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
     return {
         "current_npc_responses": responses,
         "npc_contexts": npc_contexts,
+        "lorebook_overrides": lorebook_overrides,
         "turns": new_turns,
         "pending_proposals": state.pending_proposals + new_proposals,
         "turns_count": state.turns_count + 1,

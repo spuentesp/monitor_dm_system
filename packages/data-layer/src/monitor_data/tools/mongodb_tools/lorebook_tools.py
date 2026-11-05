@@ -138,19 +138,23 @@ def mongodb_get_lorebook_entries(
     character_id: str,
     sort_by: Literal["priority", "trigger_count", "created_at", "order"] = "priority",
     ascending: bool = False,
+    include_inactive: bool = False,
 ) -> list[LorebookEntry]:
     """
-    List all active lorebook entries for a character.
+    List a character's lorebook entries, active ones only by default.
 
     Args:
         character_id: The character_id to filter by.
         sort_by: Field to sort by. Default "priority".
         ascending: If True, sort ascending instead of descending.
+        include_inactive: Also return inactive entries. A conversation can switch
+            one on for itself with a lorebook directive.
     """
     direction = 1 if ascending else -1
-    cursor = (
-        _coll().find({"character_id": character_id, "is_active": True}).sort(sort_by, direction).sort("created_at", 1)
-    )
+    query: dict[str, Any] = {"character_id": character_id}
+    if not include_inactive:
+        query["is_active"] = True
+    cursor = _coll().find(query).sort(sort_by, direction).sort("created_at", 1)
     return [LorebookEntry(**d) for d in cursor]
 
 
@@ -407,6 +411,7 @@ def mongodb_scan_lorebook(
     turn_index: int | None = None,
     increment_triggers: bool = True,
     rng: random.Random | None = None,
+    active_overrides: dict[str, bool] | None = None,
 ) -> LorebookScanResult:
     """
     SillyTavern-aware lorebook scan.
@@ -424,6 +429,8 @@ def mongodb_scan_lorebook(
         turn_index: Current turn number for sticky/cooldown/delay math.
         increment_triggers: Whether to bump trigger_count/last_triggered on matches.
         rng: Optional random.Random for deterministic probability tests.
+        active_overrides: Entry id → active, for this conversation only. Set by
+            lorebook directives; takes precedence over the entry's own is_active.
 
     Returns:
         A LorebookScanResult with position-grouped contents and triggered IDs.
@@ -433,8 +440,9 @@ def mongodb_scan_lorebook(
 
     all_entries: list[LorebookEntry] = []
     seen_ids: set[str] = set()
+    overrides = active_overrides or {}
     for cid in character_ids:
-        for entry in mongodb_get_lorebook_entries(cid):
+        for entry in mongodb_get_lorebook_entries(cid, include_inactive=True):
             if entry.id not in seen_ids:
                 all_entries.append(entry)
                 seen_ids.add(entry.id)
@@ -455,7 +463,7 @@ def mongodb_scan_lorebook(
         for entry in all_entries:
             if entry.id in triggered:
                 continue
-            if not entry.is_active:
+            if not overrides.get(entry.id, entry.is_active):
                 continue
             if scene_context and entry.scene_filter and entry.scene_filter != scene_context:
                 continue
