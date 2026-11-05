@@ -40,6 +40,20 @@ This moves the prototype into the real ingestion pipeline, one file at a time. *
 
 **Second live run (2026-11-04), Chapter 5, pages 150–169, on the fixed reader:** all 585 sentences covered, no failed windows, 500 claims reviewed and 416 kept, with 20 merged, 35 set aside as examples, 25 sent to a person and 4 rejected. Extraction used about 84k input and 34k output tokens, and the job took about 8 minutes. The pack holds 337 rules, 38 entities, 35 axioms and 6 facts. Earlier prompt work used this chapter, so its quality may read better than an unseen one. Its sample also covers removed claims, without showing the labeler which were removed, to measure rules wrongly removed.
 
+**Second quality measure (53 claims, 2026-11-05):** a person labeled only 10 of them, and Claude labeled the other 43, so **this is a rough check, not a measure**. Claude had also seen a few removal reasons before labeling.
+
+| Group | Claims | Canon as written | Labeled by a person |
+|---|---|---|---|
+| Kept in the pack | 30 | 26 | 6, all canon |
+| Rejected | 4 | 2 | 0 |
+| Set aside as examples | 8 | 4 | 2, 1 canon |
+| Sent to a person | 6 | 5 | 1, canon |
+| Chapter 7 claims in final wording | 5 | 5 | 1, canon |
+
+- **A real rule was rejected:** the Determination re-roll rule was marked as refuted by another claim saying "an entire dice pool", while the book says "any number". Contradiction settling can remove a correct rule.
+- **Sending claims to a person is doing its job, with false alarms:** most held claims were fine, but none reached the pack, so they depend on someone reviewing them.
+- **Set-aside examples:** the rules they restate are often stated elsewhere, so most aren't lost.
+
 **Corrupted text, found by these labels:** this PDF draws some text twice at one spot as a shadow effect, so paragraphs held repeated phrases. The reader now keeps it once, and the no-text-lost check accounts for what it removed, 4,515 characters on Dune. The same check found that ruled boxes around prose were being treated as tables, which wrongly removed them from sentence splitting. The live run predates both fixes, so re-extracting would change some of its claims.
 
 To repeat the storage tests: `RUN_INTEGRATION=1 MONITOR_TEST_MONGO_URI=... MONITOR_TEST_NEO4J_URI=... uv run pytest packages/agents/tests/test_book_real_databases.py`. The Neo4j test connects without a password, so it needs a local server with authentication off. CI doesn't set these variables, so it skips them.
