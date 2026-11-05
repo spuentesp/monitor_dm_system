@@ -51,6 +51,7 @@ This moves the prototype into the real ingestion pipeline, one file at a time. *
 | Chapter 7 claims in final wording | 5 | 4 | 1, not canon |
 
 - **A book conflict was settled without a person:** pages 159 and 166 say Determination re-rolls an entire dice pool, while the detailed rule on page 166 says any number of dice, and the example on page 167 re-rolls only some. Review kept "entire" and rejected "any number" as refuted, and this was sent to no one. Settling now goes to a person when each claim matches its own source, tested without a new model run.
+- **Fixed after this check, without model calls:** large decorated first letters now rejoin their paragraphs, so "he best way" reads "The best way" again, and stat-block numbers no longer become headings. Headings fell from 1,176 to 914 on Dune, with nothing lost. Jobs now count claims sent to a person, which before showed up nowhere. There's still no screen to review them.
 - **Entity names can lose words:** a person marked "Specialist" not canon because the book means specialist troops. Review's final wording keeps the short name, and this isn't fixed.
 - **Sending claims to a person is doing its job, with false alarms:** most held claims were fine, but none reached the pack, so they depend on someone reviewing them.
 - **Set-aside examples:** the rules they restate are often stated elsewhere, so most aren't lost.
