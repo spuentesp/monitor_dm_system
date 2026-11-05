@@ -76,8 +76,12 @@ never at import time — the stored card stays raw so exports remain
 faithful. Substitution happens:
 
 - when a light-RP character is provisioned into an entity + NPC profile
-  (description, personality, GM notes), and
-- when the opening `first_message` is rendered.
+  (description, personality, GM notes). That profile is shared by every
+  conversation with the incarnation, so `{{user}}` takes the `"User"` default here;
+- per conversation, in the card text sent to the voice prompt
+  (`character_card`: description, personality, and the scenario/notes), and
+- when the opening `first_message` is rendered. That greeting is also recorded as
+  the character's first turn.
 
 `{{user}}` resolves to the bound persona's name:
 `POST /characters/{id}/conversations` accepts an optional

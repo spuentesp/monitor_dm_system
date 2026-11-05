@@ -177,3 +177,53 @@ def test_easing_hostility_is_not_a_hostile_relationship() -> None:
     proposals = voice._build_proposals(NPC, "hostility:-0.2", "calm", profile, PLAYER)
     relationship = next(p for p in proposals if p["change_type"] == "relationship")
     assert relationship["content"]["rel_type"] != "HOSTILE_TO"
+
+
+@pytest.mark.asyncio
+async def test_character_card_reaches_the_prompt_but_gm_notes_do_not() -> None:
+    store = _Store()
+
+    async def call_tool(agent: Any, name: str, args: dict[str, Any]) -> Any:
+        if name == "mongodb_get_npc_profile":
+            return {"traits": {}, "triggers": [], "gm_notes": "Secret: she is the traitor."}
+        return await store.call_tool(agent, name, args)
+
+    with (
+        patch.object(npc_mod.NPCVoice, "call_tool", call_tool),
+        patch.object(npc_mod, "NPCDirectVoiceModule", lambda: store.predict),
+        patch("monitor_agents.context_assembly.agent.ContextAssembly._fetch_runtime_profile", return_value={}, create=True),
+    ):
+        carded = await cl.ConversationLoop.start(
+            universe_id=UNIVERSE,
+            mode=cl.ConversationMode.DIRECT,
+            npc_ids=[NPC],
+            character_card="Scenario: a storm traps you at the inn.",
+        )
+        await carded.step("Hello")
+        story_npc = await cl.ConversationLoop.start(universe_id=UNIVERSE, mode=cl.ConversationMode.DIRECT, npc_ids=[NPC])
+        await story_npc.step("Hello")
+
+    assert store.prompts[0]["character_card"] == "Scenario: a storm traps you at the inn."
+    assert store.prompts[1]["character_card"] == ""
+    for prompt in store.prompts:
+        assert "traitor" not in str(prompt)
+
+
+@pytest.mark.asyncio
+async def test_greeting_is_part_of_the_conversation(chat: Any) -> None:
+    loop, store = chat
+    appended: list[dict[str, Any]] = []
+    original = store.call_tool
+
+    async def recording(agent: Any, name: str, args: dict[str, Any]) -> Any:
+        if name == "mongodb_append_conversation_turn":
+            appended.append(args["params"])
+        return await original(agent, name, args)
+
+    store.call_tool = recording
+    await loop.add_opening("Welcome, traveller.")
+    await loop.step("Hello")
+
+    assert store.prompts[0]["conversation_history"] == "Mira: Welcome, traveller."
+    assert appended[0]["speaker_role"] == "npc"
+    assert appended[0]["text"] == "Welcome, traveller."

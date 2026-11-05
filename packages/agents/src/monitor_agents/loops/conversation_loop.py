@@ -125,6 +125,9 @@ class ConversationState(BaseModel):
     # to. Empty when no persona is bound.
     player_persona: str = ""
 
+    # Rendered card text for a character imported from a card. Empty for story NPCs.
+    character_card: str = ""
+
 
 # =============================================================================
 # NODES
@@ -368,6 +371,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     include_cross_incarnation=getattr(state, "include_cross_incarnation", False),
                     lorebook_context=lorebook_context,
                     player_persona=state.player_persona,
+                    character_card=state.character_card,
                 )
                 npc_name = state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
                 # Lorebook output directives (@@activate / @@deactivate) are
@@ -708,6 +712,7 @@ class ConversationLoop:
         player_entity_id: UUID | None = None,
         lorebook_character_ids: list[str] | None = None,
         player_persona: str | None = None,
+        character_card: str | None = None,
     ) -> None:
         self.state = ConversationState(
             conversation_id=conversation_id,
@@ -719,6 +724,7 @@ class ConversationLoop:
             player_entity_id=player_entity_id,
             lorebook_character_ids=lorebook_character_ids or [],
             player_persona=player_persona or "",
+            character_card=character_card or "",
         )
         self._graph = build_conversation_graph().compile()
         self._closed = False
@@ -739,6 +745,7 @@ class ConversationLoop:
         player_entity_id: UUID | None = None,
         lorebook_character_ids: list[str] | None = None,
         player_persona: str | None = None,
+        character_card: str | None = None,
     ) -> ConversationLoop:
         """Open a new ConversationSession and pre-load NPC context."""
         conversation_id = uuid4()
@@ -752,11 +759,42 @@ class ConversationLoop:
             player_entity_id=player_entity_id,
             lorebook_character_ids=lorebook_character_ids or [],
             player_persona=player_persona,
+            character_card=character_card,
         )
         # Run open_session + load_npc_context nodes
         result = await loop._graph.ainvoke(loop.state.model_dump())
         loop.state = ConversationState(**{**loop.state.model_dump(), **result})
         return loop
+
+    async def add_opening(self, text: str) -> None:
+        """Record the character's greeting, so they know what they said first."""
+        from monitor_agents.npc_voice.agent import NPCVoice
+
+        npc_id = self.state.npc_ids[0]
+        npc_name = self.state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
+        await NPCVoice().call_tool(
+            "mongodb_append_conversation_turn",
+            {
+                "conversation_id": str(self.state.conversation_id),
+                "params": {
+                    "speaker_role": "npc",
+                    "entity_id": str(npc_id),
+                    "entity_name": npc_name,
+                    "text": text,
+                    "emotional_state": None,
+                },
+            },
+        )
+        self.state.turns = [
+            *self.state.turns,
+            {
+                "turn_index": len(self.state.turns),
+                "speaker_role": "npc",
+                "entity_id": str(npc_id),
+                "entity_name": npc_name,
+                "text": text,
+            },
+        ]
 
     async def step(self, player_input: str) -> list[dict[str, Any]]:
         """
