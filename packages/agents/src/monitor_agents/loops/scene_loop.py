@@ -58,6 +58,24 @@ log = structlog.get_logger()
 logger = logging.getLogger(__name__)
 _SCENE_GRAPH_TEMPLATE: StateGraph | None = None
 
+# Channels that accumulate across turns. Each turn is a new graph run on the same
+# checkpoint thread, and any channel in the run's input overwrites the checkpoint,
+# so these must stay out of it. Every other channel starts each turn fresh.
+_CARRIED_CHANNELS = frozenset(
+    {
+        "turns_count",
+        "total_minutes_passed",
+        "pending_proposals",
+        "pending_roll",
+        "established_facts",
+        "image_suggestions",
+    }
+)
+
+# Resolutions that leave a proposed roll open: they answer a question or ask for
+# one, without acting on the fiction.
+_KEEPS_PENDING_ROLL = frozenset({"oracle", "rag_lookup", "forced_narrative_clarification"})
+
 
 def _timed_node(fn):
     """Log per-span wall time for a scene-loop node (T-091 profiling).
@@ -238,6 +256,9 @@ class SceneState(BaseModel):
     image_suggestions: list[ImageSuggestion] = Field(default_factory=list)
     # Established facts extracted from narration (for continuity tracking).
     established_facts: list[str] = Field(default_factory=list)
+    # Facts the player asserted out of character. Merged into established_facts
+    # at the start of each turn, ahead of the facts extracted from narration.
+    director_notes: list[str] = Field(default_factory=list)
     # OOC table talk (Q&A pairs) from the session, rendered by the Narrator.
     ooc_exchanges: list[dict[str, Any]] = Field(default_factory=list)
     # Raw recent chat tail (IC + OOC, labeled) rendered by the Narrator.
@@ -465,6 +486,10 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         "durable_turn_count": durable_turn_count,
         "npc_profiles": npc_profiles,
         "scene_foreshadowing_open": open_foreshadowing,
+        "established_facts": [
+            *state.director_notes,
+            *[fact for fact in state.established_facts if fact not in state.director_notes],
+        ],
     }
 
 
@@ -482,6 +507,8 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
         return {
             "resolution": state.resolution,
             "pending_proposals": state.pending_proposals + proposals,
+            # A submitted roll settles whatever roll was on offer.
+            "pending_roll": None,
         }
 
     factory = get_agent_factory()
@@ -534,10 +561,11 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
             "stat": resolution.get("stat"),
             "dc": resolution.get("difficulty_class"),
             "modifier": resolution.get("modifier"),
+            "attribute_value": resolution.get("attribute_value"),
             "action": state.user_input,
             "resolution_type": "propose_roll",
         }
-    elif res_type in ("dice", "contested", "forced_narrative_pushback"):
+    elif res_type not in _KEEPS_PENDING_ROLL:
         new_pending_roll = None
 
     return {
@@ -1379,6 +1407,9 @@ def route_after_narration(state: SceneState) -> str:
 
 def route_after_resolve(state: SceneState) -> str:
     """Route after resolve based on resolution type."""
+    if state.scene_complete and not state.user_input:
+        return "complete_current_scene"  # finalize(): there is no turn to narrate
+
     if not state.resolution:
         return "narrate"
 
@@ -1429,7 +1460,7 @@ def build_scene_graph() -> StateGraph:
     graph.add_conditional_edges(
         "resolve",
         route_after_resolve,
-        {"narrate": "narrate", END: END},
+        {"narrate": "narrate", "complete_current_scene": "complete_current_scene", END: END},
     )
     # Fan out: three extractors run concurrently after narrate.
     graph.add_edge("narrate", "extract_new_entities")
@@ -1584,10 +1615,9 @@ class SceneLoop:
                 story_state=getattr(self, "story_state", None),
                 agreements_lines=getattr(self, "agreements_lines", []),
                 agreements_veils=getattr(self, "agreements_veils", []),
-                # Feed the (otherwise dead) established_facts channel with the
-                # player's director notes so the GMAgent and Narrator treat
-                # them as established truth instead of improvising settings.
-                established_facts=list(getattr(self, "director_notes", []) or []),
+                # The GMAgent and Narrator treat these as established truth
+                # instead of improvising settings.
+                director_notes=list(getattr(self, "director_notes", []) or []),
                 ooc_exchanges=list(getattr(self, "ooc_exchanges", []) or []),
                 recent_chat=_chat_tail(getattr(self, "chat_log", None)),
                 opening_recap=str(getattr(self, "opening_recap", "") or ""),
@@ -1598,7 +1628,11 @@ class SceneLoop:
             if gm_profile:
                 initial.gm_profile = gm_profile
 
-            result = await compiled.ainvoke(initial.model_dump(), config=config)
+            result = await compiled.ainvoke(initial.model_dump(exclude=set(_CARRIED_CHANNELS)), config=config)
+
+            # Reaching max_turns ends the scene too; tell the caller so it can move on.
+            if result.get("turns_count", 0) >= self.max_turns:
+                result["scene_complete"] = True
 
             # Combat delegation: if the resolution flagged combat, run CombatLoop.
             # ``subsystem_hint`` / ``action_type`` here come from the semantic
@@ -1653,6 +1687,7 @@ class SceneLoop:
                     "story_id": self.story_id,
                     "scene_complete": True,
                     "user_input": None,
+                    "memories_to_persist": [],
                     "max_turns": self.max_turns,
                     "system_id": getattr(self, "system_id", None),
                     "pack_id": getattr(self, "pack_id", None),

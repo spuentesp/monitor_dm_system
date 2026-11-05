@@ -409,7 +409,9 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
             )
             story_result = await story_loop.complete_current_scene(
                 scene_id=uuid.UUID(scene_id),
-                outcome=result,
+                # scene_complete in the outcome means "finalize the story" to StoryLoop;
+                # here only the scene is done.
+                outcome={**result, "scene_complete": False},
             )
 
             if story_result.get("current_scene_id"):

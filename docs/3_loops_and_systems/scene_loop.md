@@ -19,7 +19,9 @@ narrate the consequences, extract world changes, and persist everything.
 stateDiagram-v2
     [*] --> load_context
     load_context --> resolve
-    resolve --> narrate: route_after_resolve (else END)
+    resolve --> narrate: route_after_resolve
+    resolve --> complete_current_scene: finalize (no turn to narrate)
+    resolve --> [*]: pushback
     narrate --> extract_new_entities
     narrate --> extract_memories
     narrate --> extract_facts
@@ -30,8 +32,7 @@ stateDiagram-v2
     persist_memories --> check_events
     check_consistency --> persist_turn_artifacts
     check_events --> persist_turn_artifacts
-    persist_turn_artifacts --> complete_current_scene: scene_complete
-    persist_turn_artifacts --> canonize: max_turns
+    persist_turn_artifacts --> complete_current_scene: scene_complete or max_turns
     persist_turn_artifacts --> [*]: continue (await next run)
     complete_current_scene --> canonize
     canonize --> [*]
@@ -89,12 +90,21 @@ narrate  → Narrator.narrate_turn(resolution=…, gm_verdict=…)  → 3-step r
   See [GM as Authority](../architecture/GM_AS_AUTHORITY.md) for the
   full pipeline.
 
+## State across turns
+
+Each turn is a separate graph run on the scene's checkpoint thread, and any
+channel in a run's input overwrites the checkpoint. `SceneLoop.run` therefore
+leaves these channels out of its input so they accumulate: `turns_count`,
+`total_minutes_passed`, `pending_proposals`, `pending_roll`, `established_facts`
+and `image_suggestions`. Every other channel starts each turn fresh.
+
 ## Pending-roll state machine
 
-When the GM returns `propose_roll` (freeform mode), `resolve` persists the roll
-spec to `pending_roll` so the next turn knows a roll is offered; the player may
-accept or ignore it. On a resolved `dice`/`contested`/`forced_narrative_pushback`
-outcome, `pending_roll` clears.
+When the GM returns `propose_roll`, `resolve` stores the roll spec in
+`pending_roll`. If the player submits the roll, it resolves directly. If they
+narrate past it instead, the resolver rolls the stored spec on the server against
+that next action. Questions (`oracle`, `rag_lookup`,
+`forced_narrative_clarification`) leave the roll open; any other outcome clears it.
 
 ## See Also
 - [GM as Authority](../architecture/GM_AS_AUTHORITY.md) — the narration pipeline
