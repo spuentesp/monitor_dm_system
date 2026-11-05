@@ -22,7 +22,7 @@ def _dice_request_from_resolution(
     user_content: str,
 ) -> dict[str, Any] | None:
     """Convert a Resolver propose_roll result into frontend prompt metadata."""
-    if resolution.get("resolution_type") != "propose_roll":
+    if resolution.get("resolution_type") not in ("propose_roll", "forced_narrative_pushback"):
         return None
 
     try:
@@ -33,7 +33,12 @@ def _dice_request_from_resolution(
     dc = resolution.get("difficulty_class")
     roll_under = bool(resolution.get("roll_under"))
     spec = _format_dice_spec(modifier, roll_under=roll_under)
-    reason = str(resolution.get("roll_invitation") or f"{stat} check" or "Roll to resolve the action")
+    reason = str(
+        resolution.get("roll_invitation")
+        or resolution.get("pushback_prompt")
+        or f"{stat} check"
+        or "Roll to resolve the action"
+    )
 
     return {
         "spec": spec,

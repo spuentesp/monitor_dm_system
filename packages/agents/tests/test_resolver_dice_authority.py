@@ -1,0 +1,234 @@
+"""On a dice turn the GM picks the stat and DC, and the roll uses the actor's sheet."""
+
+from __future__ import annotations
+
+import types
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from monitor_agents import resolver as rmod
+from monitor_agents.gm_awareness import ActionType, CausalityAction, IntentType, RollNecessity
+from monitor_agents.gm_tools.contracts import GMVerdict
+from monitor_agents.loops import scene_orchestrator as so
+from monitor_agents.loops.scene_orchestrator_support import _dice_request_from_resolution
+
+
+def _verdict(**over: Any) -> GMVerdict:
+    fields: dict[str, Any] = {
+        "intent_type": IntentType.ACTION,
+        "action_type": ActionType.STEALTH,
+        "roll_necessity": RollNecessity.PROPOSE_ROLL,
+        "causality_action": CausalityAction.ACCEPT,
+        "declares_outcome": False,
+        "suggested_stat": "Dexterity",
+        "suggested_dc": 25,
+    }
+    fields.update(over)
+    return GMVerdict(**fields)
+
+
+def _resolver(verdict: GMVerdict | None) -> rmod.Resolver:
+    return rmod.Resolver(gm_agent=types.SimpleNamespace(decide=AsyncMock(return_value=verdict)))
+
+
+def _gsr(core: dict[str, Any] | None = None) -> Any:
+    attrs = {"STR": {"name": "Strength", "abbreviation": "STR"}, "DEX": {"name": "Dexterity", "abbreviation": "DEX"}}
+    return types.SimpleNamespace(
+        _sd=types.SimpleNamespace(core=core or {"type": "d20"}),
+        _attr_by_abbr=attrs,
+        calc_modifier=lambda _stat, value: (value - 10) // 2,
+        infer_action_context=AsyncMock(
+            return_value={"action_type": "action", "stat_name": "STR", "difficulty_class": 14, "subsystem_hint": None}
+        ),
+        evaluate_scenery_and_conditions=AsyncMock(
+            return_value={"total_modifier": 0, "roll_mode": "normal", "cond_modifier": 0, "scenery_modifier": 0}
+        ),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _generic_stat():
+    with patch.object(rmod, "_infer_generic_stat", AsyncMock(return_value="Strength")) as mocked:
+        yield mocked
+
+
+async def _resolve(resolver: rmod.Resolver, ctx: dict[str, Any] | None = None, **kw: Any) -> dict[str, Any]:
+    result, _ = await resolver.resolve_turn(
+        "scene", kw.pop("text", "I sneak past the guard"), {"entities": [], **(ctx or {})}, **{"play_mode": "dice_standard", **kw}
+    )
+    return result
+
+
+# --- GM authority ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_real_verdict_sets_stat_and_dc() -> None:
+    result = await _resolve(_resolver(_verdict()))
+    assert (result["stat"], result["difficulty_class"]) == ("Dexterity", 25)
+
+
+@pytest.mark.asyncio
+async def test_real_verdict_sets_intent_and_non_combat_action() -> None:
+    verdict = _verdict(intent_type=IntentType.DIALOGUE, action_type=ActionType.DIALOGUE)
+    result = await _resolve(_resolver(verdict), text="I convince the guard")
+    assert (result["intent_type"], result["action_type"]) == ("dialogue", "dialogue")
+
+
+@pytest.mark.asyncio
+async def test_fallback_verdict_does_not_set_stat_or_dc() -> None:
+    result = await _resolve(_resolver(_verdict(action_type=ActionType.NONE)))
+    assert (result["stat"], result["difficulty_class"]) == ("Strength", 12)
+
+
+@pytest.mark.asyncio
+async def test_gm_cannot_start_combat_on_its_own() -> None:
+    verdict = _verdict(action_type=ActionType.COMBAT, subsystem_hint="combat", intent_type=IntentType.ACTION)
+    result = await _resolve(_resolver(verdict), text="I swing at him")
+    assert result["action_type"] != "combat"
+    assert result["subsystem_hint"] is None
+
+
+@pytest.mark.asyncio
+async def test_game_system_accepts_a_gm_stat_it_knows_by_name() -> None:
+    with patch.object(rmod, "GameSystemRuntime", lambda _ctx: _gsr()):
+        result = await _resolve(_resolver(_verdict()), game_context={"x": 1}, play_mode="dice_game_system")
+    assert (result["stat"], result["difficulty_class"]) == ("DEX", 25)
+
+
+@pytest.mark.asyncio
+async def test_game_system_ignores_a_gm_stat_it_does_not_have() -> None:
+    with patch.object(rmod, "GameSystemRuntime", lambda _ctx: _gsr()):
+        result = await _resolve(
+            _resolver(_verdict(suggested_stat="Moxie", suggested_dc=None)),
+            game_context={"x": 1},
+            play_mode="dice_game_system",
+        )
+    assert (result["stat"], result["difficulty_class"]) == ("STR", 14)
+
+
+# --- Modifiers ------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_missing_stat_is_a_neutral_modifier() -> None:
+    result = await _resolve(_resolver(_verdict()))
+    assert result["modifier"] == 0
+    assert result["attribute_value"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["Dexterity", "dexterity", "DEX", "dex"])
+async def test_stat_lookup_tolerates_case_and_abbreviation(key: str) -> None:
+    ctx = {"entities": [{"id": "pc", "properties": {"attributes": {key: 18}}}]}
+    result = await _resolve(_resolver(_verdict()), ctx)
+    assert (result["attribute_value"], result["modifier"]) == (18, 4)
+
+
+@pytest.mark.asyncio
+async def test_a_real_zero_stat_keeps_its_penalty() -> None:
+    ctx = {"entities": [{"id": "pc", "properties": {"attributes": {"Dexterity": 0}}}]}
+    assert (await _resolve(_resolver(_verdict()), ctx))["modifier"] == -5
+
+
+OGRE = {"id": "ogre", "name": "Ogre", "properties": {"attributes": {"Dexterity": 24}}}
+HERO = {"id": "pc", "name": "Hero", "properties": {"attributes": {"Dexterity": 8}}}
+
+
+@pytest.mark.asyncio
+async def test_actor_stats_are_used_rather_than_the_first_entity() -> None:
+    result = await _resolve(_resolver(_verdict()), {"entities": [OGRE, HERO], "actor_id": "pc"})
+    assert result["modifier"] == -1
+
+
+@pytest.mark.asyncio
+async def test_actor_context_sheet_wins() -> None:
+    ctx = {"entities": [OGRE], "actor_id": "pc", "actor": {"id": "pc", "attributes": {"DEX": 16}}}
+    assert (await _resolve(_resolver(_verdict()), ctx))["modifier"] == 3
+
+
+@pytest.mark.asyncio
+async def test_known_actor_without_stats_never_borrows_an_npcs() -> None:
+    result = await _resolve(_resolver(_verdict()), {"entities": [OGRE], "actor_id": "pc"})
+    assert result["modifier"] == 0
+
+
+@pytest.mark.asyncio
+async def test_proposed_roll_includes_conditions_and_scenery() -> None:
+    gsr = _gsr()
+    gsr.evaluate_scenery_and_conditions = AsyncMock(
+        return_value={"total_modifier": -2, "roll_mode": "normal", "cond_modifier": -2, "scenery_modifier": 0}
+    )
+    ctx = {"entities": [{"id": "pc", "properties": {"attributes": {"DEX": 14}}}], "actor_id": "pc"}
+    with patch.object(rmod, "GameSystemRuntime", lambda _ctx: gsr):
+        result = await _resolve(_resolver(_verdict()), ctx, game_context={"x": 1}, play_mode="dice_game_system")
+    assert result["modifier"] == 0  # +2 from DEX 14, -2 from conditions
+    assert _dice_request_from_resolution(result, "x")["spec"] == "1d20"
+
+
+def test_conditions_come_from_the_actor_not_the_first_entity() -> None:
+    from monitor_agents.game_system._tracks_conditions import _collect_actor_conditions
+
+    npc = {"id": "npc", "entity_type": "character", "properties": {"conditions": ["stunned"]}}
+    pc = {"id": "pc", "entity_type": "character", "properties": {"conditions": ["poisoned"]}}
+    assert _collect_actor_conditions({"entities": [npc, pc], "actor_id": "pc"}) == ["poisoned"]
+    assert _collect_actor_conditions({"entities": [npc], "actor_id": "pc"}) == []
+    assert _collect_actor_conditions({"entities": [npc, pc]}) == ["stunned"]
+
+
+# --- Pushback -------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pushback_offers_the_roll_it_asks_for() -> None:
+    verdict = _verdict(
+        declares_outcome=True,
+        causality_action=CausalityAction.PUSH_BACK,
+        pushback_prompt="Bold claim. Roll Dexterity.",
+    )
+    ctx = {"entities": [{"id": "pc", "properties": {"attributes": {"Dexterity": 16}}}]}
+    result = await _resolve(_resolver(verdict), ctx, text="I kill the dragon")
+
+    request = _dice_request_from_resolution(result, "I kill the dragon")
+    assert request is not None
+    assert request["spec"] == "1d20+3"
+    assert request["difficulty_class"] == 25
+    assert request["reason"] == "Bold claim. Roll Dexterity."
+    assert request["original_action"] == "I kill the dragon"
+
+
+@pytest.mark.asyncio
+async def test_player_sees_the_pushback_prompt_and_can_roll() -> None:
+    session: dict[str, Any] = {"id": "s"}
+    loop = types.SimpleNamespace(
+        run=AsyncMock(
+            return_value={
+                "resolution": {
+                    "resolution_type": "forced_narrative_pushback",
+                    "stat": "Dexterity",
+                    "difficulty_class": 25,
+                    "modifier": 3,
+                    "pushback_prompt": "Bold claim. Roll Dexterity.",
+                    "requires_player_choice": True,
+                },
+                "narrative_text": None,
+            }
+        )
+    )
+    callbacks = types.SimpleNamespace(
+        now_iso=lambda: "now",
+        db_save_session=lambda _s: None,
+        get_scene_loop=lambda *_a, **_k: loop,
+        messages={},
+        get_story_state=None,
+    )
+    state = so.SceneOrchestratorState(
+        session_id="s", user_content="I kill the dragon", session=session, callbacks=callbacks, story_id="t", scene_id="c"
+    )
+    out = await so.run_core_scene_loop(state)
+
+    assert out.response_text == "Bold claim. Roll Dexterity."
+    assert out.metadata["dice_request"]["spec"] == "1d20+3"
+    assert session["pending_dice_request"]["difficulty_class"] == 25
