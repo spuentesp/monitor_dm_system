@@ -1106,7 +1106,7 @@ class Resolver(BaseAgent):
                     requires_clarification=False,
                     stat_name=pr_stat,
                     dc=int(pr_dc) if pr_dc is not None else int(dc),
-                    stat_value=None,
+                    stat_value=pending_roll.get("attribute_value"),
                     base_modifier=pr_modifier,
                     modifier=pr_modifier,
                     actual_roll_mode=pr_roll_mode,
