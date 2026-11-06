@@ -1104,14 +1104,16 @@ def _clone_entity_into_universe(client: Any, new_uid: str, old_data: dict[str, A
     ``(:Universe)-[:HAS_ENTITY]->(e:Entity {universe_id})``.
     """
     new_entity_id = str(uuid4())
+    # Copying properties doesn't copy labels, so set the kind label explicitly.
+    kind_label = "EntityArchetype" if old_data.get("is_archetype") else "EntityInstance"
     props = dict(old_data)
     props["id"] = new_entity_id
     props["universe_id"] = new_uid
     props["updated_at"] = now_iso
     client.execute_write(
-        """
-        MATCH (u:Universe {id: $new_uid})
-        CREATE (e:Entity)
+        f"""
+        MATCH (u:Universe {{id: $new_uid}})
+        CREATE (e:Entity:{kind_label})
         SET e = $props
         CREATE (u)-[:HAS_ENTITY]->(e)
         """,
