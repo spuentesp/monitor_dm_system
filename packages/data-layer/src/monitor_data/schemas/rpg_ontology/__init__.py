@@ -12,11 +12,13 @@ Two layers:
 1. **Meta / factory** (new, general):
    - ``meta.py``     — pure-data spec types (GameSystemSpec, FieldSpec, …)
    - ``factory.py``  — runtime Pydantic model generation via create_model()
-   - ``specs/``      — built-in system specs (death_in_space, …)
+   - ``specs/``      — loads every system in builtin_systems.json into the registry
 
 2. **Base / static** (legacy, kept for backward compatibility):
    - ``base.py``     — abstract base classes (BaseCharacterSheet, …)
-   - ``systems/``    — per-system Python subclasses (being phased out)
+
+No game is written into the platform as code. A system comes from builtin_systems.json
+or from an ingested book.
 
 Usage (new approach — preferred)
 ---------------------------------
@@ -25,17 +27,11 @@ Usage (new approach — preferred)
     from monitor_data.schemas.rpg_ontology import (
         GameSystemSpec, SystemRegistry,
         make_entity_model, validate_entity_data,
-        DEATH_IN_SPACE,
     )
 
     registry = SystemRegistry()
-    spec = registry.get("death_in_space")
+    spec = registry.get("dnd_5e")
     CharacterModel = make_entity_model(spec, "character")
-
-    sheet = CharacterModel(
-        character_name="Zyx", body=1, dex=2, savvy=-1, tech=0,
-        hp=7, cosmic_rot=0, credits=10, debt=0,
-    )
 """
 
 # ── New general meta-schema exports ──────────────────────────────────────────
@@ -84,9 +80,6 @@ from monitor_data.schemas.rpg_ontology.meta import (
     ValidatorType,
 )
 
-# Convenience re-export for Death in Space
-from monitor_data.schemas.rpg_ontology.specs.death_in_space import DEATH_IN_SPACE
-
 # Data topology — all 6 backends, cross-store edges, gap report
 from monitor_data.schemas.rpg_ontology.topology import (
     MONITOR_TOPOLOGY,
@@ -119,7 +112,6 @@ __all__ = [
     "make_all_models",
     "validate_entity_data",
     "clear_model_cache",
-    "DEATH_IN_SPACE",
     # Topology
     "DataTopology",
     "StorageNode",

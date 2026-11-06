@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from _lantern_drift_spec import LANTERN_DRIFT
 
 from monitor_data.schemas.rpg_ontology import (
     EquipmentItemCreate,
@@ -19,7 +20,6 @@ from monitor_data.schemas.rpg_ontology import (
     TypedCharacterSheetCreate,
     TypedCharacterSheetUpdate,
 )
-from monitor_data.schemas.rpg_ontology.systems.death_in_space import SYSTEM_ID
 from monitor_data.tools.rpg_tools import (
     rpg_character_create,
     rpg_character_delete,
@@ -49,18 +49,31 @@ _SHEET_ID = uuid4()
 _ITEM_ID = uuid4()
 _NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
-# A minimal valid DIS character sheet dict
-_VALID_DIS = {
-    "entity_id": str(_ENTITY_ID),
+SYSTEM_ID = LANTERN_DRIFT.system_id
+
+# A minimal valid character sheet for the invented test system
+_VALID_SHEET = {
     "character_name": "Alpha Tester",
-    "body": 1,
-    "dex": 0,
-    "savvy": 0,
-    "tech": 0,
+    "grit": 1,
+    "nerve": 0,
+    "wits": 0,
+    "craft": 0,
     "hp": 7,
-    "max_hp": 7,
-    "cosmic_rot": 0,
+    "strain": 0,
 }
+
+
+@pytest.fixture(autouse=True)
+def _invented_system_registered():
+    """Sheets validate against the system's spec, so the invented one must be registered."""
+    from monitor_data.schemas.rpg_ontology import SystemRegistry
+    from monitor_data.schemas.rpg_ontology.factory import clear_model_cache
+
+    registry = SystemRegistry()
+    registry.register(LANTERN_DRIFT)
+    yield
+    registry.unregister(SYSTEM_ID)
+    clear_model_cache(SYSTEM_ID)
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +88,7 @@ def _sheet_row(**overrides) -> dict:
         "entity_id": str(_ENTITY_ID),
         "system_id": SYSTEM_ID,
         "character_name": "Alpha Tester",
-        "sheet_data": _VALID_DIS,
+        "sheet_data": _VALID_SHEET,
         "created_at": _NOW,
         "updated_at": None,
     }
@@ -91,7 +104,7 @@ def _item_row(**overrides) -> dict:
         "item_name": "Laser Pistol",
         "item_type": "weapon",
         "item_data": {"damage_formula": "d6"},
-        "source_ref": "DIS Core p.45",
+        "source_ref": "Lantern Drift p.12",
         "created_at": _NOW,
     }
     row.update(overrides)
@@ -125,14 +138,19 @@ def _make_client(fetchrow=None, fetch=None, execute=None) -> MagicMock:
 class TestRpgSystemRegister:
     @pytest.mark.asyncio
     async def test_returns_dict_of_row(self):
-        from monitor_data.schemas.rpg_ontology.systems.death_in_space import DEATH_IN_SPACE
+        from monitor_data.schemas.rpg_ontology.base import AttributeSpec, BaseGameSystem, ResourceSpec
 
-        expected = {
-            "system_id": DEATH_IN_SPACE.system_id,
-            "system_name": DEATH_IN_SPACE.system_name,
-        }
+        system = BaseGameSystem(
+            system_id=SYSTEM_ID,
+            system_name="Lantern Drift",
+            core_mechanic_formula="d20 under attribute",
+            attributes=[AttributeSpec(name="Grit", abbreviation="GRIT", min_value=-3, max_value=3, default_value=0)],
+            resources=[ResourceSpec(name="Hit Points", abbreviation="HP", max_formula="max(1, GRIT + 6)")],
+            schema_class="tests.LanternDriftSheet",
+        )
+        expected = {"system_id": system.system_id, "system_name": system.system_name}
         client = _make_client(fetchrow=expected)
-        result = await rpg_system_register(client, DEATH_IN_SPACE)
+        result = await rpg_system_register(client, system)
         assert result == expected
 
 
@@ -144,7 +162,7 @@ class TestRpgSystemRegister:
 class TestRpgSystemGet:
     @pytest.mark.asyncio
     async def test_returns_dict_when_found(self):
-        row = {"system_id": SYSTEM_ID, "system_name": "Death in Space"}
+        row = {"system_id": SYSTEM_ID, "system_name": "Lantern Drift"}
         client = _make_client(fetchrow=row)
         result = await rpg_system_get(client, SYSTEM_ID)
         assert result == row
@@ -165,7 +183,7 @@ class TestRpgSystemList:
     @pytest.mark.asyncio
     async def test_returns_list_of_dicts(self):
         rows = [
-            {"system_id": "dis", "system_name": "Death in Space"},
+            {"system_id": "lantern_drift", "system_name": "Lantern Drift"},
             {"system_id": "dnd5e", "system_name": "D&D 5e"},
         ]
         client = _make_client(fetch=rows)
@@ -194,7 +212,7 @@ class TestRpgCharacterCreate:
             world_id=_WORLD_ID,
             entity_id=_ENTITY_ID,
             system_id=SYSTEM_ID,
-            sheet_data=_VALID_DIS,
+            sheet_data=_VALID_SHEET,
         )
         result = await rpg_character_create(client, request)
         assert result.id == _SHEET_ID
@@ -211,14 +229,13 @@ class TestRpgCharacterCreate:
             entity_id=_ENTITY_ID,
             system_id=SYSTEM_ID,
             sheet_data={
-                "body": 99,
+                "grit": 99,
                 "character_name": "X",
-                "dex": 0,
-                "savvy": 0,
-                "tech": 0,
+                "nerve": 0,
+                "wits": 0,
+                "craft": 0,
                 "hp": 1,
-                "max_hp": 1,
-                "cosmic_rot": 0,
+                "strain": 0,
             },
         )
         with pytest.raises(ValidationError):
@@ -275,7 +292,7 @@ class TestRpgCharacterGetByEntity:
 class TestRpgCharacterUpdate:
     @pytest.mark.asyncio
     async def test_updates_and_returns_response(self):
-        updated_row = _sheet_row(character_name="Alpha Tester", sheet_data={**_VALID_DIS, "hp": 5})
+        updated_row = _sheet_row(character_name="Alpha Tester", sheet_data={**_VALID_SHEET, "hp": 5})
         # First fetchrow = get current, second fetchrow = update result
         conn = AsyncMock()
         conn.fetchrow = AsyncMock(side_effect=[_sheet_row(), updated_row])
@@ -371,7 +388,7 @@ class TestRpgEquipmentAdd:
             item_name="Laser Pistol",
             item_type=ItemType.WEAPON,
             item_data={"damage_formula": "d6"},
-            source_ref="DIS Core p.45",
+            source_ref="Lantern Drift p.12",
         )
         result = await rpg_equipment_add(client, request)
         assert result.id == _ITEM_ID
@@ -470,13 +487,13 @@ class TestRpgSheetEquip:
 
 
 class TestRpgValidateSheet:
-    def test_valid_dis_sheet_returns_valid_true(self):
-        result = rpg_validate_sheet(SYSTEM_ID, _VALID_DIS)
+    def test_valid_sheet_returns_valid_true(self):
+        result = rpg_validate_sheet(SYSTEM_ID, _VALID_SHEET)
         assert result["valid"] is True
         assert result["errors"] == []
 
-    def test_invalid_body_returns_errors(self):
-        bad = {**_VALID_DIS, "body": 99}
+    def test_invalid_attribute_returns_errors(self):
+        bad = {**_VALID_SHEET, "grit": 99}
         result = rpg_validate_sheet(SYSTEM_ID, bad)
         assert result["valid"] is False
         assert result["errors"]
@@ -487,7 +504,8 @@ class TestRpgValidateSheet:
         assert "Unknown game system" in result["errors"][0]
 
     def test_missing_required_field_returns_errors(self):
-        incomplete = {"character_name": "X"}
+        # Attributes have defaults in the spec; the name has none.
+        incomplete = {"grit": 0}
         result = rpg_validate_sheet(SYSTEM_ID, incomplete)
         assert result["valid"] is False
 
@@ -500,23 +518,9 @@ class TestRpgValidateSheet:
 class TestRpgSchemaInspect:
     """Tests for the schema introspection tool.
 
-    Because DEATH_IN_SPACE is auto-registered in SystemRegistry at import
-    time, most tests use the in-memory path (no real DB needed).
+    The invented system is registered for every test in this module, so most
+    tests use the in-memory path (no real DB needed).
     """
-
-    @pytest.fixture(autouse=True)
-    def _ensure_python_spec(self):
-        """Ensure the Python DEATH_IN_SPACE spec is in the registry.
-
-        Other test modules (e.g. test_rpg_ontology_converters) may replace
-        the registry contents with specs loaded from builtin_systems.json,
-        which use different attribute ranges.  This fixture restores the
-        hand-written Python spec so assertions on mechanic_type / ranges
-        match expectations.
-        """
-        from monitor_data.schemas.rpg_ontology import DEATH_IN_SPACE, SystemRegistry
-
-        SystemRegistry().register(DEATH_IN_SPACE)
 
     @pytest.mark.asyncio
     async def test_returns_dict_for_registered_system(self):
@@ -541,11 +545,10 @@ class TestRpgSchemaInspect:
         assert "success_condition" in cm
 
     @pytest.mark.asyncio
-    async def test_dis_core_mechanic_is_d20_over(self):
-        # Death in Space: d20 + ability >= target (corrected in 7ca82f4)
+    async def test_dis_core_mechanic_is_d20_under(self):
         client = _make_client()
         result = await rpg_schema_inspect(client, SYSTEM_ID)
-        assert result["core_mechanic"]["mechanic_type"] == "d20_over"
+        assert result["core_mechanic"]["mechanic_type"] == "d20_under"
 
     @pytest.mark.asyncio
     async def test_entity_types_key_present(self):
@@ -576,13 +579,13 @@ class TestRpgSchemaInspect:
             assert key in field, f"Missing key '{key}' in field summary"
 
     @pytest.mark.asyncio
-    async def test_dis_body_field_has_correct_range(self):
+    async def test_attribute_field_has_correct_range(self):
         client = _make_client()
         result = await rpg_schema_inspect(client, SYSTEM_ID)
         fields = result["entity_types"]["character"]["fields"]
-        body = next(f for f in fields if f["name"] == "body")
-        assert body["min_value"] == -3
-        assert body["max_value"] == 3
+        grit = next(f for f in fields if f["name"] == "grit")
+        assert grit["min_value"] == -3
+        assert grit["max_value"] == 3
 
     @pytest.mark.asyncio
     async def test_max_hp_is_derived(self):
@@ -616,16 +619,16 @@ class TestRpgSchemaInspect:
 
     @pytest.mark.asyncio
     async def test_falls_back_to_postgres_when_not_in_registry(self):
-        from monitor_data.schemas.rpg_ontology import DEATH_IN_SPACE, SystemRegistry
+        from monitor_data.schemas.rpg_ontology import SystemRegistry
         from monitor_data.schemas.rpg_ontology.factory import clear_model_cache
 
-        # Temporarily unregister DIS, then restore after test
+        # Temporarily unregister the system, then restore after test
         reg = SystemRegistry()
         reg.unregister(SYSTEM_ID)
         clear_model_cache(SYSTEM_ID)
         try:
             # DB returns the full spec JSON
-            spec_dict = DEATH_IN_SPACE.model_dump(mode="json")
+            spec_dict = LANTERN_DRIFT.model_dump(mode="json")
 
             # Build a mock row with spec column holding the spec dict
             mock_spec_row = MagicMock()
@@ -646,7 +649,7 @@ class TestRpgSchemaInspect:
             assert result["system_id"] == SYSTEM_ID
         finally:
             # Always restore the spec so other tests still work
-            reg.register(DEATH_IN_SPACE)
+            reg.register(LANTERN_DRIFT)
 
     @pytest.mark.asyncio
     async def test_tags_is_list(self):

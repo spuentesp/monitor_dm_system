@@ -19,7 +19,7 @@ Design principles
 ----------------
 - **One converter function, all systems** — no per-system Python subclasses.
   The JSON schema is uniform enough that a universal mapping function handles
-  all 7 systems correctly.
+  every system correctly.
 - **Lossless where possible** — every field in the JSON maps to something in
   the spec. Unknown fields are stored in ``GameSystemSpec.description`` or
   discarded with a logged warning.
@@ -45,9 +45,6 @@ Usage
 
     # Now factory works for all systems
     CharacterModel = make_entity_model(registry.get("dnd_5e"), "character")
-
-    # Death in Space also works
-    DISModel = make_entity_model(registry.get("death_in_space"), "character")
 """
 
 from __future__ import annotations
@@ -265,14 +262,18 @@ def _detect_core_mechanic_type(
     """Detect OntologyMechanicType from a core_mechanic dict."""
     if not isinstance(core_mechanic, dict):
         core_mechanic = core_mechanic.model_dump() if hasattr(core_mechanic, "model_dump") else dict(core_mechanic)
-    formula = core_mechanic.get("formula", "")
+    formula = str(core_mechanic.get("formula") or "").lower()
     mechanic_type = core_mechanic.get("type", "").lower()
     success_type = core_mechanic.get("success_type", "").lower()
 
     if "d20" in formula or mechanic_type == "d20":
-        if success_type in ("under", "roll_under"):
+        # The schema has no roll-under success type, so a roll-under system says so in
+        # its formula or threshold text, and "meet_or_beat" alone means rolling high.
+        threshold = str(core_mechanic.get("success_threshold") or "").lower()
+        says_under = "<=" in formula or any(t in f"{formula} {threshold}" for t in ("roll under", "under or equal"))
+        if success_type in ("under", "roll_under") or says_under:
             return OntologyMechanicType.D20_UNDER
-        if success_type in ("over", "roll_over", "dc"):
+        if success_type in ("over", "roll_over", "dc", "meet_or_beat"):
             return OntologyMechanicType.D20_OVER
     if "2d6" in formula or mechanic_type == "2d6":
         return OntologyMechanicType.DICE_POOL
@@ -674,8 +675,6 @@ def builtin_to_game_system_spec(
             tags = ["narrative", "pbta", "2d6"]
         elif "vampire" in name_lower or "masquerade" in name_lower:
             tags = ["horror", "personal-horror", "vampire", "world-of-darkness"]
-        elif "death in space" in name_lower:
-            tags = ["sci-fi", "space", "mork-borg"]
         elif "narrative" in name_lower:
             tags = ["narrative", "fiction-first"]
         else:
@@ -708,9 +707,7 @@ def load_all_builtin_specs(
     """
     Load all entries from builtin_systems.json and convert to GameSystemSpec list.
 
-    Returns a list of all 7 specs (including Death in Space, even though it
-    already has a hand-written spec — the JSON entry is used as the canonical
-    source so both representations are equivalent).
+    Returns one spec per entry in the file.
 
     Raises
     ------
