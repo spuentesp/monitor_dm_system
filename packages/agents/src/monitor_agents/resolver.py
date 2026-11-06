@@ -177,6 +177,37 @@ def _fallback_roll_necessity(intent_type: str) -> str:
     return "propose_roll"
 
 
+# The GM can choose these action types. Combat stays with the game-system router
+# because a "combat" value makes SceneLoop start a CombatLoop.
+_GM_ACTION_TYPES = frozenset(
+    {ActionType.DIALOGUE, ActionType.STEALTH, ActionType.EXPLORATION, ActionType.MOVEMENT}
+)
+_MAX_GM_DC = 60
+
+
+def _lookup_stat(attributes: dict[str, int], names: list[str]) -> int | None:
+    """Find a stat by name or 3+ letter abbreviation, ignoring case."""
+    by_lower = {key.lower(): value for key, value in attributes.items()}
+    wanted = [name.lower() for name in names if name]
+    for name in wanted:
+        if name in by_lower:
+            return by_lower[name]
+    for name in wanted:
+        for key, value in by_lower.items():
+            if len(name) >= 3 and len(key) >= 3 and (name.startswith(key) or key.startswith(name)):
+                return value
+    return None
+
+
+def _system_stat(gsr: GameSystemRuntime, name: str) -> str | None:
+    """Return the system's abbreviation for a stat given by name or abbreviation."""
+    wanted = name.strip().lower()
+    for abbr, attr in gsr._attr_by_abbr.items():
+        if wanted in (abbr.lower(), str(attr.get("name") or "").lower()):
+            return str(abbr)
+    return None
+
+
 def _uses_roll_under(gsr: GameSystemRuntime | None) -> bool:
     """Detect roll-under d20 systems from the stored core mechanic text."""
     if gsr is None:
@@ -883,6 +914,22 @@ class Resolver(BaseAgent):
                 llm_roll_necessity = None
                 llm_verdict_was_real = False
 
+        # Kept for the dice branch: the verdict is nulled below on attempted actions.
+        gm_stat: str | None = None
+        gm_dc: int | None = None
+        gm_action: ActionType | None = None
+        gm_intent: str | None = None
+        if gm_verdict is not None and llm_verdict_was_real:
+            gm_stat = gm_verdict.suggested_stat
+            gm_dc = gm_verdict.suggested_dc
+            gm_action = gm_verdict.action_type
+            gm_intent = gm_verdict.intent_type.value
+
+        gsr: GameSystemRuntime | None = None
+        if play_mode == "dice_game_system" and game_context:
+            with suppress(Exception):
+                gsr = GameSystemRuntime(game_context)
+
         # If the LLM says the player is ATTEMPTING (not declaring), fall
         # through to Branch 3 (dice resolution).
         if gm_verdict is not None and not gm_verdict.declares_outcome:
@@ -892,6 +939,7 @@ class Resolver(BaseAgent):
         if gm_verdict is not None and gm_verdict.causality_action == CausalityAction.PUSH_BACK:
             suggested_stat = gm_verdict.suggested_stat or "Strength"
             suggested_dc = gm_verdict.suggested_dc or 12
+            pushback_value, pushback_modifier = self._actor_stat(context, gsr, suggested_stat)
             return self._attach_gm_verdict(
                 {
                     "scene_id": scene_id,
@@ -902,6 +950,9 @@ class Resolver(BaseAgent):
                     "requires_clarification": False,
                     "stat": suggested_stat,
                     "difficulty_class": suggested_dc,
+                    "attribute_value": pushback_value,
+                    "modifier": pushback_modifier,
+                    "roll_under": _uses_roll_under(gsr),
                     "resolution_type": "forced_narrative_pushback",
                     "forced_narrative": True,
                     "success": None,
@@ -981,11 +1032,6 @@ class Resolver(BaseAgent):
         # ------------------------------------------------------------------
         # Branch 3 — Dice resolution (dice_standard or dice_game_system)
         # ------------------------------------------------------------------
-        gsr: GameSystemRuntime | None = None
-        if play_mode == "dice_game_system" and game_context:
-            with suppress(Exception):
-                gsr = GameSystemRuntime(game_context)
-
         # Action routing and modifier calculation via schema (dice_game_system)
         # or simple generic fallback (dice_standard)
         if _is_narrative_core(gsr):
@@ -1021,13 +1067,21 @@ class Resolver(BaseAgent):
         if gsr:
             routed = await gsr.infer_action_context(user_input, source_profile=source_profile)
             action_type = str(routed.get("action_type", "action"))
-            stat_name = str(routed.get("stat_name", "STR"))
+            stat_name = (gm_stat and _system_stat(gsr, gm_stat)) or str(routed.get("stat_name", "STR"))
             dc = _resolve_base_dc(gsr, int(routed.get("difficulty_class", 12)))
             subsystem_hint = routed.get("subsystem_hint")
         else:
             action_type, _, dc = self._default_action_profile()
-            stat_name = await _infer_generic_stat(user_input or "")
-            subsystem_hint = "social" if action_type == "dialogue" else None
+            stat_name = gm_stat or await _infer_generic_stat(user_input or "")
+            subsystem_hint = None
+
+        # The GM is the authority on the roll when it gave a usable answer.
+        if gm_dc and 0 < gm_dc <= _MAX_GM_DC:
+            dc = gm_dc
+        if gm_action in _GM_ACTION_TYPES:
+            action_type = gm_action.value
+            if gsr is None and gm_action == ActionType.DIALOGUE:
+                subsystem_hint = "social"
 
         # ------------------------------------------------------------------
         # Roll necessity classification (UC-GM-6)
@@ -1043,7 +1097,7 @@ class Resolver(BaseAgent):
         # Instead we fall back to ``_fallback_roll_necessity``, a thin
         # intent→necessity map. ``llm_verdict_was_real`` distinguishes them.
         # ------------------------------------------------------------------
-        intent_type = _infer_intent_type(user_input or "", action_type)
+        intent_type = gm_intent or _infer_intent_type(user_input or "", action_type)
         if llm_verdict_was_real and llm_roll_necessity in _VALID_NECESSITY:
             roll_necessity = llm_roll_necessity
         else:
@@ -1085,6 +1139,7 @@ class Resolver(BaseAgent):
                     gsr=gsr,
                     subsystem_hint=subsystem_hint,
                     roll_necessity="pending_roll",
+                    intent_type=gm_intent,
                 )
             )
 
@@ -1121,26 +1176,9 @@ class Resolver(BaseAgent):
         if roll_necessity == "propose_roll" and not auto_roll:
             # Compute the stat context but do NOT roll dice.
             # The Narrator will frame the invitation for the player to accept.
-            attributes = self._extract_attributes(context, gsr)
-            stat_value = 0
-            candidate_keys = [stat_name]
-            if gsr:
-                attr_def = gsr._attr_by_abbr.get(stat_name.upper(), {})
-                candidate_keys.extend(
-                    [
-                        str(attr_def.get("name") or ""),
-                        str(attr_def.get("abbreviation") or ""),
-                    ]
-                )
-            for key in candidate_keys:
-                if key and key in attributes:
-                    stat_value = int(attributes.get(key, 0))
-                    break
-            modifier = (
-                gsr.calc_modifier(stat_name, stat_value)
-                if gsr
-                else calculate_modifier(stat_value, _DEFAULT_MODIFIER_FORMULA)
-            )
+            stat_value, base_modifier = self._actor_stat(context, gsr, stat_name)
+            sc_eval = await self._evaluate_scenery_and_conditions(context, user_input or "", roll_mode, gsr)
+            modifier = base_modifier + sc_eval["total_modifier"]
 
             return self._attach_gm_verdict(
                 {
@@ -1178,26 +1216,7 @@ class Resolver(BaseAgent):
             )
 
         # roll_necessity == "contested" → proceed with dice
-        attributes = self._extract_attributes(context, gsr)
-        stat_value = 0
-        candidate_keys = [stat_name]
-        if gsr:
-            attr_def = gsr._attr_by_abbr.get(stat_name.upper(), {})
-            candidate_keys.extend(
-                [
-                    str(attr_def.get("name") or ""),
-                    str(attr_def.get("abbreviation") or ""),
-                ]
-            )
-        for key in candidate_keys:
-            if key and key in attributes:
-                stat_value = int(attributes.get(key, 0))
-                break
-        base_modifier = (
-            gsr.calc_modifier(stat_name, stat_value)
-            if gsr
-            else calculate_modifier(stat_value, _DEFAULT_MODIFIER_FORMULA)
-        )
+        stat_value, base_modifier = self._actor_stat(context, gsr, stat_name)
 
         # Evaluate scenery and conditions for dynamic adjustments
         sc_eval = await self._evaluate_scenery_and_conditions(context, user_input or "", roll_mode, gsr)
@@ -1223,6 +1242,7 @@ class Resolver(BaseAgent):
                 subsystem_hint=subsystem_hint,
                 roll_necessity=roll_necessity,
                 sc_eval=sc_eval,
+                intent_type=gm_intent,
             )
         )
 
@@ -1298,6 +1318,7 @@ class Resolver(BaseAgent):
         subsystem_hint: Any,
         roll_necessity: str,
         sc_eval: dict[str, Any] | None = None,
+        intent_type: str | None = None,
     ) -> dict[str, Any]:
         """Roll dice server-side and grade the outcome into a resolution dict.
 
@@ -1438,7 +1459,7 @@ class Resolver(BaseAgent):
         else:
             effects.append("fiction_advances")
 
-        intent_type = _infer_intent_type(user_input or "", action_type)
+        intent_type = intent_type or _infer_intent_type(user_input or "", action_type)
         consequence_options = _build_consequence_options(
             intent_type if intent_type != "action" else action_type, success_level
         )
@@ -1682,21 +1703,54 @@ class Resolver(BaseAgent):
         if gsr:
             known_abbrs = {abbr.upper() for abbr in gsr._attr_by_abbr}
 
-        for entity in context.get("entities", []):
+        def from_entity(entity: Any) -> dict[str, int]:
             props = entity.get("properties", {}) if isinstance(entity, dict) else {}
-            if isinstance(props, dict):
-                # Nested attributes dict (common in D&D-style schemas)
-                attributes = props.get("attributes")
-                if isinstance(attributes, dict) and attributes:
-                    return {k: int(v) for k, v in attributes.items() if isinstance(v, (int, float))}
-                # Flat stat keys matched against the active system's abbreviations
-                if known_abbrs:
-                    matched = {
-                        k: int(v) for k, v in props.items() if k.upper() in known_abbrs and isinstance(v, (int, float))
-                    }
-                    if matched:
-                        return matched
+            if not isinstance(props, dict):
+                return {}
+            # Nested attributes dict (common in D&D-style schemas)
+            attributes = props.get("attributes")
+            if isinstance(attributes, dict) and attributes:
+                return {k: int(v) for k, v in attributes.items() if isinstance(v, (int, float))}
+            # Flat stat keys matched against the active system's abbreviations
+            return {k: int(v) for k, v in props.items() if k.upper() in known_abbrs and isinstance(v, (int, float))}
+
+        entities = context.get("entities", [])
+        raw_actor = context.get("actor")
+        actor: dict[str, Any] = raw_actor if isinstance(raw_actor, dict) else {}
+        actor_id = context.get("actor_id") or actor.get("id")
+        if actor_id:
+            # A known actor rolls with its own sheet, or none: never an NPC's.
+            sheet = actor.get("attributes") or actor.get("stats")
+            if isinstance(sheet, dict) and sheet:
+                return {k: int(v) for k, v in sheet.items() if isinstance(v, (int, float))}
+            return next((from_entity(e) for e in entities if str(e.get("id")) == str(actor_id)), {})
+
+        for entity in entities:
+            matched = from_entity(entity)
+            if matched:
+                return matched
         return {}
+
+    def _actor_stat(
+        self,
+        context: dict[str, Any],
+        gsr: GameSystemRuntime | None,
+        stat_name: str,
+    ) -> tuple[int | None, int]:
+        """Return the actor's value for a stat and its modifier.
+
+        A stat the sheet doesn't have is neutral (no value, modifier 0). Treating
+        it as a score of 0 gave every roll on an empty sheet a large penalty.
+        """
+        attr_def = gsr._attr_by_abbr.get(stat_name.upper(), {}) if gsr else {}
+        value = _lookup_stat(
+            self._extract_attributes(context, gsr),
+            [stat_name, str(attr_def.get("name") or ""), str(attr_def.get("abbreviation") or "")],
+        )
+        if value is None:
+            return None, 0
+        modifier = gsr.calc_modifier(stat_name, value) if gsr else calculate_modifier(value, _DEFAULT_MODIFIER_FORMULA)
+        return value, modifier
 
     async def resolve_check(
         self,

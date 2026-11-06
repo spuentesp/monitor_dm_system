@@ -329,8 +329,9 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
         }
         return state
 
-    narrative = strip_entity_tags(result.get("narrative_text") or "") or "…"
     resolution = result.get("resolution") or {}
+    # A pushback stops before narration, so its prompt is the reply.
+    narrative = strip_entity_tags(result.get("narrative_text") or resolution.get("pushback_prompt") or "") or "…"
 
     metadata = {
         "type": "scene_turn",

@@ -538,6 +538,8 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
             "turns": state.previous_turns,
             "source_profile": source_profile,
             "universe_id": str(state.universe_id) if state.universe_id else None,
+            "actor_id": str(state.actor_id) if state.actor_id else None,
+            "actor": state.actor_context,
             "pending_roll": state.pending_roll,
             "agreements": {
                 "lines": list(state.agreements_lines or []),
