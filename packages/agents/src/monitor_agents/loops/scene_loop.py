@@ -568,7 +568,7 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
     # When the roll is resolved (not pending), clear it.
     new_pending_roll = state.pending_roll
     res_type = resolution.get("resolution_type")
-    if res_type == "propose_roll":
+    if res_type in ("propose_roll", "forced_narrative_pushback"):
         new_pending_roll = {
             "stat": resolution.get("stat"),
             "dc": resolution.get("difficulty_class"),
@@ -576,7 +576,7 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
             "attribute_value": resolution.get("attribute_value"),
             "roll_mode": resolution.get("roll_mode") or state.roll_mode,
             "action": state.user_input,
-            "resolution_type": "propose_roll",
+            "resolution_type": res_type,
         }
     elif res_type not in _KEEPS_PENDING_ROLL:
         new_pending_roll = None
@@ -1660,10 +1660,16 @@ class SceneLoop:
             resolution = result.get("resolution") or {}
             prior_combat = result.get("combat_state")
             has_active_combat = isinstance(prior_combat, dict) and bool(prior_combat.get("combat_active"))
-            if (
-                has_active_combat
-                or resolution.get("subsystem_hint") == "combat"
-                or resolution.get("action_type") == "combat"
+            awaiting_roll_choice = resolution.get("resolution_type") in (
+                "propose_roll",
+                "forced_narrative_pushback",
+            )
+            if has_active_combat or (
+                not awaiting_roll_choice
+                and (
+                    resolution.get("subsystem_hint") == "combat"
+                    or resolution.get("action_type") == "combat"
+                )
             ):
                 combat_result = await _run_combat(
                     scene_id=self.scene_id,
@@ -1720,6 +1726,7 @@ class SceneLoop:
                                 memories_to_persist=[],
                                 actor_context=getattr(self, "actor_context", None),
                                 universe_id=result.get("universe_id") or getattr(self, "universe_id", None),
+                                only_resource_deltas=True,
                             )
                             if combat_persist.get("working_state") is not None:
                                 result["working_state"] = combat_persist["working_state"]
@@ -2115,6 +2122,7 @@ def _extract_combat_resource_deltas(
                 "resource_key": "HP",
                 "resource_name": "HP",
                 "delta": hp_delta,
+                "max_value": int(combatant.get("hp_max") or 10),
                 "source": "combat",
                 "reason": f"Combat damage: HP {pre_hp_val} → {post_hp}",
             }

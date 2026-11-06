@@ -217,43 +217,68 @@ def _uses_roll_under(gsr: GameSystemRuntime | None) -> bool:
     return "roll under" in text or "under or equal" in text or "<=" in text
 
 
+def _pool_die_sides(core: dict[str, Any]) -> int:
+    formula = str(core.get("formula") or "")
+    sides_match = re.search(r"d(\d+)", formula, re.IGNORECASE)
+    return max(2, int(sides_match.group(1))) if sides_match else 10
+
+
+def _parse_pool_threshold(threshold_val: Any, *, die_sides: int = 10) -> int:
+    """Extract a valid per-die success threshold (never concatenating multi-band text)."""
+    default = min(6, die_sides)
+    try:
+        if isinstance(threshold_val, str):
+            m = re.search(r"\d+", threshold_val)
+            parsed = int(m.group(0)) if m else default
+        else:
+            parsed = int(threshold_val)
+    except (ValueError, TypeError):
+        return default
+    if parsed < 1 or parsed > die_sides:
+        return default
+    return parsed
+
+
+def _is_count_successes_pool(core: dict[str, Any] | None) -> bool:
+    """Return True only for genuine count-successes dice pools (excluding 2d6+stat PbtA / 4dF Fate)."""
+    if not core or "dice_pool" not in str(core.get("type", "")).lower():
+        return False
+    formula = str(core.get("formula") or "")
+    if "df" in formula.lower():
+        return False
+    die_sides = _pool_die_sides(core)
+    raw_threshold = core.get("success_threshold")
+    if isinstance(raw_threshold, str):
+        m = re.search(r"\d+", raw_threshold)
+        if m and int(m.group(0)) > die_sides:
+            return False
+    elif isinstance(raw_threshold, (int, float)) and int(raw_threshold) > die_sides:
+        return False
+    return True
+
+
 def _pool_proposal_fields(
     gsr: GameSystemRuntime | None,
     stat_value: int | None,
-    modifier: int,
+    pool_bonus: int,
 ) -> dict[str, Any]:
     """Return dice-pool metadata when ``gsr`` uses a pool mechanic, else ``{}``."""
-    if gsr is None or not gsr._sd.core:
+    if gsr is None or not _is_count_successes_pool(gsr._sd.core):
         return {}
     core = gsr._sd.core
-    if "dice_pool" not in str(core.get("type", "")).lower():
-        return {}
-
     formula = str(core.get("formula") or "")
-    sides_match = re.search(r"d(\d+)", formula, re.IGNORECASE)
-    die_sides = max(2, int(sides_match.group(1))) if sides_match else 10
-
-    threshold = 6
-    threshold_val = core.get("success_threshold", 6)
-    try:
-        if isinstance(threshold_val, str):
-            threshold = int("".join(filter(str.isdigit, threshold_val)) or 6)
-        else:
-            threshold = int(threshold_val)
-    except (ValueError, TypeError):
-        threshold = 6
-    if threshold < 1:
-        threshold = 6
+    die_sides = _pool_die_sides(core)
+    threshold = _parse_pool_threshold(core.get("success_threshold", 6), die_sides=die_sides)
 
     if stat_value is not None:
         try:
-            pool_size = int(stat_value) + int(modifier)
+            pool_size = int(stat_value) + int(pool_bonus)
         except (ValueError, TypeError):
             pool_size = 1
     else:
         cnt_match = re.match(r"^\s*(\d+)d\d+", formula, re.IGNORECASE)
         base_pool = int(cnt_match.group(1)) if cnt_match else 1
-        pool_size = base_pool + int(modifier)
+        pool_size = base_pool + int(pool_bonus)
     if pool_size < 1:
         pool_size = 1
 
@@ -1240,11 +1265,12 @@ class Resolver(BaseAgent):
             # The Narrator will frame the invitation for the player to accept.
             stat_value, base_modifier = self._actor_stat(context, gsr, stat_name)
             sc_eval = await self._evaluate_scenery_and_conditions(context, user_input or "", roll_mode, gsr)
-            modifier = base_modifier + sc_eval["total_modifier"]
+            dynamic_mod = int(sc_eval["total_modifier"])
+            modifier = base_modifier + dynamic_mod
             actual_roll_mode = sc_eval.get("roll_mode") or roll_mode or "normal"
             if actual_roll_mode not in ("normal", "advantage", "disadvantage"):
                 actual_roll_mode = "normal"
-            pool_fields = _pool_proposal_fields(gsr, stat_value, modifier)
+            pool_fields = _pool_proposal_fields(gsr, stat_value, dynamic_mod)
             if pool_fields:
                 actual_roll_mode = "normal"
                 breakdown = (
@@ -1412,10 +1438,6 @@ class Resolver(BaseAgent):
         """
         sc_eval = sc_eval or {"cond_modifier": 0, "scenery_modifier": 0, "reasons": []}
 
-        m_type = "d20"
-        if gsr and gsr._sd.core:
-            m_type = gsr._sd.core.get("type", "d20").lower()
-
         explain_parts = []
         if sc_eval.get("cond_modifier", 0) != 0:
             explain_parts.append(f"conditions: {sc_eval['cond_modifier']}")
@@ -1427,33 +1449,33 @@ class Resolver(BaseAgent):
         if explain_parts:
             explain_str = f" [base: {base_modifier}, " + ", ".join(explain_parts) + "]"
 
-        if "dice_pool" in m_type:
+        if gsr and _is_count_successes_pool(gsr._sd.core):
             from monitor_agents.dice import default_dice_registry
 
-            engine = default_dice_registry.get("pool")
-
-            threshold = 6
-            if gsr and gsr._sd.core:
-                threshold_val = gsr._sd.core.get("success_threshold", 6)
-                try:
-                    if isinstance(threshold_val, str):
-                        threshold = int("".join(filter(str.isdigit, threshold_val)) or 6)
-                    else:
-                        threshold = int(threshold_val)
-                except (ValueError, TypeError):
-                    threshold = 6
-
+            core = gsr._sd.core
+            die_sides = _pool_die_sides(core)
+            threshold = _parse_pool_threshold(core.get("success_threshold", 6), die_sides=die_sides)
+            pool_bonus = int(modifier) - int(base_modifier)
             try:
-                pool_size = int(stat_value) + modifier
+                pool_size = int(stat_value) + pool_bonus if stat_value is not None else 1 + pool_bonus
             except (ValueError, TypeError):
                 pool_size = 1
             if pool_size < 1:
                 pool_size = 1
 
-            roll_res = engine.resolve_check(pool_size=pool_size, difficulty=threshold)
-            total = roll_res.successes
+            if die_sides == 10:
+                engine = default_dice_registry.get("pool")
+                roll_res = engine.resolve_check(pool_size=pool_size, difficulty=threshold)
+                total = roll_res.successes
+                botched = roll_res.botches > 0 and total == 0
+                raw_rolls = roll_res.raw_rolls
+            else:
+                pool_res = roll_dice(f"{pool_size}d{die_sides}")
+                total = sum(1 for r in pool_res.rolls if r >= threshold)
+                botched = any(r == 1 for r in pool_res.rolls) and total == 0
+                raw_rolls = pool_res.rolls
 
-            if roll_res.botches > 0 and total == 0:
+            if botched:
                 success_level = "critical_failure"
             elif total >= 1:
                 success_level = "success"
@@ -1462,20 +1484,21 @@ class Resolver(BaseAgent):
 
             mode_label = "normal"
             actual_roll_mode = "normal"
-            roll_formula = f"{pool_size}d10"
-            rolls = roll_res.raw_rolls
-            kept_rolls = roll_res.raw_rolls
+            roll_formula = f"{pool_size}d{die_sides}"
+            rolls = raw_rolls
+            kept_rolls = raw_rolls
 
-            spec = f"{pool_size}d10"
+            spec = f"{pool_size}d{die_sides}"
             roll_breakdown = f"Pool {pool_size} ({rolls}): {total} successes (diff {threshold}){explain_str}"
             roll_reason = f"{stat_name} check (pool {pool_size}, diff {threshold}){explain_str}"
         else:
-            # Select roll formula based on actual_roll_mode
+            roll_under = _uses_roll_under(gsr)
+            # Select roll formula based on actual_roll_mode (roll-under inverts kh/kl)
             if actual_roll_mode == "advantage":
-                roll_formula = "2d20kh1"
+                roll_formula = "2d20kl1" if roll_under else "2d20kh1"
                 mode_label = "advantage"
             elif actual_roll_mode == "disadvantage":
-                roll_formula = "2d20kl1"
+                roll_formula = "2d20kh1" if roll_under else "2d20kl1"
                 mode_label = "disadvantage"
             else:
                 roll_formula = "1d20"
@@ -1487,7 +1510,7 @@ class Resolver(BaseAgent):
             natural = kept_rolls[0] if kept_rolls else (rolls[0] if rolls else roll.total)
             total = roll.total + modifier
 
-            if _uses_roll_under(gsr):
+            if roll_under:
                 target = dc + modifier
                 if natural == 1:
                     success_level = "critical_success"
@@ -1511,11 +1534,12 @@ class Resolver(BaseAgent):
                 else:
                     success_level = "failure"
 
-            spec = f"1d20+{modifier}" if modifier >= 0 else f"1d20{modifier}"
-            if actual_roll_mode != "normal":
+            if roll_under:
+                spec = roll_formula
+            else:
                 spec = f"{roll_formula}+{modifier}" if modifier >= 0 else f"{roll_formula}{modifier}"
 
-            if _uses_roll_under(gsr):
+            if roll_under:
                 target = dc + modifier
                 roll_breakdown = f"{roll_formula}({natural}) <= {dc} + {modifier} = {target}{explain_str}"
                 roll_reason = f"{stat_name} check (target {target}, roll-under, {mode_label}){explain_str}"
@@ -1689,14 +1713,10 @@ class Resolver(BaseAgent):
 
             threshold = 6
             if gsr and gsr._sd.core:
-                threshold_val = gsr._sd.core.get("success_threshold", 6)
-                try:
-                    if isinstance(threshold_val, str):
-                        threshold = int("".join(filter(str.isdigit, threshold_val)) or 6)
-                    else:
-                        threshold = int(threshold_val)
-                except (ValueError, TypeError):
-                    threshold = 6
+                threshold = _parse_pool_threshold(
+                    gsr._sd.core.get("success_threshold", 6),
+                    die_sides=_pool_die_sides(gsr._sd.core),
+                )
 
             engine = default_dice_registry.get("pool")
             # Resources aren't in the resolver signature today, so we
@@ -1968,21 +1988,17 @@ class Resolver(BaseAgent):
                 success = total >= dc
                 details = f"Rolled {formula} ({base_roll.rolls}) + Mod {modifier} = {total} (DC {dc})"
 
-            elif "dice_pool" in m_type:
+            elif _is_count_successes_pool(core_mechanic):
                 # Sub-plan 4: route pool-vs-difficulty games through
                 # the VtM V20 dice engine. Provides hunger dice,
                 # willpower reroll, and bestial-failure detection.
                 from monitor_agents.dice import default_dice_registry
 
                 pool_size = stat_value
-                threshold_val = core_mechanic.get("success_threshold", 6)
-                try:
-                    if isinstance(threshold_val, str):
-                        threshold = int("".join(filter(str.isdigit, threshold_val)) or 6)
-                    else:
-                        threshold = int(threshold_val)
-                except (ValueError, TypeError):
-                    threshold = 6
+                threshold = _parse_pool_threshold(
+                    core_mechanic.get("success_threshold", 6),
+                    die_sides=_pool_die_sides(core_mechanic),
+                )
                 engine = default_dice_registry.get("pool")
                 dice_res = engine.resolve_check(
                     pool_size=pool_size,
