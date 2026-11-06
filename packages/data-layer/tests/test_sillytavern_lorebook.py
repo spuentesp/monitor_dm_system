@@ -247,3 +247,49 @@ class TestContentDecorators:
         )
         assert out["content"].startswith("First line.")
         assert out["depth"] == 4
+
+
+class TestCharacterBookEnabledFlag:
+    """CCv2 character_book entries say on/off with `enabled`; World Info uses `disable`."""
+
+    def test_enabled_false_imports_inactive(self):
+        assert parse_st_lorebook_entry({"content": "x", "enabled": False})["is_active"] is False
+
+    def test_enabled_true_imports_active(self):
+        assert parse_st_lorebook_entry({"content": "x", "enabled": True})["is_active"] is True
+
+    def test_either_flag_can_switch_an_entry_off(self):
+        assert parse_st_lorebook_entry({"content": "x", "enabled": True, "disable": True})["is_active"] is False
+        assert parse_st_lorebook_entry({"content": "x", "enabled": False, "disable": False})["is_active"] is False
+
+    def test_card_book_keeps_disabled_entries_off(self):
+        from monitor_data.interop.sillytavern_lorebook import parse_character_book_from_card
+
+        card = {
+            "data": {
+                "character_book": {
+                    "entries": [
+                        {"keys": ["lantern"], "content": "on", "enabled": True},
+                        {"keys": ["cellar"], "content": "off", "enabled": False},
+                    ]
+                }
+            }
+        }
+        entries, _ = parse_character_book_from_card(card)
+        assert {e["content"]: e["is_active"] for e in entries} == {"on": True, "off": False}
+
+    def test_card_export_writes_enabled(self):
+        from monitor_data.interop.sillytavern_lorebook import build_character_book
+
+        book = build_character_book(
+            [{"content": "on", "is_active": True}, {"content": "off", "is_active": False}]
+        )
+        flags = {e["content"]: (e["enabled"], e["disable"]) for e in book["entries"].values()}
+        assert flags == {"on": (True, False), "off": (False, True)}
+
+    def test_round_trip_keeps_disabled_entries_off(self):
+        from monitor_data.interop.sillytavern_lorebook import build_character_book
+
+        book = build_character_book([{"content": "off", "is_active": False}])
+        (entry,) = book["entries"].values()
+        assert parse_st_lorebook_entry(entry)["is_active"] is False
