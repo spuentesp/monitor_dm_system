@@ -119,6 +119,7 @@ class NPCVoice(BaseAgent):
         include_cross_incarnation: bool = False,
         lorebook_context: list[str] | None = None,
         player_persona: str = "",
+        character_card: str = "",
     ) -> dict[str, Any]:
         """
         Generate a direct in-character NPC response.
@@ -142,6 +143,9 @@ class NPCVoice(BaseAgent):
                 Injected into the voice module as world facts.
             player_persona: Rendered "name — description" of the player's
                 persona card, when one is bound to the conversation.
+            character_card: Rendered card text for a character imported from a
+                card. Separate from the profile's gm_notes, which stay hidden
+                because a story NPC's notes hold real secrets.
 
         Returns:
             {
@@ -192,6 +196,7 @@ class NPCVoice(BaseAgent):
             conversation_history=history_text,
             profile_context=profile_context,
             lorebook_context="\n".join(lorebook_context or []),
+            character_card=character_card,
             player_said=player_said,
             player_persona=player_persona,
         )

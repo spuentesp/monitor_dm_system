@@ -941,7 +941,10 @@ class TestCardMacros:
         with patch.object(cc, "get_character", return_value=None), pytest.raises(ValueError):
             asyncio.run(cc.start_conversation("char-1", persona_character_id="ghost"))
 
-    def test_provisioning_uses_persona_name(self):
+    def test_provisioning_keeps_the_shared_profile_persona_neutral(self):
+        """The profile is shared by every conversation with this incarnation, so the
+        first persona's name must not be baked into it; each conversation's
+        character_card carries its own persona instead."""
         card = {
             "id": "char-pn",
             "name": "Elara",
@@ -967,7 +970,7 @@ class TestCardMacros:
         ):
             asyncio.run(cc.ensure_character_backed("char-pn", user_name="Kael"))
 
-        assert fake_gen.forward.call_args[0][1] == "Elara watches Kael."
+        assert fake_gen.forward.call_args[0][1] == "Elara watches User."
 
     def test_persona_threaded_to_loop_and_persisted(self):
         from uuid import uuid4
@@ -1088,3 +1091,145 @@ class TestCardMacros:
             loop = asyncio.run(cc.resume_conversation("char-1", conv_id))
 
         assert loop.state.player_persona == "Kael — a wandering sellsword"
+
+
+# ---------------------------------------------------------------------------
+# Imported card content in conversations
+# ---------------------------------------------------------------------------
+
+_CARD = {
+    "id": "char-1",
+    "name": "Maeve",
+    "description": "{{char}} keeps the inn.",
+    "personality": "Dry, watchful.",
+    "gm_notes": "A storm traps {{user}} at the inn.",
+    "first_message": "Evening, {{user}}.",
+}
+
+
+def _started(**extra):
+    from uuid import uuid4
+
+    fake_loop = SimpleNamespace(
+        state=SimpleNamespace(conversation_id="conv-card"),
+        add_opening=AsyncMock(),
+    )
+    backing = {"entity_id": str(uuid4()), "universe_id": str(uuid4()), "version_id": str(uuid4())}
+    return fake_loop, backing
+
+
+class TestCardContent:
+    def test_card_is_rendered_for_this_conversations_persona(self):
+        text = cc.render_character_card(_CARD, "Kael")
+        assert "Maeve keeps the inn." in text
+        assert "Dry, watchful." in text
+        assert "A storm traps Kael at the inn." in text
+        assert "{{" not in text
+
+    def test_empty_card_renders_nothing(self):
+        assert cc.render_character_card({"name": "Maeve"}, None) == ""
+
+    def test_start_passes_the_card_and_records_the_greeting(self):
+        fake_loop, backing = _started()
+        persona = {"name": "Kael", "is_ooc_persona": True}
+        cards = {"char-1": _CARD, "persona-1": persona}
+        with (
+            patch.object(cc, "get_character", side_effect=cards.get),
+            patch.object(cc, "ensure_character_backed", new=AsyncMock(return_value=backing)),
+            patch(
+                "monitor_agents.loops.conversation_loop.ConversationLoop.start",
+                new=AsyncMock(return_value=fake_loop),
+            ) as start,
+            patch("monitor_data.db.mongodb.get_mongodb_client", return_value=MagicMock()),
+        ):
+            out = asyncio.run(cc.start_conversation("char-1", persona_character_id="persona-1"))
+
+        assert "A storm traps Kael at the inn." in start.await_args.kwargs["character_card"]
+        fake_loop.add_opening.assert_awaited_once_with("Evening, Kael.")
+        assert out["opening"] == "Evening, Kael."
+
+    def test_generated_fallback_opening_is_not_recorded_as_speech(self):
+        fake_loop, backing = _started()
+        with (
+            patch.object(cc, "get_character", return_value={"id": "char-1", "name": "Maeve"}),
+            patch.object(cc, "ensure_character_backed", new=AsyncMock(return_value=backing)),
+            patch(
+                "monitor_agents.loops.conversation_loop.ConversationLoop.start",
+                new=AsyncMock(return_value=fake_loop),
+            ),
+        ):
+            asyncio.run(cc.start_conversation("char-1"))
+        fake_loop.add_opening.assert_not_awaited()
+
+    def test_greeting_failure_does_not_stop_the_chat(self):
+        fake_loop, backing = _started()
+        fake_loop.add_opening = AsyncMock(side_effect=RuntimeError("db"))
+        with (
+            patch.object(cc, "get_character", return_value=_CARD),
+            patch.object(cc, "ensure_character_backed", new=AsyncMock(return_value=backing)),
+            patch(
+                "monitor_agents.loops.conversation_loop.ConversationLoop.start",
+                new=AsyncMock(return_value=fake_loop),
+            ),
+        ):
+            out = asyncio.run(cc.start_conversation("char-1"))
+        assert out["conversation_id"] == "conv-card"
+
+    def test_shared_profile_is_not_fixed_to_the_first_persona(self):
+        card = {**_CARD, "versions": []}
+        generator = MagicMock()
+        generator.forward.return_value = {"triggers": []}
+        with (
+            patch.object(cc, "get_character", return_value=card),
+            patch.object(cc, "ensure_conversatory_universe", new=AsyncMock(return_value="uni")),
+            patch("monitor_agents.character_creator.npc_profile_gen.NPCProfileGenerator", return_value=generator),
+            patch.object(cc, "_provision_entity_and_profile", return_value="ent"),
+            patch.object(cc, "add_version", return_value={"version_id": "v"}),
+        ):
+            asyncio.run(cc.ensure_character_backed("char-1", user_name="Kael"))
+        assert "Kael" not in str(generator.forward.call_args)
+
+    def test_long_card_notes_fit_the_profile_limit(self):
+        from uuid import uuid4
+
+        created = {}
+        with (
+            patch("monitor_agents.canonkeeper.agent.CanonKeeper") as keeper,
+            patch(
+                "monitor_data.tools.mongodb_tools.mongodb_create_npc_profile",
+                side_effect=lambda params: created.setdefault("profile", params),
+            ),
+        ):
+            keeper.return_value.create_entity = AsyncMock(return_value={"id": str(uuid4())})
+            cc._provision_entity_and_profile(
+                str(uuid4()),
+                {"id": "char-1", "name": "Maeve", "gm_notes": "x" * 8000},
+                {"triggers": []},
+            )
+        assert len(created["profile"].gm_notes) == 5000
+
+
+def test_resume_rebuilds_the_card_with_the_conversations_persona():
+    from uuid import uuid4
+
+    entity = str(uuid4())
+    doc = {
+        "conversation_id": str(uuid4()),
+        "status": "active",
+        "universe_id": str(uuid4()),
+        "npc_ids": [entity],
+        "turns": [],
+        "player_persona": "Kael — a wandering sellsword",
+    }
+    mongo = MagicMock()
+    mongo.get_collection.return_value.find_one.return_value = doc
+    backing = {"entity_id": entity, "universe_id": doc["universe_id"], "version_id": "v"}
+    with (
+        patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
+        patch.object(cc, "ensure_character_backed", new=AsyncMock(return_value=backing)),
+        patch.object(cc, "get_character", return_value=_CARD),
+        patch("monitor_agents.loops.conversation_loop.load_npc_context", new=AsyncMock(return_value={})),
+    ):
+        loop = asyncio.run(cc.resume_conversation("char-1", doc["conversation_id"]))
+
+    assert "A storm traps Kael at the inn." in loop.state.character_card
