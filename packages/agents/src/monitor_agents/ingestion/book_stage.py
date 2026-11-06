@@ -45,6 +45,13 @@ from monitor_agents.book_decomposition.knowledge_graph import DspyGraphModel, Gr
 from monitor_agents.book_decomposition.ledger import LogBusy
 from monitor_agents.book_decomposition.pacing import RunGuard
 from monitor_agents.book_decomposition.review import DspyReviewModel
+from monitor_agents.book_decomposition.held_claims import (
+    HeldClaim,
+    HeldClaimNotFound,
+    decide_held_claim,
+    list_held_claims,
+    open_review_count,
+)
 from monitor_agents.book_decomposition.service import (
     DecomposeResult,
     DecomposeStatus,
@@ -269,3 +276,27 @@ def _record_result(job_id: UUID, result: DecomposeResult) -> None:
             ],
         ),
     )
+
+
+def _decomposition_job(job_id: UUID) -> IngestionJobResponse:
+    job = mongodb_get_ingestion_job(job_id)
+    if job is None or not is_decomposition_job(job):
+        raise HeldClaimNotFound(f"No book decomposition job {job_id}.")
+    return job
+
+
+def held_claims_for_job(job_id: UUID) -> list[HeldClaim]:
+    """The claims a job's review sent to a person."""
+    return list_held_claims(str(_decomposition_job(job_id).doc_id))
+
+
+def decide_held_claim_for_job(job_id: UUID, claim_id: str, *, accept: bool, statement: str | None = None) -> int:
+    """Record a person's decision and return how many claims still wait, which the job now shows."""
+    job = _decomposition_job(job_id)
+    doc_id = str(job.doc_id)
+    decide_held_claim(doc_id, claim_id, accept=accept, statement=statement)
+    remaining = open_review_count(doc_id)
+    if job.decomposition is not None:
+        progress = job.decomposition.model_copy(update={"claims_for_review": remaining})
+        mongodb_update_ingestion_job(job_id, IngestionJobUpdate(decomposition=progress))
+    return remaining

@@ -9,6 +9,7 @@ See docs/architecture/BOOK_DECOMPOSITION_PLAN.md.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -27,6 +28,7 @@ class BookRecordType(StrEnum):
     LEDGER = "ledger"
     REPORT = "report"
     GRAPH = "graph"
+    DECISION = "decision"  # A person's accept or reject of a claim review held back.
 
 
 class BookRecord(BaseModel):
@@ -260,6 +262,28 @@ class LedgerEntry(BaseModel):
     canonical_id: str | None = Field(None, description="The reviewed claim this now lives in")
     source_node_ids: list[str] = Field(default_factory=list)
     page: int = 0
+    # Older ledgers lack these. The statement then falls back to the original one.
+    statement: str | None = Field(None, description="The wording after review, which can differ")
+    name: str | None = None
+    entity_type: str | None = None
+    subject: str | None = None
+    predicate: str | None = None
+    object: str | None = None
+    conflicts_with: list[str] = Field(
+        default_factory=list, description="For contradictions: the other claims in the conflict"
+    )
+
+
+class HeldClaimDecision(BaseModel):
+    """A person's decision on a claim review sent to them.
+
+    It's stored apart from the ledger, so running the review again can't undo it.
+    """
+
+    claim_id: str
+    accepted: bool
+    statement: str = Field(description="The wording accepted, or the wording when it was rejected")
+    decided_at: datetime
 
 
 class ReviewedClaim(BaseModel):

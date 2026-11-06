@@ -175,6 +175,16 @@ def map_claims(claims: Sequence[ReviewedClaim], book: BookTree) -> MappedClaims:
     return mapped
 
 
+def rules_system(name: str, rules: list[GameRule]) -> EmbeddedGameSystem:
+    """The rules-only system a decomposed book's pack carries."""
+    return EmbeddedGameSystem(
+        name=name[:200],
+        description="Rules from book decomposition. This holds rules only, not a full system.",
+        rules=rules,
+        needs_review=True,
+    )
+
+
 def build_pack(
     mapped: MappedClaims,
     *,
@@ -185,14 +195,7 @@ def build_pack(
     job_id: UUID,
 ) -> KnowledgePackCreate:
     """Create a pack that waits for review like any other, and never applies itself."""
-    system = None
-    if mapped.rules:
-        system = EmbeddedGameSystem(
-            name=name[:200],
-            description="Rules from book decomposition. This holds rules only, not a full system.",
-            rules=mapped.rules,
-            needs_review=True,
-        )
+    system = rules_system(name, mapped.rules) if mapped.rules else None
     return KnowledgePackCreate(
         pack_id=pack_id,
         name=name[:200],

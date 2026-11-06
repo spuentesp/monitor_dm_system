@@ -168,3 +168,37 @@ def test_deleting_a_source_asks_canonkeeper_to_remove_stored_structure_when_enab
     ):
         assert client.delete(f"/api/ingest/sources/{uid}").status_code == 204
     delete.assert_awaited_once_with(str(doc))
+
+
+# --- Held claims (I-17) ---
+
+
+@pytest.mark.unit
+def test_held_claims_are_listed_for_a_job():
+    from monitor_agents.book_decomposition.held_claims import HeldClaim
+
+    claim = HeldClaim(claim_id="c1", kind="rule", statement="Roll two dice.", original_statement="Roll two dice.", reason="unsupported", page=3, sources=[])
+    with patch.object(ingest, "held_claims_for_job", return_value=[claim]) as held:
+        response = client.get(f"/api/ingest/jobs/{uuid.uuid4()}/held-claims")
+    assert response.status_code == 200 and response.json()[0]["claim_id"] == "c1"
+    held.assert_called_once()
+
+
+@pytest.mark.unit
+def test_a_decision_returns_the_claims_still_waiting():
+    job_id = uuid.uuid4()
+    with patch.object(ingest, "decide_held_claim_for_job", return_value=4) as decide:
+        response = client.post(f"/api/ingest/jobs/{job_id}/held-claims/c1", json={"accept": True, "statement": "New wording."})
+    assert response.status_code == 200 and response.json() == {"claims_for_review": 4}
+    decide.assert_called_once_with(job_id, "c1", accept=True, statement="New wording.")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("error", "code"), [("HeldClaimNotFound", 404), ("HeldClaimConflict", 409)])
+def test_a_refused_decision_says_why(error, code):
+    from monitor_agents.book_decomposition import held_claims
+
+    failure = getattr(held_claims, error)("The pack is applied.")
+    with patch.object(ingest, "decide_held_claim_for_job", side_effect=failure):
+        response = client.post(f"/api/ingest/jobs/{uuid.uuid4()}/held-claims/c1", json={"accept": True})
+    assert response.status_code == code and "applied" in response.json()["detail"]

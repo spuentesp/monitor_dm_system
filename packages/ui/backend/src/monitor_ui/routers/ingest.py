@@ -27,12 +27,16 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from monitor_agents.canonkeeper.agent import CanonKeeper
+from monitor_agents.book_decomposition.held_claims import HeldClaimConflict, HeldClaimNotFound
 from monitor_agents.ingestion.agent import IngestionPipeline, analyze_timeout_for_job
 from monitor_agents.ingestion.book_stage import (
     book_decomposition_enabled,
     book_structure_enabled,
     create_decomposition_job,
+    decide_held_claim_for_job,
+    held_claims_for_job,
     is_decomposition_job,
     run_decomposition_job,
     stored_pack_type,
@@ -1305,6 +1309,37 @@ async def resume_job(job_id: str) -> dict[str, str]:
     title = job.source_title.removesuffix(" (decomposition)")
     _start_decomposition(uid, file_bytes, job.doc_id, title, stored_pack_type(job.doc_id), job.source_id)
     return {"job_id": job_id, "status": "running", "message": "Decomposition resumed"}
+
+
+class HeldClaimDecisionRequest(BaseModel):
+    accept: bool
+    statement: str | None = Field(None, max_length=2000, description="Changed wording, when accepting")
+
+
+@router.get("/jobs/{job_id}/held-claims")
+async def list_held_claims(job_id: str) -> list[dict[str, Any]]:
+    """The claims a book decomposition's review sent to a person (I-17)."""
+    uid = validate_uuid(job_id, "job_id")
+    try:
+        claims = await asyncio.to_thread(held_claims_for_job, uid)
+    except HeldClaimNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return [claim.model_dump(mode="json") for claim in claims]
+
+
+@router.post("/jobs/{job_id}/held-claims/{claim_id}")
+async def decide_held_claim(job_id: str, claim_id: str, body: HeldClaimDecisionRequest) -> dict[str, int]:
+    """Accept a held claim into the book's pack, or reject it (I-17)."""
+    uid = validate_uuid(job_id, "job_id")
+    try:
+        remaining = await asyncio.to_thread(
+            decide_held_claim_for_job, uid, claim_id, accept=body.accept, statement=body.statement
+        )
+    except HeldClaimNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except HeldClaimConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"claims_for_review": remaining}
 
 
 @router.delete("/jobs/{job_id}", status_code=204)

@@ -190,6 +190,20 @@ export interface IngestJobDecomposition {
   pause_reason: string | null;
 }
 
+/** A claim book review couldn't settle, waiting for a person (I-17). */
+export interface HeldClaim {
+  claim_id: string;
+  kind: string;
+  statement: string;
+  original_statement: string;
+  name: string | null;
+  reason: string;
+  page: number;
+  sources: { id: string; text: string; page: number }[];
+  conflicts: { claim_id: string; statement: string }[];
+  decision: { claim_id: string; accepted: boolean; statement: string; decided_at: string } | null;
+}
+
 export interface IngestJob {
   id: string;
   universe_id?: string;

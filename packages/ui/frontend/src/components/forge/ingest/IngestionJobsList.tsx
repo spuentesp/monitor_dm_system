@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
   Unlock,
+  ListChecks,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ingestApi } from "@/lib/api";
@@ -19,6 +20,7 @@ import type { IngestJob } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
 import { JobIcon } from "./JobIcon";
+import { HeldClaimsPanel } from "./HeldClaimsPanel";
 import { useRouter } from "next/navigation";
 import {
   FAILED_JOB_STATUSES,
@@ -45,6 +47,7 @@ export function IngestionJobsList() {
   // id → retry count for transient errors (cleared on a successful message)
   const retryRefs = useRef<Map<string, number>>(new Map());
   const [expandedJobId, setExpandedId] = useState<string | null>(null);
+  const [reviewingJobId, setReviewingJobId] = useState<string | null>(null);
 
   const { data: jobs = [], isLoading } = useQuery<IngestJob[]>({
     queryKey: FORGE_KEYS.jobs,
@@ -372,6 +375,16 @@ export function IngestionJobsList() {
                     Retry
                   </button>
                 )}
+                {!isLive && (job.decomposition?.claims_for_review ?? 0) > 0 && (
+                  <button
+                    onClick={() => setReviewingJobId(reviewingJobId === job.id ? null : job.id)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-amber-200 border border-amber-500/20 hover:bg-amber-500/10"
+                    title="Accept or reject the claims review couldn't settle"
+                  >
+                    <ListChecks className="w-3 h-3" />
+                    Review claims
+                  </button>
+                )}
                 {hasReviewableProposals && (
                   <button
                     onClick={() => router.push(`/forge/review?job=${job.id}`)}
@@ -428,6 +441,12 @@ export function IngestionJobsList() {
                     transition={{ type: "spring", bounce: 0, duration: 0.5 }}
                   />
                 </div>
+              </div>
+            )}
+
+            {reviewingJobId === job.id && (
+              <div className="px-3 pb-3 border-t border-white/5 pt-2">
+                <HeldClaimsPanel jobId={job.id} />
               </div>
             )}
 

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import fitz
 import mongomock
 import pytest
+from monitor_agents.book_decomposition import held_claims
 from monitor_agents.book_decomposition.extractor import ExtractorResult
 from monitor_agents.book_decomposition.knowledge_graph import GraphBatch, MergeAnswer
 from monitor_agents.book_decomposition.pacing import RunGuard, RunStopped
@@ -15,6 +16,8 @@ from monitor_agents.book_decomposition.service import DecomposeStatus, decompose
 from monitor_agents.ingestion.book_stage import (
     book_decomposition_enabled,
     create_decomposition_job,
+    decide_held_claim_for_job,
+    held_claims_for_job,
     is_decomposition_job,
     run_decomposition_job,
     stored_pack_type,
@@ -27,6 +30,7 @@ from monitor_data.schemas.book_graph import (
     CoverageAudit,
     BookRecordType,
     ExtractedAtom,
+    LedgerEntry,
     SkipAudit,
     StackDecision,
     VerificationBatch,
@@ -389,3 +393,129 @@ async def test_claims_sent_to_a_person_are_counted_on_the_job(mongo):
     result = await _run(_pdf(), uuid.uuid4(), uuid.uuid4(), _Extractor(), _DoubtingReview())
     assert result.progress.claims_for_review == 1
     assert result.progress.claims_kept == 2
+
+
+# --- Held claims: a person accepts or rejects what review couldn't settle (I-17) ---
+
+
+async def _held(mongo):
+    doc = uuid.uuid4()
+    result = await _run(_pdf(), doc, uuid.uuid4(), _Extractor(), _DoubtingReview())
+    (claim,) = held_claims.list_held_claims(str(doc))
+    return doc, result, claim
+
+
+def _rules(pack_id):
+    return [rule.description for rule in knowledge_packs.mongodb_get_knowledge_pack(pack_id).game_system_data.rules]
+
+
+@pytest.mark.unit
+async def test_a_held_claim_lists_its_source_and_why_it_waits(mongo):
+    _, _, claim = await _held(mongo)
+    assert claim.kind == "rule" and claim.decision is None
+    assert claim.reason.startswith("unsupported")
+    assert claim.sources and claim.sources[0].text in claim.statement
+    assert claim.page == claim.sources[0].page
+
+
+@pytest.mark.unit
+async def test_accepting_adds_the_claim_to_the_pack_once(mongo):
+    doc, result, claim = await _held(mongo)
+    assert claim.statement not in _rules(result.pack_id)
+    held_claims.decide_held_claim(str(doc), claim.claim_id, accept=True)
+    held_claims.decide_held_claim(str(doc), claim.claim_id, accept=True)  # A second click.
+    rules = _rules(result.pack_id)
+    assert rules.count(claim.statement) == 1 and len(rules) == 3
+    assert held_claims.open_review_count(str(doc)) == 0
+
+
+@pytest.mark.unit
+async def test_accepting_with_new_wording_puts_that_wording_in_the_pack(mongo):
+    doc, result, claim = await _held(mongo)
+    held_claims.decide_held_claim(str(doc), claim.claim_id, accept=True, statement="  Spending Momentum is allowed. ")
+    assert "Spending Momentum is allowed." in _rules(result.pack_id)
+    assert held_claims.list_held_claims(str(doc))[0].decision.statement == "Spending Momentum is allowed."
+
+
+@pytest.mark.unit
+async def test_rejecting_keeps_the_claim_out_and_cannot_be_flipped(mongo):
+    doc, result, claim = await _held(mongo)
+    held_claims.decide_held_claim(str(doc), claim.claim_id, accept=False)
+    assert claim.statement not in _rules(result.pack_id)
+    assert held_claims.open_review_count(str(doc)) == 0
+    with pytest.raises(held_claims.HeldClaimConflict, match="other way"):
+        held_claims.decide_held_claim(str(doc), claim.claim_id, accept=True)
+
+
+@pytest.mark.unit
+async def test_a_decision_survives_a_rerun_and_a_rebuilt_pack(mongo):
+    doc, result, claim = await _held(mongo)
+    held_claims.decide_held_claim(str(doc), claim.claim_id, accept=True)
+    again = await _run(_pdf(), doc, uuid.uuid4(), _Extractor(), _DoubtingReview())
+    assert again.progress.claims_for_review == 0
+    assert _rules(result.pack_id).count(claim.statement) == 1
+    mongo["knowledge_packs"].delete_many({})
+    rebuilt = await _run(_pdf(), doc, uuid.uuid4(), _Extractor(), _DoubtingReview())
+    assert claim.statement in _rules(rebuilt.pack_id)
+
+
+@pytest.mark.unit
+async def test_accepting_into_a_pack_without_rules_creates_its_rules(mongo):
+    doc, result, claim = await _held(mongo)
+    mongo["knowledge_packs"].update_one({"pack_id": str(result.pack_id)}, {"$set": {"game_system_data": None}})
+    held_claims.decide_held_claim(str(doc), claim.claim_id, accept=True)
+    assert _rules(result.pack_id) == [claim.statement]
+
+
+@pytest.mark.unit
+async def test_an_applied_pack_refuses_new_claims_and_records_nothing(mongo):
+    doc, result, claim = await _held(mongo)
+    mongo["knowledge_packs"].update_one({"pack_id": str(result.pack_id)}, {"$set": {"status": "applied"}})
+    with pytest.raises(held_claims.HeldClaimConflict, match="applied"):
+        held_claims.decide_held_claim(str(doc), claim.claim_id, accept=True)
+    assert held_claims.open_review_count(str(doc)) == 1
+
+
+@pytest.mark.unit
+async def test_no_decision_while_the_book_is_being_decomposed(mongo):
+    doc, _, claim = await _held(mongo)
+    assert storage.mongodb_acquire_book_lease(str(doc), "a-run", 300)
+    with pytest.raises(held_claims.HeldClaimConflict, match="being decomposed"):
+        held_claims.decide_held_claim(str(doc), claim.claim_id, accept=False)
+
+
+@pytest.mark.unit
+async def test_only_held_claims_can_be_decided(mongo):
+    doc, _, _ = await _held(mongo)
+    kept = next(r.key for r in storage.mongodb_list_book_records(str(doc), BookRecordType.CLAIM))
+    with pytest.raises(held_claims.HeldClaimNotFound):
+        held_claims.decide_held_claim(str(doc), kept, accept=True)
+
+
+@pytest.mark.unit
+def test_an_older_ledger_entry_falls_back_to_its_original_wording():
+    entry = LedgerEntry.model_validate(
+        {"claim_id": "c1", "kind": "rule", "original_statement": "Roll two dice.", "status": "needs_human"}
+    )
+    assert entry.statement is None and entry.conflicts_with == []
+    assert held_claims._statement(entry) == "Roll two dice."
+
+
+@pytest.mark.unit
+async def test_a_decision_on_the_job_lowers_its_count(mongo):
+    job = create_decomposition_job(_source_job())
+    with patch("monitor_agents.canonkeeper.agent.CanonKeeper.record_book_structure", AsyncMock()):
+        await run_decomposition_job(
+            job.job_id,
+            _pdf(),
+            doc_id=job.doc_id,
+            title="Book",
+            make_extractor=lambda _: _Extractor(),
+            make_review_model=lambda _, __: _DoubtingReview(),
+        )
+    assert ingestion_jobs.mongodb_get_ingestion_job(job.job_id).decomposition.claims_for_review == 1
+    (claim,) = held_claims_for_job(job.job_id)
+    assert decide_held_claim_for_job(job.job_id, claim.claim_id, accept=False) == 0
+    assert ingestion_jobs.mongodb_get_ingestion_job(job.job_id).decomposition.claims_for_review == 0
+    with pytest.raises(held_claims.HeldClaimNotFound):
+        held_claims_for_job(_source_job().job_id)

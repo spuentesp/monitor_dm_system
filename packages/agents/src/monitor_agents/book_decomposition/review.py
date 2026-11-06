@@ -720,6 +720,7 @@ class _Working:
     status: ClaimStatus
     reason: str = ""
     canonical: str | None = None
+    conflicts_with: list[str] = field(default_factory=list)
 
 
 class ReviewReport(BaseModel):
@@ -1048,6 +1049,7 @@ def _apply_stack(
     for member in members:
         working[member.id].status = ClaimStatus.NEEDS_HUMAN
         working[member.id].reason = f"Unresolved contradiction: {stack.reason}"
+        working[member.id].conflicts_with = [other.id for other in members if other.id != member.id]
 
 
 async def stack_claims(
@@ -1157,6 +1159,13 @@ def _finalize(working: dict[str, _Working], report: ReviewReport) -> ReviewResul
                 canonical_id=state.canonical,
                 source_node_ids=list(state.claim.source_node_ids),
                 page=state.claim.page,
+                statement=state.statement,
+                name=state.claim.atom.name,
+                entity_type=state.claim.atom.entity_type,
+                subject=state.claim.atom.subject,
+                predicate=state.claim.atom.predicate,
+                object=state.claim.atom.object,
+                conflicts_with=state.conflicts_with,
             )
         )
     report.claims_in = len(working)

@@ -10,10 +10,10 @@ import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from uuid import NAMESPACE_URL, UUID, uuid5
+from uuid import UUID
 
 import structlog
-from monitor_data.schemas.book_graph import BookRecord, BookRecordType, BookTree, ClaimStatus
+from monitor_data.schemas.book_graph import BookRecord, BookRecordType, BookTree
 from monitor_data.schemas.ingestion_jobs import DecompositionProgress
 from monitor_data.schemas.knowledge_packs import KnowledgePackType
 from monitor_data.tools.ingest_tools.book_tree import DECOMPOSER_VERSION, decompose_pdf
@@ -24,6 +24,12 @@ from monitor_data.tools.mongodb_tools.knowledge_packs import (
 )
 
 from monitor_agents.book_decomposition.extractor import WindowExtractor
+from monitor_agents.book_decomposition.held_claims import (
+    accepted_claims,
+    load_decisions,
+    open_count,
+    pack_id_for,
+)
 from monitor_agents.book_decomposition.knowledge_graph import (
     GraphModel,
     build_domain_tree,
@@ -179,15 +185,15 @@ async def decompose_book(
             {domain: build_domain_tree(tree, review.claims, domains, domain) for domain in ("rules", "lore")},
         )
 
-        mapped = map_claims(review.claims, tree)
+        decisions = load_decisions(key)
+        mapped = map_claims([*review.claims, *accepted_claims(review.ledger, decisions, tree)], tree)
         if mapped.held_back:
             mongodb_upsert_book_records(
                 key,
                 BookRecordType.REPORT,
                 [BookRecord(key="held_back", data={"claims": mapped.held_back})],
             )
-        # A fixed ID, so a crash just after creating the pack can't create a second one.
-        pack_id = uuid5(NAMESPACE_URL, f"book-decomposition:{key}")
+        pack_id = pack_id_for(key)
         if mongodb_get_knowledge_pack(pack_id) is None:
             mongodb_create_knowledge_pack(
                 build_pack(
@@ -201,7 +207,7 @@ async def decompose_book(
             )
     progress.claims_kept = len(review.claims)
     progress.claims_held_back = len(mapped.held_back)
-    progress.claims_for_review = review.report.by_status.get(ClaimStatus.NEEDS_HUMAN.value, 0)
+    progress.claims_for_review = open_count(review.ledger, decisions)
     publish()
     status = DecomposeStatus.COMPLETE_WITH_QUARANTINE if extraction.states.quarantined else DecomposeStatus.COMPLETE
     return DecomposeResult(status, progress, pack_id, review.report)

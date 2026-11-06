@@ -238,6 +238,12 @@ async def test_contradiction_the_source_cannot_settle_goes_to_a_person():
     assert {e.status for e in result.ledger} == {ClaimStatus.NEEDS_HUMAN}
     assert result.report.contradictions_for_human == 1
     assert result.report.orphaned_sentences == []
+    # Each side names the other, so the person deciding sees both versions.
+    by_id = {e.claim_id: e for e in result.ledger}
+    for entry in result.ledger:
+        assert [by_id[other].statement for other in entry.conflicts_with] == [
+            s for s in (first, second) if s != entry.statement
+        ]
 
 
 @pytest.mark.unit
