@@ -71,6 +71,55 @@ def test_extract_pdf_structure_heading_path_nesting():
         assert combat_sections[0].depth >= 1
 
 
+def test_overlapping_bookmarks_reuse_page_text(monkeypatch):
+    from monitor_data.tools.ingest_tools import pdf_processing
+
+    reads = []
+
+    class Page:
+        def __init__(self, number):
+            self.number = number
+
+        def get_text(self):
+            reads.append(self.number)
+            return f"Page {self.number}"
+
+    class Document:
+        page_count = 2
+
+        def get_toc(self, simple=False):
+            return [[1, "Chapter", 1], [2, "Section", 2]]
+
+        def __getitem__(self, number):
+            return Page(number)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(pdf_processing, "_open_pdf", lambda _: Document())
+    sections = pdf_processing._extract_pdf_structure_uncached(b"pdf")
+
+    assert reads == [0, 1]
+    assert sections[0].text == "Page 0\nPage 1"
+    assert sections[1].text == "Page 1"
+
+
+def test_bookmarks_preserve_unbookmarked_front_matter():
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "Unbookmarked introduction")
+    doc.new_page().insert_text((72, 72), "Chapter text")
+    doc.set_toc([[1, "Chapter", 2]])
+    data = doc.tobytes()
+    doc.close()
+
+    sections = extract_pdf_structure(data)
+
+    assert sections[0].page_start == sections[0].page_end == 0
+    assert "Unbookmarked introduction" in sections[0].text
+    assert sections[1].heading_path == ["Chapter"]
+    assert "Chapter text" in sections[1].text
+
+
 # [G-8](d) — extract_pdf_structure wraps an in-memory SHA-256 LRU.
 # Tests pin (a) cache hit on identical bytes (b) mutation isolation
 # (c) cache miss on different bytes (d) LRU eviction at 5th distinct PDF.

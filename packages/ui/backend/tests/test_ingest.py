@@ -287,6 +287,33 @@ def test_run_ingest_in_thread(mock_all_dbs):
                 content_type="application/pdf"
             )
 
+
+def test_ingest_worker_attaches_job_to_its_own_request(mock_all_dbs):
+    import monitor_ui.routers.ingest as ingest_mod
+    from monitor_data.schemas.knowledge_packs import KnowledgePackType
+
+    job_id = uuid.uuid4()
+    attached = []
+
+    async def fake_ingest(**kwargs):
+        kwargs["on_job_created"](job_id)
+
+    with patch.object(ingest_mod, "IngestionPipeline") as pipeline:
+        pipeline.return_value.ingest_file = fake_ingest
+        with patch.object(ingest_mod, "_attach_job_id_to_request", side_effect=lambda *args: attached.append(args)):
+            ingest_mod._run_ingest_in_thread(
+                queue_token="own-request",
+                file_bytes=b"test",
+                filename="test.pdf",
+                source_title="test",
+                universe_uid=None,
+                pack_type_enum=KnowledgePackType.SETTING_SUPPLEMENT,
+                selected_layers=["entities"],
+                content_type="application/pdf",
+            )
+
+    assert attached == [("own-request", str(job_id))]
+
 def test_upload_exceptions(mock_all_dbs):
     import os
     os.environ["MONITOR_MAX_INGEST_FILE_BYTES"] = "5"

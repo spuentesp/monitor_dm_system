@@ -294,8 +294,7 @@ def _run_ingest_in_thread(
     """Run the ingest pipeline in a dedicated thread with its own event loop.
 
     This prevents the long-running sync+async pipeline calls from blocking
-    uvicorn's main event loop.  The _ingest_lock ensures only one pipeline
-    runs at a time.  An overall timeout of _JOB_TIMEOUT_SECS is enforced via
+    uvicorn's main event loop. The executor limits concurrent pipelines.  An overall timeout of _JOB_TIMEOUT_SECS is enforced via
     asyncio.wait_for so a stalled LLM call cannot block the executor forever.
     """
     global _ingest_active_title, _ingest_active_job_id
@@ -308,73 +307,54 @@ def _run_ingest_in_thread(
         pipeline = IngestionPipeline()
 
         async def _ingest_with_capture() -> None:
-            # We wrap ingest_file and capture the job_id as soon as MongoDB
-            # creates it by patching the symbol that `IngestionPipeline` actually uses.
-            import monitor_agents.ingestion.agent as _pipeline_module
+            def _capture_job(job_id: UUID) -> None:
+                _captured_job_id[0] = str(job_id)
+                _attach_job_id_to_request(queue_token, str(job_id))
+                logger.info("Created ingestion job %s for '%s'", job_id, source_title)
 
-            # reason: capturing the original mongodb_create_ingestion_job reference for runtime monkey-patch restoration; module attribute access narrows to a typed Callable that the local doesn't preserve at the restoration site
-            _orig_create_job = _pipeline_module.mongodb_create_ingestion_job  # type: ignore
+            # 1. Standard ingestion pipeline
+            await pipeline.ingest_file(
+                file_bytes=file_bytes,
+                filename=filename,
+                source_title=source_title,
+                # reason: universe_uid: UUID | None passed to IngestionPipeline.ingest_file(universe_id: UUID), which expects a non-None UUID
+                universe_id=universe_uid,  # type: ignore
+                pack_name=source_title,
+                pack_type=pack_type_enum,
+                analysis_layers=selected_layers,
+                auto_apply=False,
+                content_type=content_type,
+                reuse_source_id=reuse_source_id,
+                reuse_doc_id=reuse_doc_id,
+                on_job_created=_capture_job,
+            )
 
-            def _patched_create_job(params):  # type: ignore[no-untyped-def]
-                result = _orig_create_job(params)
-                _captured_job_id[0] = str(result.job_id)
-                _attach_job_id_to_request(queue_token, _captured_job_id[0])
-                logger.info(
-                    "Created ingestion job %s for '%s'",
-                    _captured_job_id[0],
-                    source_title,
-                )
-                return result
+            # 2. Record in World Library for the Architect
+            if universe_uid:
+                try:
+                    from monitor_agents.utils.world_library import WorldLibrary
+                    from monitor_data.tools.neo4j_tools.core import (
+                        neo4j_get_universe,
+                    )
 
-            # reason: installing the untyped _patched_create_job (no parameter annotation) over the typed module attribute — mypy can't bridge the runtime swap from an untyped function to the typed signature
-            _pipeline_module.mongodb_create_ingestion_job = _patched_create_job  # type: ignore
-            try:
-                # 1. Standard ingestion pipeline
-                await pipeline.ingest_file(
-                    file_bytes=file_bytes,
-                    filename=filename,
-                    source_title=source_title,
-                    # reason: universe_uid: UUID | None passed to IngestionPipeline.ingest_file(universe_id: UUID), which expects a non-None UUID
-                    universe_id=universe_uid,  # type: ignore
-                    pack_name=source_title,
-                    pack_type=pack_type_enum,
-                    analysis_layers=selected_layers,
-                    auto_apply=False,
-                    content_type=content_type,
-                    reuse_source_id=reuse_source_id,
-                    reuse_doc_id=reuse_doc_id,
-                )
+                    library = WorldLibrary()
+                    universe = neo4j_get_universe(universe_uid)
 
-                # 2. Record in World Library for the Architect
-                if universe_uid:
-                    try:
-                        from monitor_agents.utils.world_library import WorldLibrary
-                        from monitor_data.tools.neo4j_tools.core import (
-                            neo4j_get_universe,
+                    if universe:
+                        await library.add_source(
+                            # reason: UniverseResponse.multiverse_id: UUID | None passed to WorldLibrary.add_source(multiverse_id: UUID), which expects a non-None UUID
+                            multiverse_id=universe.multiverse_id,  # type: ignore
+                            source_type="file",
+                            uri=filename,
+                            # reason: 'system_name' is not a defined attribute on UniverseResponse (only 'default_system_name' exists); access would raise AttributeError at runtime — flagged as a latent bug, not fixed here
+                            system_name=universe.system_name or "generic",  # type: ignore
+                            metadata={
+                                "title": source_title,
+                                "universe_id": str(universe_uid),
+                            },
                         )
-
-                        library = WorldLibrary()
-                        universe = neo4j_get_universe(universe_uid)
-
-                        if universe:
-                            await library.add_source(
-                                # reason: UniverseResponse.multiverse_id: UUID | None passed to WorldLibrary.add_source(multiverse_id: UUID), which expects a non-None UUID
-                                multiverse_id=universe.multiverse_id,  # type: ignore
-                                source_type="file",
-                                uri=filename,
-                                # reason: 'system_name' is not a defined attribute on UniverseResponse (only 'default_system_name' exists); access would raise AttributeError at runtime — flagged as a latent bug, not fixed here
-                                system_name=universe.system_name or "generic",  # type: ignore
-                                metadata={
-                                    "title": source_title,
-                                    "universe_id": str(universe_uid),
-                                },
-                            )
-                    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _patched_create_job)
-                        logger.debug("Failed to record file in WorldLibrary: %s", exc)
-
-            finally:
-                # reason: restoring the original function reference — symmetric to the capture/install pattern at lines 311/324; mypy sees the typed callable being written back without the runtime context of the prior untyped swap
-                _pipeline_module.mongodb_create_ingestion_job = _orig_create_job  # type: ignore
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _patched_create_job)
+                    logger.debug("Failed to record file in WorldLibrary: %s", exc)
 
         try:
             await asyncio.wait_for(_ingest_with_capture(), timeout=_JOB_TIMEOUT_SECS)
