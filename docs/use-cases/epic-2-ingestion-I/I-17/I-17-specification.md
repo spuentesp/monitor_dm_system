@@ -15,6 +15,7 @@
 5. System checks each paragraph for what its claims leave out, and verified gaps go through review as new claims.
 6. System builds separate rules and lore trees, and optionally graphs, where every relationship cites its claims.
 7. System creates one review-ready KnowledgePack, with source sentences as evidence.
+8. Person reviews held claims: for each, they see why it waits, the book's sentences, and any conflicting claim, then accept it (optionally reworded) into the pack or reject it. Decisions survive resumed runs.
 
 **Output:** Reviewed claims linked to their source sentences and to each other, plus a ledger giving every claim's outcome. Reaching canon goes through the existing pack review and CanonKeeper.
 

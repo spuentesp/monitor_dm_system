@@ -17,6 +17,7 @@ acceptance_criteria:
   - "Every sentence ends cited, skipped or reported"
   - "A failed run resumes without resending finished sentences"
   - "Every kept claim and graph relationship traces to source sentences"
+  - "A person can accept, reword or reject each held claim, and the decision survives a resumed run"
 
 depends_on: []
 blocks: []
