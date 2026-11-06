@@ -432,11 +432,21 @@ class PostgresClient:
         self._pools_by_loop: weakref.WeakKeyDictionary[
             asyncio.AbstractEventLoop, asyncpg.Pool
         ] = weakref.WeakKeyDictionary()
+        self._locks_by_loop: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, asyncio.Lock
+        ] = weakref.WeakKeyDictionary()
         self._schema_applied: bool = False
 
     # ------------------------------------------------------------------
     # Connection lifecycle
     # ------------------------------------------------------------------
+
+    def _loop_lock(self, loop: asyncio.AbstractEventLoop) -> asyncio.Lock:
+        lock = self._locks_by_loop.get(loop)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks_by_loop[loop] = lock
+        return lock
 
     async def connect(self) -> None:
         """Open the connection pool and apply schema DDL (idempotent)."""
@@ -451,24 +461,25 @@ class PostgresClient:
                 self._pool = cached
                 self._pool_loop = running
                 return
-
-        if (
-            self._pool is not None
-            and running is not None
-            and self._pool_loop is not None
-            and self._pool_loop is not running
-        ):
-            pool = await asyncpg.create_pool(
-                self._dsn,
-                min_size=self._min_size,
-                max_size=self._max_size,
-            )
-            self._pools_by_loop[running] = pool
-            self._pool = pool
-            self._pool_loop = running
-            if not self._schema_applied:
-                await self._apply_schema()
-            return
+            if self._pool is not None and self._pool_loop is None:
+                return
+            async with self._loop_lock(running):
+                cached = self._pools_by_loop.get(running)
+                if cached is not None:
+                    self._pool = cached
+                    self._pool_loop = running
+                    return
+                pool = await asyncpg.create_pool(
+                    self._dsn,
+                    min_size=self._min_size,
+                    max_size=self._max_size,
+                )
+                self._pools_by_loop[running] = pool
+                self._pool = pool
+                self._pool_loop = running
+                if not self._schema_applied:
+                    await self._apply_schema(pool)
+                return
 
         if self._pool is None:
             pool = await asyncpg.create_pool(
@@ -477,11 +488,9 @@ class PostgresClient:
                 max_size=self._max_size,
             )
             self._pool = pool
-            self._pool_loop = running
-            if running is not None:
-                self._pools_by_loop[running] = pool
+            self._pool_loop = None
             if not self._schema_applied:
-                await self._apply_schema()
+                await self._apply_schema(pool)
 
     async def close(self) -> None:
         """Close all pooled connections gracefully."""
@@ -489,16 +498,23 @@ class PostgresClient:
             running = asyncio.get_running_loop()
         except RuntimeError:
             running = None
+        if running is not None:
+            loop_pool = self._pools_by_loop.pop(running, None)
+            if loop_pool is not None:
+                await loop_pool.close()
+                if self._pool is loop_pool:
+                    self._pool = None
+                    self._pool_loop = None
+                return
         if self._pool is not None:
             if self._pool_loop in (None, running):
                 await self._pool.close()
-            if running is not None:
-                self._pools_by_loop.pop(running, None)
             self._pool = None
             self._pool_loop = None
 
-    async def _apply_schema(self) -> None:
-        async with self._pool.acquire() as conn, conn.transaction():  # type: ignore[union-attr]
+    async def _apply_schema(self, pool: asyncpg.Pool | None = None) -> None:
+        target_pool = pool or self._pool
+        async with target_pool.acquire() as conn, conn.transaction():  # type: ignore[union-attr]
             await conn.execute(_SCHEMA_SQL)
         self._schema_applied = True
 

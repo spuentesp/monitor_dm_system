@@ -72,6 +72,7 @@ _KNOWN_ST_FIELDS = set(
         "uid",
         "displayIndex",
         "addMemo",
+        "disable",
         "enabled",
         "content",
         "id",
@@ -411,8 +412,9 @@ def build_st_lorebook_entry(entry: LorebookEntryCreate | BaseModel | dict[str, A
         "addMemo": True,
     }
 
-    # If explicit ST field values are present in extensions, let them win.
-    out.update(st_extensions)
+    # If explicit ST field values are present in extensions, let them win —
+    # except active/disabled state, which is authoritative on ``is_active``.
+    out.update({k: v for k, v in st_extensions.items() if k not in ("disable", "enabled")})
     return out
 
 

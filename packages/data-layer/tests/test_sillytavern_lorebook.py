@@ -305,3 +305,26 @@ class TestCharacterBookEnabledFlag:
         assert len(parsed_entries) == 1
         assert parsed_entries[0]["is_active"] is False
         assert parsed_entries[0]["order"] == 15
+
+    def test_toggling_is_active_after_import_not_overwritten_by_st_extensions(self):
+        from monitor_data.interop.sillytavern_lorebook import (
+            build_character_book,
+            build_st_lorebook_entry,
+            parse_st_lorebook_entry,
+        )
+
+        imported = parse_st_lorebook_entry(
+            {"content": "Secret vault", "keys": ["vault"], "disable": False, "enabled": True}
+        )
+        assert "disable" not in imported.get("st_extensions", {})
+        # User toggles is_active off in UI; even if legacy st_extensions had disable/enabled,
+        # current is_active is authoritative on export.
+        imported["is_active"] = False
+        imported["st_extensions"] = {"disable": False, "enabled": True, "custom": 7}
+        st_out = build_st_lorebook_entry(imported, uid=0)
+        assert st_out["disable"] is True
+        assert st_out["custom"] == 7
+        cb_out = build_character_book([imported])["entries"][0]
+        assert cb_out["enabled"] is False
+        assert cb_out["disable"] is True
+

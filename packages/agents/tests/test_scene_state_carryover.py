@@ -512,6 +512,7 @@ async def test_multi_turn_combat_carries_round_and_hp_and_persists_deltas(world:
                 "resource_key": "HP",
                 "resource_name": "HP",
                 "delta": -3,
+                "max_value": 10,
                 "source": "combat",
                 "reason": "Combat damage: HP 10 → 7",
             }
@@ -521,6 +522,7 @@ async def test_multi_turn_combat_carries_round_and_hp_and_persists_deltas(world:
         ]
         assert len(combat_persist_calls) == 1
         assert combat_persist_calls[0].kwargs["resource_deltas"][0]["delta"] == -3
+        assert combat_persist_calls[0].kwargs.get("only_resource_deltas") is True
 
         # Turn 2 resumes Round 2 with Brigand at 4 HP; Hero deals 6 -> Brigand drops to 0 and combat ends!
         t2 = await loop.run("I finish the brigand")
@@ -528,3 +530,26 @@ async def test_multi_turn_combat_carries_round_and_hp_and_persists_deltas(world:
         assert t2["combat_result"]["victory_side"] == "pc"
         assert t2["combat_state"] is None
         assert isinstance(loop, sl.SceneLoop) and isinstance(cl.CombatLoop, type)
+
+
+@pytest.mark.asyncio
+async def test_propose_roll_and_pushback_defer_combat_and_set_pending_roll(world: _World) -> None:
+    """F4 / F12a: Combat does not auto-run while awaiting a player roll on propose_roll or pushback."""
+    loop = _loop()
+    world.resolutions = [
+        {
+            "resolution_type": "forced_narrative_pushback",
+            "stat": "Dexterity",
+            "modifier": 2,
+            "difficulty_class": 25,
+            "reason": "Too ambitious without a roll",
+        }
+    ]
+    combat_spy = AsyncMock(return_value={"combat_result": {"combat_active": True}})
+    with patch.object(sl, "_run_combat", combat_spy):
+        res = await loop.run("I decapitate the warlord in one swing")
+
+    assert res["pending_roll"]["resolution_type"] == "forced_narrative_pushback"
+    assert res["pending_roll"]["dc"] == 25
+    combat_spy.assert_not_awaited()
+

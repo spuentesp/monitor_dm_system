@@ -1343,3 +1343,86 @@ class TestLightRPHardening:
         with pytest.raises(KeyError):
             asyncio.run(cc.send_message("conv-ceil", "extra", character_id="char-1"))
         assert cc.get_loop("conv-ceil") is None
+
+    def test_end_conversation_can_resume_at_turn_limit_and_find_skips_maxed(self):
+        """F1: A conversation at 100 player turns can still be resumed by end_conversation,
+        while find_client_conversation skips it so Risu starts a fresh conversation."""
+        from uuid import uuid4
+
+        entity_id, universe_id = str(uuid4()), str(uuid4())
+        conv_id = str(uuid4())
+        turns_100 = []
+        for i in range(100):
+            turns_100.append({"turn_index": i * 2, "speaker_role": "player", "text": f"p{i}"})
+            turns_100.append({"turn_index": i * 2 + 1, "speaker_role": "npc", "text": f"n{i}"})
+
+        doc = {
+            "conversation_id": conv_id,
+            "status": "active",
+            "universe_id": universe_id,
+            "npc_ids": [entity_id],
+            "turns": turns_100,
+            "pending_proposals": [{"change_type": "fact"}],
+        }
+        mongo = MagicMock()
+        col = mongo.get_collection.return_value
+        col.find_one.return_value = doc
+        col.find.return_value.sort.return_value = [doc]
+
+        backing = {"entity_id": entity_id, "universe_id": universe_id, "version_id": "v1"}
+        fake_loop = MagicMock()
+        fake_loop.state = SimpleNamespace(
+            turns=[], turns_count=0, pending_proposals=[{"change_type": "fact"}], lorebook_character_ids=["char-1"]
+        )
+        fake_loop.finish = AsyncMock(return_value=[{"change_type": "fact"}])
+
+        with (
+            patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
+            patch.object(cc, "ensure_character_backed", new=AsyncMock(return_value=backing)),
+            patch("monitor_agents.loops.conversation_loop.ConversationLoop", return_value=fake_loop),
+            patch("monitor_agents.loops.conversation_loop.load_npc_context", new=AsyncMock(return_value={})),
+        ):
+            # Regular resume_conversation rejects >= 100 player turns by returning None
+            assert asyncio.run(cc.resume_conversation("char-1", conv_id)) is None
+            # find_client_conversation skips maxed conversation
+            assert asyncio.run(cc.find_client_conversation("char-1", None, "Evening.")) is None
+            # end_conversation succeeds via allow_at_limit=True
+            ended = asyncio.run(cc.end_conversation(conv_id, character_id="char-1"))
+            assert ended == {"ended": True, "proposals": 1}
+            fake_loop.finish.assert_awaited_once()
+
+    def test_resume_strips_orphan_trailing_player_turns(self):
+        """F11a: Trailing unanswered player turns from a failed LLM call are stripped on resume."""
+        from uuid import uuid4
+
+        entity_id, universe_id = str(uuid4()), str(uuid4())
+        conv_id = str(uuid4())
+        doc = {
+            "conversation_id": conv_id,
+            "status": "active",
+            "universe_id": universe_id,
+            "npc_ids": [entity_id],
+            "turns": [
+                {"turn_index": 0, "speaker_role": "player", "text": "Hello"},
+                {"turn_index": 1, "speaker_role": "npc", "text": "Greetings."},
+                {"turn_index": 2, "speaker_role": "player", "text": "Orphan failed turn"},
+            ],
+        }
+        mongo = MagicMock()
+        mongo.get_collection.return_value.find_one.return_value = doc
+        backing = {"entity_id": entity_id, "universe_id": universe_id, "version_id": "v1"}
+        fake_loop = MagicMock()
+        fake_loop.state = SimpleNamespace(turns=[], turns_count=0)
+
+        with (
+            patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
+            patch.object(cc, "ensure_character_backed", new=AsyncMock(return_value=backing)),
+            patch("monitor_agents.loops.conversation_loop.ConversationLoop", return_value=fake_loop),
+            patch("monitor_agents.loops.conversation_loop.load_npc_context", new=AsyncMock(return_value={})),
+        ):
+            loop = asyncio.run(cc.resume_conversation("char-1", conv_id))
+
+        assert len(loop.state.turns) == 2
+        assert loop.state.turns_count == 1
+        mongo.get_collection.return_value.update_one.assert_called_once()
+

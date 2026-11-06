@@ -23,6 +23,7 @@ Reuses the provisioning pattern from entities._persist_generated_entity.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import uuid
 from asyncio import Lock as _AsyncLock
@@ -577,12 +578,19 @@ async def find_client_conversation(character_id: str, persona_id: str | None, fi
                 "client_session.persona_character_id": persona_id,
                 "client_session.fingerprints": fingerprint,
             },
-            {"conversation_id": 1},
+            {"conversation_id": 1, "turns": 1},
             sort=[("updated_at", -1)],
         )
 
     doc = await asyncio.to_thread(_find)
-    return str(doc["conversation_id"]) if doc else None
+    if not doc:
+        return None
+    player_turns = sum(
+        1 for t in (doc.get("turns") or []) if isinstance(t, dict) and t.get("speaker_role") == "player"
+    )
+    if player_turns >= 100:
+        return None
+    return str(doc["conversation_id"])
 
 
 async def remember_client_conversation(
@@ -615,7 +623,12 @@ async def remember_client_conversation(
     await asyncio.to_thread(_save)
 
 
-async def resume_conversation(character_id: str, conversation_id: str) -> Any | None:
+async def resume_conversation(
+    character_id: str,
+    conversation_id: str,
+    *,
+    allow_at_limit: bool = False,
+) -> Any | None:
     """Rebuild an in-memory DIRECT loop from its persisted MongoDB transcript.
 
     Light-RP loops are process-local; a backend restart orphans active
@@ -652,7 +665,7 @@ async def resume_conversation(character_id: str, conversation_id: str) -> Any | 
     )
     loop._apply(await load_npc_context(loop.state))
     loop.state.lorebook_character_ids = [character_id]
-    loop.state.turns = [
+    restored_turns = [
         {
             "turn_index": t.get("turn_index", i),
             "speaker_role": t.get("speaker_role"),
@@ -661,9 +674,18 @@ async def resume_conversation(character_id: str, conversation_id: str) -> Any | 
         }
         for i, t in enumerate(doc.get("turns", []))
     ]
+    # Drop any trailing unanswered player turns left by a failed/interrupted LLM call.
+    had_trailing_player = False
+    while restored_turns and restored_turns[-1].get("speaker_role") == "player":
+        restored_turns.pop()
+        had_trailing_player = True
+    if had_trailing_player:
+        with contextlib.suppress(Exception):
+            coll.update_one({"conversation_id": conversation_id}, {"$set": {"turns": restored_turns}})
+    loop.state.turns = restored_turns
     # turns_count tracks completed player exchanges, not individual messages.
     loop.state.turns_count = sum(1 for t in loop.state.turns if t.get("speaker_role") == "player")
-    if loop.state.turns_count >= getattr(loop.state, "max_turns", 100):
+    if not allow_at_limit and loop.state.turns_count >= getattr(loop.state, "max_turns", 100):
         return None
     # Restore the durable proposal outbox written after each turn (crash-safe).
     loop.state.pending_proposals = list(doc.get("pending_proposals") or [])
@@ -702,8 +724,22 @@ async def send_message(
             raise KeyError(conversation_id)
 
         loop = cached
-        if loop is None and character_id:
-            loop = await resume_conversation(character_id, conversation_id)
+        if loop is None:
+            resolved_char_id = character_id
+            if not resolved_char_id:
+                with contextlib.suppress(Exception):
+                    from monitor_data.db.mongodb import get_mongodb_client
+
+                    doc = get_mongodb_client().get_collection("conversations").find_one(
+                        {"conversation_id": conversation_id},
+                        {"client_session": 1},
+                    )
+                    if isinstance(doc, dict):
+                        cs = doc.get("client_session")
+                        if isinstance(cs, dict) and cs.get("character_id"):
+                            resolved_char_id = str(cs["character_id"])
+            if resolved_char_id:
+                loop = await resume_conversation(resolved_char_id, conversation_id)
         if loop is None:
             raise KeyError(conversation_id)
 
@@ -718,6 +754,15 @@ async def send_message(
         except ConversationClosedError as exc:
             pop_loop(conversation_id)
             raise KeyError(conversation_id) from exc
+        except Exception:
+            with contextlib.suppress(Exception):
+                from monitor_data.db.mongodb import get_mongodb_client
+
+                get_mongodb_client().get_collection("conversations").update_one(
+                    {"conversation_id": conversation_id},
+                    {"$set": {"turns": list(getattr(loop.state, "turns", []) or [])}},
+                )
+            raise
         finally:
             # Always reset the transient flag, even if step() raised.
             if include_cross_incarnation and getattr(loop, "state", None) is not None:
@@ -825,7 +870,7 @@ async def end_conversation(conversation_id: str, character_id: str | None = None
 
         loop = cached
         if loop is None and character_id:
-            loop = await resume_conversation(character_id, conversation_id)
+            loop = await resume_conversation(character_id, conversation_id, allow_at_limit=True)
         if loop is None:
             return {"ended": True, "proposals": 0}
         proposals: list[Any] = []

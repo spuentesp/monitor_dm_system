@@ -75,10 +75,16 @@ async def list_entries(
         description="Sort field: priority, trigger_count, created_at",
     ),
     ascending: bool = Query(default=False),
+    include_inactive: bool = Query(default=False),
 ) -> list[LorebookEntry]:
-    """List all active lorebook entries for a character."""
+    """List lorebook entries for a character (active only by default)."""
     # reason: mongodb_get_lorebook_entries returns list[LorebookEntry] but the Mongo cursor bridges Any through motor; FastAPI/Pydantic v2 returns Any for the response_model inference without explicit Annotated[]
-    return mongodb_get_lorebook_entries(character_id=character_id, sort_by=sort_by, ascending=ascending)  # type: ignore
+    return mongodb_get_lorebook_entries(
+        character_id=character_id,
+        sort_by=sort_by,  # type: ignore[arg-type]
+        ascending=ascending,
+        include_inactive=include_inactive,
+    )
 
 
 @router.get("/lorebook/entries/{entry_id}", response_model=LorebookEntry)

@@ -17,9 +17,9 @@ def _format_dice_spec(
 ) -> str:
     """Return the client dice spec for a pending d20 check."""
     if roll_mode == "advantage":
-        base = "2d20kh1"
+        base = "2d20kl1" if roll_under else "2d20kh1"
     elif roll_mode == "disadvantage":
-        base = "2d20kl1"
+        base = "2d20kh1" if roll_under else "2d20kl1"
     else:
         base = "1d20"
     if roll_under:

@@ -267,3 +267,92 @@ async def test_player_sees_the_pushback_prompt_and_can_roll() -> None:
     assert out.response_text == "Bold claim. Roll Dexterity."
     assert out.metadata["dice_request"]["spec"] == "1d20+3"
     assert session["pending_dice_request"]["difficulty_class"] == 25
+
+
+def test_roll_under_advantage_and_disadvantage_invert_keep_direction():
+    """F2: In roll-under systems (lower is better), advantage keeps lowest (2d20kl1)."""
+    from monitor_agents.loops.scene_orchestrator_support import _format_dice_spec
+
+    assert _format_dice_spec(0, roll_under=True, roll_mode="advantage") == "2d20kl1"
+    assert _format_dice_spec(0, roll_under=True, roll_mode="disadvantage") == "2d20kh1"
+
+    r = _resolver(None)
+    gsr_under = _gsr(core={"type": "roll_under", "formula": "1d20 <= STAT"})
+    roll_kw: dict[str, Any] = {
+        "scene_id": "s",
+        "user_input": "u",
+        "action_type": "action",
+        "roll_type": "check",
+        "intent_target": "",
+        "requires_clarification": False,
+        "subsystem_hint": None,
+        "roll_necessity": "roll",
+    }
+    with patch("monitor_data.utils.dice.random.randint", side_effect=[15, 4]):
+        res = r._execute_roll(
+            **roll_kw,
+            stat_name="BODY",
+            stat_value=13,
+            base_modifier=0,
+            modifier=0,
+            dc=13,
+            gsr=gsr_under,
+            actual_roll_mode="advantage",
+        )
+    assert res["roll_total"] == 4
+    assert res["roll_detail"]["spec"] == "2d20kl1"
+    assert res["success"] is True
+
+
+def test_dice_pool_does_not_double_stat_or_concatenate_pbta_bands():
+    """F3: vampire.json-style 1..5 attributes do not double pool_size; PbtA bands don't become threshold 10796."""
+    from monitor_agents.resolver import (
+        _is_count_successes_pool,
+        _parse_pool_threshold,
+        _pool_proposal_fields,
+    )
+
+    # PbtA / Apocalypse World 2d6+stat with multi-band string is not a count-successes pool
+    pbta_cm = {
+        "type": "dice_pool",
+        "formula": "2d6 + stat",
+        "success_threshold": "10+ full success, 7-9 partial/mixed, 6- fail",
+    }
+    assert _is_count_successes_pool(pbta_cm) is False
+    assert _parse_pool_threshold(pbta_cm["success_threshold"], die_sides=6) == 6
+
+    # Vampire-style d10 pool where calc_modifier returns stat_value (base_modifier == stat_value == 4)
+    vtm_gsr = _gsr(
+        core={
+            "type": "dice_pool",
+            "formula": "Pool of d10s (Attribute + Skill)",
+            "success_threshold": "6+ on each die is a success",
+        }
+    )
+    fields = _pool_proposal_fields(vtm_gsr, stat_value=4, pool_bonus=0)
+    assert fields["pool_size"] == 4
+    assert fields["success_threshold"] == 6
+
+    r = _resolver(None)
+    with patch("monitor_agents.dice.pool.random.randint", side_effect=[8, 6, 3, 9]):
+        res = r._execute_roll(
+            scene_id="s",
+            user_input="u",
+            action_type="action",
+            roll_type="check",
+            intent_target="",
+            requires_clarification=False,
+            subsystem_hint=None,
+            roll_necessity="roll",
+            stat_name="DEX",
+            stat_value=4,
+            base_modifier=4,
+            modifier=4,
+            dc=2,
+            gsr=vtm_gsr,
+            actual_roll_mode="normal",
+        )
+    assert len(res["roll_detail"]["rolls"]) == 4
+    assert res["roll_total"] == 3  # 8, 6, 9 are >= 6
+    assert res["success"] is True
+
