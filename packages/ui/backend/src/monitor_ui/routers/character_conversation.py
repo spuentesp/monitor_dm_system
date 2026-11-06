@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import uuid
+from asyncio import Lock as _AsyncLock
 from collections import OrderedDict
 from typing import Any
 
@@ -56,6 +57,10 @@ _conversatory_universe_id: str | None = None
 # Live ConversationLoop cache, keyed by conversation_id (string).
 _LOOPS: OrderedDict[str, Any] = OrderedDict()
 _LOOPS_MAX = 64
+
+# Per-conversation mutexes so concurrent send/end calls serialize cleanly.
+_LOCKS: OrderedDict[str, _AsyncLock] = OrderedDict()
+_LOCKS_MAX = 256
 
 # NPCProfileCreate.gm_notes limit. The full notes stay on the card.
 _PROFILE_NOTES_MAX = 5000
@@ -382,6 +387,39 @@ def list_incarnations(character_id: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+def _get_conversation_lock(conversation_id: str) -> _AsyncLock:
+    lock = _LOCKS.get(conversation_id)
+    if lock is None:
+        lock = _AsyncLock()
+        _LOCKS[conversation_id] = lock
+    _LOCKS.move_to_end(conversation_id)
+    if len(_LOCKS) > _LOCKS_MAX:
+        for key in list(_LOCKS.keys()):
+            if len(_LOCKS) <= _LOCKS_MAX:
+                break
+            if key != conversation_id and not _LOCKS[key].locked():
+                _LOCKS.pop(key, None)
+    return lock
+
+
+def player_id_for_persona(persona_character_id: str | None) -> uuid.UUID:
+    """Derive a deterministic player entity UUID per bound persona."""
+    if not persona_character_id:
+        return _CONVERSATORY_PLAYER_ID
+    return uuid.uuid5(_CONVERSATORY_PLAYER_ID, f"persona:{persona_character_id}")
+
+
+def _loop_matches_character(loop: Any, character_id: str | None) -> bool:
+    """Return True when the loop has no character constraint or matches character_id."""
+    if not character_id:
+        return True
+    state = getattr(loop, "state", None)
+    bound = getattr(state, "lorebook_character_ids", None)
+    if isinstance(bound, (list, tuple, set)) and bound:
+        return character_id in bound
+    return True
+
+
 def _cache_loop(conversation_id: str, loop: Any) -> None:
     _LOOPS[conversation_id] = loop
     _LOOPS.move_to_end(conversation_id)
@@ -389,8 +427,11 @@ def _cache_loop(conversation_id: str, loop: Any) -> None:
         _LOOPS.popitem(last=False)
 
 
-def get_loop(conversation_id: str) -> Any | None:
-    return _LOOPS.get(conversation_id)
+def get_loop(conversation_id: str, character_id: str | None = None) -> Any | None:
+    loop = _LOOPS.get(conversation_id)
+    if loop is not None and not _loop_matches_character(loop, character_id):
+        return None
+    return loop
 
 
 def pop_loop(conversation_id: str) -> None:
@@ -453,13 +494,15 @@ async def start_conversation(
 
     backing = await ensure_character_backed(character_id, universe_id=universe_id, user_name=user_name)
 
+    player_entity_id = player_id_for_persona(persona_character_id)
+
     loop = await ConversationLoop.start(
         universe_id=uuid.UUID(backing["universe_id"]),
         mode=ConversationMode.DIRECT,
         npc_ids=[uuid.UUID(backing["entity_id"])],
         story_id=None,
         scene_id=None,
-        player_entity_id=_CONVERSATORY_PLAYER_ID,
+        player_entity_id=player_entity_id,
         # Enables per-turn lorebook scanning (imported character_book entries)
         # for this conversation.
         lorebook_character_ids=[character_id],
@@ -608,6 +651,7 @@ async def resume_conversation(character_id: str, conversation_id: str) -> Any | 
         lorebook_character_ids=[character_id],
     )
     loop._apply(await load_npc_context(loop.state))
+    loop.state.lorebook_character_ids = [character_id]
     loop.state.turns = [
         {
             "turn_index": t.get("turn_index", i),
@@ -617,7 +661,10 @@ async def resume_conversation(character_id: str, conversation_id: str) -> Any | 
         }
         for i, t in enumerate(doc.get("turns", []))
     ]
-    loop.state.turns_count = len(loop.state.turns)
+    # turns_count tracks completed player exchanges, not individual messages.
+    loop.state.turns_count = sum(1 for t in loop.state.turns if t.get("speaker_role") == "player")
+    if loop.state.turns_count >= getattr(loop.state, "max_turns", 100):
+        return None
     # Restore the durable proposal outbox written after each turn (crash-safe).
     loop.state.pending_proposals = list(doc.get("pending_proposals") or [])
     loop.state.lorebook_overrides = dict(doc.get("lorebook_overrides") or {})
@@ -647,59 +694,78 @@ async def send_message(
     When the loop is missing and character_id is provided, the loop is
     rebuilt from the persisted MongoDB transcript (resume) before giving up.
     """
-    loop = get_loop(conversation_id)
-    if loop is None and character_id:
-        loop = await resume_conversation(character_id, conversation_id)
-    if loop is None:
-        raise KeyError(conversation_id)
+    from monitor_agents.loops.conversation_loop import ConversationClosedError
 
-    # The loop's state.universe_id is the incarnation's universe; we forward
-    # the cross-incarnation flag by setting a transient attribute on the
-    # loop state (read by NPCVoice via the conversation_loop wrapper).
-    if include_cross_incarnation and getattr(loop, "state", None) is not None:
-        loop.state.include_cross_incarnation = True
+    async with _get_conversation_lock(conversation_id):
+        cached = _LOOPS.get(conversation_id)
+        if cached is not None and not _loop_matches_character(cached, character_id):
+            raise KeyError(conversation_id)
 
-    responses = await loop.step(text)
+        loop = cached
+        if loop is None and character_id:
+            loop = await resume_conversation(character_id, conversation_id)
+        if loop is None:
+            raise KeyError(conversation_id)
 
-    # Durable outbox: persist accumulated proposals onto the conversation doc
-    # after every turn so a mid-session crash doesn't lose them (they used to
-    # live only in loop memory until close). Restored on resume.
-    try:
-        from monitor_data.db.mongodb import get_mongodb_client
+        # The loop's state.universe_id is the incarnation's universe; we forward
+        # the cross-incarnation flag by setting a transient attribute on the
+        # loop state (read by NPCVoice via the conversation_loop wrapper).
+        if include_cross_incarnation and getattr(loop, "state", None) is not None:
+            loop.state.include_cross_incarnation = True
 
-        get_mongodb_client().get_collection("conversations").update_one(
-            {"conversation_id": conversation_id},
-            {
-                "$set": {
-                    "pending_proposals": list(getattr(loop.state, "pending_proposals", []) or []),
-                    # Per-conversation lorebook switches from the character's directives.
-                    "lorebook_overrides": dict(getattr(loop.state, "lorebook_overrides", {}) or {}),
-                }
-            },
-        )
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in send_message)
-        log.warning("conversation_proposals_persist_failed", conversation_id=conversation_id, exc_info=True)
-        from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
-        from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+        try:
+            responses = await loop.step(text)
+        except ConversationClosedError as exc:
+            pop_loop(conversation_id)
+            raise KeyError(conversation_id) from exc
+        finally:
+            # Always reset the transient flag, even if step() raised.
+            if include_cross_incarnation and getattr(loop, "state", None) is not None:
+                loop.state.include_cross_incarnation = False
 
-        await RoleplayErrorRecorder.record(
-            source=RoleplayErrorSource.CHARACTER_CONVERSATION,
-            category=RoleplayErrorCategory.UNKNOWN,
-            message=str(exc),
-            fatal=False,
-            conversation_id=conversation_id,
-        )
+        # Durable outbox: persist accumulated proposals onto the conversation doc
+        # after every turn so a mid-session crash doesn't lose them (they used to
+        # live only in loop memory until close). Restored on resume.
+        try:
+            from monitor_data.db.mongodb import get_mongodb_client
 
-    # Reset the transient flag so subsequent steps default to strict scope.
-    if include_cross_incarnation and getattr(loop, "state", None) is not None:
-        loop.state.include_cross_incarnation = False
+            outbox = (
+                []
+                if getattr(loop, "_closed", False) is True
+                else list(getattr(loop.state, "pending_proposals", []) or [])
+            )
+            get_mongodb_client().get_collection("conversations").update_one(
+                {"conversation_id": conversation_id},
+                {
+                    "$set": {
+                        "pending_proposals": outbox,
+                        # Per-conversation lorebook switches from the character's directives.
+                        "lorebook_overrides": dict(getattr(loop.state, "lorebook_overrides", {}) or {}),
+                    }
+                },
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in send_message)
+            log.warning("conversation_proposals_persist_failed", conversation_id=conversation_id, exc_info=True)
+            from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+            from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
-    reply = responses[0] if responses else {}
-    return {
-        "text": reply.get("text", ""),
-        "emotional_state": reply.get("emotional_state"),
-        "relationship_snapshot": reply.get("relationship_snapshot", {}),
-    }
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.CHARACTER_CONVERSATION,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=str(exc),
+                fatal=False,
+                conversation_id=conversation_id,
+            )
+
+        if getattr(loop, "_closed", False) is True:
+            pop_loop(conversation_id)
+
+        reply = responses[0] if responses else {}
+        return {
+            "text": reply.get("text", ""),
+            "emotional_state": reply.get("emotional_state"),
+            "relationship_snapshot": reply.get("relationship_snapshot", {}),
+        }
 
 
 async def redistill_conversation(character_id: str, conversation_id: str, *, force: bool = False) -> dict[str, Any]:
@@ -752,30 +818,47 @@ async def end_conversation(conversation_id: str, character_id: str | None = None
     from the persisted transcript first so the accumulated proposal outbox
     still gets staged.
     """
-    loop = get_loop(conversation_id)
-    if loop is None and character_id:
-        loop = await resume_conversation(character_id, conversation_id)
-    if loop is None:
-        return {"ended": True, "proposals": 0}
-    proposals: list[Any] = []
-    try:
-        proposals = await loop.finish()
-        return {"ended": True, "proposals": len(proposals or [])}
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in end_conversation)
-        log.warning("conversation_finish_failed", conversation_id=conversation_id, exc_info=True)
-        from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
-        from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+    async with _get_conversation_lock(conversation_id):
+        cached = _LOOPS.get(conversation_id)
+        if cached is not None and not _loop_matches_character(cached, character_id):
+            return {"ended": False, "proposals": 0}
 
-        await RoleplayErrorRecorder.record(
-            source=RoleplayErrorSource.CHARACTER_CONVERSATION,
-            category=RoleplayErrorCategory.UNKNOWN,
-            message=str(exc),
-            fatal=True,
-            conversation_id=conversation_id,
-        )
-        return {"ended": False, "proposals": len(proposals or [])}
-    finally:
-        pop_loop(conversation_id)
+        loop = cached
+        if loop is None and character_id:
+            loop = await resume_conversation(character_id, conversation_id)
+        if loop is None:
+            return {"ended": True, "proposals": 0}
+        proposals: list[Any] = []
+        try:
+            proposals = await loop.finish()
+            return {"ended": True, "proposals": len(proposals or [])}
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in end_conversation)
+            log.warning("conversation_finish_failed", conversation_id=conversation_id, exc_info=True)
+            try:
+                from monitor_data.db.mongodb import get_mongodb_client
+
+                state = getattr(loop, "state", None)
+                remaining = getattr(state, "pending_proposals", None)
+                if isinstance(remaining, list):
+                    get_mongodb_client().get_collection("conversations").update_one(
+                        {"conversation_id": conversation_id},
+                        {"$set": {"pending_proposals": list(remaining)}},
+                    )
+            except Exception:  # noqa: BLE001  # reason: best-effort recovery outbox update
+                log.debug("conversation_recovery_outbox_update_failed", exc_info=True)
+            from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+            from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.CHARACTER_CONVERSATION,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=str(exc),
+                fatal=True,
+                conversation_id=conversation_id,
+            )
+            return {"ended": False, "proposals": len(proposals or [])}
+        finally:
+            pop_loop(conversation_id)
 
 
 def list_conversations(entity_id: str, limit: int = 20) -> list[dict[str, Any]]:
