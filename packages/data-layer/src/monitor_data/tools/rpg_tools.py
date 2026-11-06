@@ -58,6 +58,7 @@ from monitor_data.schemas.rpg_ontology import (
     TypedCharacterSheetCreate,
     TypedCharacterSheetResponse,
     TypedCharacterSheetUpdate,
+    validate_entity_data,
 )
 
 # ---------------------------------------------------------------------------
@@ -73,6 +74,18 @@ def _registry() -> GameSystemRegistry:
 def _spec_registry() -> SystemRegistry:
     """Return the new meta-schema registry (GameSystemSpec objects)."""
     return SystemRegistry()
+
+
+def _validated_sheet(system_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Validate a character sheet against its system's spec, from data rather than code.
+
+    Raises ValueError if the system is unknown and pydantic.ValidationError if the
+    sheet doesn't match.
+    """
+    spec = _spec_registry().get(system_id)
+    if spec is not None and "character" in spec.entity_types:
+        return validate_entity_data(spec, "character", data).model_dump(mode="json")
+    return _registry().parse_sheet(system_id, data).model_dump(mode="json")
 
 
 # ---------------------------------------------------------------------------
@@ -171,9 +184,7 @@ async def rpg_character_create(
     - ``entity_id`` is an existing Neo4j EntityInstance UUID
     """
     # Validate against the registered Pydantic schema
-    registry = _registry()
-    parsed_sheet = registry.parse_sheet(request.system_id, request.sheet_data)
-    validated_data = parsed_sheet.model_dump(mode="json")
+    validated_data = _validated_sheet(request.system_id, request.sheet_data)
 
     pool = await client._get_pool()
     async with pool.acquire() as conn:
@@ -276,9 +287,7 @@ async def rpg_character_update(
 
     # Merge and revalidate
     merged = {**current.sheet_data, **update.sheet_data}
-    registry = _registry()
-    parsed = registry.parse_sheet(current.system_id, merged)
-    validated = parsed.model_dump(mode="json")
+    validated = _validated_sheet(current.system_id, merged)
 
     pool = await client._get_pool()
     async with pool.acquire() as conn:
@@ -575,21 +584,13 @@ def rpg_validate_sheet(
     Returns ``{"valid": False, "errors": [...]}`` on validation failure.
     Never raises — safe to call from untrusted input paths.
     """
-    registry = _registry()
-    sheet_class = registry.get_sheet_class(system_id)
-    if sheet_class is None:
-        return {
-            "valid": False,
-            "errors": [f"Unknown game system: '{system_id}'"],
-        }
     try:
-        sheet_class.model_validate(sheet_data)
+        _validated_sheet(system_id, sheet_data)
         return {"valid": True, "errors": []}
-    except ValidationError as exc:
-        return {
-            "valid": False,
-            "errors": [str(e) for e in exc.errors()],
-        }
+    except ValidationError as exc:  # A ValueError too, so it's caught first.
+        return {"valid": False, "errors": [str(e) for e in exc.errors()]}
+    except ValueError as exc:  # Unknown system.
+        return {"valid": False, "errors": [str(exc)]}
 
 
 # ---------------------------------------------------------------------------
