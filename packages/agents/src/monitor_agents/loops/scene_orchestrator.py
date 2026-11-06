@@ -45,6 +45,8 @@ class SceneOrchestratorState(BaseModel):
     resolution_override: dict[str, Any] | None = None
     npc_target: str | None = None
     roll_rejection: str | None = None
+    # The roll request this turn consumed, restored if the turn fails.
+    consumed_dice_request: dict[str, Any] | None = None
 
     # Output
     response_text: str | None = None
@@ -253,13 +255,10 @@ async def prepare_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchest
     scene_input = state.user_content
     resolution_override = None
 
-    if resolved_roll is not None:
-        scene_input, resolution_override = resolved_roll
-        session.pop("pending_dice_request", None)
-        session["updated_at"] = callbacks.now_iso()
-        callbacks.db_save_session(session)
-    elif session.get("pending_dice_request"):
-        session.pop("pending_dice_request", None)
+    if resolved_roll is not None or session.get("pending_dice_request"):
+        if resolved_roll is not None:
+            scene_input, resolution_override = resolved_roll
+        state.consumed_dice_request = session.pop("pending_dice_request", None)
         session["updated_at"] = callbacks.now_iso()
         callbacks.db_save_session(session)
 
@@ -309,6 +308,12 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
             result = await loop.run(user_input=state.scene_input)
     except Exception as exc:
         logger.exception("SceneLoop turn failed (session=%s): %s", state.session_id, exc)
+        # Nothing was resolved, so the roll is still owed: put it back and re-offer it.
+        restored = state.consumed_dice_request
+        if restored:
+            session["pending_dice_request"] = restored
+            session["updated_at"] = callbacks.now_iso()
+            callbacks.db_save_session(session)
         if LLMProviderUnavailable is not None and isinstance(exc, LLMProviderUnavailable):
             state.response_text = exc.user_message
             state.metadata = {
@@ -319,14 +324,16 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
                 "scene_id": scene_id,
                 "error": exc.user_message,
             }
-            return state
-        state.response_text = "*(The GM is gathering their thoughts — try again in a moment.)*"
-        state.metadata = {
-            "agents_available": state.agents_available,
-            "story_id": story_id,
-            "scene_id": scene_id,
-            "error": str(exc),
-        }
+        else:
+            state.response_text = "*(The GM is gathering their thoughts — try again in a moment.)*"
+            state.metadata = {
+                "agents_available": state.agents_available,
+                "story_id": story_id,
+                "scene_id": scene_id,
+                "error": str(exc),
+            }
+        if restored:
+            state.metadata["dice_request"] = restored
         return state
 
     resolution = result.get("resolution") or {}
