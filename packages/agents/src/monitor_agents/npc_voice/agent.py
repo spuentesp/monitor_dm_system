@@ -120,6 +120,7 @@ class NPCVoice(BaseAgent):
         lorebook_context: list[str] | None = None,
         player_persona: str = "",
         character_card: str = "",
+        parse_directives: bool = False,
     ) -> dict[str, Any]:
         """
         Generate a direct in-character NPC response.
@@ -203,6 +204,13 @@ class NPCVoice(BaseAgent):
 
         # 5. Extract structured fields from prediction
         npc_response = prediction.npc_response
+        # Lorebook directives are commands, not speech: take them out before the
+        # reply is saved, remembered or shown.
+        directives: list[Any] = []
+        if parse_directives and isinstance(npc_response, str):
+            from monitor_agents.lorebook_directives import parse_output_directives
+
+            npc_response, directives = parse_output_directives(npc_response)
         emotional_state_after = prediction.emotional_state_after
         relationship_delta = prediction.relationship_delta
         relationship_snapshot_after = self._build_relationship_snapshot(
@@ -279,6 +287,7 @@ class NPCVoice(BaseAgent):
             "social_read": social_read,
             "relationship_snapshot": relationship_snapshot_after,
             "proposals": proposals,
+            "lorebook_directives": directives,
         }
 
     # ------------------------------------------------------------------

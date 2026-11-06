@@ -552,6 +552,7 @@ async def resume_conversation(character_id: str, conversation_id: str) -> Any | 
     loop.state.turns_count = len(loop.state.turns)
     # Restore the durable proposal outbox written after each turn (crash-safe).
     loop.state.pending_proposals = list(doc.get("pending_proposals") or [])
+    loop.state.lorebook_overrides = dict(doc.get("lorebook_overrides") or {})
     # Restore the bound persona so the voice prompt keeps using it.
     loop.state.player_persona = str(doc.get("player_persona") or "")
     char = get_character(character_id)
@@ -600,7 +601,13 @@ async def send_message(
 
         get_mongodb_client().get_collection("conversations").update_one(
             {"conversation_id": conversation_id},
-            {"$set": {"pending_proposals": list(getattr(loop.state, "pending_proposals", []) or [])}},
+            {
+                "$set": {
+                    "pending_proposals": list(getattr(loop.state, "pending_proposals", []) or []),
+                    # Per-conversation lorebook switches from the character's directives.
+                    "lorebook_overrides": dict(getattr(loop.state, "lorebook_overrides", {}) or {}),
+                }
+            },
         )
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in send_message)
         log.warning("conversation_proposals_persist_failed", conversation_id=conversation_id, exc_info=True)
