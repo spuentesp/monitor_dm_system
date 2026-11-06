@@ -125,8 +125,10 @@ def neo4j_create_entity(params: EntityCreate) -> EntityResponse:
     else:
         entity_props["state_tags"] = []
 
-    # Build creation query
-    extra_labels_str = "".join(extra_labels)
+    # Build creation query. The kind label comes first: parties, agendas, story
+    # lookups and the memory entity check all match on it.
+    kind_label = ":EntityArchetype" if params.is_archetype else ":EntityInstance"
+    extra_labels_str = kind_label + "".join(extra_labels)
     create_query = f"""
     MATCH (u:Universe {{id: $universe_id}})
     CREATE (e:Entity{extra_labels_str} $entity_props)
