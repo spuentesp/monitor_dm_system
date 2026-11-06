@@ -403,16 +403,6 @@ def neo4j_update_entity(entity_id: UUID, params: EntityUpdate) -> EntityResponse
         set_clauses.append("e.confidence = $confidence")
         update_params["confidence"] = confidence
 
-    # Optional backwards-compatible state-tag updates
-    state_tags_update = getattr(params, "state_tags_update", None)
-    if state_tags_update:
-        if state_tags_update.add:
-            set_clauses.append("e.state_tags = apoc.coll.toSet(e.state_tags + $add_tags)")
-            update_params["add_tags"] = state_tags_update.add
-        if state_tags_update.remove:
-            set_clauses.append("e.state_tags = [x IN e.state_tags WHERE NOT x IN $remove_tags]")
-            update_params["remove_tags"] = state_tags_update.remove
-
     if not set_clauses:
         existing = neo4j_get_entity(entity_id)  # Reuse getter logic which now includes fixes
         if existing is None:

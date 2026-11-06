@@ -939,6 +939,30 @@ def test_update_entity_invalid_params(
     result = neo4j_update_entity(UUID(entity_instance_data["id"]), params)
 
     assert result.description == "Updated description"
+    write_query = mock_neo4j_client.execute_write.call_args[0][0]
+    assert "apoc." not in write_query
+    assert "state_tags" not in write_query
+
+
+@patch("monitor_data.tools.neo4j_tools.entities.get_neo4j_client")
+def test_update_entity_ignores_extraneous_state_tags_update_attr(
+    mock_get_client: Mock,
+    mock_neo4j_client: Mock,
+    entity_instance_data: dict[str, Any],
+):
+    """Ensure neo4j_update_entity never runs the removed APOC state_tags_update branch."""
+    from types import SimpleNamespace
+
+    mock_get_client.return_value = mock_neo4j_client
+    mock_neo4j_client.execute_read.return_value = [{"e": entity_instance_data, "archetype_id": None}]
+
+    params = EntityUpdate(description=None)
+    object.__setattr__(params, "state_tags_update", SimpleNamespace(add=["wounded"], remove=["healthy"]))
+
+    result = neo4j_update_entity(UUID(entity_instance_data["id"]), params)
+
+    assert result.id == UUID(entity_instance_data["id"])
+    mock_neo4j_client.execute_write.assert_not_called()
 
 
 @patch("monitor_data.tools.neo4j_tools.entities.get_neo4j_client")
