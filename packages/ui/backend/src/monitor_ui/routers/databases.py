@@ -70,6 +70,14 @@ async def _timed_check(
 # ---------------------------------------------------------------------------
 
 
+_NEO4J_STATS_QUERY = (
+    "CALL { MATCH (n) RETURN count(n) AS nodeCount } "
+    "CALL { MATCH ()-[r]->() RETURN count(r) AS relCount } "
+    "CALL { CALL db.labels() YIELD label RETURN count(label) AS labelCount } "
+    "RETURN nodeCount, relCount, labelCount"
+)
+
+
 async def _probe_neo4j() -> DatabaseStatus:
     from neo4j import AsyncGraphDatabase
 
@@ -79,9 +87,9 @@ async def _probe_neo4j() -> DatabaseStatus:
         max_connection_lifetime=5,
     )
     async with driver.session() as session:
-        result = await session.run(
-            "CALL apoc.meta.stats() YIELD nodeCount, relCount, labelCount RETURN nodeCount, relCount, labelCount"
-        )
+        # Plain Cypher: APOC isn't installed by the compose stack, and a probe that
+        # needs it reports a working database as offline.
+        result = await session.run(_NEO4J_STATS_QUERY)
         row = await result.single()
     await driver.close()
     # reason: bare dict local — populated conditionally from apoc.meta.stats() row; the return is assigned into DatabaseStatus.stats (typed dict) so mypy sees Any at the assignment site without narrowing

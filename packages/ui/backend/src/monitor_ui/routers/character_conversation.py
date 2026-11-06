@@ -57,6 +57,10 @@ _conversatory_universe_id: str | None = None
 _LOOPS: OrderedDict[str, Any] = OrderedDict()
 _LOOPS_MAX = 64
 
+# NPCProfileCreate.gm_notes limit. The full notes stay on the card.
+_PROFILE_NOTES_MAX = 5000
+_CARD_PROMPT_MAX = 12000
+
 _CLIENT_FINGERPRINT_MESSAGES = 2
 
 
@@ -212,7 +216,7 @@ def _provision_entity_and_profile(universe_id: str, char: dict[str, Any], fields
             speech_style=fields.get("speech_style"),
             catchphrases=fields.get("catchphrases", []),
             triggers=triggers,
-            gm_notes=char.get("gm_notes") or "",
+            gm_notes=(char.get("gm_notes") or "")[:_PROFILE_NOTES_MAX],
             current_emotional_state=fields.get("current_emotional_state", "neutral"),
         )
     )
@@ -289,12 +293,13 @@ async def ensure_character_backed(
     from monitor_data.interop.card_macros import substitute_card_macros
 
     # Resolve {{char}}/{{user}} placeholders at render time — the stored card
-    # stays raw so an export round-trip remains faithful. {{user}} resolves to
-    # the bound persona's name, or the ST default ("User") when none is bound.
+    # stays raw so an export round-trip remains faithful. This profile is shared by
+    # every conversation with the incarnation, so {{user}} takes the neutral default;
+    # the bound persona's name goes into each conversation's character_card.
     char_rendered = {
         **char,
         **{
-            field: substitute_card_macros(str(char.get(field) or ""), char_name=char["name"], user_name=user_name)
+            field: substitute_card_macros(str(char.get(field) or ""), char_name=char["name"])
             for field in ("description", "personality", "gm_notes")
         },
     }
@@ -392,6 +397,23 @@ def pop_loop(conversation_id: str) -> None:
     _LOOPS.pop(conversation_id, None)
 
 
+def render_character_card(char: dict[str, Any], user_name: str | None) -> str:
+    """Render a card's text for one conversation, with that conversation's persona."""
+    from monitor_data.interop.card_macros import substitute_card_macros
+
+    sections = (
+        ("Description", char.get("description")),
+        ("Personality", char.get("personality")),
+        ("Scenario and author's notes", char.get("gm_notes")),
+    )
+    parts = [
+        f"{label}: {substitute_card_macros(str(text).strip(), char_name=char['name'], user_name=user_name)}"
+        for label, text in sections
+        if str(text or "").strip()
+    ]
+    return "\n\n".join(parts)[:_CARD_PROMPT_MAX]
+
+
 async def start_conversation(
     character_id: str,
     universe_id: str | None = None,
@@ -442,6 +464,7 @@ async def start_conversation(
         # for this conversation.
         lorebook_character_ids=[character_id],
         player_persona=persona_text,
+        character_card=render_character_card(char, user_name),
     )
     conversation_id = str(loop.state.conversation_id)
     _cache_loop(conversation_id, loop)
@@ -468,6 +491,12 @@ async def start_conversation(
     from monitor_data.interop.card_macros import substitute_card_macros
 
     opening = substitute_card_macros(opening_raw, char_name=char["name"], user_name=user_name)
+    # Only the card's own greeting is the character speaking; the fallback is narration.
+    if char.get("first_message"):
+        try:
+            await loop.add_opening(opening)
+        except Exception:  # noqa: BLE001  # reason: the chat works without it; the character just won't recall its greeting
+            log.warning("conversation_opening_persist_failed", conversation_id=conversation_id, exc_info=True)
     return {
         "conversation_id": conversation_id,
         "character_id": character_id,
@@ -591,8 +620,14 @@ async def resume_conversation(character_id: str, conversation_id: str) -> Any | 
     loop.state.turns_count = len(loop.state.turns)
     # Restore the durable proposal outbox written after each turn (crash-safe).
     loop.state.pending_proposals = list(doc.get("pending_proposals") or [])
+    loop.state.lorebook_overrides = dict(doc.get("lorebook_overrides") or {})
     # Restore the bound persona so the voice prompt keeps using it.
     loop.state.player_persona = str(doc.get("player_persona") or "")
+    char = get_character(character_id)
+    if char:
+        # player_persona is "name — description" (or just the name), as start_conversation built it.
+        user_name = loop.state.player_persona.split(" — ", 1)[0].strip() or None
+        loop.state.character_card = render_character_card(char, user_name)
     _cache_loop(conversation_id, loop)
     return loop
 
@@ -634,7 +669,13 @@ async def send_message(
 
         get_mongodb_client().get_collection("conversations").update_one(
             {"conversation_id": conversation_id},
-            {"$set": {"pending_proposals": list(getattr(loop.state, "pending_proposals", []) or [])}},
+            {
+                "$set": {
+                    "pending_proposals": list(getattr(loop.state, "pending_proposals", []) or []),
+                    # Per-conversation lorebook switches from the character's directives.
+                    "lorebook_overrides": dict(getattr(loop.state, "lorebook_overrides", {}) or {}),
+                }
+            },
         )
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in send_message)
         log.warning("conversation_proposals_persist_failed", conversation_id=conversation_id, exc_info=True)

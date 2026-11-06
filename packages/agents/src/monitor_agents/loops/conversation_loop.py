@@ -125,10 +125,48 @@ class ConversationState(BaseModel):
     # to. Empty when no persona is bound.
     player_persona: str = ""
 
+    # Rendered card text for a character imported from a card. Empty for story NPCs.
+    character_card: str = ""
+
+    # Lorebook entry id → active, set by the character's @@activate / @@deactivate
+    # directives. Applies to this conversation only; the lorebook isn't changed.
+    lorebook_overrides: dict[str, bool] = Field(default_factory=dict)
+
 
 # =============================================================================
 # NODES
 # =============================================================================
+
+
+def _with_exchange_applied(
+    npc_context: dict[str, Any],
+    result: dict[str, Any],
+    player_entity_id: UUID | None,
+    universe_id: UUID,
+) -> dict[str, Any]:
+    """Return the cached NPC context updated with this exchange's social state.
+
+    The context is loaded once per session, and NPCVoice computes each turn from
+    it. Without this, every turn starts again from the session's opening state.
+    """
+    profile = dict(npc_context.get("profile") or {})
+    emotion = result.get("emotional_state_after")
+    if emotion:
+        profile["current_emotional_state"] = emotion
+        profile["current_emotional_state_by_universe"] = {
+            **(profile.get("current_emotional_state_by_universe") or {}),
+            str(universe_id): emotion,
+        }
+
+    snapshot = {k: v for k, v in (result.get("relationship_snapshot") or {}).items() if k != "last_delta"}
+    if snapshot and player_entity_id is not None:
+        player = str(player_entity_id)
+        profile["relationship_states"] = {**(profile.get("relationship_states") or {}), player: snapshot}
+        by_universe = dict(profile.get("relationship_states_by_universe") or {})
+        by_universe[str(universe_id)] = {**(by_universe.get(str(universe_id)) or {}), player: snapshot}
+        profile["relationship_states_by_universe"] = by_universe
+
+    return {**npc_context, "profile": profile}
 
 
 def _extract_conversation_id(result: Any) -> UUID | None:
@@ -282,6 +320,11 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
     responses: list[dict[str, Any]] = []
     new_proposals: list[dict[str, Any]] = []
     new_turns: list[dict[str, Any]] = list(state.turns)
+    npc_contexts = dict(state.npc_contexts)
+    lorebook_overrides = dict(state.lorebook_overrides)
+    # process_player_turn already appended the line being answered.
+    latest = state.turns[-1] if state.turns else {}
+    prior_turns = state.turns[:-1] if latest.get("text") == state.current_player_input else state.turns
 
     # Lorebook scan — light-RP sessions carry the backing character id(s);
     # matched entries become world facts for the voice module. Best-effort:
@@ -289,7 +332,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
     lorebook_context: list[str] = []
     if state.lorebook_character_ids:
         try:
-            history = [t.get("text", "") for t in state.turns[-6:] if t.get("text")]
+            history = [t.get("text", "") for t in prior_turns[-6:] if t.get("text")]
             scan_config = await agent.call_tool(
                 "mongodb_get_scan_config", {"character_id": state.lorebook_character_ids[0]}
             )
@@ -302,6 +345,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     "config": scan_config if isinstance(scan_config, dict) else {},
                     "turn_index": len(state.turns),
                     "increment_triggers": True,
+                    "active_overrides": state.lorebook_overrides,
                 },
             )
             if isinstance(lore_result, dict):
@@ -320,7 +364,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     conversation_id=state.conversation_id,
                     npc_id=npc_id,
                     player_said=state.current_player_input,
-                    conversation_history=state.turns,
+                    conversation_history=prior_turns,
                     player_entity_id=state.player_entity_id,
                     scene_id=state.scene_id,
                     story_id=state.story_id,
@@ -333,11 +377,13 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     include_cross_incarnation=getattr(state, "include_cross_incarnation", False),
                     lorebook_context=lorebook_context,
                     player_persona=state.player_persona,
+                    character_card=state.character_card,
+                    parse_directives=bool(state.lorebook_character_ids),
                 )
                 npc_name = state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
                 # Lorebook output directives (@@activate / @@deactivate) are
-                # runtime commands, not prose: strip them from the visible
-                # text and toggle the targeted entries. Best-effort.
+                # runtime commands, not prose. NPCVoice strips them before saving;
+                # the parse here only covers a voice that didn't. Best-effort.
                 npc_text = result["npc_response"]
                 if state.lorebook_character_ids and isinstance(npc_text, str):
                     try:
@@ -346,9 +392,12 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                             parse_output_directives,
                         )
 
-                        npc_text, directives = parse_output_directives(npc_text)
+                        npc_text, leftover = parse_output_directives(npc_text)
+                        directives = [*(result.get("lorebook_directives") or []), *leftover]
                         if directives:
-                            await apply_lorebook_directives(agent, state.lorebook_character_ids, directives)
+                            lorebook_overrides = await apply_lorebook_directives(
+                                agent, state.lorebook_character_ids, directives, lorebook_overrides
+                            )
                     except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in generate_npc_responses)
                         logger.warning(
                             "conversation_loop: lorebook directives failed, continuing",
@@ -366,6 +415,10 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     }
                 )
                 new_proposals.extend(result.get("proposals", []))
+                if str(npc_id) in npc_contexts:
+                    npc_contexts[str(npc_id)] = _with_exchange_applied(
+                        npc_contexts[str(npc_id)], result, state.player_entity_id, state.universe_id
+                    )
                 new_turns.append(
                     {
                         "turn_index": len(new_turns),
@@ -381,7 +434,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     conversation_id=state.conversation_id,
                     npc_id=npc_id,
                     gm_question=state.current_player_input,
-                    conversation_history=state.turns,
+                    conversation_history=prior_turns,
                     source_profile=state.source_profile,
                     npc_data=state.npc_contexts.get(str(npc_id)),
                 )
@@ -424,6 +477,8 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
 
     return {
         "current_npc_responses": responses,
+        "npc_contexts": npc_contexts,
+        "lorebook_overrides": lorebook_overrides,
         "turns": new_turns,
         "pending_proposals": state.pending_proposals + new_proposals,
         "turns_count": state.turns_count + 1,
@@ -668,6 +723,7 @@ class ConversationLoop:
         player_entity_id: UUID | None = None,
         lorebook_character_ids: list[str] | None = None,
         player_persona: str | None = None,
+        character_card: str | None = None,
     ) -> None:
         self.state = ConversationState(
             conversation_id=conversation_id,
@@ -679,6 +735,7 @@ class ConversationLoop:
             player_entity_id=player_entity_id,
             lorebook_character_ids=lorebook_character_ids or [],
             player_persona=player_persona or "",
+            character_card=character_card or "",
         )
         self._graph = build_conversation_graph().compile()
         self._closed = False
@@ -699,6 +756,7 @@ class ConversationLoop:
         player_entity_id: UUID | None = None,
         lorebook_character_ids: list[str] | None = None,
         player_persona: str | None = None,
+        character_card: str | None = None,
     ) -> ConversationLoop:
         """Open a new ConversationSession and pre-load NPC context."""
         conversation_id = uuid4()
@@ -712,11 +770,42 @@ class ConversationLoop:
             player_entity_id=player_entity_id,
             lorebook_character_ids=lorebook_character_ids or [],
             player_persona=player_persona,
+            character_card=character_card,
         )
         # Run open_session + load_npc_context nodes
         result = await loop._graph.ainvoke(loop.state.model_dump())
         loop.state = ConversationState(**{**loop.state.model_dump(), **result})
         return loop
+
+    async def add_opening(self, text: str) -> None:
+        """Record the character's greeting, so they know what they said first."""
+        from monitor_agents.npc_voice.agent import NPCVoice
+
+        npc_id = self.state.npc_ids[0]
+        npc_name = self.state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
+        await NPCVoice().call_tool(
+            "mongodb_append_conversation_turn",
+            {
+                "conversation_id": str(self.state.conversation_id),
+                "params": {
+                    "speaker_role": "npc",
+                    "entity_id": str(npc_id),
+                    "entity_name": npc_name,
+                    "text": text,
+                    "emotional_state": None,
+                },
+            },
+        )
+        self.state.turns = [
+            *self.state.turns,
+            {
+                "turn_index": len(self.state.turns),
+                "speaker_role": "npc",
+                "entity_id": str(npc_id),
+                "entity_name": npc_name,
+                "text": text,
+            },
+        ]
 
     async def step(self, player_input: str) -> list[dict[str, Any]]:
         """
