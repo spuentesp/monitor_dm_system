@@ -42,6 +42,7 @@ from monitor_agents.game_system import GameSystemRuntime
 from monitor_agents.gm_awareness import (
     ActionType,
     CausalityAction,
+    IntentType,
     check_gm_awareness,
 )
 from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
@@ -461,6 +462,9 @@ class Resolver(BaseAgent):
         question_clean = (question or "").strip().rstrip("?.! ")
         if not question_clean:
             return None
+        # Without a universe the search would span every world's content.
+        if not universe_id:
+            return None
 
         # Try to identify the focal entity by extracting the noun phrase
         # after the lookup starter (e.g. "What is the Beast?" → "the Beast").
@@ -479,7 +483,7 @@ class Resolver(BaseAgent):
         # The retrieval service handles embedding + Qdrant search.
         try:
             retrieval = RetrievalService()
-            filters = {"universe_id": universe_id} if universe_id else None
+            filters = {"universe_id": universe_id}
             entity_hits = await retrieval.retrieve(
                 "entities",
                 question_clean,
@@ -706,47 +710,6 @@ class Resolver(BaseAgent):
         initial_action_type = "action"
         intent_type = _infer_intent_type(user_input or "", initial_action_type)
 
-        # Sub-plan 3 Task 1: LOOKUP routing. "What is X?" / "Explain X"
-        # questions need a RAG-based answer, not a yes/no oracle. The
-        # LLM verdict's intent_type is the authoritative signal; we
-        # additionally fall back to a regex when the LLM signal is
-        # missing or the verdict is unavailable.
-        if intent_type == "lookup" or (intent_type != "query" and _is_lookup_question(user_input or "")):
-            lookup_res = await self._handle_lookup(
-                question=user_input or "",
-                universe_id=context.get("universe_id") if context else None,
-            )
-            if lookup_res is not None:
-                return self._attach_gm_verdict(lookup_res)
-
-        # P-18: Oracle check for world-truth questions. The LLM verdict's
-        # intent_type is the authoritative signal; we additionally gate on a
-        # coarse "ends with '?'" check so the fallback case still routes
-        # here when a player asks a yes/no question.
-        if intent_type == "query" and _is_world_truth_question(user_input or ""):
-            from monitor_agents.oracle import Likelihood, Oracle
-
-            likelihood_str = _parse_likelihood_marker(user_input or "")
-            likelihood = Likelihood(likelihood_str)
-            oracle_res = Oracle().resolve_question(
-                question=user_input or "",
-                likelihood=likelihood,
-                tension_score=tension_score,
-            )
-            return self._attach_gm_verdict(
-                {
-                    "scene_id": scene_id,
-                    "action_type": "query",
-                    "intent_type": "query",
-                    "resolution_type": "oracle",
-                    "oracle_result": oracle_res,
-                    "success": oracle_res["is_yes"],
-                    "success_level": oracle_res["outcome"],
-                    "narrative_pressure": "increased" if oracle_res["is_exceptional"] else "stable",
-                    "proposals": [],
-                }
-            )
-
         # roll_type is a cosmetic label for the dice result; the LLM
         # verdict's action_type is what actually drove routing. Default
         # to "action" and let the schema-driven path override it.
@@ -891,6 +854,15 @@ class Resolver(BaseAgent):
         # below so dice turns still surface the GM's draft to the Narrator
         # (the Narrator reconciles draft against the rolled outcome).
         self._last_gm_verdict = gm_verdict  # type: ignore[assignment]
+
+        question_resolution = await self._route_question(
+            scene_id, user_input or "", context, tension_score, gm_verdict, intent_type
+        )
+        if question_resolution is not None:
+            # Oracle and lookup outcomes are the answer; a draft written without
+            # them would contradict it, so the Narrator works from the outcome.
+            self._last_gm_verdict = None
+            return self._attach_gm_verdict(question_resolution)
 
         # Capture the LLM verdict's roll_necessity *before* we may null the
         # verdict below — it's the principled fallback for the semantic
@@ -1253,6 +1225,59 @@ class Resolver(BaseAgent):
                 sc_eval=sc_eval,
             )
         )
+
+    async def _route_question(
+        self,
+        scene_id: str,
+        user_input: str,
+        context: dict[str, Any],
+        tension_score: float,
+        gm_verdict: Any | None,
+        shape_intent: str,
+    ) -> dict[str, Any] | None:
+        """Answer the turn from the oracle or from retrieval when it is a question.
+
+        A real GM verdict decides. Text shape is only consulted when there is no
+        real verdict, because a line like "Can I pick the lock?" is an action and
+        "Explain to the guard..." is dialogue.
+        """
+        gm_intent = getattr(gm_verdict, "intent_type", None)
+        verdict_is_real = gm_verdict is not None and not (
+            gm_intent == IntentType.ACTION and gm_verdict.action_type == ActionType.NONE
+        )
+
+        if verdict_is_real:
+            wants_lookup = gm_intent == IntentType.LOOKUP
+            wants_oracle = gm_intent == IntentType.QUERY and _is_world_truth_question(user_input)
+        else:
+            wants_lookup = shape_intent != "query" and _is_lookup_question(user_input)
+            wants_oracle = shape_intent == "query" and _is_world_truth_question(user_input)
+
+        if wants_lookup:
+            lookup = await self._handle_lookup(question=user_input, universe_id=context.get("universe_id"))
+            if lookup is not None:
+                return lookup
+
+        if wants_oracle:
+            from monitor_agents.oracle import Likelihood, Oracle
+
+            oracle_res = Oracle().resolve_question(
+                question=user_input,
+                likelihood=Likelihood(_parse_likelihood_marker(user_input)),
+                tension_score=tension_score,
+            )
+            return {
+                "scene_id": scene_id,
+                "action_type": "query",
+                "intent_type": "query",
+                "resolution_type": "oracle",
+                "oracle_result": oracle_res,
+                "success": oracle_res["is_yes"],
+                "success_level": oracle_res["outcome"],
+                "narrative_pressure": "increased" if oracle_res["is_exceptional"] else "stable",
+                "proposals": [],
+            }
+        return None
 
     def _execute_roll(
         self,

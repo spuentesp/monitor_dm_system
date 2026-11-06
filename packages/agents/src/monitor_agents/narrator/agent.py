@@ -1287,6 +1287,9 @@ class Narrator(BaseAgent):
             lik = ora.get("likelihood")
             return f"ORACLE RESOLUTION: Result is {out} (Yes: {is_yes}) based on {lik} likelihood. Ground your description in this fixed truth."
 
+        if res_type == "rag_lookup":
+            return f"LOOKUP RESULT: Answer the player from this material and do not contradict it.\n{resolution.get('answer', '')}"
+
         # Propose-roll: GM should invite the player to roll, not narrate an outcome
         if res_type == "propose_roll":
             stat_label = stat or "the relevant stat"
