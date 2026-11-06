@@ -40,6 +40,7 @@ _ST_BOOL_FIELDS = {
 }
 
 _ST_INT_FIELDS = {
+    "insertion_order": "order",
     "order": "order",
     "position": "position",
     "depth": "depth",
@@ -448,16 +449,26 @@ def build_character_book(
     description: str = "",
     config: LorebookScanConfig | None = None,
 ) -> dict[str, Any]:
-    """Build a ``character_book`` dict suitable for embedding in chara_card_v2."""
+    """Build a ``character_book`` dict suitable for embedding in chara_card_v2.
+
+    Per TavernCard V2 / CCv2, ``character_book.entries`` is an array of entry
+    objects (unlike standalone SillyTavern World Info, which keys entries by
+    string index).
+    """
     book = build_st_lorebook(entries, name=name, description=description, config=config)
-    # CCv2 readers take on/off from "enabled"; "disable" stays for World Info readers.
-    for entry in book["entries"].values():
-        entry["enabled"] = not entry.get("disable", False)
+    card_entries: list[dict[str, Any]] = []
+    for idx, entry in enumerate(book["entries"].values()):
+        card_entry = dict(entry)
+        card_entry.setdefault("id", idx)
+        card_entry.setdefault("insertion_order", card_entry.get("order", 100))
+        # CCv2 readers take on/off from "enabled"; "disable" stays for World Info readers.
+        card_entry["enabled"] = not card_entry.get("disable", False)
+        card_entries.append(card_entry)
     return {
         "name": book["name"],
         "description": book["description"],
         "scan_depth": book["scan_depth"],
         "token_budget": book["token_budget"],
         "recursive_scanning": book["recursive_scanning"],
-        "entries": book["entries"],
+        "entries": card_entries,
     }
