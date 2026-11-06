@@ -211,3 +211,31 @@ async def test_pending_choice_lets_ooc_and_end_scene_through(harness: _Harness) 
     assert metadata["type"] == "end_scene"
     assert "pending_consequence" not in harness.sessions[SESSION_ID]
     assert "pending_consequence" not in harness.db[SESSION_ID]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_roll_turn_keeps_the_roll_pending(harness: _Harness) -> None:
+    await harness.turn("I climb the wall")
+
+    async def broken(user_input: str, resolution_override: dict[str, Any] | None = None) -> dict[str, Any]:
+        raise RuntimeError("narration crashed")
+
+    harness.loop.run = broken
+    _, metadata = await harness.turn("[ROLL REQUEST] STR check: roll 1d20+1.")
+
+    assert harness.sessions[SESSION_ID]["pending_dice_request"]["stat"] == "STR"
+    assert harness.db[SESSION_ID]["pending_dice_request"]["stat"] == "STR"
+    assert metadata["dice_request"]["stat"] == "STR"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_turn_after_moving_on_keeps_the_roll_pending(harness: _Harness) -> None:
+    await harness.turn("I climb the wall")
+
+    async def broken(user_input: str, resolution_override: dict[str, Any] | None = None) -> dict[str, Any]:
+        raise RuntimeError("narration crashed")
+
+    harness.loop.run = broken
+    await harness.turn("Actually, I look for another way up.")
+
+    assert harness.sessions[SESSION_ID]["pending_dice_request"]["stat"] == "STR"
