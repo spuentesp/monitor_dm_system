@@ -131,6 +131,17 @@ point at MONITOR as a backend by configuring the URL to
   `stream=true` is rejected (HTTP 400) — the conversation loop is
   non-streaming today; reply is one assistant message.
 
+**Continuity:** clients resend their history instead of holding a session id,
+so a request with only `character_id` finds its conversation from the last two
+messages before the new player line, within active conversations for that
+character and persona. No match opens a new conversation, which is what a new
+chat in the client should do. The response also returns `monitor_session_id`
+for clients that can pass it back. In session mode the server's transcript and
+the character card are the authority: the client's system prompt and older
+messages are not used. If the client edits or rewrites a message, the history no
+longer matches and a new conversation opens. Regenerating a reply continues the
+same conversation, so the earlier attempt stays in the server's transcript.
+
 **Card binding:** session mode threads a `persona_character_id` through
 `start_conversation` for the same `{{user}}` / voice-prompt depth that the
 native light-RP surface has. The character card itself rides on
@@ -194,7 +205,5 @@ user-facing diff view are the next tightening pass.
 - **Canon promotion dedup + conflict UX** — the v1 promotion writes
   proposals directly; Qdrant semantic dedup and the "3 conflicts, pick
   per item" diff view are the next layer.
-- **Inbound OpenAI-compatible endpoint** — RisuAI/SillyTavern cannot yet
-  point at MONITOR as a `/v1/chat/completions` backend.
 - **Canon promotion of imported cards** — imports land in the light-RP
   store; the proposal/entity-resolution pipeline is separate future work.
