@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 from monitor_agents.loops.scene_orchestrator_support import (
     _ROLL_REQUEST_MARKER,
+    _manual_roll_rejection,
+    _resolved_roll_from_pending,
     _server_roll_from_pending,
 )
 
@@ -88,3 +90,55 @@ def test_scene_loop_signature_tracks_roll_model():
     sig_tap = scene_loop_signature({**base, "roll_model": "tap"}, scene_id="s", story_id="t")
     sig_gm = scene_loop_signature({**base, "roll_model": "gm"}, scene_id="s", story_id="t")
     assert sig_tap != sig_gm
+
+
+def _manual_session(**over):
+    return {"roll_model": "manual", "pending_dice_request": _pending(**over)}
+
+
+def _result(spec: str, dice: str, total: int) -> str:
+    return f"[DICE RESULT] FIN check: rolled {spec}{dice} = {total}. Continue."
+
+
+def test_manual_roll_at_the_limits_of_the_spec_is_accepted():
+    for dice, total in ((" [1]", 3), (" [20]", 22), ("", 3), ("", 22)):
+        assert _manual_roll_rejection(_manual_session(), _result("1d20+2", dice, total)) is None
+
+
+def test_manual_roll_outside_the_spec_is_rejected():
+    for total in (2, 23, 999):
+        assert _manual_roll_rejection(_manual_session(), _result("1d20+2", "", total))
+
+
+def test_manual_roll_with_inconsistent_dice_is_rejected():
+    for dice, total in ((" [21]", 22), (" [5]", 20), (" [5, 6]", 13), (" [0]", 2)):
+        assert _manual_roll_rejection(_manual_session(), _result("1d20+2", dice, total))
+
+
+def test_claimed_spec_cannot_widen_the_range():
+    session = _manual_session()
+    content = _result("1d20+50", "", 60)
+    assert _manual_roll_rejection(session, content)
+    assert _resolved_roll_from_pending(session, content) is None
+
+
+def test_typed_roll_needs_the_manual_roll_model():
+    content = _result("1d20+2", " [10]", 12)
+    for roll_model in ("tap", "gm", None):
+        session = {"roll_model": roll_model, "pending_dice_request": _pending()}
+        assert _manual_roll_rejection(session, content)
+        assert _resolved_roll_from_pending(session, content) is None
+
+
+def test_guard_ignores_messages_that_are_not_pending_rolls():
+    assert _manual_roll_rejection({"roll_model": "tap"}, _result("1d20", "", 10)) is None
+    assert _manual_roll_rejection(_manual_session(), "I keep working the panel") is None
+
+
+def test_manual_natural_uses_the_spec_modifier_for_roll_under():
+    session = _manual_session(spec="1d20", modifier=3, difficulty_class=10, roll_under=True)
+    resolved = _resolved_roll_from_pending(session, _result("1d20", "", 12))
+    assert resolved is not None
+    # natural 12 <= target 13 (DC 10 + 3); subtracting the modifier would misread it as 9.
+    assert "1d20(12)" in resolved[1]["roll_breakdown"]
+    assert resolved[1]["roll_detail"]["spec"] == "1d20"

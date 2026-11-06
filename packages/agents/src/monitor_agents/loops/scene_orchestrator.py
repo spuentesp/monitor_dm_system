@@ -1,12 +1,13 @@
 import uuid
 import logging
 from typing import Any
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, SkipValidation
 
 from langgraph.graph import StateGraph, START, END
 
 from monitor_agents.loops.story_loop import StoryLoop
 from monitor_agents.loops.scene_orchestrator_support import (
+    _manual_roll_rejection,
     _server_roll_from_pending,
     _resolved_roll_from_pending,
     _dice_request_from_resolution,
@@ -23,7 +24,9 @@ class SceneOrchestratorState(BaseModel):
 
     session_id: str
     user_content: str
-    session: dict[str, Any]
+    # SkipValidation keeps the caller's dict: validating dict[str, Any] copies it,
+    # and the caller re-saves its own dict after the turn, dropping our changes.
+    session: SkipValidation[dict[str, Any]]
     actor_context: dict[str, Any] | None = None
 
     # Callbacks from Layer 3 to avoid circular imports
@@ -41,6 +44,7 @@ class SceneOrchestratorState(BaseModel):
     scene_input: str = ""
     resolution_override: dict[str, Any] | None = None
     npc_target: str | None = None
+    roll_rejection: str | None = None
 
     # Output
     response_text: str | None = None
@@ -58,8 +62,20 @@ async def evaluate_intent(state: SceneOrchestratorState) -> SceneOrchestratorSta
         callbacks.db_save_session(session)
 
     # 1. Pending consequence choice
+    # Table talk and ending the scene stay available so the prompt can't trap the player.
     if session.get("pending_consequence") and session["pending_consequence"].get("options"):
-        state.next_node = "handle_pending_choice"
+        if callbacks.is_ooc_question(state.user_content):
+            state.next_node = "handle_ooc"
+        elif callbacks.is_end_scene_command(state.user_content):
+            state.next_node = "handle_end_scene"
+        else:
+            state.next_node = "handle_pending_choice"
+        return state
+
+    # A submitted roll the server can't accept: keep the request open for a retry.
+    state.roll_rejection = _manual_roll_rejection(session, state.user_content)
+    if state.roll_rejection:
+        state.next_node = "handle_rejected_roll"
         return state
 
     # 2. OOC Question
@@ -111,6 +127,19 @@ async def handle_pending_choice(state: SceneOrchestratorState) -> SceneOrchestra
         # Fallback if somehow None was returned
         state.response_text = "Missing consequence options."
         state.metadata = {}
+    return state
+
+
+async def handle_rejected_roll(state: SceneOrchestratorState) -> SceneOrchestratorState:
+    pending = state.session.get("pending_dice_request") or {}
+    state.response_text = state.roll_rejection
+    state.metadata = {
+        "type": "dice_roll_rejected",
+        "phase": state.session.get("phase", "active_play"),
+        "dice_request": dict(pending),
+        "story_id": state.story_id,
+        "scene_id": state.scene_id,
+    }
     return state
 
 
@@ -181,6 +210,12 @@ async def handle_end_scene(state: SceneOrchestratorState) -> SceneOrchestratorSt
         db_load_messages=callbacks.db_load_messages,
         bootstrap_story_scene=callbacks.bootstrap_story_scene,
     )
+    # Prompts from the finished scene must not carry into the next one.
+    if meta.get("type") == "end_scene":
+        state.session.pop("pending_consequence", None)
+        state.session.pop("pending_dice_request", None)
+        state.session["updated_at"] = callbacks.now_iso()
+        callbacks.db_save_session(state.session)
     state.response_text = resp
     state.metadata = meta
     return state
@@ -447,6 +482,7 @@ class SceneOrchestrator:
         builder = StateGraph(SceneOrchestratorState)
         builder.add_node("evaluate_intent", evaluate_intent)
         builder.add_node("handle_pending_choice", handle_pending_choice)
+        builder.add_node("handle_rejected_roll", handle_rejected_roll)
         builder.add_node("handle_ooc", handle_ooc)
         builder.add_node("handle_end_conversation", handle_end_conversation)
         builder.add_node("handle_conversation", handle_conversation)
@@ -462,6 +498,7 @@ class SceneOrchestrator:
             route_intent,
             {
                 "handle_pending_choice": "handle_pending_choice",
+                "handle_rejected_roll": "handle_rejected_roll",
                 "handle_ooc": "handle_ooc",
                 "handle_end_conversation": "handle_end_conversation",
                 "handle_conversation": "handle_conversation",
@@ -473,6 +510,7 @@ class SceneOrchestrator:
         )
 
         builder.add_edge("handle_pending_choice", END)
+        builder.add_edge("handle_rejected_roll", END)
         builder.add_edge("handle_ooc", END)
         builder.add_edge("handle_end_conversation", END)
         builder.add_edge("handle_conversation", END)
