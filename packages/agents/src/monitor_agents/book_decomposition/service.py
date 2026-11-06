@@ -26,13 +26,13 @@ from monitor_data.tools.mongodb_tools.knowledge_packs import (
 from monitor_agents.book_decomposition.extractor import WindowExtractor
 from monitor_agents.book_decomposition.held_claims import (
     accepted_claims,
+    build_trees,
     load_decisions,
     open_count,
     pack_id_for,
 )
 from monitor_agents.book_decomposition.knowledge_graph import (
     GraphModel,
-    build_domain_tree,
     build_graphs,
     graph_fingerprint,
 )
@@ -180,13 +180,10 @@ async def decompose_book(
                 publish()
                 return DecomposeResult(DecomposeStatus.PAUSED, progress)
             save_graphs(key, graphs, domains)
-        save_domain_trees(
-            key,
-            {domain: build_domain_tree(tree, review.claims, domains, domain) for domain in ("rules", "lore")},
-        )
-
         decisions = load_decisions(key)
-        mapped = map_claims([*review.claims, *accepted_claims(review.ledger, decisions, tree)], tree)
+        claims = [*review.claims, *accepted_claims(review.ledger, decisions, tree)]
+        save_domain_trees(key, build_trees(tree, claims, domains))
+        mapped = map_claims(claims, tree)
         if mapped.held_back:
             mongodb_upsert_book_records(
                 key,

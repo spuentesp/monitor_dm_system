@@ -17,6 +17,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 import structlog
 from monitor_data.schemas.book_graph import (
+    AtomKind,
     BookRecord,
     BookRecordType,
     BookTree,
@@ -38,8 +39,9 @@ from monitor_data.tools.mongodb_tools.knowledge_packs import (
 )
 from pydantic import BaseModel, Field
 
+from monitor_agents.book_decomposition.knowledge_graph import TreeNode, build_domain_tree
 from monitor_agents.book_decomposition.pack_mapper import map_claims, rules_system
-from monitor_agents.book_decomposition.store import load_tree
+from monitor_agents.book_decomposition.store import load_tree, save_domain_trees
 
 log = structlog.get_logger()
 
@@ -168,7 +170,27 @@ def as_reviewed_claim(entry: LedgerEntry, statement: str, tree: BookTree) -> Rev
         source_node_ids=[node_id for node_id in entry.source_node_ids if node_id in known],
         pages=pages,
         merged_from=[],
+        domain="rules" if entry.kind == AtomKind.RULE else "lore",
     )
+
+
+def build_trees(book: BookTree, claims: Sequence[ReviewedClaim], domains: dict[str, str]) -> dict[str, TreeNode]:
+    """The rules and lore trees. A graph's choice of domain wins over the claim's own."""
+    chosen = {claim.id: claim.domain for claim in claims} | domains
+    placed = [claim for claim in claims if claim.source_node_ids]
+    return {domain: build_domain_tree(book, placed, chosen, domain) for domain in ("rules", "lore")}
+
+
+def _rebuild_trees(doc_id: str, book: BookTree) -> None:
+    """Put a newly accepted claim in its tree, alongside the claims review kept."""
+    ledger = list(_ledger(doc_id).values())
+    kept_ids = {e.claim_id for e in ledger if e.status in (ClaimStatus.ACCEPTED, ClaimStatus.CORRECTED)}
+    records = mongodb_list_book_records(doc_id, BookRecordType.CLAIM)
+    kept = [ReviewedClaim.model_validate(r.data) for r in records if r.key in kept_ids]
+    reports = {r.key: r.data for r in mongodb_list_book_records(doc_id, BookRecordType.REPORT)}
+    domains = reports.get("claim-domains") or {}
+    claims = [*kept, *accepted_claims(ledger, load_decisions(doc_id), book)]
+    save_domain_trees(doc_id, build_trees(book, claims, domains))
 
 
 def accepted_claims(
@@ -247,16 +269,21 @@ def decide_held_claim(doc_id: str, claim_id: str, *, accept: bool, statement: st
             statement=wording or _statement(entry),
             decided_at=datetime.now(UTC),
         )
+        tree = load_tree(doc_id) if accept else None
         if accept:
-            tree = load_tree(doc_id)
             if tree is None:
                 raise HeldClaimConflict("The book's text isn't stored, so the claim can't cite it.")
-            _add_to_pack(doc_id, as_reviewed_claim(entry, decision.statement, tree), tree)
+            claim = as_reviewed_claim(entry, decision.statement, tree)
+            if not claim.source_node_ids:
+                raise HeldClaimConflict("This claim's sentences aren't in the stored book, so it can't cite them.")
+            _add_to_pack(doc_id, claim, tree)
         mongodb_upsert_book_records(
             doc_id,
             BookRecordType.DECISION,
             [BookRecord(key=claim_id, data=decision.model_dump(mode="json"))],
         )
+        if tree is not None:
+            _rebuild_trees(doc_id, tree)
     log.info("held_claim_decided", doc_id=doc_id, claim_id=claim_id, accepted=accept)
     return decision
 

@@ -519,3 +519,32 @@ async def test_a_decision_on_the_job_lowers_its_count(mongo):
     assert ingestion_jobs.mongodb_get_ingestion_job(job.job_id).decomposition.claims_for_review == 0
     with pytest.raises(held_claims.HeldClaimNotFound):
         held_claims_for_job(_source_job().job_id)
+
+
+def _tree_claim_ids(mongo_doc):
+    def walk(node):
+        yield from node["claim_ids"]
+        for child in node["children"]:
+            yield from walk(child)
+
+    records = storage.mongodb_list_book_records(mongo_doc, BookRecordType.REPORT)
+    return {cid for r in records if r.key == "tree-rules" for cid in walk(r.data)}
+
+
+@pytest.mark.unit
+async def test_an_accepted_claim_joins_the_rules_tree_and_stays_after_a_rerun(mongo):
+    doc, _, claim = await _held(mongo)
+    assert claim.claim_id not in _tree_claim_ids(str(doc))
+    before = len(_tree_claim_ids(str(doc)))
+    held_claims.decide_held_claim(str(doc), claim.claim_id, accept=True)
+    after = _tree_claim_ids(str(doc))
+    assert claim.claim_id in after and len(after) == before + 1
+    await _run(_pdf(), doc, uuid.uuid4(), _Extractor(), _DoubtingReview())
+    assert _tree_claim_ids(str(doc)) == after
+
+
+@pytest.mark.unit
+async def test_a_rejected_claim_stays_out_of_the_tree(mongo):
+    doc, _, claim = await _held(mongo)
+    held_claims.decide_held_claim(str(doc), claim.claim_id, accept=False)
+    assert claim.claim_id not in _tree_claim_ids(str(doc))
