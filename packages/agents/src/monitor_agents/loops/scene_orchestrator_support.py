@@ -192,6 +192,7 @@ def _build_dice_resolution(
         roll_mode = "normal"
 
     is_pool = pending.get("mechanic_type") == "dice_pool" or pending.get("pool_size") is not None
+    success: bool | None
     if is_pool:
         try:
             threshold = int(pending.get("success_threshold") or dc or 6)

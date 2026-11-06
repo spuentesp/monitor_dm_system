@@ -675,10 +675,11 @@ async def run_end_scene(
             # Task 8: memory hygiene — drop stale, low-importance, never-recalled
             # memories. Best-effort; failure must not break scene transition.
             try:
+                from functools import partial
                 from monitor_data.tools.mongodb_tools import mongodb_forget_stale_memories
+
                 forget_count = await anyio.to_thread.run_sync(
-                    mongodb_forget_stale_memories,
-                    story_id=uuid.UUID(story_id),
+                    partial(mongodb_forget_stale_memories, story_id=uuid.UUID(story_id))
                 )
                 if forget_count:
                     logger.info("run_end_scene: forgot %d stale memories", forget_count)
