@@ -1796,6 +1796,13 @@ class SceneLoop:
                 # Undoing Turn 1 restores the pre-turn-1 initial scene state.
                 restored_values = {**dict(history[-1].values or {}), **base_defaults}
 
+            # The turn also wrote outside the checkpoint. Undo that first, and only
+            # rewind the checkpoint once it worked, so the two never disagree.
+            restore_point = prev_turn_state if prev_turn_state is not None else history[-1]
+            rewind = await _rewind_scene_writes(self.scene_id, restore_point.created_at, restored_values)
+            if "error" in rewind:
+                return rewind
+
             restored_suggestions: list[ImageSuggestion] = []
             for item in restored_values.get("image_suggestions") or []:
                 if isinstance(item, ImageSuggestion):
@@ -1809,8 +1816,55 @@ class SceneLoop:
                 config,  # type: ignore[arg-type]
                 restored_values,
             )
+            PersistenceService.clear_scene_runtime_cache(self.scene_id)
 
-            return restored_values
+            return {**restored_values, "undone": rewind}
+
+
+async def _rewind_scene_writes(
+    scene_id: UUID, restore_point: str | None, restored_values: dict[str, Any]
+) -> dict[str, Any]:
+    """Remove what the scene wrote after the restore point; P-7.
+
+    Returns what was undone, or ``{"error": ...}``. A refusal changes nothing. A database
+    failure can leave the rewind part done, and running it again finishes it, since it
+    deletes by the same boundary.
+    """
+    import anyio
+    from monitor_data.schemas.vectors import VectorDeleteRequest
+    from monitor_data.tools.mongodb_tools.scene_rewind import SceneRewindRefused, mongodb_rewind_scene
+    from monitor_data.tools.qdrant_tools import qdrant_delete
+
+    if not restore_point:
+        return {"error": "Cannot backtrack: the checkpoint has no time, so its later writes can't be found."}
+    since = datetime.fromisoformat(restore_point)
+    earlier: dict[str, dict[str, Any]] = {}
+    snapshot = restored_values.get("working_state")
+    if isinstance(snapshot, dict) and snapshot.get("state_id"):
+        earlier[str(snapshot["state_id"])] = snapshot
+    try:
+        result = await anyio.to_thread.run_sync(
+            functools.partial(mongodb_rewind_scene, scene_id, since, working_states=earlier)
+        )
+    except SceneRewindRefused as exc:
+        return {"error": str(exc)}
+    except Exception as exc:  # noqa: BLE001  # reason: reported to the player; the checkpoint stays put and a retry finishes the job
+        logger.warning("backtrack: rewinding scene %s failed: %s", scene_id, exc)
+        return {
+            "error": (
+                "The turn may be partly undone: the database stopped responding. "
+                "Run /backtrack again to finish; it picks up where this stopped."
+            )
+        }
+    for memory_id in result.memory_ids_removed:
+        try:
+            await anyio.to_thread.run_sync(
+                qdrant_delete, VectorDeleteRequest(collection="memories", id=UUID(memory_id))
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: the memory is gone from MongoDB; a stale vector is reported, not fatal
+            logger.warning("backtrack: memory vector %s not deleted: %s", memory_id, exc)
+            result.not_undone.append(f"memory {memory_id}: its search vector is still stored")
+    return result.model_dump()
 
 
 _NON_COMBATANT_ENTITY_TYPES = frozenset(
