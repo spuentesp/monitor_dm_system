@@ -177,7 +177,9 @@ class NPCVoice(BaseAgent):
             npc_role=npc_data["role"],
             npc_facts=npc_data.get("facts", []),
         )
-        prediction = self._direct_module(
+        # DSPy calls are synchronous; on the event loop one would stall the whole backend.
+        prediction = await asyncio.to_thread(
+            self._direct_module,
             npc_name=npc_data["name"],
             npc_role=npc_data["role"],
             personality_summary=self._format_personality(profile, relationship_snapshot_before),
@@ -318,7 +320,8 @@ class NPCVoice(BaseAgent):
             npc_role=npc_data["role"],
             npc_facts=npc_data.get("facts", []),
         )
-        prediction = self._actor_module(
+        prediction = await asyncio.to_thread(
+            self._actor_module,
             npc_name=npc_data["name"],
             full_profile=json.dumps(profile, default=str),
             story_context=story_context,
@@ -587,15 +590,15 @@ class NPCVoice(BaseAgent):
 
         if parsed:
             axis, delta = parsed
-            magnitude = abs(delta)
             if axis in {"trust", "confidence", "respect"}:
                 snapshot["trust"] = self._clamp_social_value(snapshot.get("trust", 0.0) + delta)
                 deltas["trust"] = round(delta, 3)
             elif axis in {"hostility", "anger", "resentment", "suspicion", "distrust"}:
-                snapshot["trust"] = self._clamp_social_value(snapshot.get("trust", 0.0) - magnitude)
-                snapshot["affinity"] = self._clamp_social_value(snapshot.get("affinity", 0.0) - (magnitude * 0.5))
-                snapshot["fear"] = self._clamp_social_value(snapshot.get("fear", 0.0) + (magnitude * 0.25))
-                deltas["trust"] = round(-magnitude, 3)
+                # These axes run opposite to trust, so a negative delta is hostility easing.
+                snapshot["trust"] = self._clamp_social_value(snapshot.get("trust", 0.0) - delta)
+                snapshot["affinity"] = self._clamp_social_value(snapshot.get("affinity", 0.0) - (delta * 0.5))
+                snapshot["fear"] = self._clamp_social_value(snapshot.get("fear", 0.0) + (delta * 0.25))
+                deltas["trust"] = round(-delta, 3)
             elif axis in {"affinity", "friendship", "warmth", "admiration", "loyalty"}:
                 snapshot["affinity"] = self._clamp_social_value(snapshot.get("affinity", 0.0) + delta)
                 deltas["affinity"] = round(delta, 3)
@@ -769,7 +772,8 @@ class NPCVoice(BaseAgent):
             )
             trust_after = relationship_snapshot.get("trust", 0.0)
             affinity_after = relationship_snapshot.get("affinity", 0.0)
-            if axis in {"hostility", "anger", "resentment", "suspicion", "distrust"} or trust_after <= -0.2:
+            rising_hostility = axis in {"hostility", "anger", "resentment", "suspicion", "distrust"} and delta > 0
+            if rising_hostility or trust_after <= -0.2:
                 rel_type = "HOSTILE_TO"
             elif axis in {"trust", "respect", "affinity", "admiration", "loyalty"} and (
                 trust_after >= 0.35 or affinity_after >= 0.3
