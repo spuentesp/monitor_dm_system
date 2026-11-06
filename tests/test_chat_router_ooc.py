@@ -310,12 +310,6 @@ async def test_scene_end_phase_transitions_in_run_end_scene(monkeypatch):
 
 def test_ooc_question_detector_distinguishes_meta_from_action():
     assert (
-        chat_support.is_ooc_question(
-            "What kind of character can I play in Death in Space?"
-        )
-        is True
-    )
-    assert (
         chat_support.is_ooc_question("Out of character, how do rolls work here?")
         is True
     )
@@ -325,21 +319,22 @@ def test_ooc_question_detector_distinguishes_meta_from_action():
         )
         is True
     )
-    assert (
-        chat_support.is_ooc_question(
-            "What looks most dangerous about this salvage job before I commit?"
-        )
-        is True
-    )
-    assert (
-        chat_support.is_ooc_question(
-            "If there's something I should know about the risk, tell me."
-        )
-        is True
-    )
+    assert chat_support.is_ooc_question("OOC: can I reroll that check?") is True
+    assert chat_support.is_ooc_question("/ooc what is my current armor?") is True
     assert (
         chat_support.normalize_ooc_text("((what system do we use?))")
         == "what system do we use?"
+    )
+    # Unmarked in-character speech and in-world questions must reach SceneLoop / GMAgent.
+    assert (
+        chat_support.is_ooc_question(
+            "Explain to the dock officer that I'm only here for salvage rights."
+        )
+        is False
+    )
+    assert (
+        chat_support.is_ooc_question("Is the corridor beyond the airlock pressurised?")
+        is False
     )
     assert (
         chat_support.is_ooc_question("I listen at the airlock and draw my cutter.")

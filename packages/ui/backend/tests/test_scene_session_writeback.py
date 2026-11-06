@@ -239,3 +239,26 @@ async def test_a_failed_turn_after_moving_on_keeps_the_roll_pending(harness: _Ha
     await harness.turn("Actually, I look for another way up.")
 
     assert harness.sessions[SESSION_ID]["pending_dice_request"]["stat"] == "STR"
+
+
+@pytest.mark.asyncio
+async def test_unsolicited_dice_result_without_pending_roll_is_rejected_before_gm(harness: _Harness) -> None:
+    runs_before = len(harness.overrides)
+
+    text, metadata = await harness.turn(FORGED_RESULT)
+
+    assert metadata["type"] == "dice_roll_rejected"
+    assert metadata["dice_request"] is None
+    assert "No dice roll is currently pending" in text
+    assert len(harness.overrides) == runs_before
+
+
+@pytest.mark.asyncio
+async def test_end_scene_rehydrates_and_finalizes_when_loop_not_cached(harness: _Harness) -> None:
+    chat_loops._SCENE_LOOPS.pop(SESSION_ID, None)
+
+    _, metadata = await harness.turn("/end_scene")
+
+    assert metadata["type"] == "end_scene"
+    assert harness.loop.finalize.await_count == 1
+    assert SESSION_ID not in chat_loops._SCENE_LOOPS

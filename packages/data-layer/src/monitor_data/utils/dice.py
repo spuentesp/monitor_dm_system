@@ -10,13 +10,16 @@ import re
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# Regex for full dice expression: [N]d[S][+/-M][k[h/l]N]
-# Examples: 1d20, 2d6+3, 3d4-1, d20, 2d20kh1, 2d20kl1
+# Regex for full dice expression: [N]d[S][k[h/l]N][+/-M] or [N]d[S][+/-M][k[h/l]N]
+# Examples: 1d20, 2d6+3, 3d4-1, d20, 2d20kh1, 2d20kl1, 2d20kh1+3, 2d20kl1-2
 # ---------------------------------------------------------------------------
 _DICE_RE = re.compile(
     r"^(?P<amount>\d*)d(?P<sides>\d+)"
-    r"(?:(?P<sign>[+-])(?P<mod>\d+))?"
-    r"(?:k(?P<keep_dir>[hl])(?P<keep_n>\d+))?$",
+    r"(?:"
+    r"(?:k(?P<keep_dir>[hl])(?P<keep_n>\d+))?(?:(?P<sign>[+-])(?P<mod>\d+))?"
+    r"|"
+    r"(?:(?P<sign_pre>[+-])(?P<mod_pre>\d+))(?:k(?P<keep_dir_post>[hl])(?P<keep_n_post>\d+))"
+    r")$",
     re.IGNORECASE,
 )
 
@@ -89,8 +92,9 @@ def roll_dice(expression: str) -> DiceResult:
     rolls = [random.randint(1, sides) for _ in range(amount)]
 
     # Handle keep-highest / keep-lowest
-    keep_dir = m.group("keep_dir")
-    keep_n_str = m.group("keep_n")
+    raw_keep_dir = m.group("keep_dir") or m.group("keep_dir_post")
+    keep_dir = raw_keep_dir.lower() if raw_keep_dir else None
+    keep_n_str = m.group("keep_n") or m.group("keep_n_post")
     kept_rolls: list[int] | None = None
 
     if keep_dir and keep_n_str:
@@ -106,9 +110,11 @@ def roll_dice(expression: str) -> DiceResult:
         total = sum(rolls)
         kept_rolls = list(rolls)
 
-    if m.group("sign") and m.group("mod"):
-        mod = int(m.group("mod"))
-        total = total + mod if m.group("sign") == "+" else total - mod
+    sign = m.group("sign") or m.group("sign_pre")
+    mod_str = m.group("mod") or m.group("mod_pre")
+    if sign and mod_str:
+        mod = int(mod_str)
+        total = total + mod if sign == "+" else total - mod
 
     return DiceResult(total, rolls, cleaned, kept_rolls=kept_rolls)
 

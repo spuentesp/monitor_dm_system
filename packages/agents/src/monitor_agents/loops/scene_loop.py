@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import structlog
 
+import contextlib
 import functools
 import logging
 import time
@@ -570,6 +571,7 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
             "dc": resolution.get("difficulty_class"),
             "modifier": resolution.get("modifier"),
             "attribute_value": resolution.get("attribute_value"),
+            "roll_mode": resolution.get("roll_mode") or state.roll_mode,
             "action": state.user_input,
             "resolution_type": "propose_roll",
         }
@@ -1008,6 +1010,8 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
     new_state_proposals = list(persistence_payload.get("pending_proposals", []))
     merged_payload = dict(persistence_payload)
     merged_payload["pending_proposals"] = state.pending_proposals + new_state_proposals
+    if persistence_payload and state.memories_to_persist:
+        merged_payload["memories_to_persist"] = []
     return {
         "resolution_id": resolution_id,
         **merged_payload,
@@ -1071,10 +1075,10 @@ async def persist_memories_node(state: SceneState) -> dict[str, Any]:
             memories=state.memories_to_persist,
         )
         logger.debug("Persisted %d memories for actor %s", len(created_ids), state.actor_id)
+        return {"memories_to_persist": []}
     except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in persist_memories_node)
         logger.warning("Failed to persist memories: %s", e)
 
-    # Return empty dict — we only write, no state changes
     return {}
 
 
@@ -1103,6 +1107,7 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
                 universe_id=state.universe_id,  # type: ignore[arg-type]
                 memories=state.memories_to_persist,
             )
+            updates["memories_to_persist"] = []
         except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in complete_current_scene)
             logger.warning("Failed to persist memories in complete_current_scene: %s", e)
 
@@ -1720,30 +1725,66 @@ class SceneLoop:
             thread_id = str(self.scene_id)
             config = {"configurable": {"thread_id": thread_id}}
 
-            # Get history
+            # Get history (most recent snapshot first).
             history = [state async for state in compiled.aget_state_history(config)]  # type: ignore[arg-type]
 
             if len(history) < 2:
                 return {"error": "Cannot backtrack further."}
 
-            # The last state is the current one (after narrate/persist).
-            # We want to go back to the state before 'resolve'.
-            # LangGraph checkpoints after each node.
-            # A turn usually goes: load_context -> resolve -> narrate -> persist.
-            # We want to find the checkpoint where 'user_input' was about to be processed.
+            current_values = dict(history[0].values or {})
+            current_turns = int(current_values.get("turns_count") or 0)
+            if current_turns <= 0:
+                return {"error": "Cannot backtrack further."}
 
-            # For simplicity, we just revert to the previous checkpoint.
-            # In a loop, that might be 'persist_turn_artifacts' of the PREVIOUS turn.
-            target_state = history[1]  # [0] is current, [1] is previous
-
-            # Update state to the previous one
-            await compiled.aupdate_state(
-                config,  # type: ignore[arg-type]
-                target_state.values,
-                as_node=target_state.next[0] if target_state.next else None,
+            # Find the terminal checkpoint (next == ()) of the previous completed turn.
+            # Checking turns_count < current_turns ensures repeated backtrack() calls
+            # step backward turn-by-turn even though each backtrack() appends a snapshot.
+            prev_turn_state = next(
+                (
+                    snap
+                    for snap in history[1:]
+                    if not snap.next and int((snap.values or {}).get("turns_count") or 0) < current_turns
+                ),
+                None,
             )
 
-            return target_state.values
+            base_defaults: dict[str, Any] = {
+                "turns_count": 0,
+                "durable_turn_count": 0,
+                "total_minutes_passed": 0,
+                "pending_proposals": [],
+                "pending_roll": None,
+                "established_facts": [],
+                "image_suggestions": [],
+                "narrative_text": None,
+                "resolution": None,
+                "resolution_id": None,
+                "turn_id": None,
+                "user_input": None,
+                "memories_to_persist": [],
+            }
+
+            if prev_turn_state is not None:
+                restored_values = {**base_defaults, **dict(prev_turn_state.values or {})}
+            else:
+                # Undoing Turn 1 restores the pre-turn-1 initial scene state.
+                restored_values = {**dict(history[-1].values or {}), **base_defaults}
+
+            restored_suggestions: list[ImageSuggestion] = []
+            for item in restored_values.get("image_suggestions") or []:
+                if isinstance(item, ImageSuggestion):
+                    restored_suggestions.append(item)
+                elif isinstance(item, dict):
+                    with contextlib.suppress(Exception):
+                        restored_suggestions.append(ImageSuggestion.model_validate(item))
+            _IMAGE_SUGGESTION_HISTORY[self.scene_id] = restored_suggestions
+
+            await compiled.aupdate_state(
+                config,  # type: ignore[arg-type]
+                restored_values,
+            )
+
+            return restored_values
 
 
 async def _run_combat(

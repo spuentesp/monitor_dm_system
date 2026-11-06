@@ -406,3 +406,52 @@ async def test_resolver_receives_the_universe(world: _World) -> None:
         await _loop().run("first")
 
     assert capture.resolver_contexts[0]["universe_id"] == str(universe)
+
+
+@pytest.mark.asyncio
+async def test_memories_are_persisted_once_per_turn_not_duplicated_in_working_state(world: _World) -> None:
+    actor_id = uuid4()
+    mem = {"memory_id": "m-1", "content": "Met the dock officer"}
+    world.create_extractor = lambda: types.SimpleNamespace(  # type: ignore[method-assign]
+        extract_new_entities=AsyncMock(return_value={}),
+        extract_memories=AsyncMock(return_value={"memories_to_persist": [mem]}),
+        extract_facts=world._extract_facts,
+    )
+    persist_mem_mock = AsyncMock(return_value=["m-1"])
+    persist_ws_mock = AsyncMock(return_value={})
+    loop = _loop(actor_id=actor_id)
+
+    with (
+        patch.object(sl.PersistenceService, "persist_memories", persist_mem_mock),
+        patch.object(sl.PersistenceService, "persist_working_state", persist_ws_mock),
+    ):
+        await loop.run("I speak to the dock officer")
+
+    assert persist_mem_mock.await_count == 1
+    assert persist_ws_mock.await_count == 1
+    assert persist_ws_mock.await_args.kwargs["memories_to_persist"] == []
+
+
+@pytest.mark.asyncio
+async def test_backtrack_reverts_full_turn_and_steps_back_repeatedly(world: _World) -> None:
+    loop = _loop()
+    await loop.run("turn one")
+    await loop.run("turn two")
+
+    restored_one = await loop.backtrack()
+    assert restored_one["turns_count"] == 1
+    assert restored_one["narrative_text"] == "prose 1"
+    assert [p["content"]["statement"] for p in restored_one["pending_proposals"]] == ["fact 1"]
+    assert restored_one["established_facts"] == ["extracted 1"]
+
+    # Re-running turn two after backtrack builds cleanly on turn one's state.
+    replayed_two = await loop.run("turn two revised")
+    assert replayed_two["turns_count"] == 2
+    assert [p["content"]["statement"] for p in replayed_two["pending_proposals"]] == ["fact 1", "fact 3"]
+
+    # Stepping back twice reaches turn 0, and a third backtrack refuses cleanly.
+    assert (await loop.backtrack())["turns_count"] == 1
+    restored_zero = await loop.backtrack()
+    assert restored_zero["turns_count"] == 0
+    assert restored_zero["pending_proposals"] == []
+    assert "error" in await loop.backtrack()

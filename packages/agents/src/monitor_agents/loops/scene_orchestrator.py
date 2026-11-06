@@ -133,12 +133,12 @@ async def handle_pending_choice(state: SceneOrchestratorState) -> SceneOrchestra
 
 
 async def handle_rejected_roll(state: SceneOrchestratorState) -> SceneOrchestratorState:
-    pending = state.session.get("pending_dice_request") or {}
+    pending = state.session.get("pending_dice_request")
     state.response_text = state.roll_rejection
     state.metadata = {
         "type": "dice_roll_rejected",
         "phase": state.session.get("phase", "active_play"),
-        "dice_request": dict(pending),
+        "dice_request": dict(pending) if isinstance(pending, dict) and pending else None,
         "story_id": state.story_id,
         "scene_id": state.scene_id,
     }

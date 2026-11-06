@@ -168,6 +168,41 @@ async def test_proposed_roll_includes_conditions_and_scenery() -> None:
     assert _dice_request_from_resolution(result, "x")["spec"] == "1d20"
 
 
+@pytest.mark.asyncio
+async def test_proposed_roll_threads_advantage_and_disadvantage_into_dice_spec() -> None:
+    gsr = _gsr()
+    gsr.evaluate_scenery_and_conditions = AsyncMock(
+        return_value={"total_modifier": -1, "roll_mode": "disadvantage", "cond_modifier": -1, "scenery_modifier": 0}
+    )
+    ctx = {"entities": [{"id": "pc", "properties": {"attributes": {"DEX": 14}}}], "actor_id": "pc"}
+    with patch.object(rmod, "GameSystemRuntime", lambda _ctx: gsr):
+        result = await _resolve(_resolver(_verdict()), ctx, game_context={"x": 1}, play_mode="dice_game_system")
+    assert result["roll_mode"] == "disadvantage"
+    assert result["modifier"] == 1  # +2 from DEX 14, -1 from conditions
+    req = _dice_request_from_resolution(result, "I sneak")
+    assert req is not None
+    assert req["spec"] == "2d20kl1+1"
+    assert req["roll_mode"] == "disadvantage"
+
+
+@pytest.mark.asyncio
+async def test_proposed_roll_emits_pool_spec_for_dice_pool_systems() -> None:
+    gsr = _gsr(core={"type": "dice_pool", "formula": "Attribute + Skill d10", "success_threshold": 7})
+    ctx = {"entities": [{"id": "pc", "properties": {"attributes": {"DEX": 4}}}], "actor_id": "pc"}
+    with patch.object(rmod, "GameSystemRuntime", lambda _ctx: gsr):
+        # DEX 4 with (v-10)//2 modifier in stub _gsr would be -3; override calc_modifier to 0 as pool systems do
+        gsr.calc_modifier = lambda _stat, _val: 0
+        result = await _resolve(_resolver(_verdict()), ctx, game_context={"x": 1}, play_mode="dice_game_system")
+    assert result["mechanic_type"] == "dice_pool"
+    assert result["pool_size"] == 4
+    assert result["success_threshold"] == 7
+    req = _dice_request_from_resolution(result, "I dodge")
+    assert req is not None
+    assert req["spec"] == "4d10"
+    assert req["mechanic_type"] == "dice_pool"
+    assert req["success_threshold"] == 7
+
+
 def test_conditions_come_from_the_actor_not_the_first_entity() -> None:
     from monitor_agents.game_system._tracks_conditions import _collect_actor_conditions
 
