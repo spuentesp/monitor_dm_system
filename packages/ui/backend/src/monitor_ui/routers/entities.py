@@ -1104,7 +1104,12 @@ async def export_character_card(character_id: str) -> dict:  # type: ignore
     if not doc:
         raise HTTPException(status_code=404, detail="Character not found")
 
-    entries = mongodb_get_lorebook_entries(character_id, sort_by="order", ascending=True)
+    entries = mongodb_get_lorebook_entries(
+        character_id,
+        sort_by="order",
+        ascending=True,
+        include_inactive=True,
+    )
     scan_config = mongodb_get_scan_config(character_id)
     return build_character_card(
         _serialise_character(doc),

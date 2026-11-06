@@ -209,7 +209,12 @@ async def export_lorebook(
     description: str = Query(default=""),
 ) -> JSONResponse:
     """Export a character's lorebook as a SillyTavern World Info JSON file."""
-    entries = mongodb_get_lorebook_entries(character_id, sort_by="order", ascending=True)
+    entries = mongodb_get_lorebook_entries(
+        character_id,
+        sort_by="order",
+        ascending=True,
+        include_inactive=True,
+    )
     raw_config = mongodb_get_scan_config(character_id)
     config = raw_config if isinstance(raw_config, LorebookScanConfig) else LorebookScanConfig(**raw_config)
     book = build_st_lorebook(
