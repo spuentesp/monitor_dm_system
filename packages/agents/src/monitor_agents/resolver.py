@@ -217,6 +217,54 @@ def _uses_roll_under(gsr: GameSystemRuntime | None) -> bool:
     return "roll under" in text or "under or equal" in text or "<=" in text
 
 
+def _pool_proposal_fields(
+    gsr: GameSystemRuntime | None,
+    stat_value: int | None,
+    modifier: int,
+) -> dict[str, Any]:
+    """Return dice-pool metadata when ``gsr`` uses a pool mechanic, else ``{}``."""
+    if gsr is None or not gsr._sd.core:
+        return {}
+    core = gsr._sd.core
+    if "dice_pool" not in str(core.get("type", "")).lower():
+        return {}
+
+    formula = str(core.get("formula") or "")
+    sides_match = re.search(r"d(\d+)", formula, re.IGNORECASE)
+    die_sides = max(2, int(sides_match.group(1))) if sides_match else 10
+
+    threshold = 6
+    threshold_val = core.get("success_threshold", 6)
+    try:
+        if isinstance(threshold_val, str):
+            threshold = int("".join(filter(str.isdigit, threshold_val)) or 6)
+        else:
+            threshold = int(threshold_val)
+    except (ValueError, TypeError):
+        threshold = 6
+    if threshold < 1:
+        threshold = 6
+
+    if stat_value is not None:
+        try:
+            pool_size = int(stat_value) + int(modifier)
+        except (ValueError, TypeError):
+            pool_size = 1
+    else:
+        cnt_match = re.match(r"^\s*(\d+)d\d+", formula, re.IGNORECASE)
+        base_pool = int(cnt_match.group(1)) if cnt_match else 1
+        pool_size = base_pool + int(modifier)
+    if pool_size < 1:
+        pool_size = 1
+
+    return {
+        "mechanic_type": "dice_pool",
+        "pool_size": pool_size,
+        "pool_die_sides": die_sides,
+        "success_threshold": threshold,
+    }
+
+
 def _resolve_base_dc(gsr: GameSystemRuntime | None, fallback_dc: int) -> int:
     """Prefer the system's declared base target when one is embedded in the mechanic text."""
     if gsr is None:
@@ -937,9 +985,21 @@ class Resolver(BaseAgent):
 
         # PUSH_BACK → request a roll from the player
         if gm_verdict is not None and gm_verdict.causality_action == CausalityAction.PUSH_BACK:
-            suggested_stat = gm_verdict.suggested_stat or "Strength"
+            suggested_stat = (
+                (gm_verdict.suggested_stat and gsr and _system_stat(gsr, gm_verdict.suggested_stat))
+                or gm_verdict.suggested_stat
+                or "Strength"
+            )
             suggested_dc = gm_verdict.suggested_dc or 12
-            pushback_value, pushback_modifier = self._actor_stat(context, gsr, suggested_stat)
+            pushback_value, pushback_base_mod = self._actor_stat(context, gsr, suggested_stat)
+            pushback_sc = await self._evaluate_scenery_and_conditions(context, user_input or "", roll_mode, gsr)
+            pushback_modifier = pushback_base_mod + pushback_sc["total_modifier"]
+            pushback_roll_mode = pushback_sc.get("roll_mode") or roll_mode or "normal"
+            if pushback_roll_mode not in ("normal", "advantage", "disadvantage"):
+                pushback_roll_mode = "normal"
+            pushback_pool = _pool_proposal_fields(gsr, pushback_value, pushback_modifier)
+            if pushback_pool:
+                pushback_roll_mode = "normal"
             return self._attach_gm_verdict(
                 {
                     "scene_id": scene_id,
@@ -952,7 +1012,9 @@ class Resolver(BaseAgent):
                     "difficulty_class": suggested_dc,
                     "attribute_value": pushback_value,
                     "modifier": pushback_modifier,
+                    "roll_mode": pushback_roll_mode,
                     "roll_under": _uses_roll_under(gsr),
+                    **pushback_pool,
                     "resolution_type": "forced_narrative_pushback",
                     "forced_narrative": True,
                     "success": None,
@@ -1179,6 +1241,19 @@ class Resolver(BaseAgent):
             stat_value, base_modifier = self._actor_stat(context, gsr, stat_name)
             sc_eval = await self._evaluate_scenery_and_conditions(context, user_input or "", roll_mode, gsr)
             modifier = base_modifier + sc_eval["total_modifier"]
+            actual_roll_mode = sc_eval.get("roll_mode") or roll_mode or "normal"
+            if actual_roll_mode not in ("normal", "advantage", "disadvantage"):
+                actual_roll_mode = "normal"
+            pool_fields = _pool_proposal_fields(gsr, stat_value, modifier)
+            if pool_fields:
+                actual_roll_mode = "normal"
+                breakdown = (
+                    f"propose_roll — {stat_name} pool "
+                    f"({pool_fields['pool_size']}d{pool_fields['pool_die_sides']}, "
+                    f"diff {pool_fields['success_threshold']})"
+                )
+            else:
+                breakdown = f"propose_roll — {stat_name} check (DC {dc})"
 
             return self._attach_gm_verdict(
                 {
@@ -1192,8 +1267,9 @@ class Resolver(BaseAgent):
                     "difficulty_class": dc,
                     "attribute_value": stat_value,
                     "modifier": modifier,
+                    "roll_mode": actual_roll_mode,
                     "roll_total": None,
-                    "roll_breakdown": f"propose_roll — {stat_name} check (DC {dc})",
+                    "roll_breakdown": breakdown,
                     "resolution_type": "propose_roll",
                     "forced_narrative": False,
                     "success": None,
@@ -1207,6 +1283,7 @@ class Resolver(BaseAgent):
                     "subsystem_hint": subsystem_hint,
                     "roll_necessity": roll_necessity,
                     "roll_under": _uses_roll_under(gsr),
+                    **pool_fields,
                     "roll_invitation": (
                         f"That sounds risky — roll your {stat_name} for me."
                         if dc is not None

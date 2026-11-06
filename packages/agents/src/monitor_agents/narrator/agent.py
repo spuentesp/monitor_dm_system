@@ -813,6 +813,8 @@ class Narrator(BaseAgent):
                     )
                     prediction = None
                     last_provider_error = LLMProviderUnavailable(info)
+                    if not info.retryable:
+                        break
 
         if last_provider_error is not None:
             raise last_provider_error

@@ -343,8 +343,10 @@ class TestCharacterBook:
         card_obj = build_character_card(character, lorebook_entries=entries)
         book = card_obj["data"]["character_book"]
         assert book is not None
-        assert book["entries"]["0"]["keys"] == ["dragon"]
-        assert book["entries"]["0"]["constant"] is True
+        assert isinstance(book["entries"], list)
+        assert book["entries"][0]["keys"] == ["dragon"]
+        assert book["entries"][0]["constant"] is True
+        assert book["entries"][0]["enabled"] is True
 
 
 # ---------------------------------------------------------------------------

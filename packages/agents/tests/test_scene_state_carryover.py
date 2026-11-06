@@ -406,3 +406,125 @@ async def test_resolver_receives_the_universe(world: _World) -> None:
         await _loop().run("first")
 
     assert capture.resolver_contexts[0]["universe_id"] == str(universe)
+
+
+@pytest.mark.asyncio
+async def test_memories_are_persisted_once_per_turn_not_duplicated_in_working_state(world: _World) -> None:
+    actor_id = uuid4()
+    mem = {"memory_id": "m-1", "content": "Met the dock officer"}
+    world.create_extractor = lambda: types.SimpleNamespace(  # type: ignore[method-assign]
+        extract_new_entities=AsyncMock(return_value={}),
+        extract_memories=AsyncMock(return_value={"memories_to_persist": [mem]}),
+        extract_facts=world._extract_facts,
+    )
+    persist_mem_mock = AsyncMock(return_value=["m-1"])
+    persist_ws_mock = AsyncMock(return_value={})
+    loop = _loop(actor_id=actor_id)
+
+    with (
+        patch.object(sl.PersistenceService, "persist_memories", persist_mem_mock),
+        patch.object(sl.PersistenceService, "persist_working_state", persist_ws_mock),
+    ):
+        await loop.run("I speak to the dock officer")
+
+    assert persist_mem_mock.await_count == 1
+    assert persist_ws_mock.await_count == 1
+    assert persist_ws_mock.await_args.kwargs["memories_to_persist"] == []
+
+
+@pytest.mark.asyncio
+async def test_backtrack_reverts_full_turn_and_steps_back_repeatedly(world: _World) -> None:
+    loop = _loop()
+    await loop.run("turn one")
+    await loop.run("turn two")
+
+    restored_one = await loop.backtrack()
+    assert restored_one["turns_count"] == 1
+    assert restored_one["narrative_text"] == "prose 1"
+    assert [p["content"]["statement"] for p in restored_one["pending_proposals"]] == ["fact 1"]
+    assert restored_one["established_facts"] == ["extracted 1"]
+
+    # Re-running turn two after backtrack builds cleanly on turn one's state.
+    replayed_two = await loop.run("turn two revised")
+    assert replayed_two["turns_count"] == 2
+    assert [p["content"]["statement"] for p in replayed_two["pending_proposals"]] == ["fact 1", "fact 3"]
+
+    # Stepping back twice reaches turn 0, and a third backtrack refuses cleanly.
+    assert (await loop.backtrack())["turns_count"] == 1
+    restored_zero = await loop.backtrack()
+    assert restored_zero["turns_count"] == 0
+    assert restored_zero["pending_proposals"] == []
+    assert "error" in await loop.backtrack()
+
+
+@pytest.mark.asyncio
+async def test_multi_turn_combat_carries_round_and_hp_and_persists_deltas(world: _World) -> None:
+    from monitor_agents.loops import combat_loop as cl
+
+    pc_id = uuid4()
+    enemy_id = str(uuid4())
+    room_id = str(uuid4())
+    world.create_context_assembly = lambda: types.SimpleNamespace(  # type: ignore[method-assign]
+        assemble=AsyncMock(
+            return_value={
+                "entities": [
+                    {"id": str(pc_id), "name": "Hero", "entity_type": "character", "properties": {"role": "PC"}},
+                    {"id": enemy_id, "name": "Brigand", "entity_type": "character", "properties": {"hp": 10}},
+                    {"id": room_id, "name": "Alley", "entity_type": "location", "properties": {}},
+                ],
+                "turns": [],
+            }
+        ),
+        check_and_compress_if_needed=AsyncMock(side_effect=lambda ctx, player_action="": ctx),
+    )
+    # Turn 1 triggers combat; Turn 2 is an ordinary action while combat is still active!
+    world.resolutions = [
+        {"resolution_type": "dice", "subsystem_hint": "combat"},
+        {"resolution_type": "dice", "subsystem_hint": None},
+    ]
+
+    class _StubCombatResolver:
+        async def resolve_opposed_check(self, *, actor_id: str, **_kw: Any) -> dict[str, Any]:
+            if actor_id == str(pc_id):
+                return {"winner": "actor", "margin": 6, "success_level": "success"}
+            return {"winner": "actor", "margin": 3, "success_level": "success"}
+
+    class _StubCombatNarrator:
+        async def narrate_turn(self, **_kw: Any) -> dict[str, Any]:
+            return {"narrative_text": "Steel rings.", "proposals": []}
+
+    persist_ws = AsyncMock(return_value={"working_state": {"resources": {"HP": 7}}})
+    loop = _loop(actor_id=pc_id)
+
+    with (
+        patch("monitor_data.utils.dice.random.randint", side_effect=[18, 5]),
+        patch("monitor_agents.resolver.Resolver", return_value=_StubCombatResolver()),
+        patch("monitor_agents.narrator.agent.Narrator", return_value=_StubCombatNarrator()),
+        patch.object(sl.PersistenceService, "persist_working_state", persist_ws),
+    ):
+        t1 = await loop.run("I slash the brigand")
+        assert t1["combat_result"]["combat_active"] is True
+        assert t1["combat_result"]["round_number"] == 2
+        assert [c["name"] for c in t1["combat_result"]["combatants"]] == ["Hero", "Brigand"]
+        # Turn 1: Hero hit Brigand for 6 (10->4), Brigand hit Hero for 3 (10->7) -> delta -3 persisted!
+        assert t1["resource_deltas"] == [
+            {
+                "resource_key": "HP",
+                "resource_name": "HP",
+                "delta": -3,
+                "source": "combat",
+                "reason": "Combat damage: HP 10 → 7",
+            }
+        ]
+        combat_persist_calls = [
+            call for call in persist_ws.await_args_list if call.kwargs.get("resource_deltas")
+        ]
+        assert len(combat_persist_calls) == 1
+        assert combat_persist_calls[0].kwargs["resource_deltas"][0]["delta"] == -3
+
+        # Turn 2 resumes Round 2 with Brigand at 4 HP; Hero deals 6 -> Brigand drops to 0 and combat ends!
+        t2 = await loop.run("I finish the brigand")
+        assert t2["combat_result"]["combat_active"] is False
+        assert t2["combat_result"]["victory_side"] == "pc"
+        assert t2["combat_state"] is None
+        assert isinstance(loop, sl.SceneLoop) and isinstance(cl.CombatLoop, type)

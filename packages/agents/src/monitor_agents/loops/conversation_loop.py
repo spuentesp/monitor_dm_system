@@ -50,9 +50,13 @@ log = structlog.get_logger()
 
 # Re-export ConversationMode so Layer 3 (CLI) can import it from here
 # instead of directly from monitor_data.schemas.conversations.
-__all__ = ["ConversationMode"]
+__all__ = ["ConversationClosedError", "ConversationMode"]
 
 logger = logging.getLogger(__name__)
+
+
+class ConversationClosedError(RuntimeError):
+    """Raised when a caller attempts to step a closed or exhausted ConversationLoop."""
 
 
 def _normalize_conversation_change_type(change_type: str) -> str:
@@ -357,6 +361,12 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
         except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in generate_npc_responses)
             logger.warning("conversation_loop: lorebook scan failed, continuing without", exc_info=True)
 
+    from monitor_agents.llm_errors import LLMProviderUnavailable
+
+    succeeded = 0
+    last_error: Exception | None = None
+    failed_npcs: list[tuple[UUID, str]] = []
+
     for npc_id in state.npc_ids:
         try:
             if state.mode == ConversationMode.DIRECT:
@@ -428,6 +438,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                         "text": npc_text,
                     }
                 )
+                succeeded += 1
 
             elif state.mode == ConversationMode.ACTOR:
                 result = await agent.respond_actor(
@@ -457,23 +468,32 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                         "text": result["actor_response"],
                     }
                 )
-        except Exception:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in generate_npc_responses)
-            # Individual NPC failure shouldn't crash the whole conversation
-            import logging
-
-            logging.getLogger(__name__).warning(
+                succeeded += 1
+        except LLMProviderUnavailable:
+            raise
+        except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in generate_npc_responses)
+            # In multi-NPC conversations, one NPC failing shouldn't drop replies
+            # from other NPCs; if every NPC fails (including 1:1 chats), propagate.
+            logger.warning(
                 "NPC %s response generation failed",
                 npc_id,
                 exc_info=True,
             )
+            last_error = exc
             npc_name = state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
-            responses.append(
-                {
-                    "npc_id": str(npc_id),
-                    "npc_name": npc_name,
-                    "text": f"({npc_name} pauses, lost in thought…)",
-                }
-            )
+            failed_npcs.append((npc_id, npc_name))
+
+    if succeeded == 0 and last_error is not None:
+        raise last_error
+
+    for failed_id, failed_name in failed_npcs:
+        responses.append(
+            {
+                "npc_id": str(failed_id),
+                "npc_name": failed_name,
+                "text": f"({failed_name} pauses, lost in thought…)",
+            }
+        )
 
     return {
         "current_npc_responses": responses,
@@ -626,16 +646,36 @@ async def redistill_episodic_proposals(doc: dict[str, Any]) -> list[dict[str, An
 
 async def close_session(state: ConversationState) -> dict[str, Any]:
     """
-    Mark the ConversationSession as completed in MongoDB.
-    Stage any accumulated proposals as ProposedChange documents.
+    Stage any accumulated proposals as ProposedChange documents, then mark
+    the ConversationSession as completed in MongoDB.
 
-    Write: session status → MongoDB; proposals → MongoDB.
+    Proposals are staged BEFORE marking the conversation completed so that a
+    staging failure leaves the session active and recoverable on retry.
+
+    Write: proposals → MongoDB; session status → MongoDB.
     """
     from monitor_agents.npc_voice.agent import NPCVoice
 
     agent = NPCVoice()
 
-    # Mark session complete
+    # Distill session-level episodic memories and stage them alongside the
+    # per-turn state/relationship proposals.
+    proposals_to_stage = list(state.pending_proposals) + await _extract_episodic_memories(state)
+
+    # Stage proposals for CanonKeeper BEFORE marking completed so failures
+    # remain recoverable via resume_conversation / end_conversation.
+    unstaged: list[dict[str, Any]] = []
+    for proposal in proposals_to_stage:
+        if not await _stage_proposal(agent, state, proposal):
+            unstaged.append(proposal)
+
+    if unstaged:
+        state.pending_proposals = unstaged
+        raise RuntimeError(
+            f"Failed to stage {len(unstaged)} proposal(s) for conversation {state.conversation_id}"
+        )
+
+    # Mark session complete only after all proposals have been safely staged.
     await agent.call_tool(
         "mongodb_update_conversation",
         {
@@ -644,15 +684,7 @@ async def close_session(state: ConversationState) -> dict[str, Any]:
         },
     )
 
-    # Distill session-level episodic memories and stage them alongside the
-    # per-turn state/relationship proposals.
-    proposals_to_stage = list(state.pending_proposals) + await _extract_episodic_memories(state)
-
-    # Stage proposals for CanonKeeper (written to proposed_changes collection)
-    for proposal in proposals_to_stage:
-        await _stage_proposal(agent, state, proposal)
-
-    return {"pending_proposals": proposals_to_stage}
+    return {"pending_proposals": proposals_to_stage, "is_complete": True}
 
 
 def route_after_npc_response(state: ConversationState) -> str:
@@ -822,10 +854,19 @@ class ConversationLoop:
         Returns:
             List of dicts: [{npc_name, text, emotional_state?, canon_insight?}]
         """
+        if self._closed or self.state.is_complete or self.state.turns_count >= self.state.max_turns:
+            raise ConversationClosedError(f"Conversation {self.state.conversation_id} is already closed")
+
+        prior_turns = list(self.state.turns)
         self.state.current_player_input = player_input
 
-        self._apply(await process_player_turn(self.state))
-        self._apply(await generate_npc_responses(self.state))
+        try:
+            self._apply(await process_player_turn(self.state))
+            self._apply(await generate_npc_responses(self.state))
+        except Exception:
+            self.state.turns = prior_turns
+            self.state.current_player_input = None
+            raise
 
         # Honor the loop's own ceiling (max_turns / explicit completion).
         if route_after_npc_response(self.state) == "close" and not self._closed:
@@ -841,8 +882,8 @@ class ConversationLoop:
         Returns:
             Staged proposals list (for caller to display or confirm).
         """
-        self.state.is_complete = True
         if not self._closed:
             self._apply(await close_session(self.state))
             self._closed = True
+        self.state.is_complete = True
         return self.state.pending_proposals

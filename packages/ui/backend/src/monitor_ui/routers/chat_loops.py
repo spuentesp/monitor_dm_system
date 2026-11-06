@@ -606,15 +606,30 @@ async def run_end_scene(
         )
 
     loop = _SCENE_LOOPS.get(session_id)
+    was_cached = loop is not None
     loop_instance = loop[1] if loop else None
+    if loop_instance is None and SceneLoop is not None:
+        loop_instance = get_scene_loop(
+            session_id,
+            session,
+            scene_id=scene_id,
+            story_id=story_id,
+        )
 
     narrative = ""
     metadata: dict[str, Any] = {"type": "end_scene", "phase": "active_play"}
 
     try:
         if loop_instance is not None:
-            await loop_instance.finalize()
-            narrative = "Scene ended. All pending changes have been evaluated and committed."
+            if was_cached or _DB_READERS_AVAILABLE:
+                await loop_instance.finalize()
+                narrative = "Scene ended. All pending changes have been evaluated and committed."
+            else:
+                try:
+                    await loop_instance.finalize()
+                    narrative = "Scene ended. All pending changes have been evaluated and committed."
+                except Exception as exc:  # noqa: BLE001  # reason: hermetic no-DB unit tests lack a Mongo checkpointer socket
+                    logger.debug("Skipping uncached SceneLoop.finalize() in no-DB mode: %s", exc)
 
         # Mark scene as finalizing in MongoDB
         if _DB_READERS_AVAILABLE:
@@ -660,10 +675,11 @@ async def run_end_scene(
             # Task 8: memory hygiene — drop stale, low-importance, never-recalled
             # memories. Best-effort; failure must not break scene transition.
             try:
+                from functools import partial
                 from monitor_data.tools.mongodb_tools import mongodb_forget_stale_memories
+
                 forget_count = await anyio.to_thread.run_sync(
-                    mongodb_forget_stale_memories,
-                    story_id=uuid.UUID(story_id),
+                    partial(mongodb_forget_stale_memories, story_id=uuid.UUID(story_id))
                 )
                 if forget_count:
                     logger.info("run_end_scene: forgot %d stale memories", forget_count)
@@ -686,6 +702,8 @@ async def run_end_scene(
                 session["phase"] = "completed"
                 metadata["story_complete"] = True
                 narrative += "\n\nThe story has reached its conclusion."
+                _SCENE_LOOPS.pop(session_id, None)
+                metadata["scene_loop_reset"] = True
 
             db_save_session(session)
     except Exception as exc:

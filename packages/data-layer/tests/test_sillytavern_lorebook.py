@@ -177,9 +177,12 @@ class TestBuildStLorebook:
         assert st_entry["customField"] == 123
 
     def test_character_book_shape(self):
-        entry = LorebookEntryCreate(content="Lore.", keywords=["lore"])
+        entry = LorebookEntryCreate(content="Lore.", keywords=["lore"], order=42)
         book = build_character_book([entry], name="Card Book")
-        assert "entries" in book
+        assert isinstance(book["entries"], list)
+        assert len(book["entries"]) == 1
+        assert book["entries"][0]["keys"] == ["lore"]
+        assert book["entries"][0]["insertion_order"] == 42
         assert book["scan_depth"] == LorebookScanConfig().scan_depth
 
 
@@ -278,18 +281,27 @@ class TestCharacterBookEnabledFlag:
         entries, _ = parse_character_book_from_card(card)
         assert {e["content"]: e["is_active"] for e in entries} == {"on": True, "off": False}
 
-    def test_card_export_writes_enabled(self):
+    def test_card_export_writes_enabled_and_array_entries(self):
         from monitor_data.interop.sillytavern_lorebook import build_character_book
 
         book = build_character_book(
             [{"content": "on", "is_active": True}, {"content": "off", "is_active": False}]
         )
-        flags = {e["content"]: (e["enabled"], e["disable"]) for e in book["entries"].values()}
+        assert isinstance(book["entries"], list)
+        flags = {e["content"]: (e["enabled"], e["disable"]) for e in book["entries"]}
         assert flags == {"on": (True, False), "off": (False, True)}
 
     def test_round_trip_keeps_disabled_entries_off(self):
-        from monitor_data.interop.sillytavern_lorebook import build_character_book
+        from monitor_data.interop.sillytavern_lorebook import (
+            build_character_book,
+            parse_character_book_from_card,
+        )
 
-        book = build_character_book([{"content": "off", "is_active": False}])
-        (entry,) = book["entries"].values()
+        book = build_character_book([{"content": "off", "is_active": False, "order": 15}])
+        assert isinstance(book["entries"], list)
+        (entry,) = book["entries"]
         assert parse_st_lorebook_entry(entry)["is_active"] is False
+        parsed_entries, _ = parse_character_book_from_card({"data": {"character_book": book}})
+        assert len(parsed_entries) == 1
+        assert parsed_entries[0]["is_active"] is False
+        assert parsed_entries[0]["order"] == 15

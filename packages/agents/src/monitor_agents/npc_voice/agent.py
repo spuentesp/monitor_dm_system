@@ -171,8 +171,16 @@ class NPCVoice(BaseAgent):
             include_cross_incarnation=include_cross_incarnation,
         )
 
-        # 3. Build trigger context (only non-hidden ones at surface level)
+        # 3. Evaluate behavioral triggers against player input
         active_triggers = self._evaluate_triggers(profile.get("triggers", []), player_said)
+        prompt_triggers = [
+            {
+                "condition": t.get("condition", ""),
+                "reaction": t.get("reaction", ""),
+                "intensity": t.get("intensity", 0.7),
+            }
+            for t in active_triggers
+        ]
 
         # 4. Run DSPy direct voice module (LIGHT model)
         history_text = self._format_history(conversation_history or [])
@@ -193,7 +201,7 @@ class NPCVoice(BaseAgent):
             ),
             relevant_memories=json.dumps(memories[:5], default=str),
             known_facts=json.dumps(npc_data.get("facts", [])[:8], default=str),
-            active_triggers=json.dumps(active_triggers, default=str),
+            active_triggers=json.dumps(prompt_triggers, default=str),
             conversation_history=history_text,
             profile_context=profile_context,
             lorebook_context="\n".join(lorebook_context or []),
@@ -389,10 +397,6 @@ class NPCVoice(BaseAgent):
         if not include_secrets:
             profile.pop("secrets", None)
             profile.pop("gm_notes", None)
-
-        # Mask hidden triggers (is_hidden=True) for DIRECT mode
-        if not include_secrets and "triggers" in profile:
-            profile["triggers"] = [t for t in profile["triggers"] if not t.get("is_hidden", True)]
 
         facts = facts_result if isinstance(facts_result, list) else []
 
