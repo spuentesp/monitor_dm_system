@@ -172,6 +172,9 @@ class SceneState(BaseModel):
 
     # Resolution from Resolver
     resolution: dict[str, Any] | None = None
+    combat_result: dict[str, Any] | None = None
+    combat_state: dict[str, Any] | None = None
+    finalize_requested: bool = False
     # The GMVerdict that produced this resolution — carries the GM's
     # narrative_draft. The Narrator refines this draft against the
     # outcome; None when GMAgent didn't run (oracle / narrative mode /
@@ -257,7 +260,6 @@ class SceneState(BaseModel):
                 self.gm_verdict = GMVerdict.from_dict(self.gm_verdict)
             except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in model_post_init)
                 log.debug("gm_verdict dict rehydration failed", exc_info=True)
-
 
 
 # =============================================================================
@@ -403,9 +405,9 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     # any failure leaves npc_profiles empty and the NPC STATE block degrades.
     npc_profiles: dict[str, Any] = {}
     try:
-        entity_ids = [UUID(str(e["id"])) for e in state.entity_context if isinstance(e, dict) and e.get("id")]
+        entity_ids = [UUID(str(e["id"])) for e in context.get("entities", []) if isinstance(e, dict) and e.get("id")]
         if entity_ids:
-            from monitor_data.tools.mongodb_tools import mongodb_get_npc_profiles_by_entities
+            from monitor_data.tools.mongodb_tools.npc_profiles import mongodb_get_npc_profiles_by_entities
 
             profiles: list = await run_sync_read(
                 mongodb_get_npc_profiles_by_entities,
@@ -549,6 +551,26 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
 
 
 @_timed_node  # type: ignore[untyped-decorator]
+async def run_combat_node(state: SceneState) -> dict[str, Any]:
+    """Resolve combat before the turn and its working state are persisted."""
+    resolution = state.resolution or {}
+    active_combat = bool(state.combat_state and state.combat_state.get("combat_active"))
+    if not active_combat and resolution.get("subsystem_hint") != "combat" and resolution.get("action_type") != "combat":
+        return {"combat_result": None}
+    result = await _run_combat(
+        scene_id=state.scene_id,
+        story_id=state.story_id,
+        user_input=state.user_input or "",
+        entity_context=state.entity_context,
+        game_context=state.game_context,
+        source_profile=state.source_profile,
+        gm_profile=state.gm_profile,
+        session_tone=state.session_tone,
+        previous_combat=state.combat_state if active_combat else None,
+    )
+    return {"combat_result": result, "combat_state": (result or {}).get("combat_state")}
+
+
 async def narrate(state: SceneState) -> dict[str, Any]:
     """
     S4/S5: Narrator generates GM prose and persists the turn to MongoDB.
@@ -576,6 +598,7 @@ async def narrate(state: SceneState) -> dict[str, Any]:
             "recent_chat": state.recent_chat,
             "pacing": state.pacing,
             "npc_profiles": state.npc_profiles,
+            "combat_narrative": (state.combat_result or {}).get("narrative_text", ""),
             "agreements": {
                 "lines": list(state.agreements_lines or []),
                 "veils": list(state.agreements_veils or []),
@@ -911,6 +934,10 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
 
     resolution_id = str(created.id)
 
+    combined_deltas = [
+        *state.resource_deltas,
+        *_extract_combat_resource_deltas(state.combat_result or {}, state.entity_context),
+    ]
     try:
         persist_turn_id = (
             state.turn_id if isinstance(state.turn_id, UUID) else UUID(str(state.turn_id)) if state.turn_id else None
@@ -926,7 +953,7 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
             narrative_text=state.narrative_text,
             turn_id=persist_turn_id,
             pending_proposals=state.pending_proposals,
-            resource_deltas=state.resource_deltas,
+            resource_deltas=combined_deltas,
             memories_to_persist=state.memories_to_persist,
             actor_context=state.actor_context,
             universe_id=state.universe_id,
@@ -969,6 +996,8 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
     new_state_proposals = list(persistence_payload.get("pending_proposals", []))
     merged_payload = dict(persistence_payload)
     merged_payload["pending_proposals"] = state.pending_proposals + new_state_proposals
+    if state.combat_result:
+        merged_payload["resource_deltas"] = combined_deltas
     return {
         "resolution_id": resolution_id,
         **merged_payload,
@@ -1050,7 +1079,7 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
     """
     from datetime import timedelta
 
-    updates: dict[str, Any] = {}
+    updates: dict[str, Any] = {"scene_complete": True}
 
     # 1. Persist any remaining memories (belt-and-suspenders)
     if state.memories_to_persist and state.actor_id:
@@ -1409,6 +1438,7 @@ def build_scene_graph() -> StateGraph:
 
     graph.add_node("load_context", load_context)
     graph.add_node("resolve", resolve_action)
+    graph.add_node("run_combat", run_combat_node)
     graph.add_node("narrate", narrate)
     graph.add_node("extract_new_entities", extract_new_entities)
     graph.add_node("extract_memories", extract_memories)
@@ -1425,12 +1455,17 @@ def build_scene_graph() -> StateGraph:
     graph.set_entry_point("load_context")
 
     # Edges
-    graph.add_edge("load_context", "resolve")
+    graph.add_conditional_edges(
+        "load_context",
+        lambda state: "complete_current_scene" if state.finalize_requested else "resolve",
+        {"complete_current_scene": "complete_current_scene", "resolve": "resolve"},
+    )
     graph.add_conditional_edges(
         "resolve",
         route_after_resolve,
-        {"narrate": "narrate", END: END},
+        {"narrate": "run_combat", END: END},
     )
+    graph.add_edge("run_combat", "narrate")
     # Fan out: three extractors run concurrently after narrate.
     graph.add_edge("narrate", "extract_new_entities")
     graph.add_edge("narrate", "extract_memories")
@@ -1598,39 +1633,12 @@ class SceneLoop:
             if gm_profile:
                 initial.gm_profile = gm_profile
 
-            result = await compiled.ainvoke(initial.model_dump(), config=config)
-
-            # Combat delegation: if the resolution flagged combat, run CombatLoop.
-            # ``subsystem_hint`` / ``action_type`` here come from the semantic
-            # action router (embeddings), not a keyword scan — no separate gate.
-            resolution = result.get("resolution") or {}
-            if resolution.get("subsystem_hint") == "combat" or resolution.get("action_type") == "combat":
-                combat_result = await _run_combat(
-                    scene_id=self.scene_id,
-                    story_id=self.story_id,
-                    user_input=user_input,
-                    entity_context=result.get("entity_context", []),
-                    game_context=result.get("game_context", {}),
-                    source_profile=result.get("source_profile", {}),
-                    gm_profile=result.get("gm_profile"),
-                    session_tone=result.get("session_tone", "dramatic"),
-                )
-                if combat_result:
-                    result["narrative_text"] = (
-                        (result.get("narrative_text") or "") + "\n\n" + combat_result.get("narrative_text", "")
-                    )
-                    result["combat_result"] = combat_result
-
-                    # Extract HP deltas from combat result and merge into
-                    # resource_deltas so persist_working_state applies them
-                    # to the working state (T-092 carryover fix).
-                    combat_deltas = _extract_combat_resource_deltas(combat_result, result.get("entity_context", []))
-                    if combat_deltas:
-                        existing = result.get("resource_deltas") or []
-                        existing.extend(combat_deltas)
-                        result["resource_deltas"] = existing
-
-            return result
+            snapshot = await compiled.aget_state(config)
+            previous = snapshot.values or {}
+            for field in ("pending_roll", "turns_count", "total_minutes_passed", "image_suggestions", "combat_state"):
+                if field in previous:
+                    setattr(initial, field, previous[field])
+            return await compiled.ainvoke(initial.model_dump(), config=config)
 
     async def finalize(self) -> None:
         """
@@ -1652,6 +1660,7 @@ class SceneLoop:
                     "scene_id": self.scene_id,
                     "story_id": self.story_id,
                     "scene_complete": True,
+                    "finalize_requested": True,
                     "user_input": None,
                     "max_turns": self.max_turns,
                     "system_id": getattr(self, "system_id", None),
@@ -1709,13 +1718,14 @@ async def _run_combat(
     source_profile: dict[str, Any],
     gm_profile: dict[str, Any] | None = None,
     session_tone: str = "dramatic",
+    previous_combat: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """
     Bootstrap and run a CombatLoop for the current scene.
 
     Returns combat result dict or None if combat can't be started.
     """
-    from monitor_agents.loops.combat_loop import CombatantState, CombatLoop
+    from monitor_agents.loops.combat_loop import CombatantState, CombatLoop, CombatState
 
     # Build combatants from entity context
     combatants: list[CombatantState] = []
@@ -1747,13 +1757,13 @@ async def _run_combat(
             )
         )
 
-    if len(combatants) < 2:
+    if not previous_combat and len(combatants) < 2:
         logger.debug("Combat skipped: need at least 2 combatants, got %d", len(combatants))
         return None
 
     has_pc = any(c.is_pc for c in combatants)
     has_enemy = any(not c.is_pc for c in combatants)
-    if not has_pc or not has_enemy:
+    if not previous_combat and (not has_pc or not has_enemy):
         logger.debug("Combat skipped: need PC and enemy, pc=%s enemy=%s", has_pc, has_enemy)
         return None
 
@@ -1768,20 +1778,29 @@ async def _run_combat(
         session_tone=session_tone,
     )
 
-    # Start: roll initiative
-    await loop.start()
+    opening_narrative = ""
+    if previous_combat:
+        loop.state = CombatState.model_validate(previous_combat)
+        loop.state.entity_context = entity_context
+        loop.state.game_context = game_context
+        loop.state.source_profile = source_profile
+        loop.state.gm_profile = gm_profile
+        loop.state.session_tone = session_tone
+
+    starting_hp = {str(c.entity_id): c.hp_current for c in loop.state.combatants if c.is_pc}
+    if not previous_combat:
+        opening_narrative = (await loop.start()).get("narrative_text", "")
 
     # Execute first PC action
-    result = await loop.step(user_input)
+    if loop.state.combat_active and loop.state.awaiting_pc_input:
+        result = await loop.step(user_input)
+    else:
+        result = loop._snapshot()
 
-    narrative_parts = [result.get("narrative_text", "")]
+    narrative_parts = [opening_narrative, result.get("narrative_text", "")]
+    if opening_narrative and result.get("narrative_text") == opening_narrative:
+        narrative_parts.pop()
     combat_log = list(result.get("combat_log", []))
-
-    # Collect additional NPC turns' narrative
-    while result.get("combat_active") and not result.get("awaiting_pc_input"):
-        combat_text = result.get("narrative_text", "")
-        if combat_text:
-            narrative_parts.append(combat_text)
 
     # Build final combat summary
     final_narrative = "\n".join(p for p in narrative_parts if p)
@@ -1796,6 +1815,8 @@ async def _run_combat(
         "combatants": result.get("combatants", []),
         "round_number": result.get("round_number", 1),
         "awaiting_pc_input": result.get("awaiting_pc_input", True),
+        "combat_state": loop.state.model_dump(mode="json"),
+        "starting_hp": starting_hp,
     }
 
 
@@ -1837,7 +1858,7 @@ def _extract_combat_resource_deltas(
             continue
 
         post_hp = int(combatant.get("hp_current") or 0)
-        pre_hp_val = pre_hp.get(eid)
+        pre_hp_val = combat_result.get("starting_hp", {}).get(eid, pre_hp.get(eid))
         if pre_hp_val is None:
             continue
 

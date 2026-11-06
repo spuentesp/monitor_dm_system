@@ -555,6 +555,8 @@ class CombatLoop:
         # Choose the first combatant
         choose_updates = await choose_combatant(self.state)
         self._apply_updates(choose_updates)
+        if self.state.combat_active and not self.state.awaiting_pc_input:
+            self.state.narrative_text = "\n\n".join(await self._advance_npc_turns())
         return self._snapshot()
 
     async def step(self, user_input: str) -> dict[str, Any]:
@@ -563,6 +565,8 @@ class CombatLoop:
 
         Call this when awaiting_pc_input is True.
         """
+        if not self.state.combat_active or not self.state.awaiting_pc_input:
+            raise ValueError("Combat is not awaiting a player action")
         self.state.user_input = user_input
         self.state.awaiting_pc_input = False
 
@@ -573,6 +577,7 @@ class CombatLoop:
         # Narrate
         narrate_updates = await narrate_combat(self.state)
         self._apply_updates(narrate_updates)
+        narratives = [self.state.narrative_text] if self.state.narrative_text else []
 
         # Check victory and advance
         check_updates = await check_victory(self.state)
@@ -580,12 +585,14 @@ class CombatLoop:
 
         # If next combatant is NPC, auto-advance
         if self.state.combat_active and not self.state.awaiting_pc_input:
-            await self._advance_npc_turns()
+            narratives.extend(await self._advance_npc_turns())
 
+        self.state.narrative_text = "\n\n".join(narratives)
         return self._snapshot()
 
-    async def _advance_npc_turns(self) -> None:
+    async def _advance_npc_turns(self) -> list[str]:
         """Auto-resolve NPC turns until next PC turn or combat end."""
+        narratives: list[str] = []
         max_iter = 20  # safety limit
         for _ in range(max_iter):
             if not self.state.combat_active or self.state.awaiting_pc_input:
@@ -596,15 +603,23 @@ class CombatLoop:
 
             if self.state.awaiting_pc_input:
                 break
+            if self.state.current_combatant_id is None:
+                if self.state.current_index >= len(self.state.initiative_order):
+                    self.state.current_index = 0
+                    self.state.round_number += 1
+                continue
 
             resolve_updates = await resolve_combat_action(self.state)
             self._apply_updates(resolve_updates)
 
             narrate_updates = await narrate_combat(self.state)
             self._apply_updates(narrate_updates)
+            if self.state.narrative_text:
+                narratives.append(self.state.narrative_text)
 
             check_updates = await check_victory(self.state)
             self._apply_updates(check_updates)
+        return narratives
 
     def _apply_updates(self, updates: dict[str, Any]) -> None:
         """Apply a dict of updates to the CombatState fields."""

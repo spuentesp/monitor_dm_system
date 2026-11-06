@@ -872,11 +872,11 @@ class TestCompleteCurrentSceneNode:
         assert "downtime_available" not in result or result.get("downtime_available") is not True
 
     @pytest.mark.asyncio
-    async def test_complete_current_scene_no_story_state_returns_empty(self):
+    async def test_complete_current_scene_without_story_state_marks_scene_complete(self):
         (SceneState, *_) = _import_scene_loop()
         from monitor_agents.loops.scene_loop import complete_current_scene
 
-        # When story_state is None, complete_current_scene returns {}
+        # Completion must be visible to the caller even without story state.
         state = SceneState(
             scene_id=uuid4(),
             story_id=uuid4(),
@@ -893,7 +893,7 @@ class TestCompleteCurrentSceneNode:
             result = await complete_current_scene(state)
 
         mock_persist.assert_not_called()
-        assert result == {}
+        assert result == {"scene_complete": True}
 
 
 class TestCanonizeCheckpointNode:

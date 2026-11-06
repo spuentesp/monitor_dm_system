@@ -194,7 +194,7 @@ class StoryAgent(BaseAgent):
         return {
             "scenes": state.scenes + [scene_id],
             "current_scene_id": scene_id,
-            "scenes_completed": state.scenes_completed + 1,
+            "scenes_completed": state.scenes_completed,
             "next_scene_type": None,  # consumed
         }
 
