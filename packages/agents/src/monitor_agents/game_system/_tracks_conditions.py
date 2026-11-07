@@ -183,9 +183,14 @@ async def check_condition_triggers(
 def _collect_actor_conditions(context: dict[str, Any] | None) -> list[str]:
     """Pull the active condition list from the context (3 possible shapes)."""
     entities = (context or {}).get("entities", []) or []
+    actor_id = (context or {}).get("actor_id")
     actor_entity = None
     for entity in entities:
-        if entity.get("entity_type") != "location" and actor_entity is None:
+        if actor_id:
+            # A known actor's conditions only; never another entity's.
+            if str(entity.get("id")) == str(actor_id):
+                actor_entity = entity
+        elif entity.get("entity_type") != "location" and actor_entity is None:
             actor_entity = entity
 
     if not actor_entity:

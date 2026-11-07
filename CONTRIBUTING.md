@@ -61,10 +61,10 @@ A legitimate sealed-suite change (new property, stronger invariant, DST extensio
 via: open the PR, explain why the sealed suite must change, and ask a maintainer to apply
 `sealed-override` and review.
 
-Mutation gate: `mutation-diff.yml` runs Cosmic Ray on the modules your PR touches and
-fails when a mutant on a changed line survives. Kill it with a real assertion; the only
-exception is `scripts/mutation_allowlist.toml`, which requires a written justification
-including the mutant's source `line` (use it for proven equivalent mutants only).
+Mutation testing is local-only (too expensive for CI): `make test-mutation` or
+`uv run python scripts/mutation_diff.py --base <ref>` runs Cosmic Ray on the modules your
+branch touches. Kill survivors with real assertions; proven-equivalent mutants go in
+`scripts/mutation_allowlist.toml` with a written justification including the mutant's `line`.
 
 Silent swallowing policy: `except Exception: pass/continue` is banned in `packages/**`
 (ruff S110/S112/BLE001). `contextlib.suppress(...)` is the idiomatic form for *intentional*

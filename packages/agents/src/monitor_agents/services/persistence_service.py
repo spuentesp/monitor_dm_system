@@ -156,6 +156,7 @@ class PersistenceService:
         memories_to_persist: list[dict[str, Any]] | None = None,
         actor_context: dict[str, Any] | None = None,
         universe_id: UUID | None = None,
+        only_resource_deltas: bool = False,
     ) -> dict[str, Any]:
         """Upsert scene-scoped working state and return a UI-friendly snapshot.
 
@@ -241,17 +242,21 @@ class PersistenceService:
             current_stats = dict(working_state.current_stats or base_stats or {})
             state_id = working_state.state_id
 
-        deltas, condition_tags = await derive_state_deltas(
-            resolution,
-            user_input,
-            narrative_text,
-            resources=merged_resources,
-            game_context=game_context,
-        )
-        if condition_tags:
-            current_stats["conditions"] = condition_tags
-        current_stats["narrative_pressure"] = str(resolution.get("narrative_pressure") or "steady")
-        current_stats["last_success_level"] = str(resolution.get("success_level") or "success")
+        if only_resource_deltas:
+            deltas: dict[str, Any] = {}
+            condition_tags: list[str] = list(current_stats.get("conditions") or [])
+        else:
+            deltas, condition_tags = await derive_state_deltas(
+                resolution,
+                user_input,
+                narrative_text,
+                resources=merged_resources,
+                game_context=game_context,
+            )
+            if condition_tags:
+                current_stats["conditions"] = condition_tags
+            current_stats["narrative_pressure"] = str(resolution.get("narrative_pressure") or "steady")
+            current_stats["last_success_level"] = str(resolution.get("success_level") or "success")
 
         for key, delta in list(deltas.items()):
             if key not in merged_resources:
@@ -266,21 +271,26 @@ class PersistenceService:
             if delta:
                 merged_resources[key] = apply_resource_delta(merged_resources[key], delta)
 
-        # Apply ResourceEngine deltas (earn_on_failure, session_start, etc.)
+        # Apply ResourceEngine deltas (earn_on_failure, session_start, combat, etc.)
         engine_modifications: list[Any] = []
         for rd in resource_deltas:
             key = str(rd.get("resource_key", ""))
             delta = int(rd.get("delta", 0))
             if not key or not delta:
                 continue
-            if key not in merged_resources:
-                merged_resources[key] = normalise_resource_value(key, 0, 0)
+            matched_key = next(
+                (k for k in merged_resources if k.lower() == key.lower()),
+                key,
+            )
+            if matched_key not in merged_resources:
+                default_cap = int(rd.get("max_value") or (10 if key.lower() == "hp" else 0))
+                merged_resources[matched_key] = normalise_resource_value(matched_key, default_cap, default_cap)
             if delta:
-                merged_resources[key] = apply_resource_delta(merged_resources[key], delta)
-                engine_modifications.append((key, delta, f"ResourceEngine: {rd.get('source', 'engine')}"))
+                merged_resources[matched_key] = apply_resource_delta(merged_resources[matched_key], delta)
+                engine_modifications.append((matched_key, delta, f"ResourceEngine: {rd.get('source', 'engine')}"))
 
         # Award XP based on the turn's resolution outcome (P-21 progression)
-        xp_award = _award_xp(resolution, game_context)
+        xp_award = 0 if only_resource_deltas else _award_xp(resolution, game_context)
         if xp_award > 0:
             current_xp = int(working_state.xp or 0) if working_state else 0
             current_stats["xp"] = current_xp + xp_award
@@ -333,8 +343,12 @@ class PersistenceService:
         }
 
         new_pending_proposals: list[dict[str, Any]] = []
-        add_tags = canonical_state_tags(condition_tags, deltas, merged_resources, game_context)
-        if any(delta for delta in deltas.values()) or condition_tags or add_tags:
+        combined_changes = {key: delta for key, delta in deltas.items() if delta}
+        for key, delta, _src in engine_modifications:
+            if key != "xp" and delta:
+                combined_changes[key] = combined_changes.get(key, 0) + delta
+        add_tags = canonical_state_tags(condition_tags, combined_changes, merged_resources, game_context)
+        if combined_changes or condition_tags or add_tags:
             turn_uuid = coerce_uuid(
                 turn_id,
                 seed=f"monitor://scene/{scene_id}/turn/{turn_id or uuid4()}",
@@ -346,12 +360,12 @@ class PersistenceService:
                 "turn_id": str(turn_uuid),
                 "add_tags": add_tags,
                 "remove_tags": [],
-                "resource_changes": {key: delta for key, delta in deltas.items() if delta},
+                "resource_changes": combined_changes,
                 "resources": merged_resources,
                 "condition_tags": condition_tags,
                 "checkpoint_summary": checkpoint["summary"],
             }
-            proposal_summary = PersistenceService.build_state_change_summary(deltas, condition_tags, add_tags)
+            proposal_summary = PersistenceService.build_state_change_summary(combined_changes, condition_tags, add_tags)
 
             try:
                 created_proposal = await anyio.to_thread.run_sync(

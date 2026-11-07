@@ -555,8 +555,6 @@ class CombatLoop:
         # Choose the first combatant
         choose_updates = await choose_combatant(self.state)
         self._apply_updates(choose_updates)
-        if self.state.combat_active and not self.state.awaiting_pc_input:
-            self.state.narrative_text = "\n\n".join(await self._advance_npc_turns())
         return self._snapshot()
 
     async def step(self, user_input: str) -> dict[str, Any]:
@@ -565,8 +563,7 @@ class CombatLoop:
 
         Call this when awaiting_pc_input is True.
         """
-        if not self.state.combat_active or not self.state.awaiting_pc_input:
-            raise ValueError("Combat is not awaiting a player action")
+        turn_narratives: list[str] = []
         self.state.user_input = user_input
         self.state.awaiting_pc_input = False
 
@@ -577,7 +574,10 @@ class CombatLoop:
         # Narrate
         narrate_updates = await narrate_combat(self.state)
         self._apply_updates(narrate_updates)
-        narratives = [self.state.narrative_text] if self.state.narrative_text else []
+        if self.state.narrative_text:
+            turn_narratives.append(self.state.narrative_text)
+        if narrate_updates.get("proposals"):
+            self.state.pending_proposals.extend(narrate_updates["proposals"])
 
         # Check victory and advance
         check_updates = await check_victory(self.state)
@@ -585,26 +585,34 @@ class CombatLoop:
 
         # If next combatant is NPC, auto-advance
         if self.state.combat_active and not self.state.awaiting_pc_input:
-            narratives.extend(await self._advance_npc_turns())
+            npc_narratives = await self._advance_npc_turns()
+            turn_narratives.extend(npc_narratives)
 
-        self.state.narrative_text = "\n\n".join(narratives)
+        self.state.narrative_text = "\n".join(part for part in turn_narratives if part)
         return self._snapshot()
 
     async def _advance_npc_turns(self) -> list[str]:
         """Auto-resolve NPC turns until next PC turn or combat end."""
         narratives: list[str] = []
-        max_iter = 20  # safety limit
+        max_iter = max(20, len(self.state.initiative_order) * 2 + 2)
         for _ in range(max_iter):
             if not self.state.combat_active or self.state.awaiting_pc_input:
+                break
+
+            if not any(c.is_pc and c.is_active for c in self.state.combatants):
+                self.state.combat_active = False
+                self.state.victory_side = "enemy"
                 break
 
             choose_updates = await choose_combatant(self.state)
             self._apply_updates(choose_updates)
 
-            if self.state.awaiting_pc_input:
+            if not self.state.combat_active or self.state.awaiting_pc_input:
                 break
+
+            # Dead/inactive combatants or targetless NPCs already advanced current_index.
             if self.state.current_combatant_id is None:
-                if self.state.current_index >= len(self.state.initiative_order):
+                if self.state.initiative_order and self.state.current_index >= len(self.state.initiative_order):
                     self.state.current_index = 0
                     self.state.round_number += 1
                 continue
@@ -616,10 +624,49 @@ class CombatLoop:
             self._apply_updates(narrate_updates)
             if self.state.narrative_text:
                 narratives.append(self.state.narrative_text)
+            if narrate_updates.get("proposals"):
+                self.state.pending_proposals.extend(narrate_updates["proposals"])
 
             check_updates = await check_victory(self.state)
             self._apply_updates(check_updates)
+
+        if narratives:
+            self.state.narrative_text = "\n".join(part for part in narratives if part)
         return narratives
+
+    def to_checkpoint_state(self) -> dict[str, Any]:
+        """Serialize active combat state so SceneLoop can resume across turns."""
+        return self.state.model_dump(mode="json")
+
+    @classmethod
+    def from_checkpoint_state(
+        cls,
+        checkpoint_data: dict[str, Any],
+        *,
+        entity_context: list[dict[str, Any]] | None = None,
+        game_context: dict[str, Any] | None = None,
+        source_profile: dict[str, Any] | None = None,
+        gm_profile: dict[str, Any] | None = None,
+        session_tone: str | None = None,
+    ) -> CombatLoop:
+        """Restore a CombatLoop from a previously checkpointed state dict."""
+        restored_state = CombatState.model_validate(checkpoint_data)
+        if entity_context is not None:
+            restored_state.entity_context = entity_context
+        if game_context is not None:
+            restored_state.game_context = game_context
+        if source_profile is not None:
+            restored_state.source_profile = source_profile
+        if gm_profile is not None:
+            restored_state.gm_profile = gm_profile
+        if session_tone is not None:
+            restored_state.session_tone = session_tone
+
+        instance = cls.__new__(cls)
+        instance.scene_id = restored_state.scene_id
+        instance.story_id = restored_state.story_id
+        instance.state = restored_state
+        return instance
 
     def _apply_updates(self, updates: dict[str, Any]) -> None:
         """Apply a dict of updates to the CombatState fields."""

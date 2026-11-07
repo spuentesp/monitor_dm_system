@@ -374,6 +374,64 @@ async def test_respond_direct_unknown_npc_raises(
         )
 
 
+@pytest.mark.asyncio
+async def test_respond_direct_fires_default_hidden_triggers(
+    npc_id: UUID,
+    conversation_id: UUID,
+) -> None:
+    """BehavioralTrigger.is_hidden defaults to True ('do not narrate rule to player'),
+    so hidden triggers on cards must still evaluate and fire in DIRECT chat."""
+    import json
+
+    agent = NPCVoice()
+
+    async def mock_call_tool(tool_name: str, args: dict[str, Any]) -> Any:
+        if tool_name == "neo4j_get_entity":
+            return {"name": "Maeve", "universe_id": "uni-test", "properties": {"role": "innkeeper"}}
+        if tool_name == "mongodb_get_npc_profile":
+            return {
+                "current_emotional_state": "calm",
+                "secrets": ["Hid the heir"],
+                "gm_notes": "Secret scenario notes",
+                "triggers": [
+                    {
+                        "condition": "mentions Blackwood abbey",
+                        "reaction": "goes pale and changes the subject",
+                        "intensity": 0.85,
+                        "is_hidden": True,
+                    }
+                ],
+            }
+        if tool_name == "neo4j_list_facts":
+            return []
+        if tool_name == "qdrant_search_memories":
+            return {"results": []}
+        return {}
+
+    agent.call_tool = mock_call_tool
+    mock_prediction = Mock()
+    mock_prediction.npc_response = "*sets down the glass* Don't speak that name here."
+    mock_prediction.emotional_state_after = "shaken"
+    mock_prediction.relationship_delta = "none"
+    agent._direct_module = Mock(return_value=mock_prediction)
+
+    loaded = await agent._load_npc_data(npc_id, include_secrets=False)
+    assert "secrets" not in loaded["profile"]
+    assert len(loaded["profile"]["triggers"]) == 1
+
+    await agent.respond_direct(
+        conversation_id=conversation_id,
+        npc_id=npc_id,
+        player_said="Have you ever been to Blackwood abbey?",
+        npc_data=loaded,
+    )
+
+    active = json.loads(agent._direct_module.call_args.kwargs["active_triggers"])
+    assert len(active) == 1
+    assert active[0]["reaction"] == "goes pale and changes the subject"
+    assert "is_hidden" not in active[0]
+
+
 # =============================================================================
 # respond_actor INTEGRATION TEST
 # =============================================================================

@@ -40,6 +40,7 @@ _ST_BOOL_FIELDS = {
 }
 
 _ST_INT_FIELDS = {
+    "insertion_order": "order",
     "order": "order",
     "position": "position",
     "depth": "depth",
@@ -71,6 +72,7 @@ _KNOWN_ST_FIELDS = set(
         "uid",
         "displayIndex",
         "addMemo",
+        "disable",
         "enabled",
         "content",
         "id",
@@ -234,9 +236,10 @@ def parse_st_lorebook_entry(entry: dict[str, Any]) -> dict[str, Any]:
             continue
         out[monitor_key] = _to_bool(entry[st_key])
 
-    # "disable" is an inverted is_active flag.
-    if "disable" in entry:
-        out["is_active"] = not _to_bool(entry["disable"])
+    # On/off: World Info entries use "disable", CCv2 character_book entries use
+    # "enabled". Some tools write both; the entry is off if either says so.
+    if "disable" in entry or "enabled" in entry:
+        out["is_active"] = not _to_bool(entry.get("disable", False)) and _to_bool(entry.get("enabled", True))
 
     # Ints
     for st_key, monitor_key in _ST_INT_FIELDS.items():
@@ -246,10 +249,6 @@ def parse_st_lorebook_entry(entry: dict[str, Any]) -> dict[str, Any]:
     # Special: selective logic default
     if "selective" in out and out["selective"] and "selective_logic" not in out:
         out["selective_logic"] = SelectiveLogic.AND_ANY
-
-    # Special: disable -> is_active
-    if "disable" in entry:
-        out["is_active"] = not _to_bool(entry["disable"])
 
     # Content may be empty for some ST entries; skip them at import time.
     if not out["content"]:
@@ -413,8 +412,9 @@ def build_st_lorebook_entry(entry: LorebookEntryCreate | BaseModel | dict[str, A
         "addMemo": True,
     }
 
-    # If explicit ST field values are present in extensions, let them win.
-    out.update(st_extensions)
+    # If explicit ST field values are present in extensions, let them win —
+    # except active/disabled state, which is authoritative on ``is_active``.
+    out.update({k: v for k, v in st_extensions.items() if k not in ("disable", "enabled")})
     return out
 
 
@@ -451,13 +451,26 @@ def build_character_book(
     description: str = "",
     config: LorebookScanConfig | None = None,
 ) -> dict[str, Any]:
-    """Build a ``character_book`` dict suitable for embedding in chara_card_v2."""
+    """Build a ``character_book`` dict suitable for embedding in chara_card_v2.
+
+    Per TavernCard V2 / CCv2, ``character_book.entries`` is an array of entry
+    objects (unlike standalone SillyTavern World Info, which keys entries by
+    string index).
+    """
     book = build_st_lorebook(entries, name=name, description=description, config=config)
+    card_entries: list[dict[str, Any]] = []
+    for idx, entry in enumerate(book["entries"].values()):
+        card_entry = dict(entry)
+        card_entry.setdefault("id", idx)
+        card_entry.setdefault("insertion_order", card_entry.get("order", 100))
+        # CCv2 readers take on/off from "enabled"; "disable" stays for World Info readers.
+        card_entry["enabled"] = not card_entry.get("disable", False)
+        card_entries.append(card_entry)
     return {
         "name": book["name"],
         "description": book["description"],
         "scan_depth": book["scan_depth"],
         "token_budget": book["token_budget"],
         "recursive_scanning": book["recursive_scanning"],
-        "entries": book["entries"],
+        "entries": card_entries,
     }

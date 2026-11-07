@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import weakref
 from typing import Any
 
 import asyncpg
@@ -59,6 +60,10 @@ _DB_RETRY: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 _SCHEMA_SQL = """
+-- Serialize idempotent bootstrap DDL across concurrent pools/processes to
+-- prevent AccessExclusiveLock deadlocks when multiple loops connect at once.
+SELECT pg_advisory_xact_lock(7283945102938471);
+
 -- ──────────────────────────────────────────────────────────────────────────
 -- 1. Generic app-wide key/value store
 -- ──────────────────────────────────────────────────────────────────────────
@@ -424,10 +429,24 @@ class PostgresClient:
         self._max_size = max_size
         self._pool: asyncpg.Pool | None = None
         self._pool_loop: asyncio.AbstractEventLoop | None = None
+        self._pools_by_loop: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, asyncpg.Pool
+        ] = weakref.WeakKeyDictionary()
+        self._locks_by_loop: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, asyncio.Lock
+        ] = weakref.WeakKeyDictionary()
+        self._schema_applied: bool = False
 
     # ------------------------------------------------------------------
     # Connection lifecycle
     # ------------------------------------------------------------------
+
+    def _loop_lock(self, loop: asyncio.AbstractEventLoop) -> asyncio.Lock:
+        lock = self._locks_by_loop.get(loop)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks_by_loop[loop] = lock
+        return lock
 
     async def connect(self) -> None:
         """Open the connection pool and apply schema DDL (idempotent)."""
@@ -436,34 +455,68 @@ class PostgresClient:
         except RuntimeError:
             running = None
 
-        if (
-            self._pool is not None
-            and running is not None
-            and self._pool_loop is not None
-            and self._pool_loop is not running
-        ):
-            self._pool = None
-            self._pool_loop = None
+        if running is not None:
+            cached = self._pools_by_loop.get(running)
+            if cached is not None:
+                self._pool = cached
+                self._pool_loop = running
+                return
+            if self._pool is not None and self._pool_loop is None:
+                return
+            async with self._loop_lock(running):
+                cached = self._pools_by_loop.get(running)
+                if cached is not None:
+                    self._pool = cached
+                    self._pool_loop = running
+                    return
+                pool = await asyncpg.create_pool(
+                    self._dsn,
+                    min_size=self._min_size,
+                    max_size=self._max_size,
+                )
+                self._pools_by_loop[running] = pool
+                self._pool = pool
+                self._pool_loop = running
+                if not self._schema_applied:
+                    await self._apply_schema(pool)
+                return
 
         if self._pool is None:
-            self._pool = await asyncpg.create_pool(
+            pool = await asyncpg.create_pool(
                 self._dsn,
                 min_size=self._min_size,
                 max_size=self._max_size,
             )
-            self._pool_loop = running
-            await self._apply_schema()
+            self._pool = pool
+            self._pool_loop = None
+            if not self._schema_applied:
+                await self._apply_schema(pool)
 
     async def close(self) -> None:
         """Close all pooled connections gracefully."""
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is not None:
+            loop_pool = self._pools_by_loop.pop(running, None)
+            if loop_pool is not None:
+                await loop_pool.close()
+                if self._pool is loop_pool:
+                    self._pool = None
+                    self._pool_loop = None
+                return
         if self._pool is not None:
-            await self._pool.close()
+            if self._pool_loop in (None, running):
+                await self._pool.close()
             self._pool = None
             self._pool_loop = None
 
-    async def _apply_schema(self) -> None:
-        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+    async def _apply_schema(self, pool: asyncpg.Pool | None = None) -> None:
+        target_pool = pool or self._pool
+        async with target_pool.acquire() as conn, conn.transaction():  # type: ignore[union-attr]
             await conn.execute(_SCHEMA_SQL)
+        self._schema_applied = True
 
     # ------------------------------------------------------------------
     # Health check
@@ -1199,17 +1252,22 @@ class PostgresClient:
         except RuntimeError:
             running = None
 
+        if running is not None:
+            cached = self._pools_by_loop.get(running)
+            if cached is not None:
+                return cached
+
         if (
             self._pool is not None
-            and running is not None
-            and self._pool_loop is not None
-            and self._pool_loop is not running
+            and (running is None or self._pool_loop is None or self._pool_loop is running)
         ):
-            self._pool = None
-            self._pool_loop = None
+            return self._pool
 
-        if self._pool is None:
-            await self.connect()
+        await self.connect()
+        if running is not None:
+            cached = self._pools_by_loop.get(running)
+            if cached is not None:
+                return cached
         if self._pool is None:
             raise RuntimeError("PostgreSQL pool not initialized")
         return self._pool

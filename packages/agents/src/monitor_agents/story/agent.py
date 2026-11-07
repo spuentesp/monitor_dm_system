@@ -46,15 +46,24 @@ class StoryAgent(BaseAgent):
             label = s.get("arc_label", "unknown")
             recent.append(f"Scene {idx} ({label})")
 
+        from monitor_data.schemas.llm_config import ModelRole
+
+        from monitor_agents.dspy_runtime import dspy_context_for
+
         planner = StoryPlannerModule()
+
+        def _plan() -> dict[str, Any]:
+            # DSPy only has a model inside a bound context; without one every
+            # call fails with "No LM is loaded".
+            with dspy_context_for("story_planner", ModelRole.STANDARD):
+                return planner.forward(
+                    arc_label=state.arc_label,
+                    active_threads=", ".join(state.active_threads),
+                    recent_scenes="; ".join(recent) if recent else "None",
+                )
+
         # DSPy calls are sync, wrap in to_thread to avoid blocking the event loop
-        result = await asyncio.to_thread(
-            planner.forward,
-            arc_label=state.arc_label,
-            active_threads=", ".join(state.active_threads),
-            recent_scenes="; ".join(recent) if recent else "None",
-        )
-        return result
+        return await asyncio.to_thread(_plan)
 
     async def evaluate_arc(self, state: StoryState) -> dict[str, Any]:
         """

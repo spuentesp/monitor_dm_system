@@ -817,6 +817,8 @@ class Narrator(BaseAgent):
                     )
                     prediction = None
                     last_provider_error = LLMProviderUnavailable(info)
+                    if not info.retryable:
+                        break
 
         if last_provider_error is not None:
             raise last_provider_error
@@ -1290,6 +1292,9 @@ class Narrator(BaseAgent):
             is_yes = ora.get("is_yes")
             lik = ora.get("likelihood")
             return f"ORACLE RESOLUTION: Result is {out} (Yes: {is_yes}) based on {lik} likelihood. Ground your description in this fixed truth."
+
+        if res_type == "rag_lookup":
+            return f"LOOKUP RESULT: Answer the player from this material and do not contradict it.\n{resolution.get('answer', '')}"
 
         # Propose-roll: GM should invite the player to roll, not narrate an outcome
         if res_type == "propose_roll":

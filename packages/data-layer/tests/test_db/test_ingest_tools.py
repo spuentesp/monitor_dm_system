@@ -71,37 +71,19 @@ def test_extract_pdf_structure_heading_path_nesting():
         assert combat_sections[0].depth >= 1
 
 
-def test_overlapping_bookmarks_reuse_page_text(monkeypatch):
-    from monitor_data.tools.ingest_tools import pdf_processing
+def test_overlapping_bookmarks_preserve_text_once():
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "First page unique content.")
+    doc.new_page().insert_text((72, 72), "Second page unique content.")
+    doc.set_toc([[1, "Chapter", 1], [2, "Section", 2]])
+    data = doc.tobytes()
+    doc.close()
 
-    reads = []
-
-    class Page:
-        def __init__(self, number):
-            self.number = number
-
-        def get_text(self):
-            reads.append(self.number)
-            return f"Page {self.number}"
-
-    class Document:
-        page_count = 2
-
-        def get_toc(self, simple=False):
-            return [[1, "Chapter", 1], [2, "Section", 2]]
-
-        def __getitem__(self, number):
-            return Page(number)
-
-        def close(self):
-            pass
-
-    monkeypatch.setattr(pdf_processing, "_open_pdf", lambda _: Document())
-    sections = pdf_processing._extract_pdf_structure_uncached(b"pdf")
-
-    assert reads == [0, 1]
-    assert sections[0].text == "Page 0\nPage 1"
-    assert sections[1].text == "Page 1"
+    sections = extract_pdf_structure(data)
+    text = "\n".join(section.text for section in sections)
+    assert text.count("First page unique content.") == 1
+    assert text.count("Second page unique content.") == 1
+    assert any(section.heading_path == ["Chapter", "Section"] for section in sections)
 
 
 def test_bookmarks_preserve_unbookmarked_front_matter():

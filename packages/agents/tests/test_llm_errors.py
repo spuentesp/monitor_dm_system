@@ -59,3 +59,20 @@ def test_classify_minimax_anthropic_shaped_rate_limit() -> None:
     )
     info = classify_llm_error(exc)
     assert info.error_class == LLMErrorClass.RATE_LIMIT
+
+
+def test_classify_402_insufficient_balance_in_connection_wrapper_as_quota() -> None:
+    """LiteLLM wraps HTTP 402 insufficient-balance errors in APIConnectionError.
+    Must classify as non-retryable QUOTA (not NETWORK) with a billing/quota message."""
+
+    class APIConnectionError(Exception):
+        pass
+
+    exc = APIConnectionError("MinimaxException - 402 insufficient balance (1008)")
+    info = classify_llm_error(exc)
+    assert info.error_class == LLMErrorClass.QUOTA
+    assert info.retryable is False
+
+    surfaced = LLMProviderUnavailable(info)
+    assert "billing" in surfaced.user_message.lower()
+    assert "temporarily unavailable" not in surfaced.user_message.lower()

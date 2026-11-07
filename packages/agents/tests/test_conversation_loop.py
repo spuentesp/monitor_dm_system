@@ -517,6 +517,52 @@ class TestGenerateNpcResponses:
         assert existing_proposal in result["pending_proposals"]
         assert new_proposal in result["pending_proposals"]
 
+    @pytest.mark.asyncio
+    async def test_single_npc_failure_propagates_instead_of_fake_reply(self):
+        npc_id = uuid4()
+        state = _state(
+            mode=ConversationMode.DIRECT,
+            npc_ids=[npc_id],
+            current_player_input="Hello?",
+            npc_contexts={str(npc_id): {"name": "Maeve"}},
+        )
+        mock_agent = MagicMock()
+        mock_agent.respond_direct = AsyncMock(side_effect=RuntimeError("402 insufficient balance"))
+
+        with (
+            patch("monitor_agents.npc_voice.agent.NPCVoice", return_value=mock_agent),
+            pytest.raises(RuntimeError, match="402 insufficient balance"),
+        ):
+            await generate_npc_responses(state)
+
+    @pytest.mark.asyncio
+    async def test_multi_npc_partial_failure_keeps_surviving_reply(self):
+        npc_ok, npc_bad = uuid4(), uuid4()
+        state = _state(
+            mode=ConversationMode.DIRECT,
+            npc_ids=[npc_ok, npc_bad],
+            current_player_input="Anyone home?",
+            npc_contexts={
+                str(npc_ok): {"name": "Maeve"},
+                str(npc_bad): {"name": "Aldric"},
+            },
+        )
+        mock_agent = MagicMock()
+
+        async def _respond(**kwargs: Any) -> dict[str, Any]:
+            if kwargs["npc_id"] == npc_bad:
+                raise RuntimeError("minor glitch")
+            return {"npc_response": "Right here.", "emotional_state_after": "calm", "proposals": []}
+
+        mock_agent.respond_direct = AsyncMock(side_effect=_respond)
+
+        with patch("monitor_agents.npc_voice.agent.NPCVoice", return_value=mock_agent):
+            result = await generate_npc_responses(state)
+
+        assert len(result["current_npc_responses"]) == 2
+        assert result["current_npc_responses"][0]["text"] == "Right here."
+        assert "lost in thought" in result["current_npc_responses"][1]["text"]
+
 
 # ===========================================================================
 # close_session
@@ -668,9 +714,45 @@ class TestCloseSession:
             result = await close_session(state)
 
         # Session still closed; no episodic proposals staged.
-        assert result == {"pending_proposals": []}
+        assert result == {"pending_proposals": [], "is_complete": True}
         stage_calls = [c for c in mock_agent.call_tool.call_args_list if c[0][0] == "mongodb_create_proposed_change"]
         assert stage_calls == []
+
+    @pytest.mark.asyncio
+    async def test_stages_proposals_before_marking_completed_and_recovers_on_failure(self):
+        conv_id = uuid4()
+        p1 = {"change_type": "fact", "content": {"text": "First"}, "confidence": 0.8}
+        p2 = {"change_type": "fact", "content": {"text": "Second"}, "confidence": 0.8}
+        state = _state(conversation_id=conv_id, pending_proposals=[p1, p2])
+
+        call_order: list[str] = []
+        fail_second = {"enabled": True}
+
+        async def _call_tool(name: str, args: dict[str, Any]) -> Any:
+            call_order.append(name)
+            if name == "mongodb_create_proposed_change":
+                if fail_second["enabled"] and args["params"]["content"].get("text") == "Second":
+                    raise RuntimeError("transient mongo outage")
+            return {}
+
+        mock_agent = MagicMock()
+        mock_agent.call_tool = AsyncMock(side_effect=_call_tool)
+
+        with patch("monitor_agents.npc_voice.agent.NPCVoice", return_value=mock_agent):
+            with pytest.raises(RuntimeError, match="Failed to stage 1 proposal"):
+                await close_session(state)
+
+            # Session was NOT marked completed when staging failed, and only unstaged p2 remains.
+            assert "mongodb_update_conversation" not in call_order
+            assert state.pending_proposals == [p2]
+
+            # Retry succeeds and stages only the remaining proposal before marking completed.
+            call_order.clear()
+            fail_second["enabled"] = False
+            result = await close_session(state)
+
+        assert call_order == ["mongodb_create_proposed_change", "mongodb_update_conversation"]
+        assert result["is_complete"] is True
 
 
 # ===========================================================================
@@ -889,6 +971,44 @@ class TestConversationLoopStep:
             await loop.step("hi")
 
         assert closed["called"] is False
+
+    @pytest.mark.asyncio
+    async def test_step_rejects_turns_after_max_turns_ceiling(self):
+        from monitor_agents.loops.conversation_loop import ConversationClosedError
+
+        loop = _loop()
+        loop.state.max_turns = 1
+        staged_count = {"n": 0}
+
+        async def fake_process(state):
+            return {"turns": [*state.turns, {"speaker_role": "player", "text": state.current_player_input}]}
+
+        async def fake_generate(state):
+            return {
+                "current_npc_responses": [{"npc_id": "x", "npc_name": "Maeve", "text": "Farewell."}],
+                "pending_proposals": [*state.pending_proposals, {"change_type": "fact", "content": {}}],
+                "turns_count": state.turns_count + 1,
+                "current_player_input": None,
+            }
+
+        async def fake_close(state):
+            staged_count["n"] += len(state.pending_proposals)
+            return {"pending_proposals": state.pending_proposals, "is_complete": True}
+
+        with (
+            patch("monitor_agents.loops.conversation_loop.process_player_turn", new=fake_process),
+            patch("monitor_agents.loops.conversation_loop.generate_npc_responses", new=fake_generate),
+            patch("monitor_agents.loops.conversation_loop.close_session", new=fake_close),
+        ):
+            out = await loop.step("Final exchange")
+            assert out[0]["text"] == "Farewell."
+            assert loop._closed is True
+            assert staged_count["n"] == 1
+
+            with pytest.raises(ConversationClosedError):
+                await loop.step("One more past ceiling")
+
+        assert len(loop.state.pending_proposals) == 1
 
 
 class TestConversationLoopFinish:

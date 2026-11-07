@@ -29,8 +29,8 @@ from monitor_agents.dice.pool import (
 # Register the built-in engines on import so callers can immediately
 # use ``default_dice_registry.get("pool")`` or ``...get("generic")``
 # without a separate setup step.
-default_dice_registry.register(GenericDiceEngine())  # type: ignore[abstract]
-default_dice_registry.register(PoolDiceEngine())  # type: ignore[abstract]
+default_dice_registry.register(GenericDiceEngine())
+default_dice_registry.register(PoolDiceEngine())
 
 __all__ = [
     "DiceEngine",

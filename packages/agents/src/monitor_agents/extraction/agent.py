@@ -269,7 +269,7 @@ class ExtractionAgent(BaseAgent):
         state_patterns = [
             (
                 re.compile(
-                    r"\b(\w+)\s+(?:is|are|lies|remains)\s+(?:dead|motionless|destroyed|broken|sealed|open|closed)\b",
+                    r"\b(\w+)\s+(?:is|are|lies|remains)\s+(dead|motionless|destroyed|broken|sealed|open|closed)\b",
                     re.IGNORECASE,
                 ),
                 "State change: {0} is now {1}",

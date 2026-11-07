@@ -114,10 +114,36 @@ logger = logging.getLogger(__name__)
 # Override via environment variable MONITOR_MAX_INGEST_FILE_BYTES.
 _MAX_FILE_SIZE_BYTES: int = int(os.environ.get("MONITOR_MAX_INGEST_FILE_BYTES", str(200 * 1024 * 1024)))
 
-# Per-stage timeout for the analyzer (default 30 min). Generous enough not to
-# false-fail a large rulebook, but tighter than the 45-min whole-job timeout so
-# a wedged provider fails the analyze stage with a clear message first.
+# Per-stage timeout for the analyzer (default 180 min), for callers with no job
+# timeout. Callers that have one pass `analyze_timeout_for_job`, so a wedged provider
+# fails this stage with a clear message before the job timeout hides the reason.
 _ANALYZE_STAGE_TIMEOUT_SECS: int = int(os.environ.get("MONITOR_ANALYZE_TIMEOUT", str(180 * 60)))
+_ANALYZE_JOB_MARGIN_SECS = 5 * 60
+_MIN_ANALYZE_TIMEOUT_SECS = 60
+
+
+def analyze_timeout_for_job(job_timeout_seconds: int) -> int:
+    """Set the analyzer's limit inside a job's limit, leaving time to report the failure."""
+    inside_job = max(job_timeout_seconds - _ANALYZE_JOB_MARGIN_SECS, _MIN_ANALYZE_TIMEOUT_SECS)
+    return min(_ANALYZE_STAGE_TIMEOUT_SECS, inside_job)
+
+
+async def _delete_source_chunks(source_id: UUID) -> None:
+    """Clear a source's chunks before indexing it again, so old and new never mix."""
+    from monitor_data.db.qdrant import get_qdrant_client
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    try:
+        await (
+            get_qdrant_client()
+            .get_client()
+            .delete(
+                collection_name="snippets",
+                points_selector=Filter(must=[FieldCondition(key="source_id", match=MatchValue(value=str(source_id)))]),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: indexing can continue; stale chunks are logged, not fatal
+        logger.warning("Could not clear old chunks for source %s: %s", source_id, exc)
 
 
 async def _is_job_cancelled(job_id: UUID) -> bool:
@@ -242,6 +268,7 @@ class IngestionPipeline(BaseAgent):
         reuse_source_id: UUID | None = None,
         reuse_doc_id: UUID | None = None,
         on_job_created: Callable[[UUID], None] | None = None,
+        analyze_timeout_seconds: int | None = None,
     ) -> IngestionJobResponse:
         """
         Ingest a raw file through the full pipeline.
@@ -503,6 +530,9 @@ class IngestionPipeline(BaseAgent):
             else:
                 if await _is_job_cancelled(job_id):
                     raise RuntimeError("Job was cancelled before indexing started")
+                if reusing_existing_doc:
+                    # A retry after a failed index can leave chunks with other IDs behind.
+                    await _delete_source_chunks(source_id)
                 await asyncio.to_thread(
                     mongodb_update_ingestion_job,
                     job_id,
@@ -571,6 +601,7 @@ class IngestionPipeline(BaseAgent):
             # Per-stage guard: the analyzer fans out many LLM calls; a wedged
             # provider should fail *this stage* with a clear message rather than
             # silently riding the 45-minute whole-job timeout.
+            analyze_timeout = analyze_timeout_seconds or _ANALYZE_STAGE_TIMEOUT_SECS
             try:
                 analysis_result = await asyncio.wait_for(
                     self._analyzer.analyze(
@@ -584,11 +615,11 @@ class IngestionPipeline(BaseAgent):
                         analysis_layers=selected_layers,
                         auto_apply=auto_apply,
                     ),
-                    timeout=_ANALYZE_STAGE_TIMEOUT_SECS,
+                    timeout=analyze_timeout,
                 )
             except TimeoutError as exc:
                 raise RuntimeError(
-                    f"Analysis stage timed out after {_ANALYZE_STAGE_TIMEOUT_SECS // 60} "
+                    f"Analysis stage timed out after {analyze_timeout // 60} "
                     "minutes — the LLM provider may be unreachable or overloaded."
                 ) from exc
 

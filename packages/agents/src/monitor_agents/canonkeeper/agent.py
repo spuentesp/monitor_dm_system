@@ -36,6 +36,8 @@ from monitor_data.schemas.agent_responses import (
     CanonKeeperVerdict,
 )
 from monitor_data.schemas.base import ProposalStatus
+from monitor_data.schemas.book_graph import BookTree
+from monitor_data.tools.neo4j_tools.book_tree import neo4j_delete_book_tree, neo4j_merge_book_tree
 from monitor_data.tools.neo4j_tools.mechanics import (
     neo4j_create_ability_system,
     neo4j_create_condition,
@@ -1304,6 +1306,14 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             "ended_at": datetime.now(UTC).isoformat(),
         }
 
+    async def record_book_structure(self, tree: BookTree, source_id: UUID) -> int:
+        """Store a book's structure under its Source (I-17). It's a record of the file, not canon."""
+        return await asyncio.to_thread(neo4j_merge_book_tree, tree, source_id)
+
+    async def delete_book_structure(self, doc_id: str) -> None:
+        """Remove a book's stored structure, which never touches canon (I-17)."""
+        await asyncio.to_thread(neo4j_delete_book_tree, doc_id)
+
     async def create_story(
         self,
         story_id: UUID,
@@ -2331,7 +2341,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         data = self._parse_tool_result(result)
         for entity in data.get("entities", []):
             if (entity.get("name") or "").strip().lower() == target:
-                return entity["id"]
+                return str(entity["id"])
         return None
 
     def _store_runtime_ref_on_proposal(

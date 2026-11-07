@@ -228,6 +228,7 @@ from monitor_data.tools.mongodb_tools.npc_profiles import (
     _npc_profile_doc_to_response,
     mongodb_create_npc_profile,
     mongodb_get_npc_profile,
+    mongodb_get_npc_profiles_by_entities,
     mongodb_update_npc_profile,
 )
 
@@ -545,6 +546,7 @@ __all__ = [
     "_npc_profile_doc_to_response",
     "mongodb_create_npc_profile",
     "mongodb_get_npc_profile",
+    "mongodb_get_npc_profiles_by_entities",
     "mongodb_update_npc_profile",
     # Character operations
     "mongodb_get_character",

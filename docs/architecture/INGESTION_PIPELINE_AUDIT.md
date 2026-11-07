@@ -515,9 +515,9 @@ raw upload directory path fails immediately with `FileDataError`).
 > comment cites this finding).
 >
 > Remaining (verified 2026-07-23):
-> - `extract_pdf_structure()` output is still not cached by content hash —
->   no caching layer found in `pdf_processing.py`, `indexer.py`, or
->   `ingestion_pipeline.py` (item 4).
+> - ~~`extract_pdf_structure()` output is still not cached by content hash.~~
+>   Resolved: it now wraps an in-memory SHA-256 LRU with 4 entries (item 4, see
+>   `pdf_processing.py`).
 > - Whether `--apply-dedup` has actually been run against the live MinIO /
 >   `documents` data is a data operation, not verifiable from code.
 

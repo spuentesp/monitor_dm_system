@@ -50,41 +50,53 @@ class TestParseOutputDirectives:
 
 
 class _FakeAgent:
-    """call_tool double that serves entries from a dict and records updates."""
+    """call_tool double that serves entries and fails on any write."""
 
     def __init__(self, entries_by_character: dict[str, list[dict]]):
         self._entries = entries_by_character
-        self.updates: list[dict] = []
+        self.queries: list[dict] = []
 
     async def call_tool(self, name: str, args: dict):
         if name == "mongodb_get_lorebook_entries":
+            self.queries.append(args)
             return list(self._entries.get(args["character_id"], []))
-        if name == "mongodb_update_lorebook_entry":
-            self.updates.append(args)
-            return {}
         raise AssertionError(f"unexpected tool call: {name}")
 
 
 class TestApplyLorebookDirectives:
+    """Directives switch entries for one conversation only; nothing is written."""
+
     def test_activates_matching_entry_case_insensitive(self):
         agent = _FakeAgent({"char-1": [{"id": "e1", "comment": "The Red Hand"}]})
-        applied = asyncio.run(
-            apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "the red hand")])
+        overrides = asyncio.run(
+            apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "the red hand")], {})
         )
-        assert applied == 1
-        assert agent.updates == [{"entry_id": "e1", "updates": {"is_active": True}}]
+        assert overrides == {"e1": True}
 
-    def test_deactivate_sets_false(self):
+    def test_lookup_includes_inactive_entries(self):
+        agent = _FakeAgent({"char-1": [{"id": "e1", "comment": "x", "is_active": False}]})
+        asyncio.run(apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "x")], {}))
+        assert agent.queries[0]["include_inactive"] is True
+
+    def test_deactivate_sets_false_and_keeps_earlier_overrides(self):
         agent = _FakeAgent({"char-1": [{"id": "e1", "comment": "x"}]})
-        applied = asyncio.run(apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("deactivate", "x")]))
-        assert applied == 1
-        assert agent.updates[0]["updates"] == {"is_active": False}
+        overrides = asyncio.run(
+            apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("deactivate", "x")], {"e9": True})
+        )
+        assert overrides == {"e9": True, "e1": False}
+
+    def test_input_overrides_are_not_mutated(self):
+        agent = _FakeAgent({"char-1": [{"id": "e1", "comment": "x"}]})
+        before = {"e9": True}
+        asyncio.run(apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "x")], before))
+        assert before == {"e9": True}
 
     def test_unknown_name_skipped(self):
         agent = _FakeAgent({"char-1": [{"id": "e1", "comment": "x"}]})
-        applied = asyncio.run(apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "ghost")]))
-        assert applied == 0
-        assert agent.updates == []
+        overrides = asyncio.run(
+            apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "ghost")], {})
+        )
+        assert overrides == {}
 
     def test_searches_all_characters(self):
         agent = _FakeAgent(
@@ -93,17 +105,18 @@ class TestApplyLorebookDirectives:
                 "universe:u1": [{"id": "e2", "comment": "b"}],
             }
         )
-        applied = asyncio.run(
-            apply_lorebook_directives(agent, ["char-1", "universe:u1"], [LorebookDirective("activate", "b")])
+        overrides = asyncio.run(
+            apply_lorebook_directives(agent, ["char-1", "universe:u1"], [LorebookDirective("activate", "b")], {})
         )
-        assert applied == 1
-        assert agent.updates[0]["entry_id"] == "e2"
+        assert overrides == {"e2": True}
 
     def test_tool_failure_is_swallowed(self):
         agent = _FakeAgent({})
         agent.call_tool = AsyncMock(side_effect=RuntimeError("db down"))
-        applied = asyncio.run(apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "x")]))
-        assert applied == 0
+        overrides = asyncio.run(
+            apply_lorebook_directives(agent, ["char-1"], [LorebookDirective("activate", "x")], {"e9": True})
+        )
+        assert overrides == {"e9": True}
 
 
 class TestConversationLoopWiring:
@@ -141,9 +154,9 @@ class TestConversationLoopWiring:
             mp.setattr(npc_agent_mod, "NPCVoice", lambda: fake_voice)
             applied: list[list[LorebookDirective]] = []
 
-            async def fake_apply(agent, cids, directives):
+            async def fake_apply(agent, cids, directives, overrides):
                 applied.append(directives)
-                return len(directives)
+                return {**overrides, "e1": True}
 
             mp.setattr("monitor_agents.lorebook_directives.apply_lorebook_directives", fake_apply)
             out = asyncio.run(cl.generate_npc_responses(state))
@@ -152,3 +165,78 @@ class TestConversationLoopWiring:
         assert responses[0]["text"] == '"Fine."'
         assert out["turns"][-1]["text"] == '"Fine."'
         assert applied == [[LorebookDirective("activate", "the_red_hand")]]
+        assert out["lorebook_overrides"] == {"e1": True}
+
+
+
+def test_voice_strips_directives_before_saving_the_turn():
+    """The reply is saved and remembered without the directive lines."""
+    import types
+    from uuid import uuid4
+
+    from monitor_agents.npc_voice import agent as npc_agent_mod
+
+    saved: list[str] = []
+    voice = npc_agent_mod.NPCVoice.__new__(npc_agent_mod.NPCVoice)
+    voice._direct_module = lambda **_kw: types.SimpleNamespace(
+        npc_response='"Fine."\n@@activate The Red Hand',
+        emotional_state_after="calm",
+        relationship_delta="none",
+    )
+
+    async def call_tool(name, args):
+        if name == "mongodb_append_conversation_turn":
+            saved.append(args["params"]["text"])
+        if name == "mongodb_create_memory":
+            saved.append(args["params"]["text"])
+        if name == "qdrant_search_memories":
+            return {"results": []}
+        return {}
+
+    voice.call_tool = call_tool
+    npc = {"name": "Maeve", "role": "innkeeper", "profile": {}, "facts": []}
+    result = asyncio.run(
+        voice.respond_direct(
+            conversation_id=uuid4(),
+            npc_id=uuid4(),
+            player_said="Hello.",
+            npc_data=npc,
+            universe_id=uuid4(),
+            parse_directives=True,
+        )
+    )
+
+    assert result["npc_response"] == '"Fine."'
+    assert result["lorebook_directives"] == [LorebookDirective("activate", "The Red Hand")]
+    assert saved and all("@@" not in text for text in saved)
+
+
+def test_scan_respects_conversation_overrides():
+    from monitor_data.schemas.lorebook import LorebookEntry
+    from monitor_data.tools.mongodb_tools import lorebook_tools
+
+    def entry(entry_id: str, active: bool) -> LorebookEntry:
+        return LorebookEntry(
+            id=entry_id,
+            character_id="char-1",
+            keywords=["storm"],
+            content=f"content {entry_id}",
+            is_active=active,
+            created_at="2026-01-01T00:00:00Z",
+        )
+
+    calls: list[dict] = []
+
+    def fake_entries(character_id, include_inactive=False, **_kw):
+        calls.append({"include_inactive": include_inactive})
+        entries = [entry("off", False), entry("on", True)]
+        return entries if include_inactive else [e for e in entries if e.is_active]
+
+    with __import__("unittest.mock").mock.patch.object(lorebook_tools, "mongodb_get_lorebook_entries", fake_entries):
+        plain = lorebook_tools.mongodb_scan_lorebook(["char-1"], "a storm", increment_triggers=False)
+        flipped = lorebook_tools.mongodb_scan_lorebook(
+            ["char-1"], "a storm", increment_triggers=False, active_overrides={"off": True, "on": False}
+        )
+
+    assert sorted(plain.triggered_entry_ids) == ["on"]
+    assert sorted(flipped.triggered_entry_ids) == ["off"]

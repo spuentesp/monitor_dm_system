@@ -57,6 +57,9 @@ def mock_all_dbs():
 
                 return self
             
+            def __iter__(self):
+                return iter(self.items)
+
             async def __aiter__(self):
                 for item in self.items:
                     yield item

@@ -65,8 +65,85 @@ async def test_connect_creates_pool_and_applies_schema(mock_pool):
     assert c._pool is pool
     pool.acquire.assert_called()
     conn.execute.assert_called()
-    # schema applied (first call is schema DDL)
-    assert "CREATE TABLE" in conn.execute.call_args_list[0][0][0]
+    # schema applied (first call is schema DDL, serialized by xact advisory lock)
+    ddl = conn.execute.call_args_list[0][0][0]
+    assert "pg_advisory_xact_lock" in ddl
+    assert "CREATE TABLE" in ddl
+    conn.transaction.assert_called()
+
+
+def test_multi_loop_reuses_per_loop_pools_and_applies_schema_once(mock_pool):
+    import asyncio
+
+    pool1, conn1 = mock_pool
+    pool2 = AsyncMock()
+    pool2.acquire = pool1.acquire
+    pool2.close = AsyncMock()
+    created = [pool1, pool2]
+
+    async def fake_create_pool(*_args, **_kwargs):
+        return created.pop(0)
+
+    c = PostgresClient(dsn="postgresql://test")
+    loop1 = asyncio.new_event_loop()
+    loop2 = asyncio.new_event_loop()
+    try:
+        with patch("monitor_data.db.postgres.asyncpg.create_pool", side_effect=fake_create_pool) as create_mock:
+            assert loop1.run_until_complete(c._get_pool()) is pool1
+            assert loop2.run_until_complete(c._get_pool()) is pool2
+            # Switching back to loop1 reuses pool1 instead of creating a third pool
+            assert loop1.run_until_complete(c._get_pool()) is pool1
+            assert create_mock.call_count == 2
+        # Schema DDL was executed only once across both event loops
+        assert conn1.execute.call_count == 1
+    finally:
+        loop1.close()
+        loop2.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_loop_connect_creates_single_pool(mock_pool):
+    import asyncio
+
+    pool, _conn = mock_pool
+
+    async def slow_create_pool(*_args, **_kwargs):
+        await asyncio.sleep(0.01)
+        return pool
+
+    c = PostgresClient(dsn="postgresql://test")
+    with patch("monitor_data.db.postgres.asyncpg.create_pool", side_effect=slow_create_pool) as create_mock:
+        p1, p2 = await asyncio.gather(c._get_pool(), c._get_pool())
+    assert p1 is pool and p2 is pool
+    assert create_mock.call_count == 1
+
+
+def test_close_releases_current_loop_pool_even_after_other_loop_connects(mock_pool):
+    import asyncio
+
+    pool1, _conn1 = mock_pool
+    pool2 = AsyncMock()
+    pool2.acquire = pool1.acquire
+    pool2.close = AsyncMock()
+    created = [pool1, pool2]
+
+    async def fake_create_pool(*_args, **_kwargs):
+        return created.pop(0)
+
+    c = PostgresClient(dsn="postgresql://test")
+    loop1 = asyncio.new_event_loop()
+    loop2 = asyncio.new_event_loop()
+    try:
+        with patch("monitor_data.db.postgres.asyncpg.create_pool", side_effect=fake_create_pool):
+            loop1.run_until_complete(c._get_pool())
+            loop2.run_until_complete(c._get_pool())
+            # Now c._pool points at pool2, but closing on loop1 must still close pool1
+            loop1.run_until_complete(c.close())
+            pool1.close.assert_awaited_once()
+    finally:
+        loop1.close()
+        loop2.close()
+
 
 
 @pytest.mark.asyncio

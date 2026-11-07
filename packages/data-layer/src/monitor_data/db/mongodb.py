@@ -173,6 +173,10 @@ class MongoDBClient:
         world_library.create_index([("multiverse_id", ASCENDING)])
         world_library.create_index([("system_name", ASCENDING)])
 
+        # I-17 book decomposition progress; `_id` already makes each record unique.
+        book_records: Collection = self._db["book_records"]
+        book_records.create_index([("doc_id", ASCENDING), ("record_type", ASCENDING)])
+
         # Append-only Q-10 audit trail (R5). Queried by subject history,
         # type/author/transaction filters, and sorted by timestamp desc.
         change_log: Collection = self._db["change_log"]

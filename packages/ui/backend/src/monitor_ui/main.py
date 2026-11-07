@@ -286,7 +286,7 @@ def create_app() -> FastAPI:
     app.include_router(play_sessions.router, prefix="/api", tags=["play-sessions"])
     app.include_router(architect.router, prefix="/api", tags=["architect"])
     # OpenAI-compatible /v1/chat/completions — points RisuAI / SillyTavern /
-    # LiteLLM at MONITOR. v1 is non-streaming + stateless.
+    # LiteLLM at MONITOR. Session mode keeps conversation state on the server.
     app.include_router(openai_compat.router, prefix="/api", tags=["openai-compat"])
     # Character → canon promotion (light-RP history → ProposedChange batch).
     app.include_router(character_promotion.router, prefix="/api/entities", tags=["character-promotion"])

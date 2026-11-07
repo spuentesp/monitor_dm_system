@@ -25,9 +25,6 @@ monolithic orchestrator. Each loop lives in
 - **[Progression Loop](./progression_loop.md)** — advancement / level-up.
 - **[World-Building Loop](./world_building_loop.md)** — collaborative setting creation.
 
-## Content loop
-- **[Ingestion Loop](./ingestion_loop.md)** — multi-modal source → indexed knowledge.
-
 ## Interop & media
 - **[Image Generation](./image_generation.md)** — canon-anchored image
   generation: asset lifecycle, budgets, moderation, loop suggestions.

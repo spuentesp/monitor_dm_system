@@ -110,7 +110,7 @@ class _FallbackEngine:
 
 
 def _fallback_engine() -> DiceEngine:
-    return _FallbackEngine()  # type: ignore[return-value]
+    return _FallbackEngine()
 
 
 default_dice_registry = DiceEngineRegistry()

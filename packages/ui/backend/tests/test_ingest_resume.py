@@ -1,0 +1,230 @@
+"""Starting and resuming book decomposition from the ingest router (I-17)."""
+
+from __future__ import annotations
+
+import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+from monitor_data.schemas.base import IngestionStatus
+from monitor_data.schemas.ingestion_jobs import IngestionStage
+from monitor_data.schemas.knowledge_packs import KnowledgePackType
+from monitor_ui.main import app
+from monitor_ui.routers import ingest
+
+client = TestClient(app)
+
+
+def test_ingest_worker_reports_job_and_starts_decomposition():
+    job = SimpleNamespace(job_id=uuid.uuid4())
+    seen = {}
+
+    async def run_ingest(**kwargs):
+        seen.update(kwargs)
+        kwargs["on_job_created"](job.job_id)
+        return job
+
+    with (
+        patch.object(ingest, "IngestionPipeline") as pipeline,
+        patch.object(ingest, "_attach_job_id_to_request") as attach,
+        patch.object(ingest, "_maybe_start_decomposition") as start,
+    ):
+        pipeline.return_value.ingest_file = run_ingest
+        ingest._run_ingest_in_thread(
+            queue_token="request", file_bytes=b"pdf", filename="book.pdf", source_title="Book",
+            universe_uid=None, pack_type_enum=KnowledgePackType.RULEBOOK,
+            selected_layers=["rules"], content_type="application/pdf",
+        )
+
+    attach.assert_called_once_with("request", str(job.job_id))
+    start.assert_called_once_with(job, b"pdf", "book.pdf", "Book", KnowledgePackType.RULEBOOK)
+    assert seen["analyze_timeout_seconds"] == ingest.analyze_timeout_for_job(ingest._JOB_TIMEOUT_SECS)
+
+
+def _job(status=IngestionStatus.PAUSED, stages=(IngestionStage.DECOMPOSE,)):
+    return SimpleNamespace(
+        job_id=uuid.uuid4(), doc_id=uuid.uuid4(), source_id=uuid.uuid4(), status=status, pipeline_stages=list(stages), source_title="Book (decomposition)"
+    )
+
+
+@pytest.fixture
+def started():
+    minio = AsyncMock()
+    minio.download.return_value = b"pdf"
+    with (
+        patch.object(ingest, "_start_decomposition") as start,
+        patch.object(ingest, "get_minio_client", return_value=minio),
+        patch.object(ingest, "mongodb_get_document", return_value=SimpleNamespace(minio_ref="key")),
+        patch.object(ingest, "stored_pack_type", return_value=KnowledgePackType.RULEBOOK),
+    ):
+        yield start
+
+
+def _resume(job):
+    with patch.object(ingest, "mongodb_get_ingestion_job", return_value=job):
+        return client.post(f"/api/ingest/jobs/{job.job_id}/resume")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", [IngestionStatus.PAUSED, IngestionStatus.FAILED])
+def test_paused_or_failed_decomposition_resumes(started, status):
+    job = _job(status)
+    response = _resume(job)
+    assert response.status_code == 202
+    args = started.call_args.args
+    assert args[0] == job.job_id and args[1] == b"pdf" and args[3] == "Book"
+    assert args[4] == KnowledgePackType.RULEBOOK
+    assert args[5] == job.source_id
+
+
+@pytest.mark.unit
+def test_normal_ingest_job_cannot_be_resumed(started):
+    assert _resume(_job(IngestionStatus.FAILED, stages=(IngestionStage.ANALYZE,))).status_code == 409
+    started.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", [IngestionStatus.RUNNING, IngestionStatus.COMPLETED, IngestionStatus.CANCELLED])
+def test_job_in_other_states_cannot_be_resumed(started, status):
+    assert _resume(_job(status)).status_code == 409
+    started.assert_not_called()
+
+
+@pytest.mark.unit
+def test_job_already_running_here_cannot_be_resumed_twice(started):
+    job = _job()
+    ingest._decomposition_active.add(str(job.job_id))
+    try:
+        assert _resume(job).status_code == 409
+    finally:
+        ingest._decomposition_active.discard(str(job.job_id))
+    started.assert_not_called()
+
+
+@pytest.mark.unit
+def test_missing_job_is_not_found(started):
+    with patch.object(ingest, "mongodb_get_ingestion_job", return_value=None):
+        assert client.post(f"/api/ingest/jobs/{uuid.uuid4()}/resume").status_code == 404
+
+
+def _finished_ingest(status=IngestionStatus.COMPLETED):
+    return SimpleNamespace(status=status, doc_id=uuid.uuid4(), source_id=uuid.uuid4())
+
+
+@pytest.mark.unit
+def test_flag_off_starts_nothing(monkeypatch):
+    monkeypatch.delenv("MONITOR_BOOK_DECOMPOSITION", raising=False)
+    with patch.object(ingest, "_start_decomposition") as start, patch.object(ingest, "create_decomposition_job") as create:
+        ingest._maybe_start_decomposition(_finished_ingest(), b"x", "book.pdf", "Book", KnowledgePackType.MISC)
+    start.assert_not_called()
+    create.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("filename", "status", "starts"),
+    [
+        ("book.PDF", IngestionStatus.COMPLETED, True),
+        ("book.pdf", IngestionStatus.PARTIAL, True),
+        ("book.txt", IngestionStatus.COMPLETED, False),
+        ("book.pdf", IngestionStatus.FAILED, False),
+    ],
+)
+def test_flag_on_starts_only_for_finished_pdfs(monkeypatch, filename, status, starts):
+    monkeypatch.setenv("MONITOR_BOOK_DECOMPOSITION", "1")
+    with patch.object(ingest, "_start_decomposition") as start, patch.object(ingest, "create_decomposition_job") as create:
+        ingest._maybe_start_decomposition(_finished_ingest(status), b"x", filename, "Book", KnowledgePackType.MISC)
+    assert start.called is starts and create.called is starts
+
+
+@pytest.mark.unit
+def test_failure_to_start_does_not_break_the_finished_ingest(monkeypatch):
+    monkeypatch.setenv("MONITOR_BOOK_DECOMPOSITION", "1")
+    with patch.object(ingest, "create_decomposition_job", side_effect=RuntimeError("mongo down")):
+        ingest._maybe_start_decomposition(_finished_ingest(), b"x", "book.pdf", "Book", KnowledgePackType.MISC)
+
+
+@pytest.mark.unit
+def test_worker_runs_the_job_off_the_ingest_slot_and_clears_itself():
+    job_id, doc = uuid.uuid4(), uuid.uuid4()
+    with patch.object(ingest, "run_decomposition_job", new=AsyncMock()) as run:
+        ingest._start_decomposition(job_id, b"pdf", doc, "Book", KnowledgePackType.MISC)
+        executor = ingest._decomposition_executor
+        executor.submit(lambda: None).result(timeout=5)
+    run.assert_awaited_once()
+    assert str(job_id) not in ingest._decomposition_active
+
+
+@pytest.mark.unit
+def test_deleting_a_source_removes_its_book_progress():
+    uid, doc = uuid.uuid4(), uuid.uuid4()
+    collections = {}
+
+    def get_collection(name):
+        return collections.setdefault(name, MagicMock())
+
+    mongo = SimpleNamespace(get_collection=get_collection)
+    get_collection("documents").find.return_value = [{"doc_id": str(doc)}]
+    with (
+        patch.object(ingest, "get_mongodb_client", return_value=mongo),
+        patch.object(ingest, "neo4j_delete_source"),
+        patch.object(ingest, "get_minio_client"),
+    ):
+        response = client.delete(f"/api/ingest/sources/{uid}")
+    assert response.status_code == 204
+    collections["book_records"].delete_many.assert_called_once_with({"doc_id": {"$in": [str(doc)]}})
+    collections["book_leases"].delete_many.assert_called_once_with({"_id": {"$in": [str(doc)]}})
+
+
+@pytest.mark.unit
+def test_deleting_a_source_asks_canonkeeper_to_remove_stored_structure_when_enabled(monkeypatch):
+    monkeypatch.setenv("MONITOR_BOOK_NEO4J", "1")
+    uid, doc = uuid.uuid4(), uuid.uuid4()
+    collections = {}
+    mongo = SimpleNamespace(get_collection=lambda name: collections.setdefault(name, MagicMock()))
+    mongo.get_collection("documents").find.return_value = [{"doc_id": str(doc)}]
+    delete = AsyncMock()
+    with (
+        patch.object(ingest, "get_mongodb_client", return_value=mongo),
+        patch.object(ingest, "neo4j_delete_source"),
+        patch.object(ingest, "get_minio_client"),
+        patch.object(ingest.CanonKeeper, "delete_book_structure", delete),
+    ):
+        assert client.delete(f"/api/ingest/sources/{uid}").status_code == 204
+    delete.assert_awaited_once_with(str(doc))
+
+
+# --- Held claims (I-17) ---
+
+
+@pytest.mark.unit
+def test_held_claims_are_listed_for_a_job():
+    from monitor_agents.book_decomposition.held_claims import HeldClaim
+
+    claim = HeldClaim(claim_id="c1", kind="rule", statement="Roll two dice.", original_statement="Roll two dice.", reason="unsupported", page=3, sources=[])
+    with patch.object(ingest, "held_claims_for_job", return_value=[claim]) as held:
+        response = client.get(f"/api/ingest/jobs/{uuid.uuid4()}/held-claims")
+    assert response.status_code == 200 and response.json()[0]["claim_id"] == "c1"
+    held.assert_called_once()
+
+
+@pytest.mark.unit
+def test_a_decision_returns_the_claims_still_waiting():
+    job_id = uuid.uuid4()
+    with patch.object(ingest, "decide_held_claim_for_job", return_value=4) as decide:
+        response = client.post(f"/api/ingest/jobs/{job_id}/held-claims/c1", json={"accept": True, "statement": "New wording."})
+    assert response.status_code == 200 and response.json() == {"claims_for_review": 4}
+    decide.assert_called_once_with(job_id, "c1", accept=True, statement="New wording.")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("error", "code"), [("HeldClaimNotFound", 404), ("HeldClaimConflict", 409)])
+def test_a_refused_decision_says_why(error, code):
+    from monitor_agents.book_decomposition import held_claims
+
+    failure = getattr(held_claims, error)("The pack is applied.")
+    with patch.object(ingest, "decide_held_claim_for_job", side_effect=failure):
+        response = client.post(f"/api/ingest/jobs/{uuid.uuid4()}/held-claims/c1", json={"accept": True})
+    assert response.status_code == code and "applied" in response.json()["detail"]

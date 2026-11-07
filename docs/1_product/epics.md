@@ -30,7 +30,7 @@ MONITOR's development is guided by 12 core Epics (EPIC 0–11).
 |------|-----------|----------|
 | **EPIC 0** — Data Layer Access | `DL-1` to `DL-26` | Implemented |
 | **EPIC 1** — World & Multiverse | `M-1` to `M-8`, `M-23` to `M-25`, `M-30` | Implemented (universe forking and pack operations live-verified) |
-| **EPIC 2** — Knowledge Ingestion | `I-1` to `I-16`, `M-32` to `M-35` | Mostly implemented — ingestion hardening shipped; residual extraction issues open (STATUS.md gap 8) |
+| **EPIC 2** — Knowledge Ingestion | `I-1` to `I-17`, `M-32` to `M-35` | Mostly implemented — ingestion hardening shipped; residual extraction issues open (STATUS.md gap 8) |
 | **EPIC 3** — Character & Identity | `M-12` to `M-22`, `M-31` | Partially — creation parsing and personas shipped; portable character templates missing (STATUS.md gap 6) |
 | **EPIC 4** — Autonomous GM | `P-1` to `P-21` (minus `P-4`, catalogued under EPIC 5) | Partially — core play loop shipped and live-verified; autonomous PC (PC-Agent) has no implementation and is formally deferred (STATUS.md gap 7); gaps 1–4 open |
 | **EPIC 5** — Rules & Randomization | `P-4`, `RS-1` to `RS-8` | Implemented (server-authoritative dice experience live-verified 2026-07-23) |

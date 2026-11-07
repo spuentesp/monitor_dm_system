@@ -81,6 +81,7 @@ from monitor_data.tools.mongodb_tools import (
 from qdrant_client.http.models import SearchRequest
 from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchText, MatchValue
 
+from monitor_agents.analyzer._sampling import log_sample, scroll_all, select_spread
 from monitor_agents.analyzer._constants import (
     BATCH_SIZE as _BATCH_SIZE,
 )
@@ -1738,7 +1739,6 @@ class Analyzer(BaseAgent):
         # section_path → {"texts": [(page, idx, text)], "min_page": int, "min_chunk_index": int}
         sections: dict[str, dict[str, Any]] = {}
         seen_texts: set[str] = set()
-        total_chunks = 0
 
         # --- Primary: category filter scroll ---
         try:
@@ -1754,44 +1754,29 @@ class Analyzer(BaseAgent):
                     )
                 ],
             )
-            offset = None
-            while total_chunks < _MAX_CATEGORY_CHUNKS:
-                batch, offset = await qdrant.scroll(
-                    collection_name=collection,
-                    scroll_filter=cat_filter,
-                    limit=64,
-                    offset=offset,
-                    with_payload=True,
-                    with_vectors=False,
+            matching = await scroll_all(qdrant, collection, cat_filter)
+            unique = {str((pt.payload or {}).get("text", "")): pt for pt in matching}
+            unique.pop("", None)
+            chosen = select_spread(list(unique.values()), _MAX_CATEGORY_CHUNKS)
+            log_sample(source_name, "category", len(unique), len(chosen))
+            for pt in chosen:
+                payload = pt.payload or {}
+                text = payload.get("text", "")
+                seen_texts.add(text)
+                section_path = (
+                    payload.get("section_path")
+                    or " > ".join(str(h) for h in (payload.get("heading_path") or []) if h)
+                    or "General"
                 )
-                if not batch:
-                    break
-                for pt in batch:
-                    payload = pt.payload or {}
-                    text = payload.get("text", "")
-                    if not text or text in seen_texts:
-                        continue
-                    seen_texts.add(text)
-                    total_chunks += 1
-                    section_path = (
-                        payload.get("section_path")
-                        or " > ".join(str(h) for h in (payload.get("heading_path") or []) if h)
-                        or "General"
-                    )
-                    page = payload.get("page_number") or 0
-                    idx = payload.get("chunk_index") or 0
-
-                    append_section_chunk(
-                        sections,
-                        section_path=section_path,
-                        page=page,
-                        idx=idx,
-                        text=text,
-                        chunk_id=payload.get("chunk_id"),
-                        semantic_category=payload.get("semantic_category"),
-                    )
-                if offset is None:
-                    break
+                append_section_chunk(
+                    sections,
+                    section_path=section_path,
+                    page=payload.get("page_number") or 0,
+                    idx=payload.get("chunk_index") or 0,
+                    text=text,
+                    chunk_id=payload.get("chunk_id"),
+                    semantic_category=payload.get("semantic_category"),
+                )
         except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _retrieve_sections_by_category)
             logger.warning("Section retrieval failed for '%s' %s: %s", source_name, categories, exc)
 
@@ -1878,8 +1863,6 @@ class Analyzer(BaseAgent):
         qdrant = client.get_client()
 
         sections: dict[str, dict[str, Any]] = {}
-        seen_texts: set[str] = set()
-        total_chunks = 0
 
         try:
             src_filter = Filter(
@@ -1891,53 +1874,36 @@ class Analyzer(BaseAgent):
                     )
                 ],
             )
-            offset = None
-            while total_chunks < _MAX_CATEGORY_CHUNKS:
-                batch, offset = await qdrant.scroll(
-                    collection_name=collection,
-                    scroll_filter=src_filter,
-                    limit=64,
-                    offset=offset,
-                    with_payload=True,
-                    with_vectors=False,
+            matching = await scroll_all(qdrant, collection, src_filter)
+            unique: dict[str, Any] = {}
+            for pt in matching:
+                payload = pt.payload or {}
+                text = payload.get("text", "")
+                section_path = (
+                    payload.get("section_path")
+                    or " > ".join(str(h) for h in (payload.get("heading_path") or []) if h)
+                    or "General"
                 )
-                if not batch:
-                    break
-
-                for pt in batch:
-                    payload = pt.payload or {}
-                    text = payload.get("text", "")
-                    if not text or text in seen_texts:
-                        continue
-
-                    section_path = (
-                        payload.get("section_path")
-                        or " > ".join(str(h) for h in (payload.get("heading_path") or []) if h)
-                        or "General"
-                    )
-                    heading_blob = f"{section_path}\n{text[:500]}".lower()
-                    if not any(
-                        keyword in heading_blob for keyword in _REFERENCE_SECTION_KEYWORDS
-                    ) and not _REFERENCE_SECTION_RE.search(heading_blob):
-                        continue
-
-                    seen_texts.add(text)
-                    total_chunks += 1
-                    page = payload.get("page_number") or 0
-                    idx = payload.get("chunk_index") or 0
-
-                    append_section_chunk(
-                        sections,
-                        section_path=section_path,
-                        page=page,
-                        idx=idx,
-                        text=text,
-                        chunk_id=payload.get("chunk_id"),
-                        semantic_category=payload.get("semantic_category"),
-                    )
-
-                if offset is None:
-                    break
+                heading_blob = f"{section_path}\n{text[:500]}".lower()
+                is_reference = any(
+                    keyword in heading_blob for keyword in _REFERENCE_SECTION_KEYWORDS
+                ) or _REFERENCE_SECTION_RE.search(heading_blob)
+                if text and is_reference:
+                    unique[text] = (pt, section_path)
+            by_point = {id(pt): path for pt, path in unique.values()}
+            chosen = select_spread([pt for pt, _ in unique.values()], _MAX_CATEGORY_CHUNKS)
+            log_sample(source_name, "reference", len(unique), len(chosen))
+            for pt in chosen:
+                payload = pt.payload or {}
+                append_section_chunk(
+                    sections,
+                    section_path=by_point[id(pt)],
+                    page=payload.get("page_number") or 0,
+                    idx=payload.get("chunk_index") or 0,
+                    text=payload.get("text", ""),
+                    chunk_id=payload.get("chunk_id"),
+                    semantic_category=payload.get("semantic_category"),
+                )
         except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _retrieve_reference_sections)
             logger.warning("Reference section retrieval failed for '%s': %s", source_name, exc)
 
@@ -3343,10 +3309,10 @@ class Analyzer(BaseAgent):
                 rescued = rescue_result.relationships or []
                 # Deduplicate against the main batch results.
                 for r in rescued:
-                    key = (r.from_entity, r.to_entity)
-                    if key not in all_rels_keys and r.from_entity in rescue_names:
+                    rel_key = (r.from_entity, r.to_entity)
+                    if rel_key not in all_rels_keys and r.from_entity in rescue_names:
                         all_rels.append(r)
-                        all_rels_keys.add(key)
+                        all_rels_keys.add(rel_key)
             except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _run_batch)
                 logger.warning("Orphan rescue pass failed for '%s': %s", source_name, exc)
 

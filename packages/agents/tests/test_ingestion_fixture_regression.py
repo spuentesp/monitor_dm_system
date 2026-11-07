@@ -28,6 +28,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import fitz
+
 import pytest
 from monitor_data.schemas.game_systems import (
     AttributeDefinition,
@@ -248,3 +250,27 @@ class TestFullIngestionPathAgainstFixture:
 
         reason = _detect_degenerate_extraction(result["charsheet_data"], attrs, skills, resources, procedure)
         assert reason is None
+
+
+def _nested_bookmarks_pdf() -> bytes:
+    """A foreword, then nested bookmarks, which the old section reader mishandled."""
+    doc = fitz.open()
+    for text in ("A foreword before any bookmark.", "Chapter one text.", "Nested combat text.", "Chapter two text."):
+        doc.new_page().insert_text((72, 100), text)
+    doc.set_toc([[1, "Chapter One", 2], [2, "Combat", 3], [1, "Chapter Two", 4]])
+    return doc.tobytes()
+
+
+def test_sections_neither_repeat_nor_lose_text_on_nested_bookmarks() -> None:
+    sections = extract_pdf_structure(_nested_bookmarks_pdf())
+    joined = "\n".join(section.text for section in sections)
+    for text in ("A foreword before any bookmark.", "Chapter one text.", "Nested combat text.", "Chapter two text."):
+        assert joined.count(text) == 1, text
+
+
+def test_real_fixture_sections_hold_exactly_the_books_text() -> None:
+    pdf_bytes = FIXTURE_PDF.read_bytes()
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    on_pages = sum(ch.isalnum() for page in doc for ch in page.get_text())
+    in_sections = sum(ch.isalnum() for section in extract_pdf_structure(pdf_bytes) for ch in section.text)
+    assert in_sections == on_pages

@@ -127,7 +127,12 @@ class _GMReActSignature(dspy.Signature):  # type: ignore[misc]
     )
 
     # ── Outputs ──
-    intent_type: str = dspy.OutputField(desc="meta / ooc / query / dialogue / action. Choose one.")
+    intent_type: str = dspy.OutputField(desc=(
+            "meta / ooc / query / dialogue / action / lookup. Choose one. "
+            "query is a yes/no question about the world; lookup asks for an explanation of "
+            "the setting or rules. A question that attempts something or speaks to a "
+            "character is action or dialogue."
+        ))
     action_type: str = dspy.OutputField(
         desc=(
             "none / dialogue / combat / stealth / exploration / movement. Always 'none' when intent is meta/ooc/query."

@@ -17,15 +17,11 @@ logger = logging.getLogger(__name__)
 
 VALID_TONES = frozenset({"dramatic", "grim", "horror", "heroic", "mystery", "adventure"})
 
-_OOC_PATTERNS = _re.compile(
-    r"\b(ooc|out of character|what (can|type|kind|sort|class|race|species|character|role|archetype)|"
-    r"how (do|does|can|should|would)|who (can|could) i|what are (the|my|available)|"
-    r"how (does|do) (combat|dice|roll|stat|skill|check|the game)|"
-    r"what (is|are) (the|a|an)? ?(rule|mechanic|stat|attribute|skill|ability|dice|system)|"
-    r"what (looks|seems|feels) (most )?(dangerous|risky|off|wrong)|"
-    r"what('?s| is) (the )?(risk|danger|catch)|first impression|"
-    r"before i commit|before i go in|before i board|if there's something i should know|"
-    r"explain|tell me about|can (i|you)|what if i|is there a|do i have|before we (start|begin))\b",
+# Active-play OOC detection only matches explicit out-of-character markers.
+# Unmarked in-world questions and dialogue ("Explain to the dock officer...",
+# "Is the corridor pressurised?") must reach SceneLoop so GMAgent routes them.
+_EXPLICIT_OOC_RE = _re.compile(
+    r"(?:^\s*/ooc\b|\b(?:ooc|out[- ]of[- ]character)\b)",
     _re.IGNORECASE,
 )
 _OOC_BLOCK_RE = _re.compile(r"^\s*\(\((?P<content>.*?)\)\)\s*$", _re.IGNORECASE | _re.DOTALL)
@@ -253,11 +249,13 @@ async def resolve_pending_consequence_choice(
 
 
 def is_ooc_question(text: str) -> bool:
-    """Return `True` when the player's text looks like an OOC rules/world-info question."""
+    """Return `True` when the player explicitly marks a message as out-of-character."""
     raw = (text or "").strip()
-    if _OOC_BLOCK_RE.match(raw):
+    if not raw:
+        return False
+    if _OOC_BLOCK_RE.match(raw) or raw.startswith("(("):
         return True
-    return bool(_OOC_PATTERNS.search(normalize_ooc_text(raw)))
+    return bool(_EXPLICIT_OOC_RE.search(raw))
 
 
 def handle_tone_command(
