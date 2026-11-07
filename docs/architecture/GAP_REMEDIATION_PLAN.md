@@ -521,6 +521,33 @@ readable via `neo4j_get_state_tags`.
   counts + flag samples for spot-check. Some "FPs" will be latent canon drift —
   itself a finding.
 
+**Status (2026-11-07): Phase 1 implemented — measurement only, behaviour unchanged.**
+- `ImplicationContradictionSignature` + `ImplicationContradictionModule` in
+  `packages/agents/src/monitor_agents/canonkeeper/verification.py`. The
+  numbered-list parsing is shared with the direct batch check
+  (`ImplicationContradictionModule._LINE_RE is BatchContradictionModule._LINE_RE`),
+  so the chunked I/O is reused rather than duplicated. The extra
+  `implications` output field carries the reasoning chain, so every flag is
+  auditable in logs.
+- New additive `ContradictionType.IMPLICATION_CONFLICT`
+  (`data-layer/schemas/contradiction.py`), severity HIGH — never CRITICAL.
+- `CanonKeeper.implication_conflict_flags(universe_id, statements)` — advisory,
+  flag-only, chunked by `CANONKEEPER_IMPLICATION_CHUNK_SIZE` (default 15),
+  fail-soft per chunk (a failed chunk yields no flags, never an exception).
+- Wired into `bulk_commit_proposals` behind `CANONKEEPER_IMPLICATION_CHECK_ENABLED`
+  (default **false**) — flags are logged, never acted on. `_batch_contradiction_check`
+  keeps its direct-only behaviour; the canon-context assembly and the
+  proposal-statement extraction are now shared helpers
+  (`_canon_context_lines`, `_proposal_statements`).
+- `scripts/eval_canonkeeper_depth.py`: replays committed proposals
+  (known-good → every flag is an FP by construction), reports the flag rate
+  and prints samples for spot-checking. Read-only; exits 2 when there is
+  nothing to replay.
+- **Open:** the FP rate has not been measured yet — this environment has no
+  committed proposals and no populated universe, so the script reports
+  "nothing measured". The measurement must run against a seeded universe
+  (Fallout/VtM). Until the rate is known, the check stays off.
+
 ### Phase 2 — transition rules + advisory flagging
 
 - Deterministic rules (pure Python, no LLM, ~40 lines + a small `_TRANSITION_RULES`

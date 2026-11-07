@@ -672,6 +672,25 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                     universe_id=universe_id,
                 )
 
+        # G-9 Phase 1 — implication-level contradiction check. Flag-only: the
+        # flags are logged, never acted on. Off by default while the
+        # false-positive rate is measured (scripts/eval_canonkeeper_depth.py).
+        from monitor_data.config import settings
+
+        if universe_id is not None and settings.canonkeeper_implication_check_enabled:
+            try:
+                statements = [text for _, text in self._proposal_statements(ordered)]
+                implication_flags = await self.implication_conflict_flags(universe_id, statements)
+            except Exception as exc:  # noqa: BLE001  # reason: an advisory check must never block a commit (in bulk_commit_proposals)
+                logger.warning("Implication contradiction check failed (committing anyway): %s", exc)
+            else:
+                for flag in implication_flags:
+                    logger.info(
+                        "Implication contradiction flag (advisory, not a rejection): %s — %s",
+                        flag["statement"],
+                        flag["explanation"],
+                    )
+
         committed = 0
         rejected = 0
         errors: list[str] = []
@@ -789,26 +808,12 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         has no prior canon to contradict — e.g. the first ingest into a fresh
         universe.
         """
-        facts = await self._fetch_canon_facts(universe_id)
-        axioms = await self._fetch_canon_axioms(universe_id)
-        context_lines = [f"Axiom: {a.get('statement')}" for a in axioms if a.get("statement")]
-        context_lines += [f"Fact: {f.get('statement')}" for f in facts if f.get("statement")]
+        context_lines = await self._canon_context_lines(universe_id)
         context = "\n".join(context_lines)
         if not context:
             return {}
 
-        candidates: list[tuple[str, str]] = []
-        for p in proposals:
-            content = p.get("content", {})
-            if isinstance(content, str):
-                try:
-                    content = json.loads(content)
-                except json.JSONDecodeError:
-                    content = {}
-            text = content.get("statement") or p.get("summary")
-            pid = str(p.get("proposal_id") or "")
-            if text and pid:
-                candidates.append((pid, text))
+        candidates = self._proposal_statements(proposals)
         if not candidates:
             return {}
 
@@ -826,6 +831,91 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 if 0 <= ci < len(chunk):
                     rejected[chunk[ci][0]] = explanation
         return rejected
+
+    async def _canon_context_lines(self, universe_id: UUID) -> list[str]:
+        """Assemble the canon context lines (axioms first, then facts)."""
+        facts = await self._fetch_canon_facts(universe_id)
+        axioms = await self._fetch_canon_axioms(universe_id)
+        lines = [f"Axiom: {a.get('statement')}" for a in axioms if a.get("statement")]
+        lines += [f"Fact: {f.get('statement')}" for f in facts if f.get("statement")]
+        return lines
+
+    @staticmethod
+    def _proposal_statements(proposals: list[dict[str, Any]]) -> list[tuple[str, str]]:
+        """Extract the ``(proposal_id, statement)`` pairs from proposal dicts."""
+        candidates: list[tuple[str, str]] = []
+        for p in proposals:
+            content = p.get("content", {})
+            if isinstance(content, str):
+                try:
+                    content = json.loads(content)
+                except json.JSONDecodeError:
+                    content = {}
+            text = content.get("statement") or p.get("summary")
+            pid = str(p.get("proposal_id") or "")
+            if text and pid:
+                candidates.append((pid, text))
+        return candidates
+
+    async def implication_conflict_flags(
+        self,
+        universe_id: UUID,
+        statements: list[str],
+    ) -> list[dict[str, Any]]:
+        """
+        Flag statements that IMPLICITLY conflict with a universe's canon (G-9 Phase 1).
+
+        One level deeper than the direct check: the conflict is only visible
+        through a chain of reasoning (the canon implies something the statement
+        denies). Advisory — the caller decides what to do with the flags;
+        nothing here rejects a proposal, and the severity is HIGH at most
+        (see ``GAP_REMEDIATION_PLAN.md`` §G-9).
+
+        Args:
+            universe_id: Universe whose canon facts/axioms form the context.
+            statements: Candidate statements to check.
+
+        Returns:
+            One dict per flagged statement: ``statement``, ``explanation``,
+            ``implications``, ``contradiction_type``, ``severity``.
+        """
+        from monitor_data.config import settings
+        from monitor_data.schemas.contradiction import ContradictionSeverity, ContradictionType
+        from monitor_agents.canonkeeper.verification import ImplicationContradictionModule
+
+        candidates = [s.strip() for s in statements if s and s.strip()]
+        if not candidates:
+            return []
+
+        context_lines = await self._canon_context_lines(universe_id)
+        if not context_lines:
+            return []
+        context = "\n".join(context_lines)
+
+        module = ImplicationContradictionModule()
+        chunk_size = settings.canonkeeper_implication_chunk_size
+        flags: list[dict[str, Any]] = []
+        for start in range(0, len(candidates), chunk_size):
+            chunk = candidates[start : start + chunk_size]
+            numbered = "\n".join(f"{i + 1}. {text}" for i, text in enumerate(chunk))
+            try:
+                flagged = await asyncio.to_thread(module.forward, context=context, new_facts=numbered)
+            except Exception as exc:  # noqa: BLE001  # reason: a failed chunk degrades to no flags, never a hard failure (in implication_conflict_flags)
+                logger.warning("Implication contradiction check failed (chunk skipped): %s", exc)
+                continue
+            for one_based_idx, detail in flagged.items():
+                ci = one_based_idx - 1
+                if 0 <= ci < len(chunk):
+                    flags.append(
+                        {
+                            "statement": chunk[ci],
+                            "explanation": detail.get("explanation", ""),
+                            "implications": detail.get("implications", ""),
+                            "contradiction_type": ContradictionType.IMPLICATION_CONFLICT.value,
+                            "severity": ContradictionSeverity.HIGH.value,
+                        }
+                    )
+        return flags
 
     async def apply_pack_to_universe(
         self,

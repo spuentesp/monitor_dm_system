@@ -267,8 +267,18 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    `is_builtin` docs) + `$set: hand_authored: True`. Dry-run by default;
    asserts the doc exists, has ≥5 steps, and titles match before
    applying.
-9. **CanonKeeper depth** — detection scoped to direct logical contradictions; no
-   impossible-state-transition or implication-level checks.
+9. **CanonKeeper depth** — **Phase 1 shipped 2026-11-07** (measurement only, no
+   behaviour change): implication-level detection exists as
+   `ImplicationContradictionSignature`/`ImplicationContradictionModule`
+   (`canonkeeper/verification.py`) with an auditable `implications` field, a
+   new additive `ContradictionType.IMPLICATION_CONFLICT` (HIGH severity, never
+   CRITICAL), `CanonKeeper.implication_conflict_flags()` (advisory, flag-only)
+   and the FP-measurement script `scripts/eval_canonkeeper_depth.py`. The check
+   is **off by default** (`CANONKEEPER_IMPLICATION_CHECK_ENABLED`, default
+   false) until its false-positive rate is measured against committed material
+   in a populated universe. Still open: Phase 2 (transition rules +
+   `needs_review` flagging) and Phase 3 (hard rejection), plus
+   impossible-state-transition checks.
 
 ## Latency
 
