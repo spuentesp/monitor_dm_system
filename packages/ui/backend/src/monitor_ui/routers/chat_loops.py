@@ -9,7 +9,6 @@ from __future__ import annotations
 import anyio
 import asyncio
 import logging
-import functools
 import uuid
 from collections import OrderedDict
 from typing import Any
