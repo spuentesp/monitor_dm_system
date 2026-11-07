@@ -18,6 +18,7 @@ vi.mock("@/lib/api", () => ({
     createSession: vi.fn(),
     endScene: vi.fn(),
     wrapUp: vi.fn(),
+    patchSession: vi.fn(),
   },
   storiesApi: { listThreads: vi.fn() },
   gmApi: { checkEntryContradiction: vi.fn(), captureInsights: vi.fn() },
@@ -243,5 +244,59 @@ describe("SessionRecorder wrap-up (P1.3/P1.4)", () => {
       "The party sealed the chapel door.",
     );
     expect(chatApi.wrapUp).toHaveBeenCalledWith("rec-1");
+  });
+});
+
+describe("SessionRecorder archive metadata (P3.3)", () => {
+  it("groups archived recordings under an 'Archived' optgroup", async () => {
+    vi.mocked(chatApi.listSessions).mockResolvedValue([
+      { ...RECORDING, id: "rec-open", title: "Table log — open" },
+      {
+        ...RECORDING,
+        id: "rec-archived",
+        title: "Table log — archived",
+        archived: true,
+      },
+    ] as never);
+    renderRecorder();
+
+    await screen.findByRole("option", { name: /Table log — open/ });
+
+    const groups = Array.from(document.querySelectorAll("optgroup")).map((g) =>
+      g.getAttribute("label"),
+    );
+    expect(groups).toEqual(["Active", "Archived"]);
+
+    const archivedGroup = Array.from(document.querySelectorAll("optgroup")).find(
+      (g) => g.getAttribute("label") === "Archived",
+    )!;
+    expect(archivedGroup.textContent).toContain("Table log — archived");
+  });
+
+  it("offers Archive only for a recording that has been wrapped up", async () => {
+    vi.mocked(chatApi.listSessions).mockResolvedValue([
+      { ...RECORDING, id: "rec-open", title: "Table log — open" },
+    ] as never);
+    renderRecorder();
+
+    await screen.findByRole("option", { name: /Table log — open/ });
+    expect(screen.queryByRole("button", { name: /Archive/ })).toBeNull();
+  });
+
+  it("archives a wrapped-up recording through the session PATCH", async () => {
+    vi.mocked(chatApi.listSessions).mockResolvedValue([
+      { ...RECORDING, wrapped_up_at: new Date().toISOString() },
+    ] as never);
+    vi.mocked(chatApi.patchSession).mockResolvedValue({
+      ...RECORDING,
+      archived: true,
+    } as never);
+    renderRecorder();
+
+    await userEvent.click(await screen.findByRole("button", { name: /Archive/ }));
+
+    await waitFor(() =>
+      expect(chatApi.patchSession).toHaveBeenCalledWith("rec-1", { archived: true }),
+    );
   });
 });

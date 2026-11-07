@@ -250,7 +250,14 @@ export const chatApi = {
     }),
   patchSession: (
     sessionId: string,
-    data: { title?: string; tone?: string; scene_id?: string; story_id?: string; roll_model?: string },
+    data: {
+      title?: string;
+      tone?: string;
+      scene_id?: string;
+      story_id?: string;
+      roll_model?: string;
+      archived?: boolean;
+    },
   ) =>
     req<Session>(`/chat/${sessionId}`, {
       method: "PATCH",

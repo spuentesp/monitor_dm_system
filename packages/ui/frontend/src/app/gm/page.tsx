@@ -403,10 +403,13 @@ function SessionNotebook({
           onClick={() => ingestNotes.mutate()}
           disabled={!notes.trim() || ingestNotes.isPending}
           className={cn("btn-ghost text-xs py-0.5 px-2", !notes.trim() && "opacity-40 cursor-not-allowed")}
-          title="Ingest notes into the world knowledge base"
+          title="Ingest notes into the world knowledge base. Proposals land in Forge → Review."
         >
           {ingestNotes.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />} Ingest
         </button>
+        <span data-testid="ingest-hint" className="text-[10px] text-slate-700">
+          Proposals land in Forge → Review
+        </span>
       </div>
 
       {/* Textarea */}

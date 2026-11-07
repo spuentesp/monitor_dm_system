@@ -34,6 +34,8 @@ export interface Session {
   // P1.4 — persisted wrap-up artifacts (null until "Wrap up session" runs).
   recap_text?: string | null;
   wrapped_up_at?: string | null;
+  // P3.3 — GM archive flag for gm_assistant recordings.
+  archived?: boolean;
 }
 
 export interface PlaytestBenchmark {

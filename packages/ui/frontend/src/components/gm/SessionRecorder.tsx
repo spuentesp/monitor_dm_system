@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   AlertTriangle,
+  Archive,
   BookOpen,
   Bot,
   CircleDot,
@@ -195,12 +196,29 @@ export function SessionRecorder({
           disabled={recordings.length === 0}
         >
           {recordings.length === 0 && <option value="">No recordings yet</option>}
-          {recordings.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.title} · {formatRelativeTime(r.updated_at)}
-              {r.wrapped_up_at ? " · wrapped up" : ""}
-            </option>
-          ))}
+          {recordings.some((r) => !r.archived) && (
+            <optgroup label="Active">
+              {recordings
+                .filter((r) => !r.archived)
+                .map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.title} · {formatRelativeTime(r.updated_at)}
+                    {r.wrapped_up_at ? " · wrapped up" : ""}
+                  </option>
+                ))}
+            </optgroup>
+          )}
+          {recordings.some((r) => r.archived) && (
+            <optgroup label="Archived">
+              {recordings
+                .filter((r) => r.archived)
+                .map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.title} · {formatRelativeTime(r.updated_at)}
+                  </option>
+                ))}
+            </optgroup>
+          )}
         </select>
         <div className="flex-1" />
         <button
@@ -233,6 +251,20 @@ export function SessionRecorder({
               <Flag className="w-3 h-3" />
               Wrap up session
             </button>
+            {active.wrapped_up_at && !active.archived && (
+              <button
+                onClick={() => {
+                  void chatApi.patchSession(active.id, { archived: true }).then(() => {
+                    qc.invalidateQueries({ queryKey: ["sessions"] });
+                  });
+                }}
+                className="btn-ghost text-xs py-1 px-2.5 border border-white/10"
+                title="Archive this wrapped-up recording — archived recordings stay out of the active list (P3.3)"
+              >
+                <Archive className="w-3 h-3" />
+                Archive
+              </button>
+            )}
           </>
         )}
       </div>

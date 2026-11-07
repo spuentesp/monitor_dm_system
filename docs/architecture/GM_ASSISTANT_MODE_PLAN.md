@@ -512,6 +512,12 @@ transcription step feeding the *existing* text ingest pipeline
 (`ingestApi.uploadSource` path, `page.tsx:342-356`) — never a parallel capture
 loop.
 
+**Status: DECIDED 2026-11-06 — descoped.** Text input is CF-1's shipped
+scope; audio/hybrid is future work. Spec bullets edited accordingly (see
+`docs/architecture/GM_ASSISTANT_PHASE_A_PLAN.md` A1). If audio is ever built:
+transcription feeds the existing text ingest pipeline — never a parallel
+capture loop.
+
 ### P3.2 · Notes→canon review linkage (decide; M if built)
 
 **Status (2026-07-23 audit):** 0% shipped. The data plumbing is fully
@@ -542,6 +548,12 @@ and surface at `/canon-review/by-ingest` (`canon_review.py:202-251`) and
   `ProposedChangeFilter` already supports both `source` and `story_id`
   (:180-186). Build only if GM testing shows the split queues confuse.
 
+**Status: SHIPPED 2026-11-06 — option (a).** The scratchpad Ingest button now
+carries a permanent hint line ("Proposals land in Forge → Review") and the same
+copy in its tooltip (`packages/ui/frontend/src/app/gm/page.tsx`,
+`data-testid="ingest-hint"`). Option (b) stays deferred — the ingest pipeline
+has no story context (see `FORGE_EXPANSION.md` §17).
+
 ### P3.3 · Recording archive metadata (S)
 
 **Status (2026-07-23 audit):** 0% shipped but the dep is now ready. P1.4's
@@ -569,6 +581,14 @@ has no mode badge.
 **Tests:** PATCH 200/422; dropdown grouping + badge rendering (extend
 `SessionList.test.tsx`). **Effort:** S. **Depends on:** P1.4 (uses
 `wrapped_up_at`).
+
+**Status: SHIPPED 2026-11-06.** `archived` is now a first-class session flag:
+`SessionPatch.archived` → PATCH handler → session doc → `GET /api/chat` (the
+list serializer builds `Session` field-by-field and had to be updated
+explicitly). Frontend: the recorder dropdown splits recordings into
+Active/Archived `<optgroup>`s, and a wrapped-up recording gets an "Archive"
+button; the `SessionList` mode badge already existed. Tests: 3 backend
+(`test_session_api.py`) + 3 frontend (`SessionRecorder.test.tsx`) green.
 
 ---
 

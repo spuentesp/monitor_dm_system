@@ -248,6 +248,26 @@ describe("GM Assistant scratchpad (P2.3 — server-backed, no localStorage)", ()
     // localStorage must not be touched — the notebook is server-backed now.
     expect(setItemSpy).not.toHaveBeenCalledWith("gm-notebook-u-1", expect.anything());
   });
+
+  it("tells the GM where ingest proposals land (P3.2)", async () => {
+    mockUniverseApis([makeUniverse("u-1", "Alpha World", "sys-1")], [makeSystem("sys-1", "Bound")]);
+    vi.spyOn(gmApi, "getNotes").mockResolvedValue({
+      universe_id: "u-1",
+      content: "",
+      updated_at: "2026-11-06T10:00:00Z",
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const universeSelect = (await screen.findByText("Alpha World")).closest("select")!;
+    await user.selectOptions(universeSelect, "u-1");
+
+    const scratchpadTabs = screen.getAllByRole("button", { name: /scratchpad/i });
+    await user.click(scratchpadTabs[scratchpadTabs.length - 1]);
+
+    const hint = await screen.findByTestId("ingest-hint");
+    expect(hint).toHaveTextContent("Proposals land in Forge → Review");
+  });
 });
 
 

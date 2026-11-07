@@ -171,6 +171,59 @@ class TestChatModePersistence:
         assert by_id[sid2]["chat_mode"] == "ooc"
 
 
+class TestArchivedFlag:
+    """P3.3: recordings carry an archive flag (GM archive metadata)."""
+
+    @patch("monitor_ui.routers.chat._db_save_session")
+    @patch("monitor_ui.routers.chat._SESSIONS", new_callable=dict)
+    @patch("monitor_ui.routers.chat._MESSAGES", new_callable=dict)
+    def test_patch_session_archived(self, _msgs, _sessions, _save):
+        """Patching archived stores the flag and returns it."""
+        session_id = str(uuid4())
+        _sessions[session_id] = _make_session(session_id)
+        _msgs[session_id] = []
+
+        resp = client.patch(f"{BASE}/{session_id}", json={"archived": True})
+        assert resp.status_code == 200
+        assert resp.json()["archived"] is True
+        assert _sessions[session_id]["archived"] is True
+
+        # Flipping it back is allowed too.
+        resp = client.patch(f"{BASE}/{session_id}", json={"archived": False})
+        assert resp.status_code == 200
+        assert resp.json()["archived"] is False
+
+    @patch("monitor_ui.routers.chat._db_save_session")
+    @patch("monitor_ui.routers.chat._SESSIONS", new_callable=dict)
+    @patch("monitor_ui.routers.chat._MESSAGES", new_callable=dict)
+    def test_patch_session_invalid_archived_returns_422(self, _msgs, _sessions, _save):
+        """A non-boolean archive flag is rejected."""
+        session_id = str(uuid4())
+        _sessions[session_id] = _make_session(session_id)
+        _msgs[session_id] = []
+
+        resp = client.patch(f"{BASE}/{session_id}", json={"archived": "maybe"})
+        assert resp.status_code == 422
+
+    @patch("monitor_ui.routers.chat._db_save_session")
+    @patch("monitor_ui.routers.chat._SESSIONS", new_callable=dict)
+    @patch("monitor_ui.routers.chat._MESSAGES", new_callable=dict)
+    def test_list_sessions_includes_archived(self, _msgs, _sessions, _save):
+        """The list serializer must carry the archive flag (P3.3 regression)."""
+        sid1 = str(uuid4())
+        sid2 = str(uuid4())
+        _sessions[sid1] = _make_session(sid1, archived=True)
+        _sessions[sid2] = _make_session(sid2)
+        _msgs[sid1] = []
+        _msgs[sid2] = []
+
+        resp = client.get(f"{BASE}/")
+        assert resp.status_code == 200
+        by_id = {s["id"]: s for s in resp.json()}
+        assert by_id[sid1]["archived"] is True
+        assert by_id[sid2]["archived"] is None
+
+
 # ---------------------------------------------------------------------------
 # GAP-K: Server-side first_message greeting
 # ---------------------------------------------------------------------------
