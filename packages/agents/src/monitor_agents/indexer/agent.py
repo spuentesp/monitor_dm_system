@@ -766,8 +766,13 @@ class Indexer(BaseAgent):
         # worker has no shared state race with the chunking loop below.
         blocks_with_tags: list[tuple[Any, str]] = []
         for block in section_blocks:
-            heading_text = " > ".join(block.heading_path)
-            tag_category = TagPool.classify_text(heading_text) or "general"
+            # A subsection gives a more precise cue than its parent chapter.
+            # Fall back through ancestors when a heading has no known tag.
+            tag_category = next(
+                (category for heading in reversed(block.heading_path)
+                 if (category := TagPool.classify_text(heading)) and category != "general"),
+                "general",
+            )
             blocks_with_tags.append((block, tag_category))
 
         sem = asyncio.Semaphore(_SECTION_CATEGORIZATION_CONCURRENCY)
@@ -848,6 +853,9 @@ class Indexer(BaseAgent):
                     "heading_path": block.heading_path,
                     "section_path": section_path,
                     "section_depth": block.depth,
+                    # These are section bounds, not exact chunk citations.
+                    "section_page_start": page_num,
+                    "section_page_end": block.page_end + 1,
                 },
             )
             for chunk in block_chunks:

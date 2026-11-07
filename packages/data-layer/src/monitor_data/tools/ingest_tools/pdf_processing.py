@@ -233,6 +233,22 @@ def _extract_pdf_structure_uncached(pdf_bytes: bytes) -> list[SectionBlock]:
 
     if toc:
         sections = []
+        # Parent and child bookmarks frequently span the same pages. Extract
+        # each page once per document rather than re-parsing it for each span.
+        page_text: dict[int, str] = {}
+        first_bookmark_page = max(0, min(doc.page_count, toc[0][2] - 1))
+        if first_bookmark_page:
+            for p in range(first_bookmark_page):
+                page_text[p] = doc[p].get_text()
+            sections.append(
+                SectionBlock(
+                    heading_path=["(front matter)"],
+                    depth=0,
+                    page_start=0,
+                    page_end=first_bookmark_page - 1,
+                    text="\n".join(page_text[p] for p in range(first_bookmark_page)).strip(),
+                )
+            )
         for i, entry in enumerate(toc):
             level = entry[0]
             title = entry[1]
@@ -258,7 +274,11 @@ def _extract_pdf_structure_uncached(pdf_bytes: bytes) -> list[SectionBlock]:
             path.append(title)
 
             # Collect text from page range
-            text_parts = [doc[p].get_text() for p in range(max(0, page_start), min(doc.page_count, page_end + 1))]
+            text_parts = []
+            for p in range(max(0, page_start), min(doc.page_count, page_end + 1)):
+                if p not in page_text:
+                    page_text[p] = doc[p].get_text()
+                text_parts.append(page_text[p])
             text = "\n".join(text_parts).strip()
 
             sections.append(

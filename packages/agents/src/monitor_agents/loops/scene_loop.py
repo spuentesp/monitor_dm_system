@@ -221,6 +221,9 @@ class SceneState(BaseModel):
 
     # Flow control
     scene_complete: bool = False
+    # Set by ``SceneLoop.finalize`` so the graph closes the scene without
+    # resolving or narrating an empty turn first.
+    finalize_requested: bool = False
     turns_count: int = 0
     max_turns: int = 50  # safety ceiling per scene
 
@@ -1475,7 +1478,13 @@ def build_scene_graph() -> StateGraph:
     graph.set_entry_point("load_context")
 
     # Edges
-    graph.add_edge("load_context", "resolve")
+    # A finalization request closes the scene straight away — no resolve, no
+    # narration of an empty turn.
+    graph.add_conditional_edges(
+        "load_context",
+        lambda state: "complete_current_scene" if state.finalize_requested else "resolve",
+        {"complete_current_scene": "complete_current_scene", "resolve": "resolve"},
+    )
     graph.add_conditional_edges(
         "resolve",
         route_after_resolve,
@@ -1771,6 +1780,7 @@ class SceneLoop:
                     "scene_id": self.scene_id,
                     "story_id": self.story_id,
                     "scene_complete": True,
+                    "finalize_requested": True,
                     "user_input": None,
                     "memories_to_persist": [],
                     "max_turns": self.max_turns,
