@@ -267,8 +267,9 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    `is_builtin` docs) + `$set: hand_authored: True`. Dry-run by default;
    asserts the doc exists, has ≥5 steps, and titles match before
    applying.
-9. **CanonKeeper depth** — **Phase 1 shipped 2026-11-07** (measurement only, no
-   behaviour change): implication-level detection exists as
+9. **CanonKeeper depth** — **Phases 1 and 2 shipped 2026-11-07** (no
+   behaviour change, no rejections). Phase 1 (measurement only):
+   implication-level detection as
    `ImplicationContradictionSignature`/`ImplicationContradictionModule`
    (`canonkeeper/verification.py`) with an auditable `implications` field, a
    new additive `ContradictionType.IMPLICATION_CONFLICT` (HIGH severity, never
@@ -276,9 +277,15 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    and the FP-measurement script `scripts/eval_canonkeeper_depth.py`. The check
    is **off by default** (`CANONKEEPER_IMPLICATION_CHECK_ENABLED`, default
    false) until its false-positive rate is measured against committed material
-   in a populated universe. Still open: Phase 2 (transition rules +
-   `needs_review` flagging) and Phase 3 (hard rejection), plus
-   impossible-state-transition checks.
+   in a populated universe — this environment has no committed proposals, so
+   the rate is still unmeasured. Phase 2 (advisory flagging): deterministic
+   state-transition rules (`canonkeeper/transition_rules.py` — terminal-tag
+   finality, explicit complement pairs, explicit `override_reason` escape
+   hatch) stamp `needs_review`/`review_reason` on the proposal through a
+   CanonKeeper-only MCP tool; the shared review model, the review workbench and
+   the canon-review panel render a "Needs review" badge, and the workbench
+   filters flagged proposals (`?review=flagged`). Still open: Phase 3 (hard
+   rejection, gated on the measured FP rate).
 
 ## Latency
 

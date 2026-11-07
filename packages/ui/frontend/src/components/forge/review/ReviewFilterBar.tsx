@@ -95,6 +95,20 @@ export function ReviewFilterBar({
         ))}
       </select>
 
+      {/* Needs review (G-9 Phase 2 advisory flag) */}
+      <select
+        value={filters.needsReview}
+        onChange={(e) =>
+          set("needsReview", e.target.value as ReviewFilters["needsReview"])
+        }
+        aria-label="Filter by review flag"
+        className={selectClass}
+      >
+        <option value="all">All proposals</option>
+        <option value="flagged">Needs review</option>
+        <option value="unflagged">Not flagged</option>
+      </select>
+
       {/* Confidence tier (shared definition from lib/confidence) */}
       <select
         value={filters.confidenceTier}

@@ -293,6 +293,7 @@ from monitor_data.tools.mongodb_tools.proposals import (
     mongodb_create_proposed_change,
     mongodb_get_proposed_change,
     mongodb_list_proposed_changes,
+    mongodb_flag_proposal_review,
     mongodb_update_proposed_change,
 )
 
@@ -424,6 +425,7 @@ __all__ = [
     "mongodb_create_proposed_change",
     "mongodb_get_proposed_change",
     "mongodb_list_proposed_changes",
+    "mongodb_flag_proposal_review",
     "mongodb_update_proposed_change",
     # Stories
     "_convert_story_outline_doc_to_response",

@@ -54,6 +54,8 @@ function item(overrides: Partial<ReviewItem> = {}): ReviewItem {
     authority: "source",
     proposer: "IngestionPipeline",
     canon_level: null,
+    needs_review: false,
+    review_reason: null,
     decision_reason: null,
     decided_by: null,
     decided_at: null,
@@ -112,6 +114,15 @@ describe("toReviewItem", () => {
     expect(r.updated_at).toBe("2026-07-11T09:00:00Z");
   });
 
+  it("carries the G-9 review flag through the adapter", () => {
+    const r = toReviewItem(
+      proposal({ needs_review: true, review_reason: "a dead entity acts" }),
+      "story",
+    );
+    expect(r.needs_review).toBe(true);
+    expect(r.review_reason).toBe("a dead entity acts");
+  });
+
   it("pulls source_ref and canon_level out of the content payload", () => {
     const r = toReviewItem(
       proposal({ content: { statement: "s", source_ref: "p. 42, §3", canon_level: "core" } }),
@@ -160,6 +171,22 @@ const ITEMS: ReviewItem[] = [
 ];
 
 describe("applyReviewFilters", () => {
+  it("filters by the needs-review flag", () => {
+    const flagged = [...ITEMS, item({ id: "z", needs_review: true })];
+    expect(
+      applyReviewFilters(flagged, {
+        ...DEFAULT_REVIEW_FILTERS,
+        needsReview: "flagged",
+      }).map((i) => i.id),
+    ).toEqual(["z"]);
+    expect(
+      applyReviewFilters(flagged, {
+        ...DEFAULT_REVIEW_FILTERS,
+        needsReview: "unflagged",
+      }).map((i) => i.id),
+    ).not.toContain("z");
+  });
+
   it("filters by status", () => {
     const out = applyReviewFilters(ITEMS, { ...DEFAULT_REVIEW_FILTERS, status: "pending" });
     expect(out.map((i) => i.id).sort()).toEqual(["a", "b"]);
@@ -254,11 +281,12 @@ describe("filtersFromParams", () => {
 
   it("parses a full filter set from the query", () => {
     const params = new URLSearchParams(
-      "status=pending&type=entity&conf=high&from=2026-07-01&to=2026-07-31&q=moon&sort=confidence",
+      "status=pending&type=entity&review=flagged&conf=high&from=2026-07-01&to=2026-07-31&q=moon&sort=confidence",
     );
     expect(filtersFromParams(params)).toEqual({
       status: "pending",
       changeType: "entity",
+      needsReview: "flagged",
       confidenceTier: "high",
       dateFrom: "2026-07-01",
       dateTo: "2026-07-31",
@@ -288,6 +316,7 @@ describe("reviewParamsToSearch", () => {
     const filters = {
       status: "accepted" as const,
       changeType: "event",
+      needsReview: "flagged" as const,
       confidenceTier: "low" as const,
       dateFrom: "2026-07-01",
       dateTo: "2026-07-31",

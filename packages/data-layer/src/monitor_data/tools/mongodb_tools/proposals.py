@@ -89,6 +89,9 @@ def _convert_proposed_change_doc_to_response(
         is_mechanically_bound=doc.get("is_mechanically_bound", False),
         source=doc.get("source"),
         proposal_type=doc.get("proposal_type"),
+        needs_review=bool(doc.get("needs_review", False)),
+        review_reason=doc.get("review_reason"),
+        review_source=doc.get("review_source"),
         created_at=doc["created_at"],
         updated_at=doc.get("updated_at") or doc["created_at"],
     )
@@ -149,6 +152,9 @@ def mongodb_create_proposed_change(
         "promotion_intent": params.promotion_intent.value if params.promotion_intent else None,
         "interaction_count": params.interaction_count,
         "is_mechanically_bound": params.is_mechanically_bound,
+        "needs_review": params.needs_review,
+        "review_reason": params.review_reason,
+        "review_source": params.review_source,
         "created_at": created_at,
         "updated_at": created_at,
     }
@@ -184,6 +190,9 @@ def mongodb_create_proposed_change(
         promotion_intent=params.promotion_intent,
         interaction_count=params.interaction_count,
         is_mechanically_bound=params.is_mechanically_bound,
+        needs_review=params.needs_review,
+        review_reason=params.review_reason,
+        review_source=params.review_source,
         created_at=created_at,
         updated_at=created_at,
     )
@@ -241,6 +250,8 @@ def mongodb_list_proposed_changes(
 
     if params.status is not None:
         filter_query["status"] = params.status.value
+    if params.needs_review is not None:
+        filter_query["needs_review"] = params.needs_review
 
     if params.change_type is not None:
         filter_query["change_type"] = params.change_type.value
@@ -271,6 +282,56 @@ def mongodb_list_proposed_changes(
         limit=params.limit,
         offset=params.offset,
     )
+
+
+def mongodb_flag_proposal_review(
+    proposal_id: UUID,
+    needs_review: bool = True,
+    reason: str | None = None,
+    source: str | None = None,
+) -> dict[str, Any]:
+    """
+    Stamp (or clear) the advisory review flag on a proposal.
+
+    Authority: CanonKeeper only
+    Collection: proposed_changes
+
+    G-9 Phase 2. This never changes the proposal's status and never blocks
+    acceptance — it only makes the proposal visible to a human reviewer. The
+    flag is set by the deterministic transition rules and, once Phase 3 lands,
+    by the implication-level check too.
+
+    Args:
+        proposal_id: The proposal to flag.
+        needs_review: True to flag, False to clear.
+        reason: Why it was flagged (human-readable).
+        source: Which rule flagged it (e.g. 'transition_rule').
+
+    Returns:
+        Dict with the proposal_id and the flag state.
+    """
+    client = get_mongodb_client()
+    coll = client.get_collection("proposed_changes")
+    if not coll.find_one({"proposal_id": str(proposal_id)}, {"proposal_id": 1}):
+        raise ValueError(f"Proposal {proposal_id} not found")
+
+    coll.update_one(
+        {"proposal_id": str(proposal_id)},
+        {
+            "$set": {
+                "needs_review": needs_review,
+                "review_reason": reason,
+                "review_source": source,
+                "updated_at": datetime.now(UTC),
+            }
+        },
+    )
+    return {
+        "proposal_id": str(proposal_id),
+        "needs_review": needs_review,
+        "review_reason": reason,
+        "review_source": source,
+    }
 
 
 def mongodb_update_proposed_change(proposal_id: UUID, params: ProposedChangeUpdate) -> ProposedChangeResponse:

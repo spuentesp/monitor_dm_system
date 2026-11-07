@@ -46,6 +46,7 @@ from pydantic import BaseModel
 
 from monitor_agents.base import BaseAgent
 from monitor_agents.canonkeeper.canonkeeper_support import gate_entity_proposals
+from monitor_agents.canonkeeper.transition_rules import TransitionViolation
 from monitor_agents.commit_dispatcher import CommitDispatcherMixin
 from monitor_agents.canonkeeper.canonkeeper import (
     CanonKeeperReasoningModule,
@@ -584,7 +585,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 await self._commit_to_neo4j(verdict, proposal)
             elif verdict.decision == CanonKeeperDecision.REJECTED:
                 await self._record_visual_identity_rejection(proposal, verdict)
-            await self._record_verdict(scene_id, verdict)
+            await self._record_verdict(scene_id, verdict, proposal)
 
         if not proposals:
             return verdicts
@@ -608,7 +609,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 await self._record_visual_identity_rejection(proposal, verdict)
 
             # Record verdict in MongoDB for audit trail
-            await self._record_verdict(scene_id, verdict)
+            await self._record_verdict(scene_id, verdict, proposal)
 
         return verdicts
 
@@ -1771,6 +1772,108 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
     # Private evaluation pipeline
     # ------------------------------------------------------------------
 
+    async def _check_state_transition_rules(
+        self,
+        proposal: dict[str, Any],
+    ) -> TransitionViolation | None:
+        """
+        Run the deterministic state-transition rules against a proposal (G-9 Phase 2).
+
+        Pure Python, no LLM — these catch mechanical impossibilities (a dead
+        entity that acts). Only ``state_change`` proposals carry tags, so
+        everything else short-circuits. A failed tag lookup yields no
+        violation rather than an error: the rules are advisory.
+
+        Returns:
+            The violation found, or None.
+        """
+        from monitor_agents.canonkeeper.transition_rules import check_state_transition
+
+        if proposal.get("change_type") != "state_change":
+            return None
+
+        content = proposal.get("content") or {}
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except json.JSONDecodeError:
+                return None
+        if not isinstance(content, dict):
+            return None
+
+        props = content.get("state_params") or content.get("payload") or content
+        if not isinstance(props, dict):
+            return None
+        state = _normalise_state_tag_update(props)
+        entity_id = state.get("entity_id")
+        add_tags = state.get("add_tags") or []
+        remove_tags = state.get("remove_tags") or []
+        if not entity_id or (not add_tags and not remove_tags):
+            return None
+
+        try:
+            raw = await self.call_tool("neo4j_get_state_tags", {"entity_id": str(entity_id)})
+        except Exception as exc:  # noqa: BLE001  # reason: an advisory rule lookup must never break evaluation (in _check_state_transition_rules)
+            logger.warning("State-tag lookup failed (skipping transition rules): %s", exc)
+            return None
+
+        current_tags: list[str] = []
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                raw = []
+        if isinstance(raw, dict):
+            raw = raw.get("state_tags") or []
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, str):
+                    current_tags.append(item)
+                elif isinstance(item, dict):
+                    tag = item.get("tag") or item.get("value") or item.get("name")
+                    if tag:
+                        current_tags.append(str(tag))
+        override_reason = content.get("override_reason") or props.get("override_reason")
+        return check_state_transition(
+            current_tags=current_tags,
+            add_tags=add_tags,
+            remove_tags=remove_tags,
+            override_reason=override_reason,
+        )
+
+    async def _flag_proposal_for_review(
+        self,
+        proposal: dict[str, Any],
+        violation: TransitionViolation,
+    ) -> None:
+        """
+        Stamp the advisory review flag on a proposal (G-9 Phase 2).
+
+        Writes through the MCP tool (CanonKeeper is the only writer) and mirrors
+        the flag onto the proposal dict the caller holds, so the verdict record
+        can carry it too. Never changes the proposal's status — the flag is
+        advisory until Phase 3.
+        """
+        proposal_id = str(proposal.get("proposal_id") or "")
+        if not proposal_id:
+            return
+        try:
+            await self.call_tool(
+                "mongodb_flag_proposal_review",
+                {
+                    "proposal_id": proposal_id,
+                    "needs_review": True,
+                    "reason": violation.reason,
+                    "source": f"transition_rule:{violation.rule}",
+                },
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: a failed flag write must never break evaluation (in _flag_proposal_for_review)
+            logger.warning("Could not stamp the review flag on proposal %s: %s", proposal_id, exc)
+            return
+        proposal["needs_review"] = True
+        proposal["review_reason"] = violation.reason
+        proposal["review_source"] = f"transition_rule:{violation.rule}"
+
     async def _evaluate_single(
         self,
         proposal: dict[str, Any],
@@ -1860,6 +1963,15 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             ],
             max_tokens=1024,
         )
+
+        # Phase 3.5 — deterministic state-transition rules (G-9 Phase 2).
+        # Pure Python, flag-only: the verdict stays the model's call, but the
+        # proposal is stamped so a human sees it in the review queue.
+        violation = await self._check_state_transition_rules(proposal)
+        if violation is not None:
+            await self._flag_proposal_for_review(proposal, violation)
+            verdict.reasoning = f"{verdict.reasoning}\n\n[FLAGGED FOR REVIEW] {violation.reason}"
+
         return verdict
 
     # _commit_to_neo4j(), _audit_commit(), _AUDIT_SUBJECT, and
@@ -2874,8 +2986,18 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         ):
             raise RuntimeError(f"{tool_name} failed: {result_text}")
 
-    async def _record_verdict(self, scene_id: UUID, verdict: CanonKeeperVerdict) -> None:
-        """Persist verdict to MongoDB for audit trail."""
+    async def _record_verdict(
+        self,
+        scene_id: UUID,
+        verdict: CanonKeeperVerdict,
+        proposal: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist verdict to MongoDB for audit trail.
+
+        ``proposal`` is optional. When given, its advisory review flag (G-9
+        Phase 2) is copied onto the verdict record, so the audit trail shows
+        that a proposal was flagged for review — not only that it was decided.
+        """
         await self.call_tool(
             "mongodb_record_verdict",
             {
@@ -2884,6 +3006,8 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 "decision": verdict.decision.value,
                 "reasoning": verdict.reasoning,
                 "decided_at": verdict.decided_at.isoformat(),
+                "needs_review": bool(proposal.get("needs_review")) if proposal else False,
+                "review_reason": proposal.get("review_reason") if proposal else None,
             },
         )
 

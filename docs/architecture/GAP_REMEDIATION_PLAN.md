@@ -569,6 +569,33 @@ readable via `neo4j_get_state_tags`.
   (fits PROPOSAL_TABS, :46-57).
 - Unit tests with FakeMCPClient/FakeLLMClient.
 
+**Status (2026-11-07): Phase 2 implemented — advisory flagging, no rejections.**
+- New `packages/agents/src/monitor_agents/canonkeeper/transition_rules.py`:
+  pure-Python rules, no LLM — terminal-tag finality (`dead`/`destroyed`/
+  `deceased` may not be removed; no agency-implying tag on a terminal entity)
+  and a short explicit complement-pair list (`dead`/`alive`,
+  `conscious`/`unconscious`). An explicit `override_reason` on the proposal
+  legalises the transition (resurrection is legal fiction — but it must be said
+  out loud, not inferred). Location/teleport checks stay deferred to the
+  implication-level check, which can reason about event sequences.
+- `CanonKeeper._check_state_transition_rules()` applies the rules to
+  `state_change` proposals only, reading current tags via
+  `neo4j_get_state_tags`; a failed tag lookup yields no violation rather than
+  an error (the rules are advisory).
+- The flag is stamped through a new CanonKeeper-only MCP tool,
+  `mongodb_flag_proposal_review`, and mirrored onto the proposal dict so the
+  verdict record carries it too (`mongodb_record_verdict` gained
+  `needs_review`/`review_reason`).
+- Data layer: `ProposedChangeCreate`/`ProposedChangeResponse` gained
+  `needs_review`, `review_reason`, `review_source`; `ProposedChangeFilter`
+  gained a `needs_review` filter and the list tool honours it.
+- UI: the shared review model carries the flag; the review workbench and the
+  canon-review panel render a "Needs review" badge, and the workbench's filter
+  bar gained a "Needs review" filter (deep-linkable as `?review=flagged`).
+- **Still open (Phase 3):** turning the deterministic violations into hard
+  rejections, gated on the implication check's measured false-positive rate.
+  Nothing in Phase 2 rejects a proposal — the verdict stays the model's call.
+
 ### Phase 3 — hard rejection (gated on data)
 
 Enable REJECTED verdicts for transition-rule violations first (deterministic, low FP

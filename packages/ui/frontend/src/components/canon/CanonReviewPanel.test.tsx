@@ -10,7 +10,11 @@ import type { CanonQueue, ProposalItem, SceneReview } from "@/lib/types";
 const STORY_ID = "11111111-1111-1111-1111-111111111111";
 const SCENE_ID = "22222222-2222-2222-2222-222222222222";
 
-function proposal(id: string, status: "pending" | "accepted" | "rejected" = "pending"): ProposalItem {
+function proposal(
+  id: string,
+  status: "pending" | "accepted" | "rejected" = "pending",
+  overrides: Partial<ProposalItem> = {},
+): ProposalItem {
   return {
     proposal_id: id,
     change_type: "fact",
@@ -21,6 +25,7 @@ function proposal(id: string, status: "pending" | "accepted" | "rejected" = "pen
     status,
     evidence: [],
     created_at: null,
+    ...overrides,
   };
 }
 
@@ -43,6 +48,41 @@ function renderPanel(props: { storyId?: string | null; sceneId?: string | null }
 
 beforeEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("CanonReviewPanel — review flag (G-9 Phase 2)", () => {
+  it("badges a proposal that CanonKeeper flagged for review", async () => {
+    vi.spyOn(api.canonApi, "storyQueue").mockResolvedValue(
+      queue(
+        [
+          sceneReview([
+            proposal("p1", "pending", {
+              needs_review: true,
+              review_reason: "a dead entity acts",
+            }),
+          ]),
+        ],
+        1,
+      ),
+    );
+
+    renderPanel({ storyId: STORY_ID });
+
+    const badge = await screen.findByTestId("needs-review-badge");
+    expect(badge).toHaveTextContent("Needs review");
+    expect(badge.getAttribute("title")).toContain("a dead entity acts");
+  });
+
+  it("does not badge an unflagged proposal", async () => {
+    vi.spyOn(api.canonApi, "storyQueue").mockResolvedValue(
+      queue([sceneReview([proposal("p1")])], 1),
+    );
+
+    renderPanel({ storyId: STORY_ID });
+
+    await screen.findByRole("button", { name: /^accept$/i });
+    expect(screen.queryByTestId("needs-review-badge")).toBeNull();
+  });
 });
 
 describe("CanonReviewPanel — reason capture (F2-3d)", () => {

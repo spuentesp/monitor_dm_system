@@ -151,6 +151,8 @@ AUTHORITY_MATRIX = {
     "mongodb_get_proposed_change": ["*"],
     "mongodb_list_proposed_changes": ["*"],
     "mongodb_update_proposed_change": ["CanonKeeper"],
+    # G-9 Phase 2 — stamping the advisory review flag is a CanonKeeper write.
+    "mongodb_flag_proposal_review": ["CanonKeeper"],
     # (Memory operations moved to DL-7 section below)
     # =========================================================================
     # MONGODB OPERATIONS - Character Sheets

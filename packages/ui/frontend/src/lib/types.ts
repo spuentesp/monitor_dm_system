@@ -687,6 +687,10 @@ export interface ProposalItem {
   /** Extraction subtype + lineage (by-ingest surface, F1-4). */
   proposal_type?: string | null;
   source?: string | null;
+  /** G-9 Phase 2 — advisory review flag set by CanonKeeper's transition rules. */
+  needs_review?: boolean;
+  review_reason?: string | null;
+  review_source?: string | null;
 }
 
 // ─── CanonKeeper Review (CF-8) ────────────────────────────────
@@ -754,6 +758,8 @@ export interface VerdictByFilterRequest {
   source?: string | null;
   status?: string | null;
   change_type?: string | null;
+  /** G-9 Phase 2 — restrict the bulk set to flagged / unflagged proposals. */
+  needs_review?: boolean | null;
   confidence_min?: number | null;
   confidence_max?: number | null;
   created_after?: string | null;

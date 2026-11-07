@@ -105,6 +105,8 @@ class VerdictByFilterRequest(BaseModel):
     )
     status: ProposalStatus | None = Field(default=None, description="Defaults to PENDING when omitted")
     change_type: ProposalType | None = None
+    # G-9 Phase 2 — restrict the bulk set to flagged / unflagged proposals.
+    needs_review: bool | None = Field(default=None)
     confidence_min: float | None = Field(default=None, ge=0.0, le=1.0)
     confidence_max: float | None = Field(default=None, ge=0.0, le=1.0)
     created_after: datetime | None = None
@@ -458,6 +460,8 @@ def _as_aware(dt: datetime) -> datetime:
 
 def _matches_client_filters(p: ProposedChangeResponse, body: VerdictByFilterRequest) -> bool:
     """Post-filters MongoDB can't express via ProposedChangeFilter."""
+    if body.needs_review is not None and bool(p.needs_review) != body.needs_review:
+        return False
     if body.confidence_min is not None and p.confidence < body.confidence_min:
         return False
     if body.confidence_max is not None and p.confidence > body.confidence_max:

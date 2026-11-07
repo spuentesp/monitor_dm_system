@@ -82,6 +82,15 @@ class ProposedChangeCreate(BaseModel):
     )
     authority: Authority = Field(default=Authority.SYSTEM, description="Who asserted this change")
     proposer: str = Field(default="Unknown", description="Agent or user who created this proposal")
+    # G-9 Phase 2 — advisory review flag. Set by CanonKeeper's deterministic
+    # transition rules; it never blocks acceptance on its own.
+    needs_review: bool = Field(default=False, description="Flagged for human review")
+    review_reason: str | None = Field(None, max_length=2000, description="Why it was flagged")
+    review_source: str | None = Field(
+        None,
+        max_length=100,
+        description="Which rule flagged it (e.g. 'transition_rule')",
+    )
 
     # --- Entity promotion (ENTITY proposals only; see docs/2_architecture/data_model_workflow.md) ---
     promotion_intent: PromotionIntent | None = Field(
@@ -165,6 +174,10 @@ class ProposedChangeResponse(BaseModel):
     # normalized ProposalType category.
     source: str | None = None
     proposal_type: str | None = None
+    # G-9 Phase 2 — advisory review flag (see ProposedChangeCreate).
+    needs_review: bool = False
+    review_reason: str | None = None
+    review_source: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -181,6 +194,10 @@ class ProposedChangeFilter(BaseModel):
     source: str | None = Field(
         None,
         description="Filter by source tag (e.g. 'knowledge_pack:<uuid>')",
+    )
+    needs_review: bool | None = Field(
+        None,
+        description="Filter by the advisory review flag (G-9 Phase 2)",
     )
     limit: int = Field(default=50, ge=1, le=1000)
     offset: int = Field(default=0, ge=0)

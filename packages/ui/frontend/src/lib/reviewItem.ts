@@ -46,6 +46,9 @@ export interface ReviewItem {
   authority: string;
   proposer: string;
   canon_level: string | null;
+  // G-9 Phase 2 — advisory review flag (CanonKeeper's transition rules)
+  needs_review: boolean;
+  review_reason: string | null;
   // Decision metadata (when decided)
   decision_reason: string | null;
   decided_by: string | null;
@@ -98,6 +101,8 @@ export function toReviewItem(
     id: raw.proposal_id,
     scope,
     change_type: raw.change_type,
+    needs_review: raw.needs_review === true,
+    review_reason: strOrNull(raw.review_reason),
     proposal_type: raw.proposal_type ?? null,
     status: raw.status,
     pack_id:
@@ -137,6 +142,8 @@ export function reviewItemTitle(item: ReviewItem): string {
 export interface ReviewFilters {
   status: "all" | ReviewStatus;
   changeType: string; // "all" or a change_type value
+  /** G-9 Phase 2 — show only flagged proposals, or only unflagged ones. */
+  needsReview: "all" | "flagged" | "unflagged";
   confidenceTier: "all" | keyof typeof CONFIDENCE_TIERS;
   /** Inclusive ISO date (YYYY-MM-DD) bounds on created_at; "" = unbounded. */
   dateFrom: string;
@@ -148,6 +155,7 @@ export interface ReviewFilters {
 export const DEFAULT_REVIEW_FILTERS: ReviewFilters = {
   status: "all",
   changeType: "all",
+  needsReview: "all",
   confidenceTier: "all",
   dateFrom: "",
   dateTo: "",
@@ -174,6 +182,8 @@ export function applyReviewFilters(
     if (filters.status !== "all" && item.status !== filters.status) return false;
     if (filters.changeType !== "all" && item.change_type !== filters.changeType)
       return false;
+    if (filters.needsReview === "flagged" && !item.needs_review) return false;
+    if (filters.needsReview === "unflagged" && item.needs_review) return false;
     if (filters.confidenceTier !== "all") {
       const c = item.confidence;
       if (filters.confidenceTier === "high" && c < CONFIDENCE_TIERS.high.min)
@@ -223,6 +233,7 @@ const URL_KEYS = {
   scope: "scope",
   status: "status",
   changeType: "type",
+  needsReview: "review",
   confidenceTier: "conf",
   dateFrom: "from",
   dateTo: "to",
@@ -250,11 +261,14 @@ export function scopeFromParams(params: ParamReader): ReviewScope {
 export function filtersFromParams(params: ParamReader): ReviewFilters {
   const d = DEFAULT_REVIEW_FILTERS;
   const status = params.get(URL_KEYS.status);
+  const review = params.get(URL_KEYS.needsReview);
   const conf = params.get(URL_KEYS.confidenceTier);
   const sort = params.get(URL_KEYS.sort);
   return {
     status: status === "pending" || status === "accepted" || status === "rejected" ? status : d.status,
     changeType: params.get(URL_KEYS.changeType) ?? d.changeType,
+    needsReview:
+      review === "flagged" || review === "unflagged" ? review : d.needsReview,
     confidenceTier:
       conf === "high" || conf === "medium" || conf === "low" ? conf : d.confidenceTier,
     dateFrom: params.get(URL_KEYS.dateFrom) ?? d.dateFrom,
@@ -283,6 +297,7 @@ export function reviewParamsToSearch(
   };
   setOrDelete(URL_KEYS.status, filters.status, d.status);
   setOrDelete(URL_KEYS.changeType, filters.changeType, d.changeType);
+  setOrDelete(URL_KEYS.needsReview, filters.needsReview, d.needsReview);
   setOrDelete(URL_KEYS.confidenceTier, filters.confidenceTier, d.confidenceTier);
   setOrDelete(URL_KEYS.dateFrom, filters.dateFrom, d.dateFrom);
   setOrDelete(URL_KEYS.dateTo, filters.dateTo, d.dateTo);

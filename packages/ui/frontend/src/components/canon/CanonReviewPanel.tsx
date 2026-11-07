@@ -90,6 +90,16 @@ function ProposalCard({
             <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium", tier.bg, tier.color)}>
               {tier.label} {Math.round(proposal.confidence * 100)}%
             </span>
+            {proposal.needs_review && (
+              <span
+                data-testid="needs-review-badge"
+                title={proposal.review_reason ?? "Flagged for review"}
+                className="text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 font-medium flex items-center gap-1"
+              >
+                <AlertTriangle className="w-3 h-3" />
+                Needs review
+              </span>
+            )}
             {proposal.status !== "pending" && (
               <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border font-medium flex items-center gap-1", statusConfig.bg, statusConfig.color)}>
                 <StatusIcon className="w-3 h-3" />
