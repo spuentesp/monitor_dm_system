@@ -69,34 +69,33 @@ class StoryAgent(BaseAgent):
         """
         Evaluate the narrative arc after each scene.
 
-        Uses heuristics based on scenes_completed, tension trends, and
-        thread counts to classify the arc phase.  A DSPy-powered version
-        can override this with LLM-driven evaluation in the future.
+        The arc contract: a story spans several scenes and ends when its arc
+        resolves. The phases run in order — rising action, the climax that
+        confronts the conflict, the falling action after it, then the
+        resolution that closes the story — and the story's scene budget
+        decides how long each phase lasts. A story therefore always reaches
+        its resolution instead of stalling, and ``scene_budget`` is what a
+        caller sets to change how long a campaign runs.
+
+        A DSPy-powered version can override this with LLM-driven evaluation
+        in the future.
         """
         scenes_done = state.scenes_completed
-        active = len(state.active_threads)
-        completed_threads = len(state.completed_threads)
         tension = state.tension_score
+        budget = max(3, state.scene_budget)
 
-        # Heuristic arc evaluation
-        if scenes_done <= 2:
+        if scenes_done <= budget - 3:
             label = "rising_action"
-            tension = min(0.5, tension + 0.15 * scenes_done)
-        elif tension >= 0.7 and active >= 2:
+            tension = min(0.9, tension + 0.15 * scenes_done)
+        elif scenes_done == budget - 2:
             label = "climax"
             tension = min(1.0, tension + 0.1)
-        elif completed_threads > active and tension > 0.5:
+        elif scenes_done == budget - 1:
             label = "falling_action"
-            tension = max(0.3, tension - 0.15)
-        elif active == 0 and completed_threads > 0:
+            tension = max(0.3, tension - 0.25)
+        else:
             label = "resolution"
             tension = max(0.1, tension - 0.2)
-        elif active == 0 and scenes_done >= 3:
-            label = "new_thread"
-            tension = 0.3
-        else:
-            label = "rising_action"
-            tension = min(0.6, tension + 0.1)
 
         # Suggest next scene type based on arc phase
         next_type = {
@@ -107,14 +106,18 @@ class StoryAgent(BaseAgent):
             "new_thread": "revelation",
         }.get(label, "action")
 
-        # Auto-complete story after resolution if no new threads
-        story_complete = label == "resolution" and active == 0
-
-        # Seed threads if none exist yet (world-building phase)
-        if not state.active_threads and scenes_done <= 1:
+        # Threads open with the story and are paid off at the climax, so the
+        # resolution arrives with nothing left open.
+        active_threads = list(state.active_threads)
+        completed_threads = list(state.completed_threads)
+        if not active_threads and scenes_done <= 1:
             active_threads = ["central_conflict", "character_motivation"]
-        else:
-            active_threads = state.active_threads
+        if label == "climax":
+            completed_threads = completed_threads + active_threads
+            active_threads = []
+
+        # The story is over once the arc resolves and no thread is left open.
+        story_complete = label == "resolution" and not active_threads
 
         # P-6: Automated Story Outlining - Call DSPy planner
         plan = await self._plan_next_scene(state)
@@ -147,6 +150,7 @@ class StoryAgent(BaseAgent):
             "arc_label": label,
             "tension_score": tension,
             "active_threads": active_threads,
+            "completed_threads": completed_threads,
             "next_scene_type": next_type,
             "scene_hook": scene_hook,
             "story_complete": story_complete,
@@ -203,6 +207,8 @@ class StoryAgent(BaseAgent):
         return {
             "scenes": state.scenes + [scene_id],
             "current_scene_id": scene_id,
+            # The caller counts the scene it just finished; the transition
+            # only opens the next one.
             "scenes_completed": state.scenes_completed,
             "next_scene_type": None,  # consumed
         }
