@@ -531,8 +531,13 @@ class TestStoryLoopPlanning:
 
         from monitor_agents.loops.story_loop import StoryLoop, StoryState
 
-        # Mock DSPy module
-        with patch("monitor_agents.story.story.StoryPlannerModule.forward") as mock_forward:
+        import contextlib
+
+        # Mock DSPy module, and the model binding it now runs inside
+        with (
+            patch("monitor_agents.story.story.StoryPlannerModule.forward") as mock_forward,
+            patch("monitor_agents.dspy_runtime.dspy_context_for", lambda *a, **k: contextlib.nullcontext()),
+        ):
             mock_forward.return_value = {
                 "next_scene_type": "combat",
                 "plot_hook": "The goblins ambush the party.",

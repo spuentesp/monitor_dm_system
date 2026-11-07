@@ -82,6 +82,25 @@ class TestRollDice:
         result = roll_dice("  1d20+5  ")
         assert 6 <= result.total <= 25
 
+    def test_keep_highest_and_lowest_with_modifiers(self, monkeypatch):
+        seq = iter([4, 17, 19, 3])
+        monkeypatch.setattr("monitor_data.utils.dice.random.randint", lambda _a, _b: next(seq))
+        adv = roll_dice("2d20kh1+2")
+        assert adv.rolls == [4, 17]
+        assert adv.kept_rolls == [17]
+        assert adv.total == 19
+
+        dis = roll_dice("2d20kl1-1")
+        assert dis.rolls == [19, 3]
+        assert dis.kept_rolls == [3]
+        assert dis.total == 2
+
+    def test_keep_highest_uppercase_and_modifier_before_keep(self, monkeypatch):
+        seq = iter([5, 16, 8, 12])
+        monkeypatch.setattr("monitor_data.utils.dice.random.randint", lambda _a, _b: next(seq))
+        assert roll_dice("2d20KH1").total == 16
+        assert roll_dice("2d20+3kh1").total == 15
+
 
 # ---------------------------------------------------------------------------
 # calculate_modifier

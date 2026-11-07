@@ -42,6 +42,7 @@ from monitor_agents.game_system import GameSystemRuntime
 from monitor_agents.gm_awareness import (
     ActionType,
     CausalityAction,
+    IntentType,
     check_gm_awareness,
 )
 from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
@@ -176,6 +177,37 @@ def _fallback_roll_necessity(intent_type: str) -> str:
     return "propose_roll"
 
 
+# The GM can choose these action types. Combat stays with the game-system router
+# because a "combat" value makes SceneLoop start a CombatLoop.
+_GM_ACTION_TYPES = frozenset(
+    {ActionType.DIALOGUE, ActionType.STEALTH, ActionType.EXPLORATION, ActionType.MOVEMENT}
+)
+_MAX_GM_DC = 60
+
+
+def _lookup_stat(attributes: dict[str, int], names: list[str]) -> int | None:
+    """Find a stat by name or 3+ letter abbreviation, ignoring case."""
+    by_lower = {key.lower(): value for key, value in attributes.items()}
+    wanted = [name.lower() for name in names if name]
+    for name in wanted:
+        if name in by_lower:
+            return by_lower[name]
+    for name in wanted:
+        for key, value in by_lower.items():
+            if len(name) >= 3 and len(key) >= 3 and (name.startswith(key) or key.startswith(name)):
+                return value
+    return None
+
+
+def _system_stat(gsr: GameSystemRuntime, name: str) -> str | None:
+    """Return the system's abbreviation for a stat given by name or abbreviation."""
+    wanted = name.strip().lower()
+    for abbr, attr in gsr._attr_by_abbr.items():
+        if wanted in (abbr.lower(), str(attr.get("name") or "").lower()):
+            return str(abbr)
+    return None
+
+
 def _uses_roll_under(gsr: GameSystemRuntime | None) -> bool:
     """Detect roll-under d20 systems from the stored core mechanic text."""
     if gsr is None:
@@ -183,6 +215,79 @@ def _uses_roll_under(gsr: GameSystemRuntime | None) -> bool:
     core = gsr._sd.core
     text = " ".join(str(core.get(key, "")) for key in ("formula", "success_threshold", "critical_success")).lower()
     return "roll under" in text or "under or equal" in text or "<=" in text
+
+
+def _pool_die_sides(core: dict[str, Any]) -> int:
+    formula = str(core.get("formula") or "")
+    sides_match = re.search(r"d(\d+)", formula, re.IGNORECASE)
+    return max(2, int(sides_match.group(1))) if sides_match else 10
+
+
+def _parse_pool_threshold(threshold_val: Any, *, die_sides: int = 10) -> int:
+    """Extract a valid per-die success threshold (never concatenating multi-band text)."""
+    default = min(6, die_sides)
+    try:
+        if isinstance(threshold_val, str):
+            m = re.search(r"\d+", threshold_val)
+            parsed = int(m.group(0)) if m else default
+        else:
+            parsed = int(threshold_val)
+    except (ValueError, TypeError):
+        return default
+    if parsed < 1 or parsed > die_sides:
+        return default
+    return parsed
+
+
+def _is_count_successes_pool(core: dict[str, Any] | None) -> bool:
+    """Return True only for genuine count-successes dice pools (excluding 2d6+stat PbtA / 4dF Fate)."""
+    if not core or "dice_pool" not in str(core.get("type", "")).lower():
+        return False
+    formula = str(core.get("formula") or "")
+    if "df" in formula.lower():
+        return False
+    die_sides = _pool_die_sides(core)
+    raw_threshold = core.get("success_threshold")
+    if isinstance(raw_threshold, str):
+        m = re.search(r"\d+", raw_threshold)
+        if m and int(m.group(0)) > die_sides:
+            return False
+    elif isinstance(raw_threshold, (int, float)) and int(raw_threshold) > die_sides:
+        return False
+    return True
+
+
+def _pool_proposal_fields(
+    gsr: GameSystemRuntime | None,
+    stat_value: int | None,
+    pool_bonus: int,
+) -> dict[str, Any]:
+    """Return dice-pool metadata when ``gsr`` uses a pool mechanic, else ``{}``."""
+    if gsr is None or not _is_count_successes_pool(gsr._sd.core):
+        return {}
+    core = gsr._sd.core
+    formula = str(core.get("formula") or "")
+    die_sides = _pool_die_sides(core)
+    threshold = _parse_pool_threshold(core.get("success_threshold", 6), die_sides=die_sides)
+
+    if stat_value is not None:
+        try:
+            pool_size = int(stat_value) + int(pool_bonus)
+        except (ValueError, TypeError):
+            pool_size = 1
+    else:
+        cnt_match = re.match(r"^\s*(\d+)d\d+", formula, re.IGNORECASE)
+        base_pool = int(cnt_match.group(1)) if cnt_match else 1
+        pool_size = base_pool + int(pool_bonus)
+    if pool_size < 1:
+        pool_size = 1
+
+    return {
+        "mechanic_type": "dice_pool",
+        "pool_size": pool_size,
+        "pool_die_sides": die_sides,
+        "success_threshold": threshold,
+    }
 
 
 def _resolve_base_dc(gsr: GameSystemRuntime | None, fallback_dc: int) -> int:
@@ -461,6 +566,9 @@ class Resolver(BaseAgent):
         question_clean = (question or "").strip().rstrip("?.! ")
         if not question_clean:
             return None
+        # Without a universe the search would span every world's content.
+        if not universe_id:
+            return None
 
         # Try to identify the focal entity by extracting the noun phrase
         # after the lookup starter (e.g. "What is the Beast?" → "the Beast").
@@ -479,7 +587,7 @@ class Resolver(BaseAgent):
         # The retrieval service handles embedding + Qdrant search.
         try:
             retrieval = RetrievalService()
-            filters = {"universe_id": universe_id} if universe_id else None
+            filters = {"universe_id": universe_id}
             entity_hits = await retrieval.retrieve(
                 "entities",
                 question_clean,
@@ -706,47 +814,6 @@ class Resolver(BaseAgent):
         initial_action_type = "action"
         intent_type = _infer_intent_type(user_input or "", initial_action_type)
 
-        # Sub-plan 3 Task 1: LOOKUP routing. "What is X?" / "Explain X"
-        # questions need a RAG-based answer, not a yes/no oracle. The
-        # LLM verdict's intent_type is the authoritative signal; we
-        # additionally fall back to a regex when the LLM signal is
-        # missing or the verdict is unavailable.
-        if intent_type == "lookup" or (intent_type != "query" and _is_lookup_question(user_input or "")):
-            lookup_res = await self._handle_lookup(
-                question=user_input or "",
-                universe_id=context.get("universe_id") if context else None,
-            )
-            if lookup_res is not None:
-                return self._attach_gm_verdict(lookup_res)
-
-        # P-18: Oracle check for world-truth questions. The LLM verdict's
-        # intent_type is the authoritative signal; we additionally gate on a
-        # coarse "ends with '?'" check so the fallback case still routes
-        # here when a player asks a yes/no question.
-        if intent_type == "query" and _is_world_truth_question(user_input or ""):
-            from monitor_agents.oracle import Likelihood, Oracle
-
-            likelihood_str = _parse_likelihood_marker(user_input or "")
-            likelihood = Likelihood(likelihood_str)
-            oracle_res = Oracle().resolve_question(
-                question=user_input or "",
-                likelihood=likelihood,
-                tension_score=tension_score,
-            )
-            return self._attach_gm_verdict(
-                {
-                    "scene_id": scene_id,
-                    "action_type": "query",
-                    "intent_type": "query",
-                    "resolution_type": "oracle",
-                    "oracle_result": oracle_res,
-                    "success": oracle_res["is_yes"],
-                    "success_level": oracle_res["outcome"],
-                    "narrative_pressure": "increased" if oracle_res["is_exceptional"] else "stable",
-                    "proposals": [],
-                }
-            )
-
         # roll_type is a cosmetic label for the dice result; the LLM
         # verdict's action_type is what actually drove routing. Default
         # to "action" and let the schema-driven path override it.
@@ -892,6 +959,15 @@ class Resolver(BaseAgent):
         # (the Narrator reconciles draft against the rolled outcome).
         self._last_gm_verdict = gm_verdict  # type: ignore[assignment]
 
+        question_resolution = await self._route_question(
+            scene_id, user_input or "", context, tension_score, gm_verdict, intent_type
+        )
+        if question_resolution is not None:
+            # Oracle and lookup outcomes are the answer; a draft written without
+            # them would contradict it, so the Narrator works from the outcome.
+            self._last_gm_verdict = None
+            return self._attach_gm_verdict(question_resolution)
+
         # Capture the LLM verdict's roll_necessity *before* we may null the
         # verdict below — it's the principled fallback for the semantic
         # classifier (used only when embeddings are unavailable). No keywords.
@@ -911,6 +987,22 @@ class Resolver(BaseAgent):
                 llm_roll_necessity = None
                 llm_verdict_was_real = False
 
+        # Kept for the dice branch: the verdict is nulled below on attempted actions.
+        gm_stat: str | None = None
+        gm_dc: int | None = None
+        gm_action: ActionType | None = None
+        gm_intent: str | None = None
+        if gm_verdict is not None and llm_verdict_was_real:
+            gm_stat = gm_verdict.suggested_stat
+            gm_dc = gm_verdict.suggested_dc
+            gm_action = gm_verdict.action_type
+            gm_intent = gm_verdict.intent_type.value
+
+        gsr: GameSystemRuntime | None = None
+        if play_mode == "dice_game_system" and game_context:
+            with suppress(Exception):
+                gsr = GameSystemRuntime(game_context)
+
         # If the LLM says the player is ATTEMPTING (not declaring), fall
         # through to Branch 3 (dice resolution).
         if gm_verdict is not None and not gm_verdict.declares_outcome:
@@ -918,8 +1010,21 @@ class Resolver(BaseAgent):
 
         # PUSH_BACK → request a roll from the player
         if gm_verdict is not None and gm_verdict.causality_action == CausalityAction.PUSH_BACK:
-            suggested_stat = gm_verdict.suggested_stat or "Strength"
+            suggested_stat = (
+                (gm_verdict.suggested_stat and gsr and _system_stat(gsr, gm_verdict.suggested_stat))
+                or gm_verdict.suggested_stat
+                or "Strength"
+            )
             suggested_dc = gm_verdict.suggested_dc or 12
+            pushback_value, pushback_base_mod = self._actor_stat(context, gsr, suggested_stat)
+            pushback_sc = await self._evaluate_scenery_and_conditions(context, user_input or "", roll_mode, gsr)
+            pushback_modifier = pushback_base_mod + pushback_sc["total_modifier"]
+            pushback_roll_mode = pushback_sc.get("roll_mode") or roll_mode or "normal"
+            if pushback_roll_mode not in ("normal", "advantage", "disadvantage"):
+                pushback_roll_mode = "normal"
+            pushback_pool = _pool_proposal_fields(gsr, pushback_value, pushback_modifier)
+            if pushback_pool:
+                pushback_roll_mode = "normal"
             return self._attach_gm_verdict(
                 {
                     "scene_id": scene_id,
@@ -930,6 +1035,11 @@ class Resolver(BaseAgent):
                     "requires_clarification": False,
                     "stat": suggested_stat,
                     "difficulty_class": suggested_dc,
+                    "attribute_value": pushback_value,
+                    "modifier": pushback_modifier,
+                    "roll_mode": pushback_roll_mode,
+                    "roll_under": _uses_roll_under(gsr),
+                    **pushback_pool,
                     "resolution_type": "forced_narrative_pushback",
                     "forced_narrative": True,
                     "success": None,
@@ -1009,11 +1119,6 @@ class Resolver(BaseAgent):
         # ------------------------------------------------------------------
         # Branch 3 — Dice resolution (dice_standard or dice_game_system)
         # ------------------------------------------------------------------
-        gsr: GameSystemRuntime | None = None
-        if play_mode == "dice_game_system" and game_context:
-            with suppress(Exception):
-                gsr = GameSystemRuntime(game_context)
-
         # Action routing and modifier calculation via schema (dice_game_system)
         # or simple generic fallback (dice_standard)
         if _is_narrative_core(gsr):
@@ -1049,13 +1154,21 @@ class Resolver(BaseAgent):
         if gsr:
             routed = await gsr.infer_action_context(user_input, source_profile=source_profile)
             action_type = str(routed.get("action_type", "action"))
-            stat_name = str(routed.get("stat_name", "STR"))
+            stat_name = (gm_stat and _system_stat(gsr, gm_stat)) or str(routed.get("stat_name", "STR"))
             dc = _resolve_base_dc(gsr, int(routed.get("difficulty_class", 12)))
             subsystem_hint = routed.get("subsystem_hint")
         else:
             action_type, _, dc = self._default_action_profile()
-            stat_name = await _infer_generic_stat(user_input or "")
-            subsystem_hint = "social" if action_type == "dialogue" else None
+            stat_name = gm_stat or await _infer_generic_stat(user_input or "")
+            subsystem_hint = None
+
+        # The GM is the authority on the roll when it gave a usable answer.
+        if gm_dc and 0 < gm_dc <= _MAX_GM_DC:
+            dc = gm_dc
+        if gm_action in _GM_ACTION_TYPES:
+            action_type = gm_action.value
+            if gsr is None and gm_action == ActionType.DIALOGUE:
+                subsystem_hint = "social"
 
         # ------------------------------------------------------------------
         # Roll necessity classification (UC-GM-6)
@@ -1071,7 +1184,7 @@ class Resolver(BaseAgent):
         # Instead we fall back to ``_fallback_roll_necessity``, a thin
         # intent→necessity map. ``llm_verdict_was_real`` distinguishes them.
         # ------------------------------------------------------------------
-        intent_type = _infer_intent_type(user_input or "", action_type)
+        intent_type = gm_intent or _infer_intent_type(user_input or "", action_type)
         if llm_verdict_was_real and llm_roll_necessity in _VALID_NECESSITY:
             roll_necessity = llm_roll_necessity
         else:
@@ -1106,13 +1219,14 @@ class Resolver(BaseAgent):
                     requires_clarification=False,
                     stat_name=pr_stat,
                     dc=int(pr_dc) if pr_dc is not None else int(dc),
-                    stat_value=None,
+                    stat_value=pending_roll.get("attribute_value"),
                     base_modifier=pr_modifier,
                     modifier=pr_modifier,
                     actual_roll_mode=pr_roll_mode,
                     gsr=gsr,
                     subsystem_hint=subsystem_hint,
                     roll_necessity="pending_roll",
+                    intent_type=gm_intent,
                 )
             )
 
@@ -1149,26 +1263,23 @@ class Resolver(BaseAgent):
         if roll_necessity == "propose_roll" and not auto_roll:
             # Compute the stat context but do NOT roll dice.
             # The Narrator will frame the invitation for the player to accept.
-            attributes = self._extract_attributes(context, gsr)
-            stat_value = 0
-            candidate_keys = [stat_name]
-            if gsr:
-                attr_def = gsr._attr_by_abbr.get(stat_name.upper(), {})
-                candidate_keys.extend(
-                    [
-                        str(attr_def.get("name") or ""),
-                        str(attr_def.get("abbreviation") or ""),
-                    ]
+            stat_value, base_modifier = self._actor_stat(context, gsr, stat_name)
+            sc_eval = await self._evaluate_scenery_and_conditions(context, user_input or "", roll_mode, gsr)
+            dynamic_mod = int(sc_eval["total_modifier"])
+            modifier = base_modifier + dynamic_mod
+            actual_roll_mode = sc_eval.get("roll_mode") or roll_mode or "normal"
+            if actual_roll_mode not in ("normal", "advantage", "disadvantage"):
+                actual_roll_mode = "normal"
+            pool_fields = _pool_proposal_fields(gsr, stat_value, dynamic_mod)
+            if pool_fields:
+                actual_roll_mode = "normal"
+                breakdown = (
+                    f"propose_roll — {stat_name} pool "
+                    f"({pool_fields['pool_size']}d{pool_fields['pool_die_sides']}, "
+                    f"diff {pool_fields['success_threshold']})"
                 )
-            for key in candidate_keys:
-                if key and key in attributes:
-                    stat_value = int(attributes.get(key, 0))
-                    break
-            modifier = (
-                gsr.calc_modifier(stat_name, stat_value)
-                if gsr
-                else calculate_modifier(stat_value, _DEFAULT_MODIFIER_FORMULA)
-            )
+            else:
+                breakdown = f"propose_roll — {stat_name} check (DC {dc})"
 
             return self._attach_gm_verdict(
                 {
@@ -1182,8 +1293,9 @@ class Resolver(BaseAgent):
                     "difficulty_class": dc,
                     "attribute_value": stat_value,
                     "modifier": modifier,
+                    "roll_mode": actual_roll_mode,
                     "roll_total": None,
-                    "roll_breakdown": f"propose_roll — {stat_name} check (DC {dc})",
+                    "roll_breakdown": breakdown,
                     "resolution_type": "propose_roll",
                     "forced_narrative": False,
                     "success": None,
@@ -1197,6 +1309,7 @@ class Resolver(BaseAgent):
                     "subsystem_hint": subsystem_hint,
                     "roll_necessity": roll_necessity,
                     "roll_under": _uses_roll_under(gsr),
+                    **pool_fields,
                     "roll_invitation": (
                         f"That sounds risky — roll your {stat_name} for me."
                         if dc is not None
@@ -1206,26 +1319,7 @@ class Resolver(BaseAgent):
             )
 
         # roll_necessity == "contested" → proceed with dice
-        attributes = self._extract_attributes(context, gsr)
-        stat_value = 0
-        candidate_keys = [stat_name]
-        if gsr:
-            attr_def = gsr._attr_by_abbr.get(stat_name.upper(), {})
-            candidate_keys.extend(
-                [
-                    str(attr_def.get("name") or ""),
-                    str(attr_def.get("abbreviation") or ""),
-                ]
-            )
-        for key in candidate_keys:
-            if key and key in attributes:
-                stat_value = int(attributes.get(key, 0))
-                break
-        base_modifier = (
-            gsr.calc_modifier(stat_name, stat_value)
-            if gsr
-            else calculate_modifier(stat_value, _DEFAULT_MODIFIER_FORMULA)
-        )
+        stat_value, base_modifier = self._actor_stat(context, gsr, stat_name)
 
         # Evaluate scenery and conditions for dynamic adjustments
         sc_eval = await self._evaluate_scenery_and_conditions(context, user_input or "", roll_mode, gsr)
@@ -1251,8 +1345,62 @@ class Resolver(BaseAgent):
                 subsystem_hint=subsystem_hint,
                 roll_necessity=roll_necessity,
                 sc_eval=sc_eval,
+                intent_type=gm_intent,
             )
         )
+
+    async def _route_question(
+        self,
+        scene_id: str,
+        user_input: str,
+        context: dict[str, Any],
+        tension_score: float,
+        gm_verdict: Any | None,
+        shape_intent: str,
+    ) -> dict[str, Any] | None:
+        """Answer the turn from the oracle or from retrieval when it is a question.
+
+        A real GM verdict decides. Text shape is only consulted when there is no
+        real verdict, because a line like "Can I pick the lock?" is an action and
+        "Explain to the guard..." is dialogue.
+        """
+        gm_intent = getattr(gm_verdict, "intent_type", None)
+        verdict_is_real = gm_verdict is not None and not (
+            gm_intent == IntentType.ACTION and gm_verdict.action_type == ActionType.NONE
+        )
+
+        if verdict_is_real:
+            wants_lookup = gm_intent == IntentType.LOOKUP
+            wants_oracle = gm_intent == IntentType.QUERY and _is_world_truth_question(user_input)
+        else:
+            wants_lookup = shape_intent != "query" and _is_lookup_question(user_input)
+            wants_oracle = shape_intent == "query" and _is_world_truth_question(user_input)
+
+        if wants_lookup:
+            lookup = await self._handle_lookup(question=user_input, universe_id=context.get("universe_id"))
+            if lookup is not None:
+                return lookup
+
+        if wants_oracle:
+            from monitor_agents.oracle import Likelihood, Oracle
+
+            oracle_res = Oracle().resolve_question(
+                question=user_input,
+                likelihood=Likelihood(_parse_likelihood_marker(user_input)),
+                tension_score=tension_score,
+            )
+            return {
+                "scene_id": scene_id,
+                "action_type": "query",
+                "intent_type": "query",
+                "resolution_type": "oracle",
+                "oracle_result": oracle_res,
+                "success": oracle_res["is_yes"],
+                "success_level": oracle_res["outcome"],
+                "narrative_pressure": "increased" if oracle_res["is_exceptional"] else "stable",
+                "proposals": [],
+            }
+        return None
 
     def _execute_roll(
         self,
@@ -1273,6 +1421,7 @@ class Resolver(BaseAgent):
         subsystem_hint: Any,
         roll_necessity: str,
         sc_eval: dict[str, Any] | None = None,
+        intent_type: str | None = None,
     ) -> dict[str, Any]:
         """Roll dice server-side and grade the outcome into a resolution dict.
 
@@ -1289,10 +1438,6 @@ class Resolver(BaseAgent):
         """
         sc_eval = sc_eval or {"cond_modifier": 0, "scenery_modifier": 0, "reasons": []}
 
-        m_type = "d20"
-        if gsr and gsr._sd.core:
-            m_type = gsr._sd.core.get("type", "d20").lower()
-
         explain_parts = []
         if sc_eval.get("cond_modifier", 0) != 0:
             explain_parts.append(f"conditions: {sc_eval['cond_modifier']}")
@@ -1304,33 +1449,33 @@ class Resolver(BaseAgent):
         if explain_parts:
             explain_str = f" [base: {base_modifier}, " + ", ".join(explain_parts) + "]"
 
-        if "dice_pool" in m_type:
+        if gsr and _is_count_successes_pool(gsr._sd.core):
             from monitor_agents.dice import default_dice_registry
 
-            engine = default_dice_registry.get("pool")
-
-            threshold = 6
-            if gsr and gsr._sd.core:
-                threshold_val = gsr._sd.core.get("success_threshold", 6)
-                try:
-                    if isinstance(threshold_val, str):
-                        threshold = int("".join(filter(str.isdigit, threshold_val)) or 6)
-                    else:
-                        threshold = int(threshold_val)
-                except (ValueError, TypeError):
-                    threshold = 6
-
+            core = gsr._sd.core
+            die_sides = _pool_die_sides(core)
+            threshold = _parse_pool_threshold(core.get("success_threshold", 6), die_sides=die_sides)
+            pool_bonus = int(modifier) - int(base_modifier)
             try:
-                pool_size = int(stat_value) + modifier
+                pool_size = int(stat_value) + pool_bonus if stat_value is not None else 1 + pool_bonus
             except (ValueError, TypeError):
                 pool_size = 1
             if pool_size < 1:
                 pool_size = 1
 
-            roll_res = engine.resolve_check(pool_size=pool_size, difficulty=threshold)
-            total = roll_res.successes
+            if die_sides == 10:
+                engine = default_dice_registry.get("pool")
+                roll_res = engine.resolve_check(pool_size=pool_size, difficulty=threshold)
+                total = roll_res.successes
+                botched = roll_res.botches > 0 and total == 0
+                raw_rolls = roll_res.raw_rolls
+            else:
+                pool_res = roll_dice(f"{pool_size}d{die_sides}")
+                total = sum(1 for r in pool_res.rolls if r >= threshold)
+                botched = any(r == 1 for r in pool_res.rolls) and total == 0
+                raw_rolls = pool_res.rolls
 
-            if roll_res.botches > 0 and total == 0:
+            if botched:
                 success_level = "critical_failure"
             elif total >= 1:
                 success_level = "success"
@@ -1339,20 +1484,21 @@ class Resolver(BaseAgent):
 
             mode_label = "normal"
             actual_roll_mode = "normal"
-            roll_formula = f"{pool_size}d10"
-            rolls = roll_res.raw_rolls
-            kept_rolls = roll_res.raw_rolls
+            roll_formula = f"{pool_size}d{die_sides}"
+            rolls = raw_rolls
+            kept_rolls = raw_rolls
 
-            spec = f"{pool_size}d10"
+            spec = f"{pool_size}d{die_sides}"
             roll_breakdown = f"Pool {pool_size} ({rolls}): {total} successes (diff {threshold}){explain_str}"
             roll_reason = f"{stat_name} check (pool {pool_size}, diff {threshold}){explain_str}"
         else:
-            # Select roll formula based on actual_roll_mode
+            roll_under = _uses_roll_under(gsr)
+            # Select roll formula based on actual_roll_mode (roll-under inverts kh/kl)
             if actual_roll_mode == "advantage":
-                roll_formula = "2d20kh1"
+                roll_formula = "2d20kl1" if roll_under else "2d20kh1"
                 mode_label = "advantage"
             elif actual_roll_mode == "disadvantage":
-                roll_formula = "2d20kl1"
+                roll_formula = "2d20kh1" if roll_under else "2d20kl1"
                 mode_label = "disadvantage"
             else:
                 roll_formula = "1d20"
@@ -1364,7 +1510,7 @@ class Resolver(BaseAgent):
             natural = kept_rolls[0] if kept_rolls else (rolls[0] if rolls else roll.total)
             total = roll.total + modifier
 
-            if _uses_roll_under(gsr):
+            if roll_under:
                 target = dc + modifier
                 if natural == 1:
                     success_level = "critical_success"
@@ -1388,11 +1534,12 @@ class Resolver(BaseAgent):
                 else:
                     success_level = "failure"
 
-            spec = f"1d20+{modifier}" if modifier >= 0 else f"1d20{modifier}"
-            if actual_roll_mode != "normal":
+            if roll_under:
+                spec = roll_formula
+            else:
                 spec = f"{roll_formula}+{modifier}" if modifier >= 0 else f"{roll_formula}{modifier}"
 
-            if _uses_roll_under(gsr):
+            if roll_under:
                 target = dc + modifier
                 roll_breakdown = f"{roll_formula}({natural}) <= {dc} + {modifier} = {target}{explain_str}"
                 roll_reason = f"{stat_name} check (target {target}, roll-under, {mode_label}){explain_str}"
@@ -1413,7 +1560,7 @@ class Resolver(BaseAgent):
         else:
             effects.append("fiction_advances")
 
-        intent_type = _infer_intent_type(user_input or "", action_type)
+        intent_type = intent_type or _infer_intent_type(user_input or "", action_type)
         consequence_options = _build_consequence_options(
             intent_type if intent_type != "action" else action_type, success_level
         )
@@ -1566,14 +1713,10 @@ class Resolver(BaseAgent):
 
             threshold = 6
             if gsr and gsr._sd.core:
-                threshold_val = gsr._sd.core.get("success_threshold", 6)
-                try:
-                    if isinstance(threshold_val, str):
-                        threshold = int("".join(filter(str.isdigit, threshold_val)) or 6)
-                    else:
-                        threshold = int(threshold_val)
-                except (ValueError, TypeError):
-                    threshold = 6
+                threshold = _parse_pool_threshold(
+                    gsr._sd.core.get("success_threshold", 6),
+                    die_sides=_pool_die_sides(gsr._sd.core),
+                )
 
             engine = default_dice_registry.get("pool")
             # Resources aren't in the resolver signature today, so we
@@ -1657,21 +1800,54 @@ class Resolver(BaseAgent):
         if gsr:
             known_abbrs = {abbr.upper() for abbr in gsr._attr_by_abbr}
 
-        for entity in context.get("entities", []):
+        def from_entity(entity: Any) -> dict[str, int]:
             props = entity.get("properties", {}) if isinstance(entity, dict) else {}
-            if isinstance(props, dict):
-                # Nested attributes dict (common in D&D-style schemas)
-                attributes = props.get("attributes")
-                if isinstance(attributes, dict) and attributes:
-                    return {k: int(v) for k, v in attributes.items() if isinstance(v, (int, float))}
-                # Flat stat keys matched against the active system's abbreviations
-                if known_abbrs:
-                    matched = {
-                        k: int(v) for k, v in props.items() if k.upper() in known_abbrs and isinstance(v, (int, float))
-                    }
-                    if matched:
-                        return matched
+            if not isinstance(props, dict):
+                return {}
+            # Nested attributes dict (common in D&D-style schemas)
+            attributes = props.get("attributes")
+            if isinstance(attributes, dict) and attributes:
+                return {k: int(v) for k, v in attributes.items() if isinstance(v, (int, float))}
+            # Flat stat keys matched against the active system's abbreviations
+            return {k: int(v) for k, v in props.items() if k.upper() in known_abbrs and isinstance(v, (int, float))}
+
+        entities = context.get("entities", [])
+        raw_actor = context.get("actor")
+        actor: dict[str, Any] = raw_actor if isinstance(raw_actor, dict) else {}
+        actor_id = context.get("actor_id") or actor.get("id")
+        if actor_id:
+            # A known actor rolls with its own sheet, or none: never an NPC's.
+            sheet = actor.get("attributes") or actor.get("stats")
+            if isinstance(sheet, dict) and sheet:
+                return {k: int(v) for k, v in sheet.items() if isinstance(v, (int, float))}
+            return next((from_entity(e) for e in entities if str(e.get("id")) == str(actor_id)), {})
+
+        for entity in entities:
+            matched = from_entity(entity)
+            if matched:
+                return matched
         return {}
+
+    def _actor_stat(
+        self,
+        context: dict[str, Any],
+        gsr: GameSystemRuntime | None,
+        stat_name: str,
+    ) -> tuple[int | None, int]:
+        """Return the actor's value for a stat and its modifier.
+
+        A stat the sheet doesn't have is neutral (no value, modifier 0). Treating
+        it as a score of 0 gave every roll on an empty sheet a large penalty.
+        """
+        attr_def = gsr._attr_by_abbr.get(stat_name.upper(), {}) if gsr else {}
+        value = _lookup_stat(
+            self._extract_attributes(context, gsr),
+            [stat_name, str(attr_def.get("name") or ""), str(attr_def.get("abbreviation") or "")],
+        )
+        if value is None:
+            return None, 0
+        modifier = gsr.calc_modifier(stat_name, value) if gsr else calculate_modifier(value, _DEFAULT_MODIFIER_FORMULA)
+        return value, modifier
 
     async def resolve_check(
         self,
@@ -1812,21 +1988,17 @@ class Resolver(BaseAgent):
                 success = total >= dc
                 details = f"Rolled {formula} ({base_roll.rolls}) + Mod {modifier} = {total} (DC {dc})"
 
-            elif "dice_pool" in m_type:
+            elif _is_count_successes_pool(core_mechanic):
                 # Sub-plan 4: route pool-vs-difficulty games through
                 # the VtM V20 dice engine. Provides hunger dice,
                 # willpower reroll, and bestial-failure detection.
                 from monitor_agents.dice import default_dice_registry
 
                 pool_size = stat_value
-                threshold_val = core_mechanic.get("success_threshold", 6)
-                try:
-                    if isinstance(threshold_val, str):
-                        threshold = int("".join(filter(str.isdigit, threshold_val)) or 6)
-                    else:
-                        threshold = int(threshold_val)
-                except (ValueError, TypeError):
-                    threshold = 6
+                threshold = _parse_pool_threshold(
+                    core_mechanic.get("success_threshold", 6),
+                    die_sides=_pool_die_sides(core_mechanic),
+                )
                 engine = default_dice_registry.get("pool")
                 dice_res = engine.resolve_check(
                     pool_size=pool_size,

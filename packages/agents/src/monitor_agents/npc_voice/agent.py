@@ -119,6 +119,8 @@ class NPCVoice(BaseAgent):
         include_cross_incarnation: bool = False,
         lorebook_context: list[str] | None = None,
         player_persona: str = "",
+        character_card: str = "",
+        parse_directives: bool = False,
     ) -> dict[str, Any]:
         """
         Generate a direct in-character NPC response.
@@ -142,6 +144,9 @@ class NPCVoice(BaseAgent):
                 Injected into the voice module as world facts.
             player_persona: Rendered "name — description" of the player's
                 persona card, when one is bound to the conversation.
+            character_card: Rendered card text for a character imported from a
+                card. Separate from the profile's gm_notes, which stay hidden
+                because a story NPC's notes hold real secrets.
 
         Returns:
             {
@@ -166,8 +171,16 @@ class NPCVoice(BaseAgent):
             include_cross_incarnation=include_cross_incarnation,
         )
 
-        # 3. Build trigger context (only non-hidden ones at surface level)
+        # 3. Evaluate behavioral triggers against player input
         active_triggers = self._evaluate_triggers(profile.get("triggers", []), player_said)
+        prompt_triggers = [
+            {
+                "condition": t.get("condition", ""),
+                "reaction": t.get("reaction", ""),
+                "intensity": t.get("intensity", 0.7),
+            }
+            for t in active_triggers
+        ]
 
         # 4. Run DSPy direct voice module (LIGHT model)
         history_text = self._format_history(conversation_history or [])
@@ -177,7 +190,9 @@ class NPCVoice(BaseAgent):
             npc_role=npc_data["role"],
             npc_facts=npc_data.get("facts", []),
         )
-        prediction = self._direct_module(
+        # DSPy calls are synchronous; on the event loop one would stall the whole backend.
+        prediction = await asyncio.to_thread(
+            self._direct_module,
             npc_name=npc_data["name"],
             npc_role=npc_data["role"],
             personality_summary=self._format_personality(profile, relationship_snapshot_before),
@@ -186,16 +201,24 @@ class NPCVoice(BaseAgent):
             ),
             relevant_memories=json.dumps(memories[:5], default=str),
             known_facts=json.dumps(npc_data.get("facts", [])[:8], default=str),
-            active_triggers=json.dumps(active_triggers, default=str),
+            active_triggers=json.dumps(prompt_triggers, default=str),
             conversation_history=history_text,
             profile_context=profile_context,
             lorebook_context="\n".join(lorebook_context or []),
+            character_card=character_card,
             player_said=player_said,
             player_persona=player_persona,
         )
 
         # 5. Extract structured fields from prediction
         npc_response = prediction.npc_response
+        # Lorebook directives are commands, not speech: take them out before the
+        # reply is saved, remembered or shown.
+        directives: list[Any] = []
+        if parse_directives and isinstance(npc_response, str):
+            from monitor_agents.lorebook_directives import parse_output_directives
+
+            npc_response, directives = parse_output_directives(npc_response)
         emotional_state_after = prediction.emotional_state_after
         relationship_delta = prediction.relationship_delta
         relationship_snapshot_after = self._build_relationship_snapshot(
@@ -272,6 +295,7 @@ class NPCVoice(BaseAgent):
             "social_read": social_read,
             "relationship_snapshot": relationship_snapshot_after,
             "proposals": proposals,
+            "lorebook_directives": directives,
         }
 
     # ------------------------------------------------------------------
@@ -318,7 +342,8 @@ class NPCVoice(BaseAgent):
             npc_role=npc_data["role"],
             npc_facts=npc_data.get("facts", []),
         )
-        prediction = self._actor_module(
+        prediction = await asyncio.to_thread(
+            self._actor_module,
             npc_name=npc_data["name"],
             full_profile=json.dumps(profile, default=str),
             story_context=story_context,
@@ -372,10 +397,6 @@ class NPCVoice(BaseAgent):
         if not include_secrets:
             profile.pop("secrets", None)
             profile.pop("gm_notes", None)
-
-        # Mask hidden triggers (is_hidden=True) for DIRECT mode
-        if not include_secrets and "triggers" in profile:
-            profile["triggers"] = [t for t in profile["triggers"] if not t.get("is_hidden", True)]
 
         facts = facts_result if isinstance(facts_result, list) else []
 
@@ -587,15 +608,15 @@ class NPCVoice(BaseAgent):
 
         if parsed:
             axis, delta = parsed
-            magnitude = abs(delta)
             if axis in {"trust", "confidence", "respect"}:
                 snapshot["trust"] = self._clamp_social_value(snapshot.get("trust", 0.0) + delta)
                 deltas["trust"] = round(delta, 3)
             elif axis in {"hostility", "anger", "resentment", "suspicion", "distrust"}:
-                snapshot["trust"] = self._clamp_social_value(snapshot.get("trust", 0.0) - magnitude)
-                snapshot["affinity"] = self._clamp_social_value(snapshot.get("affinity", 0.0) - (magnitude * 0.5))
-                snapshot["fear"] = self._clamp_social_value(snapshot.get("fear", 0.0) + (magnitude * 0.25))
-                deltas["trust"] = round(-magnitude, 3)
+                # These axes run opposite to trust, so a negative delta is hostility easing.
+                snapshot["trust"] = self._clamp_social_value(snapshot.get("trust", 0.0) - delta)
+                snapshot["affinity"] = self._clamp_social_value(snapshot.get("affinity", 0.0) - (delta * 0.5))
+                snapshot["fear"] = self._clamp_social_value(snapshot.get("fear", 0.0) + (delta * 0.25))
+                deltas["trust"] = round(-delta, 3)
             elif axis in {"affinity", "friendship", "warmth", "admiration", "loyalty"}:
                 snapshot["affinity"] = self._clamp_social_value(snapshot.get("affinity", 0.0) + delta)
                 deltas["affinity"] = round(delta, 3)
@@ -769,7 +790,8 @@ class NPCVoice(BaseAgent):
             )
             trust_after = relationship_snapshot.get("trust", 0.0)
             affinity_after = relationship_snapshot.get("affinity", 0.0)
-            if axis in {"hostility", "anger", "resentment", "suspicion", "distrust"} or trust_after <= -0.2:
+            rising_hostility = axis in {"hostility", "anger", "resentment", "suspicion", "distrust"} and delta > 0
+            if rising_hostility or trust_after <= -0.2:
                 rel_type = "HOSTILE_TO"
             elif axis in {"trust", "respect", "affinity", "admiration", "loyalty"} and (
                 trust_after >= 0.35 or affinity_after >= 0.3

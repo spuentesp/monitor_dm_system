@@ -33,9 +33,10 @@ export function DiceRollPrompt({
   /** Default tap-to-roll: ask the SERVER to roll authoritatively. When
    *  provided, the primary button rolls server-side (no client Math.random). */
   onServerRoll?: (spec: string, reason: string) => void;
-  /** Per-session roll model. "manual" hides the tap button and leads with
-   *  hand entry; "tap" (default) leads with the server roll. ("gm" never
-   *  reaches this prompt — the server auto-rolls.) */
+  /** Per-session roll model. "manual" shows only hand entry; "tap" (default)
+   *  shows only the server roll, because the server rejects typed results
+   *  outside manual mode. ("gm" never reaches this prompt — the server
+   *  auto-rolls.) */
   rollModel?: "tap" | "manual" | "gm";
 }) {
   const manualOnly = rollModel === "manual";
@@ -121,27 +122,29 @@ export function DiceRollPrompt({
               {spinning ? "Rolling…" : `Roll ${request.spec}`}
             </button>
           )}
-          <span className="text-slate-600 text-xs">
-            {manualOnly ? "enter your roll" : "or enter manually"}
-          </span>
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              min={1}
-              value={manualValue}
-              onChange={(e) => setManualValue(e.target.value)}
-              placeholder="0"
-              className="w-16 input-cyber text-xs py-1 px-2 text-center"
-              onKeyDown={(e) => e.key === "Enter" && handleManual()}
-            />
-            <button
-              onClick={handleManual}
-              disabled={!manualValue}
-              className="btn-ghost text-xs px-2 py-1"
-            >
-              Use
-            </button>
-          </div>
+          {manualOnly && (
+            <>
+              <span className="text-slate-600 text-xs">enter your roll</span>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min={1}
+                  value={manualValue}
+                  onChange={(e) => setManualValue(e.target.value)}
+                  placeholder="0"
+                  className="w-16 input-cyber text-xs py-1 px-2 text-center"
+                  onKeyDown={(e) => e.key === "Enter" && handleManual()}
+                />
+                <button
+                  onClick={handleManual}
+                  disabled={!manualValue}
+                  className="btn-ghost text-xs px-2 py-1"
+                >
+                  Use
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </motion.div>

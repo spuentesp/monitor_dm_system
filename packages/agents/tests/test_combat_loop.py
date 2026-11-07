@@ -598,3 +598,101 @@ class TestCombatLoopFull:
 
         assert result["combat_active"] is True
         assert len(result.get("combat_log", [])) >= 2
+        assert "Combat action resolved." in result.get("narrative_text", "")
+
+    @pytest.mark.asyncio
+    async def test_large_npc_group_never_leaves_active_combat_without_pc_turn(self):
+        """Regression for >=21 NPC combatants: _advance_npc_turns must scale with
+        initiative_order and never return active-and-not-awaiting (which previously
+        froze _run_combat in a non-awaiting while loop)."""
+        from monitor_agents.loops import combat_loop as cl
+
+        (CombatLoop, _, CombatantState, *_) = _import_combat_loop()
+
+        async def _noop(state):
+            return {"narrative_text": "npc swing"}
+
+        pc = CombatantState(
+            entity_id=uuid4(),
+            name="Hero",
+            initiative=0,
+            is_pc=True,
+            hp_current=20,
+            hp_max=20,
+        )
+        npcs = [
+            CombatantState(
+                entity_id=uuid4(),
+                name=f"Raider-{i}",
+                initiative=0,
+                is_pc=False,
+                hp_current=10,
+                hp_max=10,
+            )
+            for i in range(35)
+        ]
+
+        with (
+            patch.object(cl, "resolve_combat_action", _noop),
+            patch.object(cl, "narrate_combat", _noop),
+        ):
+            loop = CombatLoop(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                combatants=[pc, *npcs],
+            )
+            await loop.start()
+            result = await loop.step("I strike")
+
+        assert not (result["combat_active"] and not result["awaiting_pc_input"])
+
+    @pytest.mark.asyncio
+    async def test_run_combat_filters_locations_and_objects_and_computes_negative_hp_delta(self):
+        from monitor_agents.loops import combat_loop as cl
+        from monitor_agents.loops import scene_loop as sl
+
+        pc_id = str(uuid4())
+        loc_id = str(uuid4())
+        obj_id = str(uuid4())
+        orc_id = str(uuid4())
+
+        # Only locations + objects alongside PC -> combat must be skipped.
+        only_scenery = [
+            {"id": pc_id, "name": "Hero", "properties": {"role": "PC"}},
+            {"id": loc_id, "name": "Docking Bay", "entity_type": "location", "properties": {}},
+            {"id": obj_id, "name": "Cargo Crate", "entity_type": "object", "properties": {}},
+        ]
+        assert await sl._run_combat(uuid4(), uuid4(), "I attack", only_scenery, {}, {}) is None
+
+        # Add a real character enemy alongside scenery -> only Hero + Raider enter combat.
+        captured_names: list[str] = []
+        orig_init = cl.CombatLoop.__init__
+
+        def _spy_init(self, *args, **kwargs):
+            captured_names.extend(c.name for c in kwargs["combatants"])
+            orig_init(self, *args, **kwargs)
+
+        async def _noop(state):
+            return {"narrative_text": "clashed"}
+
+        entities = [
+            *only_scenery,
+            {"id": orc_id, "name": "Raider", "entity_type": "character", "properties": {"hp": 8}},
+        ]
+        with (
+            patch.object(cl.CombatLoop, "__init__", _spy_init),
+            patch.object(cl, "resolve_combat_action", _noop),
+            patch.object(cl, "narrate_combat", _noop),
+        ):
+            out = await sl._run_combat(uuid4(), uuid4(), "I attack", entities, {}, {})
+
+        assert out is not None
+        assert captured_names == ["Hero", "Raider"]
+
+        # PC without explicit hp property starts at default 10 and ends at 7 -> delta must be -3, not +7.
+        deltas = sl._extract_combat_resource_deltas(
+            {"combatants": [{"entity_id": pc_id, "is_pc": True, "hp_current": 7}]},
+            [{"id": pc_id, "properties": {}}],
+        )
+        assert len(deltas) == 1
+        assert deltas[0]["delta"] == -3

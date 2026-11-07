@@ -5,10 +5,10 @@ Imported cards increasingly rely on self-managing lorebooks: the model emits
 and the runtime toggles the matching lorebook entries instead of showing the
 directive to the player.
 
-This module parses those directives out of narrator output and applies them
-(``is_active`` flips) against the entries of the conversation's lorebook
-characters. Everything here is best-effort: a directive failure must never
-break a turn.
+This module parses those directives out of narrator output and turns them into
+per-conversation overrides of the entries' active flag. Nothing is written to
+the lorebook, so one conversation can't change another's. Everything here is
+best-effort: a directive failure must never break a turn.
 
 LAYER: 2 (agents)
 """
@@ -66,14 +66,16 @@ async def apply_lorebook_directives(
     agent: Any,
     character_ids: list[str],
     directives: list[LorebookDirective],
-) -> int:
-    """Apply parsed directives via MCP lorebook tools. Returns applied count.
+    overrides: dict[str, bool],
+) -> dict[str, bool]:
+    """Return the conversation's entry overrides with these directives applied.
 
     Entries are matched by ``comment`` (the ST "name" field), case-insensitive,
-    across all given characters. Unknown names are skipped silently — models
-    hallucinate directive targets often enough that this must not be loud.
+    across all given characters, inactive entries included. Unknown names are
+    skipped silently — models hallucinate directive targets often enough that
+    this must not be loud.
     """
-    applied = 0
+    updated = dict(overrides)
     for directive in directives:
         target = directive.entry_name.casefold()
         if not target:
@@ -81,7 +83,9 @@ async def apply_lorebook_directives(
         try:
             matched_id: str | None = None
             for cid in character_ids:
-                entries = await agent.call_tool("mongodb_get_lorebook_entries", {"character_id": cid})
+                entries = await agent.call_tool(
+                    "mongodb_get_lorebook_entries", {"character_id": cid, "include_inactive": True}
+                )
                 for entry in entries or []:
                     comment = str(entry.get("comment") or "").strip()
                     if comment and comment.casefold() == target:
@@ -97,14 +101,7 @@ async def apply_lorebook_directives(
                 )
                 continue
 
-            await agent.call_tool(
-                "mongodb_update_lorebook_entry",
-                {
-                    "entry_id": matched_id,
-                    "updates": {"is_active": directive.verb == "activate"},
-                },
-            )
-            applied += 1
+            updated[matched_id] = directive.verb == "activate"
             logger.info(
                 "lorebook_directive_applied",
                 verb=directive.verb,
@@ -117,4 +114,4 @@ async def apply_lorebook_directives(
                 entry_name=directive.entry_name,
                 exc_info=True,
             )
-    return applied
+    return updated
