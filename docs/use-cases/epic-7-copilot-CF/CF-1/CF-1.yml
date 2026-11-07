@@ -12,7 +12,7 @@ summary: |
   Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
 
 acceptance_criteria:
-  - "TBD"
+  - "GM can create a recording and log text entries that produce story-scoped draft proposals (text input only; audio/hybrid explicitly out of scope)"
 
 depends_on: []
 blocks: []
