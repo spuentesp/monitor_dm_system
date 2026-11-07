@@ -236,6 +236,73 @@ async def _persona_seed(session: dict[str, Any]) -> list[dict[str, str]] | None:
         return None
 
 
+async def _draft_template_backstory(doc: dict[str, Any]) -> str:
+    """Draft a backstory paragraph from a template's beats (G-6 Phase 3).
+
+    The beats are the author's material; this only turns them into prose.
+    If the model is unavailable the beats are returned verbatim — a bullet
+    list is still better than an empty backstory.
+    """
+    beats = [str(b).strip() for b in (doc.get("backstory_beats") or []) if str(b).strip()]
+    if not beats:
+        return ""
+    concept = str(doc.get("concept") or "").strip()
+    personality = str(doc.get("personality") or "").strip()
+    drafted = ""
+    try:
+        from monitor_agents.character_creator.character_creation import TemplateBackstoryModule
+
+        drafted = await asyncio.to_thread(
+            TemplateBackstoryModule().forward,
+            concept=concept,
+            beats="\n".join(f"- {beat}" for beat in beats),
+            personality=personality,
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: a failed draft degrades to the raw beats, never a failed session (in _draft_template_backstory)
+        log.warning("preplay.template_backstory_draft_failed", error=str(exc))
+    if drafted:
+        return drafted
+    return "\n".join(f"- {beat}" for beat in beats)
+
+
+async def _creation_seed(session: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+    """Build the character-creation seed, letting a template win where it speaks.
+
+    A template is the author's deliberate description of a character; the
+    Session Zero summary is the player's echo of it. Where they overlap, the
+    template is authoritative. Only prose-shaped fields are seeded — the
+    mechanics (attributes, skills, resources) always come from the game system
+    or the player, which is exactly why templates carry none of them.
+    """
+    persona_id = session.get("persona_id")
+    if not persona_id:
+        return summary
+    try:
+        from monitor_data.tools.mongodb_tools import mongodb_get_character
+
+        doc = await asyncio.to_thread(mongodb_get_character, UUID(str(persona_id)))
+    except Exception as exc:  # noqa: BLE001  # reason: a failed lookup degrades to the plain summary, never a failed session (in _creation_seed)
+        log.warning("preplay.template_seed_lookup_failed", error=str(exc))
+        return summary
+    if not doc or not doc.get("is_template"):
+        return summary
+
+    seed = dict(summary)
+    for key, doc_key in (
+        ("character_name", "name"),
+        ("concept", "concept"),
+        ("personality", "personality"),
+        ("voice", "voice"),
+    ):
+        value = doc.get(doc_key)
+        if isinstance(value, str) and value.strip():
+            seed[key] = value.strip()
+    backstory = await _draft_template_backstory(doc)
+    if backstory:
+        seed["backstory"] = backstory
+    return seed
+
+
 async def start_character_interview(
     session_id: str,
     session: dict[str, Any],
@@ -396,7 +463,7 @@ async def handle_character_interview(state: PreplayState) -> dict[str, Any]:
         loop = get_character_creation_loop(
             state.session_id,
             state.system_doc,
-            seed=summary_data,
+            seed=await _creation_seed(session, summary_data),
             session=session,
         )
         if loop is not None:

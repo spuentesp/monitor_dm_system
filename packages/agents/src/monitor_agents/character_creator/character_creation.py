@@ -113,6 +113,44 @@ class SkillSelectionSignature(dspy.Signature):  # type: ignore[misc]
     )
 
 
+class TemplateBackstorySignature(dspy.Signature):  # type: ignore[misc]
+    """Draft a backstory paragraph from a character's template beats."""
+
+    concept = dspy.InputField(desc="The character's one-line concept.")
+    beats = dspy.InputField(desc="The author's backstory beats, one per line.")
+    personality = dspy.InputField(desc="The character's personality notes (may be empty).")
+
+    backstory = dspy.OutputField(
+        desc=(
+            "A short backstory paragraph (3-6 sentences) that weaves the beats into "
+            "prose. Invent nothing that contradicts the beats, and keep every beat's "
+            "meaning intact."
+        )
+    )
+
+
+class TemplateBackstoryModule(dspy.Module):  # type: ignore[misc]
+    """Draft a backstory paragraph from a template's beats (G-6 Phase 3).
+
+    One LIGHT call per session that has a template attached. The beats are the
+    author's deliberate material; this only turns them into prose — it never
+    invents character mechanics.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.draft = dspy.Predict(TemplateBackstorySignature)
+
+    def forward(self, concept: str, beats: str, personality: str = "") -> str:
+        from monitor_data.schemas.llm_config import ModelRole
+
+        from monitor_agents.dspy_runtime import dspy_context_for
+
+        with dspy_context_for("character_creation", ModelRole.LIGHT):
+            result = self.draft(concept=concept, beats=beats, personality=personality)
+        return str(getattr(result, "backstory", "") or "").strip()
+
+
 class AttributeAssignmentModule(dspy.Module):  # type: ignore[misc]
     """Extracts attribute/resource point assignments from free text."""
 

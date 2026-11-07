@@ -538,6 +538,10 @@ class CharacterCreationLoop:
             "resources": self._state.resources,
             "choices": self._state.choices,
             "background": self._state.background,
+            # G-6 Phase 3 — the seeded prose survives into the final character.
+            "backstory": self._state.character_data.get("backstory"),
+            "personality": self._state.character_data.get("personality"),
+            "voice": self._state.character_data.get("voice"),
         }
         try:
             from monitor_agents.game_system import GameSystemRuntime
@@ -718,6 +722,13 @@ def _normalise_initial_seed(seed: dict[str, Any] | None) -> dict[str, Any]:
     if isinstance(backstory, str) and backstory.strip():
         normalised["backstory"] = backstory.strip()
 
+    # G-6 Phase 3 — a template's characterization travels with the seed, so the
+    # finished character keeps the voice the author wrote for it.
+    for key in ("personality", "voice"):
+        value = seed.get(key)
+        if isinstance(value, str) and value.strip():
+            normalised[key] = value.strip()
+
     return normalised
 
 
@@ -753,6 +764,9 @@ def _apply_initial_seed(state: CharacterCreationState, seed: dict[str, Any]) -> 
         character_data["backstory"] = seed["backstory"]
     if seed.get("concept") and not character_data.get("concept"):
         character_data["concept"] = seed["concept"]
+    for key in ("personality", "voice"):
+        if seed.get(key) and not character_data.get(key):
+            character_data[key] = seed[key]
     if character_data:
         updates["character_data"] = character_data
 

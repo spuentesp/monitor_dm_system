@@ -499,10 +499,12 @@ model whose purpose is exactly those bindings. Net-new formalizes proven data.
   mounted at `/api/characters/templates` (list/create/get/update/delete) — a
   thin data-layer-direct wrapper over the tools, following the
   `canon_review.py` precedent.
-- **Still open:** Phase 3 — instantiating a template into a real character
-  per world (drafting a player answer per creation step through the existing
-  `process_input` path). A template is usable as a persona today (Phase 2);
-  what it does not yet do is drive the *mechanics* of character creation.
+### Phase 2 — fields + UI polish
+
+- Add `backstory_beats`/`voice` to `_seed_answers_from_persona` emissions.
+- Extend `CharacterEditor.tsx` with the two fields (cheaper and more correct than a
+  new forge tab — one editor, no duplicated CRUD); SetupPanel persona picker
+  (:102-105) shows voice/beat count + "create new template".
 
 **Status (2026-11-07): Phase 2 implemented — the fields, the editor, the picker.**
 - `CharacterCreate`/`CharacterUpdate` (UI backend) gained `voice` and
@@ -521,13 +523,6 @@ model whose purpose is exactly those bindings. Net-new formalizes proven data.
   selected there seeds Session Zero exactly like a persona does.
 - Tests: 4 seeding cases + 1 picker case.
 
-### Phase 2 — fields + UI polish
-
-- Add `backstory_beats`/`voice` to `_seed_answers_from_persona` emissions.
-- Extend `CharacterEditor.tsx` with the two fields (cheaper and more correct than a
-  new forge tab — one editor, no duplicated CRUD); SetupPanel persona picker
-  (:102-105) shows voice/beat count + "create new template".
-
 ### Phase 3 — system binding (the real instantiation)
 
 After Session Zero synthesis, route through the existing `CharacterCreationLoop`
@@ -539,6 +534,34 @@ concept/personality/beats, fed through the same `process_input` path — reuses
 hardcoding. Persist with `source_persona_id` (already wired, `chat_loops.py:396-398`)
 + optionally a `versions[]` entry (`character_storage.py:163-209`). Phase 3 is
 independent of Phases 1-2 — the bridge infra is already live; can be prototyped first.
+
+**Status (2026-11-07): Phase 3 implemented — the template drives the prose,
+the system keeps the mechanics.**
+- `TemplateBackstorySignature`/`TemplateBackstoryModule` (LIGHT role,
+  `character_creator/character_creation.py`): one call turns a template's
+  backstory beats into a prose paragraph for the character sheet. If the model
+  is unavailable the beats are used verbatim — a bullet list beats an empty
+  backstory.
+- `_creation_seed()` (preplay orchestrator): when the session carries a
+  template, the template's name/concept/personality/voice/backstory are
+  merged into the character-creation seed and **win** over the Session Zero
+  summary. The template is the author's deliberate description; the summary
+  is the player's echo of it.
+- The seed now carries `personality` and `voice` through
+  `_normalise_initial_seed` → `_apply_initial_seed` → `character_data` →
+  the final character, so the characterization the author wrote survives
+  instantiation. (The seeded backstory used to be dropped at the final-build
+  step — it is now included.)
+- **Scope, deliberately:** only prose-shaped fields are seeded. Attributes,
+  skills, resources and every other mechanical value still come from the game
+  system or the player — which is precisely why templates carry no stats. The
+  plan's original "draft a player answer per creation step" was implemented
+  more narrowly: the existing seed handoff already carries the prose, and
+  auto-answering mechanical steps would let a template override the system
+  the player chose to play in.
+- Tests: 7 (template-wins merge, plain-persona no-op, no-persona no-op, the
+  draft fallback, seed normalisation, seed application, final-character
+  carry-through).
 
 ---
 

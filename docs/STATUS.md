@@ -258,9 +258,12 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    shipped 2026-11-07**: personas carry the same `voice`/`backstory_beats`
    fields, Session Zero seeds from them (plus a template's `concept`), the
    CharacterEditor edits them, and the setup picker offers templates with
-   their voice and beat count plus a "New character template" flow. Still
-   open: Phase 3 (per-world instantiation — drafting a player answer per
-   creation step, so a template drives the mechanics, not just the prose).
+   their voice and beat count plus a "New character template" flow. **Phase 3
+   shipped 2026-11-07**: a template now drives the character creation seed
+   (name/concept/personality/voice/backstory — the template wins over the
+   Session Zero summary) and its beats are drafted into a prose backstory.
+   Only prose is seeded — mechanics always come from the game system or the
+   player, which is why templates carry no stats.
    (`EntityTemplate` is NPC-generation only and stays separate.)
 6. **Autonomous PC (PC-Agent)** — no implementation. (The P-21 ID was reused for
    downtime/progression, which shipped.)
