@@ -14,12 +14,12 @@ layer: 0
 
 | Gate | State |
 |------|-------|
-| Unit/integration suite | ~5,900 tests, hermetic (no keys/network), ~5 min — `uv run pytest packages tests -q` |
+| Unit/integration suite | 8,361 passed + 226 skipped by design, hermetic (no keys/network), ~17 min — `uv run pytest packages tests -q` (measured 2026-11-06) |
 | E2E (full stack) | 147 tests incl. three mode walkthroughs — `RUN_E2E=1 RUN_INTEGRATION=1 uv run pytest tests/e2e -q --timeout=300` |
 | Lint / format | `uv run ruff check packages` / `uv run ruff format packages` |
-| Types | `uv run mypy packages/*/src --cache-dir /tmp/mypy-cache` (strict) |
+| Types | `uv run mypy packages/*/src --cache-dir /tmp/mypy-cache` (strict) — **16 pre-existing errors remain** in data-layer/agents (dice, analyzer, ingestion, knowledge_packs); none in the UI backend |
 | Layer boundaries | `python scripts/check_layer_dependencies.py` |
-| Mutation testing | **Removed** — cosmic-ray hangs on the async stack; claims formally dropped (T-017) |
+| Mutation testing | **Active again** — per-module cosmic-ray configs (`cosmic-ray-*.toml`), PR-scoped zero-survivor gate (`.github/workflows/mutation-diff.yml` → `scripts/mutation_diff.py`), sealed-suite guard. The 2026-07-23 "removed" note is superseded (2026-10) |
 | Live LLM-vs-LLM playtests | `scripts/live_llm_gm_vs_player_test.py`; transcripts in `docs/testing/live_gm_vs_player/` |
 
 ## Live smoke
@@ -29,6 +29,18 @@ Live multi-world verification 2026-07-23: three 9-turn LLM-GM-vs-LLM-player sess
 (Fallout 2d20, VtM V20, Death in Space) against the real chat API — 0 errors; transcripts
 in `docs/testing/live_gm_vs_player/`. Server-authoritative tap-to-roll and
 auto-roll-and-weave live-verified the same day.
+
+**GM Assistant (Co-Pilot) verified 2026-11-06** — API-level pass against the
+live stack (backend + Mongo/Neo4j/Qdrant + a live chat provider), 11/11 steps:
+create a `gm_assistant` recording → log an entry → per-entry insights
+(participants `["Mira"]`, location `the sunken chapel`, one candidate fact) →
+live contradiction check (no alert — this universe carries no contradicting
+canon) → wrap-up digest → persisted recap (`persisted: true`) → archive flag
+round-trip → archived flag visible in `GET /api/chat` → server dice `2d6+3` →
+scratchpad note persisted → universe bound system resolved. Browser rendering
+of the recorder UI (Active/Archived optgroups, Archive button, scratchpad
+ingest hint) is covered by vitest, not by this pass. Transcript:
+`docs/testing/live_gm_assistant_phase_a_2026-11-06.md`.
 
 ## Shipped (verified 2026-07-23)
 
