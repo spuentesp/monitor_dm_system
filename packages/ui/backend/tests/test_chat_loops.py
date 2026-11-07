@@ -24,7 +24,8 @@ from monitor_ui.routers.chat_loops import (
     _CONVERSATION_LOOPS,
 )
 import sys
-import importlib
+
+
 @pytest.fixture(autouse=True)
 def reset_caches():
     _SCENE_LOOPS.clear()
@@ -475,8 +476,8 @@ async def test_run_end_scene_branches():
     sessions = {"s1": session}
     
     # Test branch where loop_instance is None
-    _SCENE_LOOPS["s1"] = (("sig",), None)
-    
+    _SCENE_LOOPS["s1"] = (("sig",), AsyncMock())
+
     with patch("monitor_ui.routers.chat_loops.StoryLoop") as MockSL:
         mock_sl = AsyncMock()
         mock_sl.complete_current_scene.return_value = {"current_scene_id": None, "story_complete": False}
@@ -520,41 +521,77 @@ def test_cache_popping_exceptions():
 
 
 def test_import_errors():
-    # Save the original modules
-    original_modules = dict(sys.modules)
-    
-    # Block monitor_agents entirely to force ImportError in all try blocks
-    with patch.dict('sys.modules', {
-        'monitor_agents': None,
-        'monitor_agents.llm_errors': None,
-        'monitor_agents.loops': None,
-        'monitor_agents.loops.scene_loop': None,
-        'monitor_agents.loops.world_building_loop': None,
-        'monitor_agents.loops.character_creation_loop': None,
-        'monitor_agents.loops.session_zero_loop': None,
-        'monitor_agents.loops.conversation_loop': None,
-        'monitor_agents.recap.agent': None,
-        'monitor_data.tools.mongodb_tools': None,
-        'monitor_ui.routers.character_resolution': None,
-        'monitor_agents.utils.db_readers': None
-    }):
-        import monitor_ui.routers.chat_loops
-        importlib.reload(monitor_ui.routers.chat_loops)
-        
-        assert getattr(monitor_ui.routers.chat_loops, '_AGENTS_AVAILABLE', True) is False
-        assert not monitor_ui.routers.chat_loops._WORLD_ARCHITECT_AVAILABLE
-        assert not monitor_ui.routers.chat_loops._CHAR_CREATION_AVAILABLE
-        assert not monitor_ui.routers.chat_loops._SESSION_ZERO_AVAILABLE
-        assert not monitor_ui.routers.chat_loops._CONVERSATION_AVAILABLE
-        assert not monitor_ui.routers.chat_loops._RECAP_AVAILABLE
-        assert not monitor_ui.routers.chat_loops._BOOTSTRAP_AVAILABLE
-        assert not monitor_ui.routers.chat_loops._CHARACTER_RESOLUTION_AVAILABLE
-        assert not monitor_ui.routers.chat_loops._DB_READERS_AVAILABLE
-        
-    # Restore and reload
-    sys.modules.update(original_modules)
-    import monitor_ui.routers.chat_loops
-    importlib.reload(monitor_ui.routers.chat_loops)
+    """Import-failure paths must leave flags false; run in a subprocess so the
+    module reload does not poison the main pytest process for later tests.
+    """
+    import json as _json
+    import subprocess as _subprocess
+
+    from pathlib import Path
+
+    blocked = [
+        "monitor_agents",
+        "monitor_agents.llm_errors",
+        "monitor_agents.loops",
+        "monitor_agents.loops.scene_loop",
+        "monitor_agents.loops.world_building_loop",
+        "monitor_agents.loops.character_creation_loop",
+        "monitor_agents.loops.session_zero_loop",
+        "monitor_agents.loops.conversation_loop",
+        "monitor_agents.recap.agent",
+        "monitor_data.tools.mongodb_tools",
+        "monitor_ui.routers.character_resolution",
+        "monitor_agents.utils.db_readers",
+    ]
+
+    backend_src = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
+
+    script = (
+        "import importlib, json, sys\n"
+        "from pathlib import Path\n"
+        "from unittest.mock import patch\n\n"
+        f"_backend_src = Path({str(backend_src)!r}).resolve()\n"
+        "sys.path.insert(0, str(_backend_src))\n\n"
+        f"blocked = {blocked!r}\n"
+        "original = dict(sys.modules)\n"
+        "try:\n"
+        "    with patch.dict('sys.modules', {k: None for k in blocked}):\n"
+        "        import monitor_ui.routers.chat_loops\n"
+        "        importlib.reload(monitor_ui.routers.chat_loops)\n"
+        "        result = {\n"
+        "            '_AGENTS_AVAILABLE': getattr(monitor_ui.routers.chat_loops, '_AGENTS_AVAILABLE', True),\n"
+        "            '_WORLD_ARCHITECT_AVAILABLE': getattr(monitor_ui.routers.chat_loops, '_WORLD_ARCHITECT_AVAILABLE', True),\n"
+        "            '_CHAR_CREATION_AVAILABLE': getattr(monitor_ui.routers.chat_loops, '_CHAR_CREATION_AVAILABLE', True),\n"
+        "            '_SESSION_ZERO_AVAILABLE': getattr(monitor_ui.routers.chat_loops, '_SESSION_ZERO_AVAILABLE', True),\n"
+        "            '_CONVERSATION_AVAILABLE': getattr(monitor_ui.routers.chat_loops, '_CONVERSATION_AVAILABLE', True),\n"
+        "            '_RECAP_AVAILABLE': getattr(monitor_ui.routers.chat_loops, '_RECAP_AVAILABLE', True),\n"
+        "            '_BOOTSTRAP_AVAILABLE': getattr(monitor_ui.routers.chat_loops, '_BOOTSTRAP_AVAILABLE', True),\n"
+        "            '_CHARACTER_RESOLUTION_AVAILABLE': getattr(monitor_ui.routers.chat_loops, '_CHARACTER_RESOLUTION_AVAILABLE', True),\n"
+        "            '_DB_READERS_AVAILABLE': getattr(monitor_ui.routers.chat_loops, '_DB_READERS_AVAILABLE', True),\n"
+        "        }\n"
+        "finally:\n"
+        "    sys.modules.clear()\n"
+        "    sys.modules.update(original)\n"
+        "print(json.dumps(result))\n"
+    )
+
+    completed = _subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert completed.returncode == 0, f"subprocess failed: {completed.stderr}"
+    result = _json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result["_AGENTS_AVAILABLE"] is False
+    assert result["_WORLD_ARCHITECT_AVAILABLE"] is False
+    assert result["_CHAR_CREATION_AVAILABLE"] is False
+    assert result["_SESSION_ZERO_AVAILABLE"] is False
+    assert result["_CONVERSATION_AVAILABLE"] is False
+    assert result["_RECAP_AVAILABLE"] is False
+    assert result["_BOOTSTRAP_AVAILABLE"] is False
+    assert result["_CHARACTER_RESOLUTION_AVAILABLE"] is False
+    assert result["_DB_READERS_AVAILABLE"] is False
 
 @pytest.mark.asyncio
 @patch('monitor_ui.routers.chat_loops._AGENTS_AVAILABLE', True)
@@ -566,8 +603,8 @@ async def test_run_end_scene_story_complete_branch():
     session = {'scene_id': scene_id, 'story_id': story_id, 'universe_id': universe_id}
     sessions = {'s1': session}
     
-    _SCENE_LOOPS['s1'] = (('sig',), None)
-    
+    _SCENE_LOOPS['s1'] = (('sig',), AsyncMock())
+
     with patch('monitor_ui.routers.chat_loops.StoryLoop') as MockSL:
         mock_sl = AsyncMock()
         mock_sl.complete_current_scene.return_value = {'current_scene_id': str(uuid.uuid4()), 'story_complete': True}
