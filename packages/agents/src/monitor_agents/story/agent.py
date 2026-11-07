@@ -82,20 +82,19 @@ class StoryAgent(BaseAgent):
         """
         scenes_done = state.scenes_completed
         tension = state.tension_score
-        budget = max(3, state.scene_budget)
+        budget = state.scene_budget
 
-        if scenes_done <= budget - 3:
-            label = "rising_action"
-            tension = min(0.9, tension + 0.15 * scenes_done)
-        elif scenes_done == budget - 2:
-            label = "climax"
-            tension = min(1.0, tension + 0.1)
-        elif scenes_done == budget - 1:
-            label = "falling_action"
-            tension = max(0.3, tension - 0.25)
-        else:
-            label = "resolution"
-            tension = max(0.1, tension - 0.2)
+        # The arc runs through four phases. The budget decides how many
+        # scenes the rising action takes; the last three are the climax, the
+        # falling action and the resolution.
+        phase = min(max(scenes_done - (budget - 3), 0), 3)
+        label = ("rising_action", "climax", "falling_action", "resolution")[phase]
+        tension = (
+            min(0.9, tension + 0.15 * scenes_done),
+            min(1.0, tension + 0.1),
+            max(0.3, tension - 0.25),
+            max(0.1, tension - 0.2),
+        )[phase]
 
         # Suggest next scene type based on arc phase
         next_type = {
@@ -106,18 +105,20 @@ class StoryAgent(BaseAgent):
             "new_thread": "revelation",
         }.get(label, "action")
 
-        # Threads open with the story and are paid off at the climax, so the
-        # resolution arrives with nothing left open.
+        # Threads open with the story and are paid off at the climax; they
+        # stay paid off after it, so the resolution arrives with nothing
+        # left open.
         active_threads = list(state.active_threads)
         completed_threads = list(state.completed_threads)
         if not active_threads and scenes_done <= 1:
             active_threads = ["central_conflict", "character_motivation"]
-        if label == "climax":
+        if phase >= 1:
             completed_threads = completed_threads + active_threads
             active_threads = []
 
-        # The story is over once the arc resolves and no thread is left open.
-        story_complete = label == "resolution" and not active_threads
+        # The story is over once the arc reaches its resolution and no thread
+        # is left open.
+        story_complete = phase >= 3 and not active_threads
 
         # P-6: Automated Story Outlining - Call DSPy planner
         plan = await self._plan_next_scene(state)

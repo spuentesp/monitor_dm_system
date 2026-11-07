@@ -95,6 +95,86 @@ class TestArcContract:
         assert labels[-1][1] is True
 
     @pytest.mark.asyncio
+    async def test_an_even_budget_puts_each_phase_where_it_belongs(self, arc_planner):
+        labels = await _arc_labels(budget=6)
+
+        assert [label for label, _ in labels] == [
+            "rising_action",
+            "rising_action",
+            "rising_action",
+            "climax",
+            "falling_action",
+            "resolution",
+        ]
+        assert labels[-1][1] is True
+
+    @pytest.mark.asyncio
+    async def test_the_arc_curve_pins_tension_and_phase_boundaries(self, arc_planner):
+        """The whole curve: phase, tension and threads for every scene."""
+        from monitor_agents.story.agent import StoryAgent
+
+        agent = StoryAgent(agent_id="arc-curve")
+        state = story_loop.StoryState(story_id=uuid4(), universe_id=uuid4(), scene_budget=5, tension_score=0.3)
+
+        seen = []
+        for _ in range(5):
+            state = state.model_copy(update={"scenes_completed": state.scenes_completed + 1})
+            update = await agent.evaluate_arc(state)
+            state = state.model_copy(update=update)
+            seen.append(
+                (
+                    update["arc_label"],
+                    update["tension_score"],
+                    list(update["active_threads"]),
+                    list(update["completed_threads"]),
+                )
+            )
+
+        assert [(label, threads, done) for label, _, threads, done in seen] == [
+            ("rising_action", ["central_conflict", "character_motivation"], []),
+            ("rising_action", ["central_conflict", "character_motivation"], []),
+            ("climax", [], ["central_conflict", "character_motivation"]),
+            ("falling_action", [], ["central_conflict", "character_motivation"]),
+            ("resolution", [], ["central_conflict", "character_motivation"]),
+        ]
+        assert [tension for _, tension, _, _ in seen] == pytest.approx([0.45, 0.75, 0.85, 0.6, 0.4])
+
+    @pytest.mark.asyncio
+    async def test_tension_never_falls_below_the_floor(self, arc_planner):
+        """A quiet story still keeps its tension inside the arc's range."""
+        from monitor_agents.story.agent import StoryAgent
+
+        agent = StoryAgent(agent_id="arc-floor")
+        state = story_loop.StoryState(
+            story_id=uuid4(),
+            universe_id=uuid4(),
+            scene_budget=3,
+            tension_score=0.1,
+        )
+
+        tensions = []
+        for _ in range(3):
+            state = state.model_copy(update={"scenes_completed": state.scenes_completed + 1})
+            update = await agent.evaluate_arc(state)
+            state = state.model_copy(update=update)
+            tensions.append(update["tension_score"])
+
+        assert tensions == pytest.approx([0.2, 0.3, 0.1])
+
+    @pytest.mark.asyncio
+    async def test_the_story_opens_its_threads_on_its_first_scene(self, arc_planner):
+        """The threads open with the story, not only when no scene has run."""
+        from monitor_agents.story.agent import StoryAgent
+
+        agent = StoryAgent(agent_id="arc-first-scene")
+        state = story_loop.StoryState(story_id=uuid4(), universe_id=uuid4(), scenes_completed=1)
+
+        update = await agent.evaluate_arc(state)
+
+        assert update["active_threads"] == ["central_conflict", "character_motivation"]
+        assert update["completed_threads"] == []
+
+    @pytest.mark.asyncio
     async def test_climax_pays_off_the_plot_threads(self, arc_planner):
         from monitor_agents.story.agent import StoryAgent
 
