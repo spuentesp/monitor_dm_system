@@ -63,6 +63,13 @@ from monitor_data.schemas.change_log import (
     ChangeSubjectType,
     ChangeType,
 )
+from monitor_data.schemas.character_templates import (
+    CharacterTemplateCreate,
+    CharacterTemplateFilter,
+    CharacterTemplateListResponse,
+    CharacterTemplateResponse,
+    CharacterTemplateUpdate,
+)
 from monitor_data.schemas.character_sheets import (
     ApplyXPRequest,
     CharacterSheetCreate,
@@ -575,6 +582,12 @@ __all__ = [
     "SnippetResponse",
     "SnippetFilter",
     "SnippetListResponse",
+    # Character template schemas (G-6)
+    "CharacterTemplateCreate",
+    "CharacterTemplateUpdate",
+    "CharacterTemplateResponse",
+    "CharacterTemplateFilter",
+    "CharacterTemplateListResponse",
     # Character sheet schemas
     "SheetHistoryEntry",
     "CharacterSheetCreate",

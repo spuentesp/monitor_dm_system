@@ -475,6 +475,35 @@ model whose purpose is exactly those bindings. Net-new formalizes proven data.
   raw dicts to the new tools (API shape stable).
 - Tests: FakeMCPClient pattern (`tests/conftest.py:165`).
 
+**Status (2026-11-07): Phase 1 implemented — the data-layer contract.**
+- New `packages/data-layer/src/monitor_data/schemas/character_templates.py`:
+  the Create/Update/Response/Filter/ListResponse quintet with `name, concept,
+  personality, backstory_beats, voice, portrait_url, first_message, gm_notes` —
+  and deliberately **no** stats, skills, universe or game-system binding. That
+  portability invariant is pinned by a test, so a later "just add the stats"
+  convenience cannot creep in unnoticed.
+- New `packages/data-layer/src/monitor_data/tools/mongodb_tools/character_templates.py`:
+  create/get/list/update/delete + `increment_usage`, registered as MCP tools.
+  Storage extends the existing `characters` collection: a template is a
+  character document that additionally carries the template fields and
+  `is_template: true`. One collection keeps a persona already used in OOC chat
+  reachable, and the live character readers keep working. Every query is
+  marker-scoped, and the character list now excludes templates
+  (`character_storage.list_characters`), so a template never shows up as a
+  playable character.
+- No `middleware/auth.py` entry: templates are a user library (Mongo-only), not
+  canon — the same reasoning as the GM notes.
+- Tests: 10 (create/get/list/update/delete/usage + the marker-scoping
+  invariants + the portability invariant).
+- HTTP surface: `packages/ui/backend/src/monitor_ui/routers/character_templates.py`,
+  mounted at `/api/characters/templates` (list/create/get/update/delete) — a
+  thin data-layer-direct wrapper over the tools, following the
+  `canon_review.py` precedent.
+- **Still open:** Phase 2 (`backstory_beats`/`voice` in the persona seeding and
+  the CharacterEditor UI — the picker that surfaces a template's voice and beat
+  count, and the "create new template" affordance) and Phase 3 (instantiation
+  — drafting a player answer per creation step from the template, through the
+  existing `process_input` path). The API exists; no UI calls it yet.
 
 ### Phase 2 — fields + UI polish
 

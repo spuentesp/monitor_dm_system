@@ -102,9 +102,14 @@ def delete_character(character_id: str) -> bool:
 
 
 def list_characters(limit: int = 50, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
-    """List characters sorted by updated_at descending. Returns (docs, total)."""
-    total = _coll().count_documents({})
-    cursor = _coll().find({}).sort("updated_at", -1).skip(offset).limit(limit)
+    """List characters sorted by updated_at descending. Returns (docs, total).
+
+    G-6: character templates share the ``characters`` collection. They are not
+    playable characters, so they are excluded from the list.
+    """
+    query = {"is_template": {"$ne": True}}
+    total = _coll().count_documents(query)
+    cursor = _coll().find(query).sort("updated_at", -1).skip(offset).limit(limit)
     return list(cursor), total
 
 

@@ -1,0 +1,124 @@
+"""Tests for the character-template HTTP surface (G-6 / P&F §6)."""
+
+from __future__ import annotations
+
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+
+from monitor_data.schemas.character_templates import (
+    CharacterTemplateListResponse,
+    CharacterTemplateResponse,
+)
+from monitor_ui.main import app
+
+client = TestClient(app)
+
+BASE = "/api/characters/templates"
+
+
+def _template(**overrides) -> CharacterTemplateResponse:
+    payload = {
+        "template_id": "t-1",
+        "name": "Varys",
+        "concept": "A spymaster who is never where you expect",
+        "personality": "Charming, patient",
+        "backstory_beats": ["Lost a city to a bargain"],
+        "voice": "Speaks in parables",
+        "portrait_url": None,
+        "first_message": "",
+        "gm_notes": "",
+        "usage_count": 0,
+    }
+    payload.update(overrides)
+    return CharacterTemplateResponse(**payload)
+
+
+def test_list_returns_the_template_library() -> None:
+    with patch("monitor_ui.routers.character_templates.mongodb_list_character_templates") as spy:
+        spy.return_value = CharacterTemplateListResponse(templates=[_template()], total=1, limit=50, offset=0)
+        resp = client.get(BASE)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["templates"][0]["name"] == "Varys"
+    assert body["templates"][0]["backstory_beats"] == ["Lost a city to a bargain"]
+
+
+def test_create_returns_201_and_the_template() -> None:
+    with patch("monitor_ui.routers.character_templates.mongodb_create_character_template") as spy:
+        spy.return_value = _template()
+        resp = client.post(
+            BASE,
+            json={
+                "name": "Varys",
+                "concept": "A spymaster",
+                "backstory_beats": ["Lost a city to a bargain"],
+                "voice": "Speaks in parables",
+            },
+        )
+
+    assert resp.status_code == 201
+    assert resp.json()["template_id"] == "t-1"
+    created = spy.call_args[0][0]
+    assert created.name == "Varys"
+    assert created.backstory_beats == ["Lost a city to a bargain"]
+
+
+def test_get_missing_template_is_404() -> None:
+    with patch("monitor_ui.routers.character_templates.mongodb_get_character_template") as spy:
+        spy.return_value = None
+        resp = client.get(f"{BASE}/nope")
+
+    assert resp.status_code == 404
+
+
+def test_update_returns_the_updated_template() -> None:
+    with patch("monitor_ui.routers.character_templates.mongodb_update_character_template") as spy:
+        spy.return_value = _template(voice="Clipped")
+        resp = client.patch(f"{BASE}/t-1", json={"voice": "Clipped"})
+
+    assert resp.status_code == 200
+    assert resp.json()["voice"] == "Clipped"
+
+
+def test_update_missing_template_is_404() -> None:
+    with patch("monitor_ui.routers.character_templates.mongodb_update_character_template") as spy:
+        spy.return_value = None
+        resp = client.patch(f"{BASE}/nope", json={"voice": "Clipped"})
+
+    assert resp.status_code == 404
+
+
+def test_delete_removes_the_template() -> None:
+    with patch("monitor_ui.routers.character_templates.mongodb_delete_character_template") as spy:
+        spy.return_value = True
+        resp = client.delete(f"{BASE}/t-1")
+
+    assert resp.status_code == 204
+
+
+def test_delete_missing_template_is_404() -> None:
+    with patch("monitor_ui.routers.character_templates.mongodb_delete_character_template") as spy:
+        spy.return_value = False
+        resp = client.delete(f"{BASE}/nope")
+
+    assert resp.status_code == 404
+
+
+def test_template_payload_ignores_mechanics() -> None:
+    """P&F §6 invariant, enforced at the API boundary too."""
+    with patch("monitor_ui.routers.character_templates.mongodb_create_character_template") as spy:
+        spy.return_value = _template()
+        resp = client.post(
+            BASE,
+            json={"name": "Varys", "stats": {"Strength": 3}, "game_system_id": "x"},
+        )
+
+    assert resp.status_code == 201
+    created = spy.call_args[0][0]
+    # The extra fields are dropped by the schema — a template never carries
+    # mechanics, whatever the caller sends.
+    assert not hasattr(created, "stats")
+    assert not hasattr(created, "game_system_id")

@@ -248,8 +248,16 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
 4. **Co-Pilot mode polish** — web `/gm` surface exists; CLI `monitor copilot` never
    shipped; end-to-end human-GM workflow unpolished. Full plan:
    `docs/architecture/GM_ASSISTANT_MODE_PLAN.md`.
-5. **Portable character templates (P&F §6)** — no `CharacterTemplate` schema or
-   per-world instantiation. (`EntityTemplate` is NPC-generation only.)
+5. **Portable character templates (P&F §6)** — **Phase 1 shipped 2026-11-07**
+   (data-layer contract): a `CharacterTemplate` schema (name, concept,
+   personality, backstory beats, voice, portrait, first message, GM notes —
+   explicitly no stats/skills/world binding) plus create/get/list/update/
+   delete/usage tools registered as MCP tools, stored in the existing
+   `characters` collection with an `is_template` marker and excluded from the
+   character list; HTTP surface at `/api/characters/templates`. Still open: Phase 2 (persona seeding + CharacterEditor
+   fields + the template picker) and Phase 3 (per-world instantiation —
+   drafting a player answer per creation step).
+   (`EntityTemplate` is NPC-generation only and stays separate.)
 6. **Autonomous PC (PC-Agent)** — no implementation. (The P-21 ID was reused for
    downtime/progression, which shipped.)
 8. **Ingestion residuals (partial — [G-8 (a)+(b)+(c)+(d)+(e)] shipped 2026-07-23)** —
