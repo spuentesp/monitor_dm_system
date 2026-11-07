@@ -176,6 +176,7 @@ class IngestionStatus(StrEnum):
     FAILED_NON_RETRYABLE = "failed_non_retryable"
     BLOCKED_PROVIDER = "blocked_provider"
     BACKING_OFF = "backing_off"
+    PAUSED = "paused"  # Stopped safely, and can resume, e.g. a book decomposition out of quota.
     CANCELLED = "cancelled"
     KILLED = "killed"
     FLAGGED_DUPLICATE = "flagged_duplicate"

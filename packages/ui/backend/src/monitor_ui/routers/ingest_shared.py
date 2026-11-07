@@ -284,6 +284,7 @@ def _job_to_dict(job: Any) -> dict:  # type: ignore
         "retried_batches": job.retried_batches,
         "total_attempts": job.total_attempts,
         "failed_sections": [dict(s) for s in job.failed_sections],
+        "decomposition": job.decomposition.model_dump(mode="json") if job.decomposition else None,
         "current_provider": job.current_provider,
         "current_model": job.current_model,
         "last_error": last_error,

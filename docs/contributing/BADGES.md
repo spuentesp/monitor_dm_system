@@ -1,6 +1,6 @@
 # Badge Setup
 
-This document covers the two badges that require one-time external setup.
+This document covers the badge that requires one-time external setup.
 
 ---
 
@@ -15,55 +15,11 @@ Codecov is free for public repos.
 
 ---
 
-## 2. Mutation score badge (dynamic, via Gist)
-
-The `Mutation Tests` workflow runs cosmic-ray across **10 modules** in parallel
-(matrix strategy), then aggregates all kill rates into a single percentage that
-gets written to a public GitHub Gist as a shields.io endpoint JSON. This gives
-a live badge without needing any third-party service.
-
-Modules covered: `canonkeeper`, `resolver`, `npc_voice`, `scene_loop`,
-`story_loop`, `resource_engine`, `world_architect`, `plot_hooks`,
-`delta_detection`, `contradiction_detection`.
-
-### One-time setup
-
-1. **Create a public Gist** at <https://gist.github.com> with a file named `mutation-score.json` containing:
-   ```json
-   { "schemaVersion": 1, "label": "mutation score", "message": "pending", "color": "lightgrey" }
-   ```
-   Note the Gist ID from the URL (the alphanumeric string after `gist.github.com/spuentesp/`).
-
-2. **Create a fine-grained PAT** at GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens.
-   - Scopes needed: **Gists** (read + write).
-   - No repository access required.
-
-3. **Add two GitHub Actions secrets** (repo → Settings → Secrets and variables → Actions):
-   | Secret name | Value |
-   |---|---|
-   | `GIST_TOKEN` | The PAT from step 2 |
-   | `MUTATION_GIST_ID` | The Gist ID from step 1 |
-
-4. **Uncomment the badge line** in `README.md`:
-   ```markdown
-   [![Mutation Score](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/spuentesp/YOUR_GIST_ID/raw/mutation-score.json)](...)
-   ```
-   Replace `YOUR_GIST_ID` with the actual ID.
-
-After the next `Mutation Tests` run (weekly Sunday 3 AM UTC, or trigger manually via workflow_dispatch), the badge will update automatically.
-
----
-
 ## Badge reference
 
 | Badge | Source | Requires setup |
 |---|---|---|
 | CI | GitHub Actions `ci.yml` | No |
-| Nightly Integration | GitHub Actions `nightly-integration.yml` | No |
-| Contract Tests | GitHub Actions `contract-tests.yml` | No |
-| Property Tests | GitHub Actions `property-tests.yml` | No |
-| Behavior Tests | GitHub Actions `behavior-tests.yml` | No |
-| Mutation Tests | GitHub Actions `mutation.yml` | No (run status only) |
+| Weekly Integration | GitHub Actions `nightly-integration.yml` | No |
 | Coverage % | Codecov | Yes — `CODECOV_TOKEN` secret |
-| Mutation score % | shields.io + GitHub Gist | Yes — `GIST_TOKEN` + `MUTATION_GIST_ID` secrets |
 | Python / License / etc. | shields.io static | No |

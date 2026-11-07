@@ -78,6 +78,24 @@ class IngestionStage(StrEnum):
     PROPOSE = "propose"
     CANONIZE = "canonize"
     INDEX = "index"
+    DECOMPOSE = "decompose"  # I-17: runs as its own job, not part of a normal ingest.
+
+
+def _standard_stages() -> list[IngestionStage]:
+    """A normal ingest's stages. Decomposition runs as a separate job."""
+    return [stage for stage in IngestionStage if stage != IngestionStage.DECOMPOSE]
+
+
+class DecompositionProgress(BaseModel):
+    """Where a book decomposition job stands (I-17)."""
+
+    sentences_total: int = Field(0, ge=0)
+    sentences_done: int = Field(0, ge=0)
+    sentences_quarantined: int = Field(0, ge=0)
+    claims_kept: int = Field(0, ge=0)
+    claims_held_back: int = Field(0, ge=0)
+    claims_for_review: int = Field(0, ge=0, description="Claims review sent to a person; not in the pack")
+    pause_reason: str | None = None
 
 
 # =============================================================================
@@ -94,7 +112,7 @@ class IngestionJobCreate(BaseModel):
     doc_id: UUID = Field(description="References MongoDB documents collection")
     source_title: str = Field(default="", description="Human-readable title stored at creation to avoid Neo4j lookups")
     pipeline_stages: list[IngestionStage] = Field(
-        default_factory=lambda: list(IngestionStage),
+        default_factory=_standard_stages,
         description="Ordered pipeline stages to execute",
     )
     processing_checklist: list[str] = Field(
@@ -138,6 +156,7 @@ class IngestionJobUpdate(BaseModel):
     warnings: list[str] | None = None
     activity_log: list[str] | None = None
     processing_checklist: list[str] | None = None
+    decomposition: DecompositionProgress | None = None
     # Per-section failure list — which sections failed extraction and why.
     # Capped at 200 entries in the analyzer to bound growth on large books.
     failed_sections: list[dict[str, str]] | None = Field(
@@ -193,6 +212,7 @@ class IngestionJobResponse(BaseModel):
     activity_log: list[str] = Field(default_factory=list)
     processing_checklist: list[str] = Field(default_factory=list)
     failed_sections: list[dict[str, str]] = Field(default_factory=list)
+    decomposition: DecompositionProgress | None = None
     # Timing
     started_at: datetime
     completed_at: datetime | None = None

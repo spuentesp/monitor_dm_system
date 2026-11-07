@@ -1,8 +1,8 @@
-name: Nightly Integration
+name: Weekly Integration
 
 on:
   schedule:
-    - cron: "17 4 * * *"
+    - cron: "17 4 * * 1"
   workflow_dispatch:
 
 jobs:

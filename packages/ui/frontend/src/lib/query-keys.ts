@@ -12,6 +12,7 @@ export const FORGE_KEYS = {
   assets: (opts?: { source_id?: string; universe_id?: string; asset_type?: string; limit?: number; offset?: number }) =>
     ["forge-assets", opts] as const,
   proposals: (packId: string) => ["forge-proposals", packId] as const,
+  heldClaims: (jobId: string) => ["forge-held-claims", jobId] as const,
   promptCollections: (params?: { category?: string; system_id?: string; universe_id?: string }) =>
     ["forge-prompt-collections", params ?? {}] as const,
   promptCollection: (id: string) => ["forge-prompt-collection", id] as const,

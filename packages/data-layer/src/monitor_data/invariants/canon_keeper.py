@@ -26,6 +26,8 @@ TLA+ Representation:
 # Tools that ONLY CanonKeeper can call (write operations)
 CANON_KEEPER_WRITE_TOOLS: frozenset[str] = frozenset(
     {
+        "neo4j_merge_book_tree",
+        "neo4j_delete_book_tree",
         # Universe & Multiverse
         "neo4j_create_multiverse",
         "neo4j_update_multiverse",
