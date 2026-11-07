@@ -599,15 +599,15 @@ _DATA_EDGES: list[DataEdgeSpec] = [
 # ---------------------------------------------------------------------------
 
 _CORE_MECHANIC = CoreMechanicSpec(
-    mechanic_type=OntologyMechanicType.D20_UNDER,
+    mechanic_type=OntologyMechanicType.D20_OVER,
     dice_notation="d20",
-    roll_vs="attribute score",
-    success_condition="roll ≤ attribute (lower roll = better outcome)",
-    critical_rule="1 = critical success; 20 = critical failure (fumble)",
+    roll_vs="12 for an ability check; opponent defense rating for an attack",
+    success_condition="d20 + relevant ability ≥ target",
+    critical_rule="Natural 20 on an attack adds one damage die",
     description=(
-        "Roll a d20. If the result is equal to or less than the relevant attribute "
-        "(-3 to +3), the action succeeds. A natural 1 is always critical success. "
-        "A natural 20 is always a fumble."
+        "Roll a d20 and add the relevant ability. An ability check succeeds on "
+        "12 or higher; an attack succeeds against the opponent's defense rating. "
+        "A natural 20 on an attack adds one damage die."
     ),
 )
 
