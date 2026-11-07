@@ -207,6 +207,15 @@ ingest hint) is covered by vitest, not by this pass. Transcript:
 
 ## Not shipped / open gaps (verified 2026-07-23)
 
+**Product boundary (decided 2026-11-07): MONITOR supports narrative and
+narrative-weighted systems only.** Mechanical-system work is rejected, not
+deferred — see the boundary note at the top of
+`docs/architecture/GAP_REMEDIATION_PLAN.md`. In particular the VtM 20th
+re-ingestion is dropped, and the ungrounded legacy "5th Edition" seed is
+therefore **retired rather than relabelled** (no properly-sourced replacement
+is coming). Existing mechanical support in the codebase stays as it is; this
+is a scoping decision about what gets built next, not a teardown.
+
 Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
 
 1. **Session Zero length ([G-1 fully shipped 2026-07-23])** —
@@ -282,7 +291,7 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    `is_builtin` docs) + `$set: hand_authored: True`. Dry-run by default;
    asserts the doc exists, has ≥5 steps, and titles match before
    applying.
-9. **CanonKeeper depth** — **Phases 1 and 2 shipped 2026-11-07** (no
+9. **CanonKeeper depth** — **Phases 1, 2 and 3 shipped 2026-11-07** (no
    behaviour change, no rejections). Phase 1 (measurement only):
    implication-level detection as
    `ImplicationContradictionSignature`/`ImplicationContradictionModule`
@@ -304,6 +313,10 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    default false) — the rules are deterministic but the tag vocabulary reaching
    them is GM/game-system driven, and the rules are near-dormant in the play
    loop, so the rejection path waits for the measured false-positive rate.
+   The deterministic half now has that rate, measured hermetically against a
+   synthetic narrative corpus: **0/12 false positives, 3/3 detections**
+   (`canonkeeper/synthetic_corpus.py`, pinned by a test). The implication
+   half still needs a configured LLM provider.
    `scripts/eval_canonkeeper_depth.py` now reports that rate for both checks
    (implication + deterministic rules) but still needs a populated universe to
    run against. Still open: switching Phase 3 on once measured.

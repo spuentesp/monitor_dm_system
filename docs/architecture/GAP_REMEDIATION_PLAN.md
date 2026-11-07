@@ -11,6 +11,41 @@
 
 ---
 
+## Product boundary (decided 2026-11-07)
+
+**MONITOR supports narrative and narrative-weighted systems only.** Anything
+that bolts a *mechanical* system onto the product is out of scope — not
+deferred, rejected. Concretely, this plan's mechanical-system items are
+dropped rather than scheduled:
+
+- **VtM 20th re-ingestion and Finding 3's "properly-sourced 20th Anniversary"
+  replacement** — rejected. The ungrounded legacy `a227676a…` "5th Edition"
+  seed is therefore **retired, not relabelled**: with no properly-sourced
+  replacement coming, keeping it labelled as a hand-authored reference system
+  would preserve the very content the audit flagged as dangerous (detailed,
+  plausible, and indistinguishable from sourced material).
+- **Mechanical game-system ingestion as a product direction** — no new
+  mechanical systems are ingested, and no work is planned to make mechanical
+  character creation (attributes, skills, disciplines, resource tracks) a
+  first-class product surface.
+- **The false-positive measurement corpus for G-9** — the seeded Fallout/VtM
+  universes are mechanical, so the measurement is hermetic instead
+  (`canonkeeper/synthetic_corpus.py`): a small narrative world with known-good
+  and known-contradicting probes. The deterministic rules now measure
+  **0/12 false positives, 3/3 detections** (pinned by a test); the implication
+  check needs a configured LLM provider to be measured the same way, so the
+  rejection stays **off** until that LLM-side rate is known too.
+
+What this *keeps*: everything narrative — canon consistency and contradiction
+flagging, character templates (portable prose, no stats), the GM Assistant's
+capture/wrap-up loop, story threads and foreshadowing, and narrative-weighted
+systems where mechanics serve the story rather than the other way round.
+
+This is a scoping decision, not a teardown: the existing mechanical support in
+the codebase is left in place.
+
+---
+
 ## G-4 · Narrator hallucination guard (S, do first)
 
 **Gap:** No prompt-level prohibition on inventing character facts. A sparse sheet
@@ -694,6 +729,14 @@ proposals through the transition rules and reports their violation rate — the
 same "every flag on committed material is an FP by construction" logic as the
 implication check. One script, two numbers, both needed before Phase 3 is
 switched on.
+
+Because the seeded universes are mechanical (see the product boundary above),
+the script also has a **hermetic** mode: `--synthetic` replays a hand-written
+narrative corpus (`canonkeeper/synthetic_corpus.py`) instead of a universe.
+The deterministic rules measure **0/12 false positives, 3/3 detections** on
+it (pinned by `packages/agents/tests/test_canonkeeper_synthetic_corpus.py`).
+The implication check is reported but skipped when no LLM provider is
+configured, so the rejection stays off pending that number.
 
 ---
 

@@ -211,9 +211,98 @@ async def _replay_transition_rules(
     return violations
 
 
+# ---------------------------------------------------------------------------
+# Synthetic corpus (hermetic measurement — no universe, no seeded content)
+# ---------------------------------------------------------------------------
+#
+# The corpus lives in the package (`canonkeeper/synthetic_corpus.py`) so the
+# measurement can be pinned by a test; the seeded universes are mechanical and
+# the product boundary (2026-11-07) keeps it that way.
+
+from monitor_agents.canonkeeper.synthetic_corpus import (  # noqa: E402
+    SYNTHETIC_BAD_TRANSITIONS,
+    SYNTHETIC_CANON,
+    SYNTHETIC_CONSISTENT,
+    SYNTHETIC_CONTRADICTING,
+    SYNTHETIC_GOOD_TRANSITIONS,
+    replay_transitions,
+    synthetic_context,
+)
+
+
+async def _replay_implication(
+    context: str,
+    statements: list[str],
+) -> dict[int, dict[str, str]]:
+    """Run the implication module over statements against an explicit context."""
+    from monitor_agents.canonkeeper.verification import ImplicationContradictionModule
+
+    module = ImplicationContradictionModule()
+    flagged: dict[int, dict[str, str]] = {}
+    chunk_size = 15
+    for start in range(0, len(statements), chunk_size):
+        chunk = statements[start : start + chunk_size]
+        numbered = "\n".join(f"{i + 1}. {text}" for i, text in enumerate(chunk))
+        result = await asyncio.to_thread(module.forward, context=context, new_facts=numbered)
+        for one_based_idx, detail in result.items():
+            ci = one_based_idx - 1
+            if 0 <= ci < len(chunk):
+                flagged[ci] = detail
+    return flagged
+
+
+async def _run_synthetic(sample: int) -> int:
+    """Measure both checks against the hermetic narrative corpus."""
+    context = synthetic_context()
+    consistent = list(SYNTHETIC_CONSISTENT)
+    contradicting = list(SYNTHETIC_CONTRADICTING)
+
+    print("Synthetic narrative corpus (hermetic — no universe, no seeded content)")
+    print(f"Canon facts      : {len(SYNTHETIC_CANON)}")
+    print(f"Consistent probes: {len(consistent)}")
+    print(f"Contradicting    : {len(contradicting)}")
+
+    # ── the deterministic rules: no LLM needed ──────────────────────────────
+    good_violations = replay_transitions(SYNTHETIC_GOOD_TRANSITIONS)
+    bad_violations = replay_transitions(SYNTHETIC_BAD_TRANSITIONS)
+    print("\n── deterministic transition rules ──")
+    print(f"  false positives: {len(good_violations)} / {len(SYNTHETIC_GOOD_TRANSITIONS)}")
+    print(f"  detected       : {len(bad_violations)} / {len(SYNTHETIC_BAD_TRANSITIONS)}")
+
+    # ── the implication check: needs a configured LLM provider ─────────────
+    print("\n── implication check (needs a configured LLM provider) ──")
+    try:
+        consistent_flags = await _replay_implication(context, consistent)
+        contradicting_flags = await _replay_implication(context, contradicting)
+    except Exception as exc:  # noqa: BLE001  # reason: an unavailable provider is reported, not fatal (in _run_synthetic)
+        print(f"  could not run the implication check: {exc}")
+        print("  (configure a provider — the LLM registry lives in PostgreSQL)")
+        return 0
+
+    fp_rate = len(consistent_flags) / len(consistent) if consistent else 0.0
+    detection = len(contradicting_flags) / len(contradicting) if contradicting else 0.0
+    print(
+        f"  false positives: {len(consistent_flags)} / {len(consistent)}  (FP rate {fp_rate:.1%})"
+    )
+    print(
+        f"  detected       : {len(contradicting_flags)} / {len(contradicting)}  ({detection:.1%})"
+    )
+    for idx, detail in list(consistent_flags.items())[:sample]:
+        print(f"  FP: {consistent[idx]}")
+        print(f"      {detail.get('explanation', '')}")
+    for idx, detail in list(contradicting_flags.items())[:sample]:
+        print(f"  TP: {contradicting[idx]}")
+        print(f"      {detail.get('explanation', '')}")
+    return 0
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--universe-id", required=True, help="Universe whose canon is the context")
+    parser.add_argument(
+        "--universe-id",
+        default="",
+        help="Universe whose canon is the context (not needed with --synthetic)",
+    )
     parser.add_argument(
         "--status",
         default="committed",
@@ -222,7 +311,22 @@ async def main() -> int:
     parser.add_argument("--limit", type=int, default=100, help="Max candidate statements")
     parser.add_argument("--sample", type=int, default=5, help="How many flagged samples to print")
     parser.add_argument("--json-out", default="", help="Optional path for a JSON report")
+    parser.add_argument(
+        "--synthetic",
+        action="store_true",
+        help=(
+            "Measure against the hermetic narrative corpus instead of a universe. "
+            "Needs no seeded content — only a configured LLM provider for the "
+            "implication check; the deterministic rules run offline."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.synthetic:
+        return await _run_synthetic(args.sample)
+
+    if not args.universe_id:
+        parser.error("--universe-id is required unless --synthetic is used")
 
     try:
         universe_id = UUID(args.universe_id)

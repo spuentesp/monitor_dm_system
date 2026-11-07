@@ -597,14 +597,17 @@ reproduces silent failure with better tooling. Recommended order:
    has something trustworthy to compare against.
 5. **Finding 7** (dedupe MinIO/`documents`) — cheap, mechanical, unblocks a
    clean re-ingestion attempt without redundant noise.
-6. **Re-run real ingestion** against the deduplicated `WtWf-VtM20th.pdf`
-   with fixes 1/2/5 in place; compare the result against both the current
-   "5th Edition" doc and known-correct VtM 20th Anniversary rules.
-7. **Finding 3** (retire or relabel the ungrounded "5th Edition" doc) —
-   decide once step 6's result is in hand.
-8. **Finding 8** (fix/adjust + create tooling) — build once we know, from
-   steps 6/7, exactly what shape of manual correction is actually needed in
-   practice.
+6. ~~**Re-run real ingestion** against the deduplicated `WtWf-VtM20th.pdf`~~
+   — **rejected 2026-11-07** (product boundary: no mechanical systems).
+7. **Finding 3 — decided 2026-11-07: retire the ungrounded "5th Edition" doc.**
+   With step 6 dropped there is no properly-sourced replacement to relabel it
+   into, and keeping it labelled as a hand-authored reference system would
+   preserve exactly the content this audit flagged as dangerous: detailed,
+   plausible, and indistinguishable from sourced material. The doc
+   `a227676a…` is retired instead.
+8. **Finding 8** — moot for the VtM seed under the current boundary; the
+   tooling shape is only needed if another mechanical system is ever
+   ingested, which the boundary excludes.
 
 ## See Also
 
