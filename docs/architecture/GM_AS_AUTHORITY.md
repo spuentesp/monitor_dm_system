@@ -196,7 +196,6 @@ involved.
 - `packages/agents/tests/test_narrator_refines.py` (refinement path)
 - `packages/agents/tests/test_resolver_gm_loop.py` (GM-driven resolver)
 - `scripts/e2e_full_loop.py` (the E2E harness)
-- `scripts/death_in_space_game_system.py` (DiS fixture)
 - `docs/testing/E2E_GM_AUTHORITY_<date>.md` (per-session analysis)
 
 ## Post-refactor call: do we still need a small custom SLM?
