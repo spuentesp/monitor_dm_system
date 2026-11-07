@@ -82,9 +82,10 @@ These change what actually needs to be built:
    from the singleton, just never wire it into new code.
 2. **The `worlds` Postgres table itself is never populated at runtime.**
    `world_upsert` (`postgres.py:954`) is the only method that writes a
-   `worlds` row, and it has **zero callers anywhere** — confirmed in both
-   `packages/ui/backend/.../routers/universes.py` (`create_universe`) and
-   `packages/cli/src/monitor_cli/commands/universe.py`. This is more
+   `worlds` row, and it has **zero callers anywhere** — the two universe
+   creation paths that *should* call it
+   (`packages/ui/backend/.../routers/universes.py` (`create_universe`) and
+   `packages/cli/src/monitor_cli/commands/universe.py`) do not. This is more
    significant than "add an owner_id column": **the first thing phase 1
    must do is wire `world_upsert` into both universe-creation paths for the
    first time.** The backfill script (Phase 7 below) must *create* missing
