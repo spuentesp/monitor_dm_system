@@ -122,3 +122,65 @@ def test_template_payload_ignores_mechanics() -> None:
     # mechanics, whatever the caller sends.
     assert not hasattr(created, "stats")
     assert not hasattr(created, "game_system_id")
+
+
+class _FakeCursor:
+    def __init__(self, docs: list[dict]) -> None:
+        self._docs = docs
+
+    def sort(self, _key: str, _direction: int = 1) -> _FakeCursor:
+        return self
+
+    def skip(self, _count: int) -> _FakeCursor:
+        return self
+
+    def limit(self, _count: int) -> _FakeCursor:
+        return self
+
+    def __iter__(self):
+        return iter(self._docs)
+
+
+class _FakeCharactersCollection:
+    """Enough of the characters collection to exercise the list filter."""
+
+    def __init__(self, docs: list[dict]) -> None:
+        self.docs = docs
+
+    def _matches(self, doc: dict, query: dict) -> bool:
+        for key, condition in query.items():
+            value = doc.get(key)
+            if isinstance(condition, dict) and "$ne" in condition:
+                if value == condition["$ne"]:
+                    return False
+            elif value != condition:
+                return False
+        return True
+
+    def count_documents(self, query: dict) -> int:
+        return sum(1 for d in self.docs if self._matches(d, query))
+
+    def find(self, query: dict) -> _FakeCursor:
+        return _FakeCursor([d for d in self.docs if self._matches(d, query)])
+
+
+def test_character_list_excludes_templates() -> None:
+    """G-6: a template shares the characters collection but is not a character."""
+    from monitor_ui.routers import character_storage
+
+    docs = [
+        {"id": "char-1", "name": "Mira", "updated_at": "2026-11-07T00:00:00Z"},
+        {
+            "id": "tpl-1",
+            "name": "Varys",
+            "is_template": True,
+            "updated_at": "2026-11-07T00:00:00Z",
+        },
+    ]
+    fake = _FakeCharactersCollection(docs)
+
+    with patch.object(character_storage, "_coll", return_value=fake):
+        listed, total = character_storage.list_characters()
+
+    assert total == 1
+    assert [d["id"] for d in listed] == ["char-1"]
