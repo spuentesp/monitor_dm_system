@@ -50,11 +50,11 @@ class TestSessionZeroState:
 
         state = SessionZeroState(
             tone="grim",
-            system_name="Death in Space",
+            system_name="Test Sci-Fi",
             max_questions=5,
         )
         assert state.tone == "grim"
-        assert state.system_name == "Death in Space"
+        assert state.system_name == "Test Sci-Fi"
         assert state.max_questions == 5
 
 
@@ -68,7 +68,7 @@ class TestLoopStart:
     async def test_start_returns_first_question(self):
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
-        loop = SessionZeroLoop(tone="grim", system_name="Death in Space")
+        loop = SessionZeroLoop(tone="grim", system_name="Test Sci-Fi")
         result = await loop.start()
 
         assert result["complete"] is False
@@ -106,7 +106,7 @@ class TestProcessPlayerInput:
     async def test_answer_advances_to_next_question(self):
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
-        loop = SessionZeroLoop(tone="grim", system_name="Death in Space")
+        loop = SessionZeroLoop(tone="grim", system_name="Test Sci-Fi")
         await loop.start()
         result = await loop.process_player_input("I was a miner on Inauro.")
 
@@ -118,7 +118,7 @@ class TestProcessPlayerInput:
     async def test_answer_records_qa_pair(self):
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
-        loop = SessionZeroLoop(tone="grim", system_name="Death in Space")
+        loop = SessionZeroLoop(tone="grim", system_name="Test Sci-Fi")
         await loop.start()
         await loop.process_player_input("I was a miner on Inauro.")
 
@@ -130,7 +130,7 @@ class TestProcessPlayerInput:
     async def test_done_signal_completes_interview(self):
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
-        loop = SessionZeroLoop(tone="grim", system_name="Death in Space")
+        loop = SessionZeroLoop(tone="grim", system_name="Test Sci-Fi")
         await loop.start()
         result = await loop.process_player_input("done")
 
@@ -142,7 +142,7 @@ class TestProcessPlayerInput:
     async def test_skip_signal_completes_interview(self):
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
-        loop = SessionZeroLoop(tone="grim", system_name="Death in Space")
+        loop = SessionZeroLoop(tone="grim", system_name="Test Sci-Fi")
         await loop.start()
         result = await loop.process_player_input("skip")
 
@@ -401,7 +401,7 @@ class TestSummary:
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
         loop = SessionZeroLoop(
-            tone="grim", system_name="Death in Space", max_questions=2
+            tone="grim", system_name="Test Sci-Fi", max_questions=2
         )
         await loop.start()
         await loop.process_player_input("My name is Silas, a chrome scrapper.")
@@ -417,7 +417,7 @@ class TestSummary:
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
         loop = SessionZeroLoop(
-            tone="grim", system_name="Death in Space", max_questions=2
+            tone="grim", system_name="Test Sci-Fi", max_questions=2
         )
         await loop.start()
         await loop.process_player_input("My name is Silas, a chrome scrapper.")

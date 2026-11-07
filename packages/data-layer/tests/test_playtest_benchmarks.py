@@ -12,13 +12,15 @@ def test_playtest_benchmark_catalog_contains_clarification_flows():
     benchmarks = load_playtest_benchmarks()
     ids = {item["benchmark_id"] for item in benchmarks}
 
-    assert "death_in_space_onboarding_probe" in ids
+    # The Death in Space benchmark was removed together with the system —
+    # the platform ships no per-game benchmarks.
+    assert "death_in_space_onboarding_probe" not in ids
     assert "adversarial_llm_rule_probe" in ids
 
-    onboarding = next(item for item in benchmarks if item["benchmark_id"] == "death_in_space_onboarding_probe")
-    assert onboarding["starter_questions"]
-    assert onboarding["adversarial_goals"]
-    assert onboarding["scripted_turn_count"] >= 0 or True  # normalization checked below
+    probing = next(item for item in benchmarks if item["benchmark_id"] == "adversarial_llm_rule_probe")
+    assert probing["starter_questions"]
+    assert probing["adversarial_goals"]
+    assert probing["scripted_turn_count"] >= 0 or True  # normalization checked below
 
 
 @pytest.mark.integration
@@ -33,20 +35,19 @@ def test_resolved_playtest_benchmarks_include_runtime_metadata():
 
 
 @pytest.mark.integration
-def test_system_specific_benchmark_uses_safe_fallback_when_exact_pack_is_missing():
+def test_system_specific_benchmark_resolves_exact_pack_when_seeded():
+    from monitor_data.defaults.playtest_benchmarks import _fallback_candidates
+
     benchmarks = resolve_playtest_benchmarks(include_scripted_turns=False)
-    sample = next(item for item in benchmarks if item["benchmark_id"] == "death_in_space_onboarding_probe")
+    sample = next(item for item in benchmarks if item["benchmark_id"] == "narrative_weighted_derelict")
 
     assert sample["system_available"] is True
-    assert sample["system_match_type"] in {"exact", "fallback"}
-    assert sample["resolved_system_name"] in {
-        "Death in Space",
-        "Narrative Weighted",
-        "Narrative Pure",
-    }
-    if sample["system_match_type"] == "fallback":
-        assert sample["system_fallback_used"] is True
-        assert "benchmark-safe fallback" in str(sample["fallback_reason"])
+    assert sample["system_match_type"] == "exact"
+    assert sample["resolved_system_name"] == "Narrative Weighted"
+
+    # Fallback mapping still guards unseeded (e.g. user-ingested) systems.
+    candidates = _fallback_candidates({"system_name": "Lancer", "play_mode": "dice_game_system"})
+    assert "Narrative Weighted" in candidates
 
 
 class TestPlaytestBenchmarkHelpers:

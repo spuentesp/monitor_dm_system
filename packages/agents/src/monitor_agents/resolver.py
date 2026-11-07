@@ -182,7 +182,14 @@ def _uses_roll_under(gsr: GameSystemRuntime | None) -> bool:
         return False
     core = gsr._sd.core
     text = " ".join(str(core.get(key, "")) for key in ("formula", "success_threshold", "critical_success")).lower()
-    return "roll under" in text or "under or equal" in text or "<=" in text
+    if "roll under" in text or "under or equal" in text or "<=" in text:
+        return True
+    # Structured fields can declare roll-under without prose markers, e.g.
+    # {"type": "d20", "success_type": "roll_under"}. "meet_or_beat",
+    # "count_successes", etc. do not contain "under", so the substring check
+    # is safe within the vocabulary of core_mechanic.success_type values.
+    structured = " ".join(str(core.get(key, "")) for key in ("type", "success_type")).lower()
+    return "roll_under" in structured or "under" in structured
 
 
 def _resolve_base_dc(gsr: GameSystemRuntime | None, fallback_dc: int) -> int:

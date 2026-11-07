@@ -151,3 +151,31 @@ def mongodb_update_scene(scene_id: UUID, params: SceneUpdate) -> SceneResponse:
     from monitor_data.tools.mongodb_tools.scenes import mongodb_update_scene as _fn
 
     return _fn(scene_id, params)
+
+
+def mongodb_revert_scene_turn(scene_id: UUID, gm_turn_id: UUID) -> list[str]:
+    """Remove a turn (and its paired USER turn) from a scene's turns array (sync)."""
+    from monitor_data.tools.mongodb_tools.scenes import mongodb_revert_scene_turn as _fn
+
+    return _fn(scene_id, gm_turn_id)
+
+
+def mongodb_delete_resolution(resolution_id: UUID) -> bool:
+    """Delete a resolution record from MongoDB (sync)."""
+    from monitor_data.tools.mongodb_tools import mongodb_delete_resolution as _fn
+
+    return _fn(resolution_id)
+
+
+def mongodb_delete_memory(memory_id: UUID) -> bool:
+    """Delete a character memory document from MongoDB (sync)."""
+    from monitor_data.tools.mongodb_tools import mongodb_delete_memory as _fn
+
+    return _fn(memory_id)
+
+
+def mongodb_delete_working_state(entity_id: UUID, scene_id: UUID) -> bool:
+    """Delete an entity's working-state document for a scene (sync)."""
+    from monitor_data.tools.mongodb_tools import mongodb_delete_working_state as _fn
+
+    return _fn(entity_id, scene_id)

@@ -331,8 +331,8 @@ CREATE TABLE IF NOT EXISTS llm_node_assignments (
 --     kept for backward compatibility but should be considered deprecated;
 --     use ``spec`` instead.
 CREATE TABLE IF NOT EXISTS game_system_schemas (
-    system_id           TEXT PRIMARY KEY,       -- e.g. "death_in_space", "dnd5e"
-    system_name         TEXT NOT NULL,          -- e.g. "Death in Space"
+    system_id           TEXT PRIMARY KEY,       -- e.g. "dnd_5e", "narrative_weighted"
+    system_name         TEXT NOT NULL,          -- e.g. "D&D 5e"
     version             TEXT NOT NULL DEFAULT '1.0',
     description         TEXT NOT NULL DEFAULT '',
     publisher           TEXT,

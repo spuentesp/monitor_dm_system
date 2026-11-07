@@ -9,8 +9,7 @@ layer: 0
 One script: `scripts/e2e_full_loop.py`. Real character + sheet → real
 story + scene bootstrap → real `SceneLoop` driven by `InstructablePlayer`.
 No FastAPI, no HTTP. The character is synthesized from the scenario's
-`character_spec` + the game-system's attribute defaults (same pattern
-`scripts/test_dis_session.py` uses), persisted via
+`character_spec` + the game-system's attribute defaults, persisted via
 `neo4j_create_entity` + `mongodb_create_character_sheet`.
 
 ## Why this script exists
@@ -131,10 +130,7 @@ export MONITOR_PLAYTEST_MODEL=ollama/qwen2.5:latest
 export RETRIEVAL_EMBEDDING_MODEL=ollama/nomic-embed-text
 
 # Hermetic smoke test (no LLM called — scripted player).
-python scripts/e2e_full_loop.py --mock-llm --system dis --scenario dis_salvage --turns 3
-
-# Live DiS run with real Ollama chat model.
-python scripts/e2e_full_loop.py --system dis --scenario dis_salvage --turns 6
+python scripts/e2e_full_loop.py --mock-llm --system vtm --scenario vtm_primogen --turns 3
 
 # Live VtM run.
 python scripts/e2e_full_loop.py --system vtm --scenario vtm_primogen --turns 6
@@ -145,8 +141,8 @@ Outputs land in `tests/e2e/logs/full_loop/<scenario>_<UTC>.{md,json}`.
 ## CLI flags
 
 ```
---scenario           vtm_primogen | vtm_embrace | dis_salvage | dis_void_whisper
---system            vtm | dis
+--scenario           vtm_primogen | vtm_embrace
+--system            vtm
 --universe-id       <uuid>            # override default (first existing)
 --create-world                       # create fresh Universe instead of pick
 --world-name        <str>            # name for new universe (auto if absent)
@@ -188,7 +184,6 @@ Hermetic suites passing ≠ the loop is healthy. After any change to
 GM pipeline, run **both**:
 
 ```bash
-python scripts/e2e_full_loop.py --system dis --scenario dis_salvage --turns 6
 python scripts/e2e_full_loop.py --system vtm --scenario vtm_primogen --turns 6
 ```
 

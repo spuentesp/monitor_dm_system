@@ -510,3 +510,57 @@ def mongodb_append_turn(scene_id: UUID, params: TurnCreate) -> TurnResponse:
         timestamp=timestamp,
         resolution_ref=params.resolution_ref,
     )
+
+
+def mongodb_revert_scene_turn(scene_id: UUID, gm_turn_id: UUID) -> list[str]:
+    """
+    Remove a turn (and its paired USER turn) from the scene's turns array.
+
+    The Narrator writes each turn as two adjacent entries — the player's USER
+    turn followed by the GM turn (whose ``turn_id`` is what the scene loop
+    stores on state). Scene backtrack needs to undo that pairing: this removes
+    the GM turn referenced by ``gm_turn_id`` and the USER turn sitting directly
+    before it (matched conservatively: only when it is an unlinked USER entry,
+    so no other turn's data is ever touched).
+
+    Authority: SceneLoop backtrack
+    Use Case: /backtrack CLI command
+
+    Args:
+        scene_id: UUID of the scene
+        gm_turn_id: UUID of the GM turn to remove (its paired USER turn is
+            removed too when found adjacent)
+
+    Returns:
+        List of removed ``turn_id`` strings (possibly empty).
+    """
+    mongo_client = get_mongodb_client()
+    scenes_collection = mongo_client.get_collection("scenes")
+
+    scene_doc = scenes_collection.find_one({"scene_id": str(scene_id)})
+    if not scene_doc:
+        return []
+
+    turns = scene_doc.get("turns", []) or []
+    gm_idx = next(
+        (i for i, t in enumerate(turns) if isinstance(t, dict) and t.get("turn_id") == str(gm_turn_id)),
+        None,
+    )
+    if gm_idx is None:
+        return []
+
+    remove_ids = [str(gm_turn_id)]
+    if gm_idx > 0:
+        prev = turns[gm_idx - 1]
+        if (
+            isinstance(prev, dict)
+            and prev.get("speaker") == "user"  # Speaker.USER.value (Narrator pairs)
+            and prev.get("resolution_ref") is None
+        ):
+            remove_ids.append(str(prev.get("turn_id")))
+
+    scenes_collection.update_one(
+        {"scene_id": str(scene_id)},
+        {"$pull": {"turns": {"turn_id": {"$in": remove_ids}}}},
+    )
+    return remove_ids

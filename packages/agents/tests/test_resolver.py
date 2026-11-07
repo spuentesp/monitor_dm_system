@@ -1384,3 +1384,31 @@ class TestLookupQuestionDetection:
         assert not _is_lookup_question("I open the door")
         # Trailing punctuation stripped.
         assert _is_lookup_question("What is the Beast?!")
+
+
+# =============================================================================
+# _uses_roll_under — structured core-mechanic detection (no prose markers)
+# =============================================================================
+
+
+class _FakeRuntime:
+    """Duck-typed stand-in for GameSystemRuntime exposing only _sd.core."""
+
+    def __init__(self, core: dict):
+        from types import SimpleNamespace
+
+        self._sd = SimpleNamespace(core=core)
+
+
+def test_uses_roll_under_detects_structured_success_type():
+    from monitor_agents.resolver import _uses_roll_under
+
+    # No prose markers — detection must rely on type/success_type.
+    assert _uses_roll_under(_FakeRuntime({"type": "d20", "formula": "1d20", "success_type": "roll_under"})) is True
+    assert _uses_roll_under(_FakeRuntime({"type": "d20", "formula": "1d20", "success_type": "under"})) is True
+
+    # meet_or_beat is NOT roll-under.
+    assert _uses_roll_under(_FakeRuntime({"type": "d20", "formula": "1d20 + mod vs DC", "success_type": "meet_or_beat"})) is False
+    assert _uses_roll_under(_FakeRuntime({"type": "d20", "formula": "1d20", "success_type": "count_successes"})) is False
+
+    assert _uses_roll_under(None) is False

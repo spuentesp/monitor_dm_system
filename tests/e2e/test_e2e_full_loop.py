@@ -22,7 +22,6 @@ from monitor_agents.players import (
 )
 
 from scripts.e2e_full_loop_scenarios import (
-    DIS_SCENARIOS,
     SCENARIOS,
     SYSTEM_ID_BY_WORLD,
     VTM_SCENARIOS,
@@ -36,18 +35,12 @@ from scripts.e2e_full_loop_scenarios import (
 
 def test_scenarios_load_and_resolve_system_ids() -> None:
     assert len(VTM_SCENARIOS) >= 2
-    assert len(DIS_SCENARIOS) >= 2
-    for s in VTM_SCENARIOS + DIS_SCENARIOS:
+    for s in VTM_SCENARIOS:
         assert s.name in SCENARIOS
         assert s.world_id in SYSTEM_ID_BY_WORLD
         assert scripted_pairs(s) == [
             (t.player_action, t.intent) for t in s.scripted_opens
         ]
-
-
-def test_dis_salvage_seed_mentions_oxygen() -> None:
-    s = SCENARIOS["dis_salvage"]
-    assert "Ozymandias" in s.seed
 
 
 # ============================================================================

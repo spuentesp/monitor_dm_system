@@ -170,6 +170,13 @@ class SceneState(BaseModel):
     turn_id: UUID | str | None = None
     resolution_id: UUID | str | None = None
 
+    # Durable-revert bookkeeping for backtrack(): ids of the memories the last
+    # persisted turn wrote to MongoDB/Qdrant, and the pre-turn working-state
+    # document (full doc as loaded by load_context). Both live outside the
+    # LangGraph checkpointer, so backtrack needs these to undo them.
+    last_persisted_memory_ids: list[str] = Field(default_factory=list)
+    working_state_snapshot: dict[str, Any] | None = None
+
     # Resolution from Resolver
     resolution: dict[str, Any] | None = None
     # The GMVerdict that produced this resolution — carries the GM's
@@ -375,6 +382,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
 
     # Fetch the character's working state for the ResourceEngine
     working_state_dict = {}
+    working_state_snapshot = None
     if state.actor_id and state.scene_id:
         try:
             from monitor_data.tools.mongodb_tools import mongodb_get_working_state
@@ -386,6 +394,11 @@ async def load_context(state: SceneState) -> dict[str, Any]:
                 # "resources" key, so the engine never found them and emitted no deltas. Pass the
                 # flat resource snapshot directly.
                 working_state_dict = dict(ws_res.state.resources or {})
+                # Full pre-turn document for backtrack(): this runs before
+                # persist_turn_artifacts mutates the doc, so the value captured
+                # here in the checkpointer is exactly what /backtrack must
+                # restore (or delete when it was None — the turn created it).
+                working_state_snapshot = ws_res.state.model_dump(mode="json")
         except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in load_context)
             logger.warning("Failed to load working state for actor %s: %s", state.actor_id, e)
             await RoleplayErrorRecorder.record(
@@ -456,6 +469,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         "game_context": context.get("game_system", {}),
         "source_profile": context.get("source_profile", {}),
         "working_state": working_state_dict,
+        "working_state_snapshot": working_state_snapshot,
         "gm_profile": gm_profile,
         "universe_id": universe_id,
         "temporal_mode": temporal_mode,
@@ -1034,9 +1048,11 @@ async def persist_memories_node(state: SceneState) -> dict[str, Any]:
         logger.debug("Persisted %d memories for actor %s", len(created_ids), state.actor_id)
     except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in persist_memories_node)
         logger.warning("Failed to persist memories: %s", e)
+        return {}
 
-    # Return empty dict — we only write, no state changes
-    return {}
+    # Return the created ids so backtrack() can delete exactly the memories
+    # this turn wrote (MongoDB + Qdrant vectors live outside the checkpointer).
+    return {"last_persisted_memory_ids": [str(mid) for mid in created_ids]}
 
 
 async def complete_current_scene(state: SceneState) -> dict[str, Any]:
@@ -1666,6 +1682,15 @@ class SceneLoop:
         """
         Undo the last turn by reverting to the state before the last user input.
 
+        Reverts BOTH the LangGraph checkpoint state AND the durable
+        MongoDB/Qdrant side effects the undone turn wrote outside the
+        checkpointer:
+          - the turn's entries in ``scenes.turns`` and its ``resolutions`` doc
+          - the ``character_memories`` documents and ``memories`` Qdrant
+            vectors created by the turn
+          - ``character_working_state`` to the pre-turn snapshot (or deleted,
+            when the turn created it)
+
         Returns:
             The restored scene state.
         """
@@ -1674,30 +1699,156 @@ class SceneLoop:
             thread_id = str(self.scene_id)
             config = {"configurable": {"thread_id": thread_id}}
 
-            # Get history
+            # Get history (newest first)
             history = [state async for state in compiled.aget_state_history(config)]  # type: ignore[arg-type]
 
             if len(history) < 2:
                 return {"error": "Cannot backtrack further."}
 
-            # The last state is the current one (after narrate/persist).
-            # We want to go back to the state before 'resolve'.
-            # LangGraph checkpoints after each node.
-            # A turn usually goes: load_context -> resolve -> narrate -> persist.
-            # We want to find the checkpoint where 'user_input' was about to be processed.
+            current_values = dict(history[0].values)
+            current_turns = int(current_values.get("turns_count") or 0)
 
-            # For simplicity, we just revert to the previous checkpoint.
-            # In a loop, that might be 'persist_turn_artifacts' of the PREVIOUS turn.
-            target_state = history[1]  # [0] is current, [1] is previous
+            # Find the terminal checkpoint of the previous completed turn: the
+            # newest checkpoint whose turns_count is strictly lower than the
+            # undone turn's. history[1] is NOT that — it is the checkpoint
+            # after the node right before the terminal one, which still belongs
+            # to the undone turn (e.g. after narrate). Mid-turn checkpoints of
+            # the undone turn carry the same turns_count, so walking for the
+            # first strictly-lower count lands on the previous turn's last node.
+            target = None
+            for snap in history:
+                if int(snap.values.get("turns_count") or 0) < current_turns:
+                    target = snap
+                    break
+            if target is None:
+                return {"error": "Cannot backtrack further."}
+
+            restored_values = dict(target.values)
+
+            # Undo Mongo/Qdrant writes BEFORE rewinding the checkpointer, while
+            # the undone turn's terminal values are still the reference.
+            await _revert_durable_turn_artifacts(self.scene_id, current_values)
 
             # Update state to the previous one
             await compiled.aupdate_state(
                 config,  # type: ignore[arg-type]
-                target_state.values,
-                as_node=target_state.next[0] if target_state.next else None,
+                restored_values,
+                as_node=target.next[0] if target.next else None,
             )
 
-            return target_state.values
+            return restored_values
+
+
+async def _revert_durable_turn_artifacts(
+    scene_id: UUID,
+    current_values: dict[str, Any],
+) -> None:
+    """
+    Undo MongoDB/Qdrant side effects written by the undone turn.
+
+    Called by ``SceneLoop.backtrack`` BEFORE ``aupdate_state`` rewinds the
+    checkpointer, because it needs the undone turn's terminal values to know
+    what to delete. Every operation is best-effort: a failure logs and leaves
+    the artifact in place rather than failing the backtrack itself.
+
+    Reverts:
+      1. the turn's entries in ``scenes.turns`` (GM turn + paired USER turn)
+         and its ``resolutions`` document
+      2. the ``character_memories`` docs + ``memories`` Qdrant vectors whose
+         ids were recorded on state by ``persist_memories_node``
+      3. ``character_working_state`` back to the pre-turn snapshot (or deleted
+         when the snapshot is None — the undone turn created the document)
+    """
+    from monitor_data.schemas.vectors import VectorDeleteRequest
+    from monitor_data.schemas.working_state import WorkingStateUpdate
+    from monitor_data.tools.mongodb_tools import (
+        mongodb_delete_working_state,
+        mongodb_get_working_state,
+        mongodb_update_working_state,
+    )
+    from monitor_data.tools.qdrant_tools import qdrant_delete
+    from monitor_agents.utils.db_readers import (
+        mongodb_delete_memory,
+        mongodb_delete_resolution,
+        mongodb_revert_scene_turn,
+        run_sync_read,
+    )
+
+    # 1a. scenes.turns — pop the GM turn written by narrate + its USER pair.
+    turn_id = current_values.get("turn_id")
+    if turn_id:
+        try:
+            removed: list[str] = await run_sync_read(
+                mongodb_revert_scene_turn,
+                scene_id,
+                coerce_uuid(turn_id, seed=f"monitor://scene/{scene_id}/turn/{turn_id}"),
+            )
+            if removed:
+                logger.info("backtrack: removed turn entries %s from scene %s", removed, scene_id)
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _revert_durable_turn_artifacts)
+            logger.warning("backtrack: failed to remove scene turn %s: %s", turn_id, exc)
+
+    # 1b. resolutions — delete the undone turn's resolution document.
+    resolution_id = current_values.get("resolution_id")
+    if resolution_id:
+        try:
+            await run_sync_read(
+                mongodb_delete_resolution,
+                coerce_uuid(resolution_id, seed=f"monitor://scene/{scene_id}/resolution/{resolution_id}"),
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _revert_durable_turn_artifacts)
+            logger.warning("backtrack: failed to delete resolution %s: %s", resolution_id, exc)
+
+    # 2. memories — MongoDB docs + Qdrant vectors created by persist_memories.
+    for mid in current_values.get("last_persisted_memory_ids", []) or []:
+        try:
+            memory_uuid = mid if isinstance(mid, UUID) else UUID(str(mid))
+        except (ValueError, TypeError, AttributeError):
+            logger.debug("backtrack: skipping unparsable memory id %r", mid)
+            continue
+        try:
+            await run_sync_read(mongodb_delete_memory, memory_uuid)
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _revert_durable_turn_artifacts)
+            logger.warning("backtrack: failed to delete memory %s: %s", memory_uuid, exc)
+        try:
+            await run_sync_read(
+                qdrant_delete,
+                VectorDeleteRequest(collection="memories", id=memory_uuid),
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _revert_durable_turn_artifacts)
+            logger.warning("backtrack: failed to delete memory vector %s: %s", memory_uuid, exc)
+
+    # 3. character_working_state — restore the pre-turn snapshot, or delete the
+    #    document when the undone turn created it (snapshot was None).
+    actor_id = current_values.get("actor_id")
+    snapshot = current_values.get("working_state_snapshot")
+    if actor_id:
+        actor_uuid = coerce_uuid(actor_id, seed=f"monitor://scene/{scene_id}/actor/default")
+        current_doc: Any = None
+        try:
+            current_doc = await run_sync_read(mongodb_get_working_state, actor_uuid, scene_id)
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _revert_durable_turn_artifacts)
+            logger.warning("backtrack: failed to read working state for %s: %s", actor_uuid, exc)
+            current_doc = None
+
+        if not snapshot:
+            if current_doc is not None:
+                try:
+                    await run_sync_read(mongodb_delete_working_state, actor_uuid, scene_id)
+                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _revert_durable_turn_artifacts)
+                    logger.warning("backtrack: failed to delete working state for %s: %s", actor_uuid, exc)
+        elif snapshot.get("state_id"):
+            try:
+                await run_sync_read(
+                    mongodb_update_working_state,
+                    UUID(str(snapshot["state_id"])),
+                    WorkingStateUpdate(
+                        current_stats=snapshot.get("current_stats"),
+                        resources=snapshot.get("resources"),
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _revert_durable_turn_artifacts)
+                logger.warning("backtrack: failed to restore working state for %s: %s", actor_uuid, exc)
 
 
 async def _run_combat(

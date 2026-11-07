@@ -774,3 +774,119 @@ def test_create_scene_invalid_location(
 
     with pytest.raises(ValueError, match=f"Location entity {invalid_location_id} not found"):
         mongodb_create_scene(params)
+
+# =============================================================================
+# TESTS: mongodb_revert_scene_turn (scene backtrack undo)
+# =============================================================================
+
+
+@patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client")
+def test_revert_scene_turn_removes_gm_and_paired_user(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+):
+    """Backtrack removes the GM turn and its immediately preceding USER turn."""
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+
+    scene_id, user_id, gm_id = str(uuid4()), str(uuid4()), str(uuid4())
+    collection.find_one.return_value = {
+        "scene_id": scene_id,
+        "turns": [
+            {"turn_id": str(uuid4()), "speaker": "gm", "text": "earlier turn"},
+            {"turn_id": user_id, "speaker": "user", "text": "I pry the hatch open", "resolution_ref": None},
+            {"turn_id": gm_id, "speaker": "gm", "text": "The hatch groans open.", "resolution_ref": str(uuid4())},
+        ],
+    }
+
+    from monitor_data.tools.mongodb_tools.scenes import mongodb_revert_scene_turn
+
+    removed = mongodb_revert_scene_turn(UUID(scene_id), UUID(gm_id))
+
+    assert set(removed) == {gm_id, user_id}
+    collection.update_one.assert_called_once()
+    pull = collection.update_one.call_args[0][1]["$pull"]
+    assert set(pull["turns"]["turn_id"]["$in"]) == {gm_id, user_id}
+
+
+@patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client")
+def test_revert_scene_turn_without_user_pair_removes_only_gm(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+):
+    """Only the GM turn is removed when no paired USER turn precedes it."""
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+
+    scene_id, gm_id = str(uuid4()), str(uuid4())
+    collection.find_one.return_value = {
+        "scene_id": scene_id,
+        "turns": [
+            {"turn_id": gm_id, "speaker": "gm", "text": "First turn", "resolution_ref": str(uuid4())},
+        ],
+    }
+
+    from monitor_data.tools.mongodb_tools.scenes import mongodb_revert_scene_turn
+
+    removed = mongodb_revert_scene_turn(UUID(scene_id), UUID(gm_id))
+
+    assert removed == [gm_id]
+    pull = collection.update_one.call_args[0][1]["$pull"]
+    assert pull["turns"]["turn_id"]["$in"] == [gm_id]
+
+
+@patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client")
+def test_revert_scene_turn_skips_non_adjacent_user_turn(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+):
+    """A USER turn that is NOT immediately before the GM turn is left alone."""
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+
+    scene_id, gm_id = str(uuid4()), str(uuid4())
+    # GM turn is at index 0; a USER turn follows it — not a pair.
+    collection.find_one.return_value = {
+        "scene_id": scene_id,
+        "turns": [
+            {"turn_id": gm_id, "speaker": "gm", "text": "The airlock hisses.", "resolution_ref": str(uuid4())},
+            {"turn_id": str(uuid4()), "speaker": "user", "text": "I step through", "resolution_ref": None},
+        ],
+    }
+
+    from monitor_data.tools.mongodb_tools.scenes import mongodb_revert_scene_turn
+
+    removed = mongodb_revert_scene_turn(UUID(scene_id), UUID(gm_id))
+
+    assert removed == [gm_id]
+
+
+@patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client")
+def test_revert_scene_turn_not_found_returns_empty(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+):
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+
+    scene_id = str(uuid4())
+    collection.find_one.return_value = {"scene_id": scene_id, "turns": []}
+
+    from monitor_data.tools.mongodb_tools.scenes import mongodb_revert_scene_turn
+
+    assert mongodb_revert_scene_turn(UUID(scene_id), UUID(str(uuid4()))) == []
+    collection.update_one.assert_not_called()
+
+
+@patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client")
+def test_revert_scene_turn_missing_scene_returns_empty(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+):
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+    collection.find_one.return_value = None
+
+    from monitor_data.tools.mongodb_tools.scenes import mongodb_revert_scene_turn
+
+    assert mongodb_revert_scene_turn(UUID(str(uuid4())), UUID(str(uuid4()))) == []

@@ -45,9 +45,6 @@ Usage
 
     # Now factory works for all systems
     CharacterModel = make_entity_model(registry.get("dnd_5e"), "character")
-
-    # Death in Space also works
-    DISModel = make_entity_model(registry.get("death_in_space"), "character")
 """
 
 from __future__ import annotations
@@ -272,7 +269,7 @@ def _detect_core_mechanic_type(
     if "d20" in formula or mechanic_type == "d20":
         if success_type in ("under", "roll_under"):
             return OntologyMechanicType.D20_UNDER
-        if success_type in ("over", "roll_over", "dc"):
+        if success_type in ("over", "roll_over", "dc", "meet_or_beat"):
             return OntologyMechanicType.D20_OVER
     if "2d6" in formula or mechanic_type == "2d6":
         return OntologyMechanicType.DICE_POOL
@@ -674,8 +671,6 @@ def builtin_to_game_system_spec(
             tags = ["narrative", "pbta", "2d6"]
         elif "vampire" in name_lower or "masquerade" in name_lower:
             tags = ["horror", "personal-horror", "vampire", "world-of-darkness"]
-        elif "death in space" in name_lower:
-            tags = ["sci-fi", "space", "mork-borg"]
         elif "narrative" in name_lower:
             tags = ["narrative", "fiction-first"]
         else:
@@ -708,9 +703,8 @@ def load_all_builtin_specs(
     """
     Load all entries from builtin_systems.json and convert to GameSystemSpec list.
 
-    Returns a list of all 7 specs (including Death in Space, even though it
-    already has a hand-written spec — the JSON entry is used as the canonical
-    source so both representations are equivalent).
+    Returns a list of specs — one per entry in the seed file. The JSON entry is
+    the canonical source for every seeded system.
 
     Raises
     ------

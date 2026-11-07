@@ -734,8 +734,8 @@ class CharacterSheetExtractionSignature(dspy.Signature):  # type: ignore[misc]
       "Social Attributes", "Mental Attributes", "Talents", "Skills", "Knowledges"
       are HEADINGS that group real attributes/skills — they are NOT attributes or
       skills themselves.
-    - If the system has NO formal skill list (e.g. Death in Space uses only
-      raw ability checks), output: SKILL | NONE
+    - If the system has NO formal skill list (attribute-only systems resolve
+      with raw ability checks), output: SKILL | NONE
     - BACKGROUNDS (e.g. Allies, Contacts, Mentor, Retainers, Generation, Fame,
       Herd, Status) are a SEPARATE category — output them as BACKGROUND lines,
       NOT as RESOURCE or ATTR lines.
@@ -744,12 +744,12 @@ class CharacterSheetExtractionSignature(dspy.Signature):  # type: ignore[misc]
     - Set min/max/default to the ACTUAL values from the source text.
     - Dice pool systems (VtM, 7th Sea, etc.): attributes are typically 1-5 (start ~2).
     - d20 systems (D&D, Fallout): attributes are typically 1-20 (start 10).
-    - Small-modifier systems (Death in Space): attributes can be -3 to +3 (start 0).
+    - Small-modifier d20 systems: attributes can be -3 to +3 (start 0).
     - 2d20 systems (Fallout 2d20): SPECIAL attributes are 4-12 (start 5).
     - Do NOT default to 1-20 for every system.
 
     *** SUCCESS TYPES ***
-    - meet_or_beat: roll ≥ target number (D&D, Death in Space, Fallout 2d20)
+    - meet_or_beat: roll ≥ target number (D&D, Fallout 2d20)
     - count_successes: roll a pool, count dice ≥ threshold (VtM, WoD, Shadowrun)
     - highest_wins: build sets of 10 from your pool, count Raises (7th Sea 2e)
 
@@ -818,7 +818,7 @@ class CharacterSheetExtractionSignature(dspy.Signature):  # type: ignore[misc]
       SUBSYSTEM | Ship Combat | ship | Separate ship-to-ship combat rules and crew roles
       MECHANIC | dice_pool | roll Trait + Skill d10s, build sets that sum to 10 (Raises) | highest_wins
 
-    Examples (small-modifier d20 — Death in Space):
+    Examples (small-modifier d20 system):
       ATTR | Body | BDY | -3 | 3 | 0 |
       ATTR | Dexterity | DEX | -3 | 3 | 0 |
       ATTR | Savvy | SVY | -3 | 3 | 0 |
@@ -845,7 +845,7 @@ class CharacterSheetExtractionSignature(dspy.Signature):  # type: ignore[misc]
             "Focus on character creation, ability scores, skills, powers, glossary/index references, and mechanical summaries."
         )
     )
-    system_name: str = dspy.InputField(desc="Confirmed game system name (e.g. 'Death in Space', 'D&D 5e')")
+    system_name: str = dspy.InputField(desc="Confirmed game system name (e.g. 'D&D 5e', 'Call of Cthulhu')")
     source_profile_context: str = dspy.InputField(
         desc="Optional high-confidence source profile hints, especially taxonomy containers and unusual system vocabulary."
     )
@@ -955,7 +955,7 @@ class CreationProcedureExtractionSignature(dspy.Signature):  # type: ignore[misc
         )
     )
     system_name: str = dspy.InputField(
-        desc="Confirmed game system name (e.g. 'Death in Space', 'Vampire: The Masquerade')"
+        desc="Confirmed game system name (e.g. 'D&D 5e', 'Vampire: The Masquerade')"
     )
     source_profile_context: str = dspy.InputField(
         desc="Optional high-confidence profile hints about the source's vocabulary, taxonomy containers, and subsystem boundaries."
@@ -1013,7 +1013,7 @@ class NPCExtractionSignature(dspy.Signature):  # type: ignore[misc]
         NPC | Street Thug | minion | 7 | 3 | Knife:2;Pistol:4 | Tough | p.352
         NPC | Archon | elite | 10 | 6 | Sword:5;Celerity Strike:8 | Celerity 3;Auspex 2 | p.413
 
-    Death in Space (enemies are simple, few stats):
+    Sci-fi systems (enemies are simple, few stats):
         NPC | Void Cultist | standard | 4 | 12 | Improvised Weapon:1d6 | Void-touched | p.78
         NPC | Gravity Biodrone | elite | 8 | 14 | Claw:1d8;Acid Spit:1d10 | Regeneration 1 | p.82
 
@@ -1255,7 +1255,7 @@ class RelationshipInferenceSignature(dspy.Signature):  # type: ignore[misc]
       - "The Chosen" SUBTYPE_OF "Playbook" (MotW: playbook is character type)
       - "Act Under Pressure" SUBTYPE_OF "Basic Move" (PbtA: move category)
       - "IPS-N" SUBTYPE_OF "Manufacturer" (Lancer: corporation)
-      - "Tenebris" LOCATED_IN_PLACE "The Iron Ring" (Death in Space: sector)
+      - "Sector 9" LOCATED_IN_PLACE "The Belt" (sci-fi: sector)
       - "Aldana Style" SUBTYPE_OF "Dueling School" (7th Sea: swordplay school)
     """
 
@@ -1415,16 +1415,16 @@ class BatchedExtractionSignature(dspy.Signature):  # type: ignore[misc]
           concept    + sub_type=talent       (Lancer: Ace, Hacker, Leader — pilot talents)
           concept    + sub_type=license      (Lancer: IPS-N Blackbeard, SSC Mourning Cloak — frame licenses)
           concept    + sub_type=advantage    (7th Sea: Duelist Academy, Sorcery — character advantages)
-          concept    + sub_type=trait        (Death in Space: Void corruption effects)
+          concept    + sub_type=trait        (sci-fi horror: void corruption effects)
           object     + sub_type=frame        (Lancer: Everest, Blackbeard — mech chassis)
-          object     + sub_type=ship         (Death in Space: spacecraft types)
+          object     + sub_type=ship         (sci-fi: spacecraft types)
           location   + sub_type=plane        (D&D: Underdark, Astral Sea — planar regions)
-          location   + sub_type=sector       (Death in Space: The Iron Ring, Tenebris — space regions)
+          location   + sub_type=sector       (sci-fi: space regions)
           location   + sub_type=city         (Any: Waterdeep, Chicago, Theah — named settlements)
           faction    + sub_type=sect         (VtM: Camarilla, Sabbat — mega-factions)
           faction    + sub_type=corp         (Lancer: IPS-N, SSC, HORUS — mech manufacturers)
           organization + sub_type=guild      (Any: Thieves' Guild, Merchant's Guild)
-          organization + sub_type=crew       (Death in Space: player crew types)
+          organization + sub_type=crew       (sci-fi: player crew types)
         If no meaningful sub-classification applies, write "none".
 
       traits: Comma-separated key:value pairs capturing the 2-5 most defining attributes.

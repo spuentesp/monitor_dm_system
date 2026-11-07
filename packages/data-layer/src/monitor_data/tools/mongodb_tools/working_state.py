@@ -143,6 +143,26 @@ def mongodb_update_working_state(state_id: UUID, params: WorkingStateUpdate) -> 
     return _convert_working_state_doc_to_response(result)
 
 
+def mongodb_delete_working_state(entity_id: UUID, scene_id: UUID) -> bool:
+    """Delete the working-state document for an entity in a scene.
+
+    Used by SceneLoop backtrack when the undone turn *created* the working
+    state — reverting to "no document" instead of leaving the turn's
+    mutations behind.
+
+    Authority: SceneLoop backtrack
+    Use Case: /backtrack CLI command
+
+    Returns:
+        True if a document was deleted, False if none existed.
+    """
+    mongodb = get_mongodb_client()
+    state_collection = mongodb.get_collection("character_working_state")
+
+    result = state_collection.delete_one({"entity_id": str(entity_id), "scene_id": str(scene_id)})
+    return result.deleted_count > 0
+
+
 def mongodb_add_modification(params: AddStatModification) -> WorkingStateResponse:
     """Log a stat modification."""
     mongodb = get_mongodb_client()

@@ -74,60 +74,14 @@ VTM_SCENARIOS: list[Scenario] = [
 ]
 
 
-DIS_SCENARIOS: list[Scenario] = [
-    Scenario(
-        name="dis_salvage",
-        world_id="dis-demo",
-        seed=(
-            "Aboard the dead mining frigate *Ozymandias*. The player is a "
-            "desperate scrapper in a deteriorating suit, oxygen ticking down, "
-            "with a glowing fusion battery to extract."
-        ),
-        character_concept="Rook, a Chrome scrapper on the Ozymandias",
-        scripted_opens=[
-            ScenarioTurn(
-                "I mute my comms and unholster my rivet gun. I kick off the bulkhead toward the battery.",
-                "navigate zero-G",
-            ),
-            ScenarioTurn(
-                "My magnetic boot clips debris. I spin, slam into a bulkhead. My suit integrity alarm starts blaring.",
-                "react to failure",
-            ),
-        ],
-        character_spec={
-            "name": "Rook 'Rust' Vane",
-            "concept": "A hard-luck salvager and void-scarred mechanic.",
-        },
-    ),
-    Scenario(
-        name="dis_void_whisper",
-        world_id="dis-demo",
-        seed=(
-            "The player's comms crackle. Someone is whispering from outside "
-            "the airlock, but there is no one outside the airlock."
-        ),
-        character_concept="Echo, a Savvy salvager who listens before touching",
-        scripted_opens=[
-            ScenarioTurn(
-                "I press my helmet against the airlock and listen.",
-                "tune in",
-            ),
-        ],
-        character_spec={"name": "Echo", "concept": "Savvy salvager"},
-    ),
-]
-
-
-SCENARIOS: dict[str, Scenario] = {s.name: s for s in VTM_SCENARIOS + DIS_SCENARIOS}
+SCENARIOS: dict[str, Scenario] = {s.name: s for s in VTM_SCENARIOS}
 
 
 # Seeded game-system IDs — verified by memory entry 2026-07-21.
 V5_SYSTEM_ID = "a227676a-edab-4a43-80d9-8f76b74ff289"
-DIS_SYSTEM_ID = "04dba354-5211-44a2-8bdd-20fae64c016f"
 
 SYSTEM_ID_BY_WORLD: dict[str, str] = {
     "vtm-demo": V5_SYSTEM_ID,
-    "dis-demo": DIS_SYSTEM_ID,
 }
 
 

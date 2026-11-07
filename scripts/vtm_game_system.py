@@ -3,7 +3,7 @@
 Define + seed a Vampire: The Masquerade game system into the `game_systems`
 collection, and expose VTM_GAME_CONTEXT for the character-creation / scene loops.
 
-Modeled on the existing builtin systems (resources-based, like 'Death In Space').
+Modeled on the existing builtin systems (resources-based).
 VTM uses a d10 dice pool counting successes vs a difficulty.
 """
 from __future__ import annotations

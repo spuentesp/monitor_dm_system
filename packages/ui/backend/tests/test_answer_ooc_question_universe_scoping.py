@@ -3,7 +3,7 @@ different universe.
 
 Live bug (2026-07-23): reproduced via the real production chat API
 (POST /api/chat/{id}/send, driven by scripts/live_llm_gm_vs_player_test.py
-against a freshly-created "Death in Space" universe). The archetype-lookup
+against a freshly-created test universe). The archetype-lookup
 Cypher query used "e.universe_id = $uid OR 1=1" -- an always-true
 tautology that returned character archetypes from ANY universe in the
 database, not just the session's own. The GM's OOC answer named NPCs

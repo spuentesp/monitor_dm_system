@@ -716,3 +716,28 @@ def test_update_working_state_with_empty_params_does_nothing(mock_get_mongodb: M
     # The updated_at should be the only thing that changed
     assert result.state.base_stats == {"STR": 10, "DEX": 12}
     assert result.state.current_stats == {"STR": 10, "DEX": 12}
+
+@patch("monitor_data.tools.mongodb_tools.working_state.get_mongodb_client")
+def test_delete_working_state_success(mock_get_mongodb: Mock):
+    """Backtrack can remove a working-state doc that the undone turn created."""
+    mock_collection = MagicMock()
+    mock_collection.delete_one.return_value = Mock(deleted_count=1)
+    mock_get_mongodb.return_value.get_collection.return_value = mock_collection
+
+    from monitor_data.tools.mongodb_tools import mongodb_delete_working_state
+
+    deleted = mongodb_delete_working_state(uuid4(), uuid4())
+
+    assert deleted is True
+    mock_collection.delete_one.assert_called_once()
+
+
+@patch("monitor_data.tools.mongodb_tools.working_state.get_mongodb_client")
+def test_delete_working_state_missing_returns_false(mock_get_mongodb: Mock):
+    mock_collection = MagicMock()
+    mock_collection.delete_one.return_value = Mock(deleted_count=0)
+    mock_get_mongodb.return_value.get_collection.return_value = mock_collection
+
+    from monitor_data.tools.mongodb_tools import mongodb_delete_working_state
+
+    assert mongodb_delete_working_state(uuid4(), uuid4()) is False

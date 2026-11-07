@@ -221,26 +221,6 @@ def build_char_creation_player(args, scenario) -> Any:
             "skip",
             "Sired by Camille. Predator: Siren.",
         ],
-        "dis_salvage": [
-            "Rook 'Rust' Vane",
-            "Chrome",
-            "Body=4, Tech=4, Savvy=2, Nerve=3",
-            "vac-riveter, suit-40pct, family_tape",
-            "skip",
-            "skip",
-            "skip",
-            "Chrome salvager, Rust Belt Drift. Predator: Sandman.",
-        ],
-        "dis_void_whisper": [
-            "Echo",
-            "Savvy",
-            "Body=2, Tech=3, Savvy=4, Nerve=3",
-            "tape_recorder, vacsuit, eidetic_chip",
-            "skip",
-            "skip",
-            "skip",
-            "Listens before touching. Predator: Consensualist.",
-        ],
     }
     answers = canned.get(scenario.name, ["skip"] * 8)
     context = PlayerContext(
@@ -852,7 +832,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--scenario", default="vtm_primogen", choices=list(SCENARIOS.keys()))
-    ap.add_argument("--system", default="vtm", choices=["vtm", "dis"])
+    ap.add_argument("--system", default="vtm", choices=["vtm"])
     ap.add_argument("--universe-id", default=None)
     ap.add_argument("--turns", type=int, default=4,
                     help="Legacy: turns per scene (deprecated — use --turns-per-scene)")

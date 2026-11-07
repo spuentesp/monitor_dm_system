@@ -390,7 +390,8 @@ async def rpg_equipment_add(
     Add an item to the equipment catalog.
 
     ``item_data`` is stored as-is (JSONB).  Callers should pre-validate with
-    the appropriate system item model (e.g. DISWeapon) before calling this.
+    the appropriate system item model (e.g. the factory-generated model for
+    the system's spec) before calling this.
     """
     pool = await client._get_pool()
     async with pool.acquire() as conn:

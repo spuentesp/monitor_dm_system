@@ -138,9 +138,9 @@ class BaseCharacterSheet(BaseModel):
     """
     Abstract base for all game-system character sheets.
 
-    Concrete subclasses (e.g. DISCharacterSheet) define typed attributes as
+    Concrete subclasses (e.g. a D&D 5e sheet) define typed attributes as
     proper fields instead of Dict[str, Any].  They also carry cross-field
-    validators to enforce game rules (e.g. HP = BODY + 6).
+    validators to enforce game rules (e.g. HP = CON + level).
 
     The ``system_id`` field is used as a discriminator: the registry looks up
     the correct Pydantic class based on this value.
@@ -249,12 +249,12 @@ class BaseGameSystem(BaseModel):
     system_id: str = Field(
         min_length=2,
         max_length=50,
-        description="Machine-readable slug, e.g. 'death_in_space', 'dnd5e'",
+        description="Machine-readable slug, e.g. 'dnd5e', 'fate_core'",
     )
     system_name: str = Field(
         min_length=1,
         max_length=200,
-        description="Human-readable name, e.g. 'Death in Space'",
+        description="Human-readable name, e.g. 'D&D 5e'",
     )
     version: str = Field(default="1.0", max_length=50)
     description: str = Field(default="", max_length=2000)

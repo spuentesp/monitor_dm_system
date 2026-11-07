@@ -5,7 +5,7 @@ Covers multiple game systems to verify the code is not VtM-biased:
   - D&D 5e (class → subclass → feature, spell → school)
   - Lancer (frame → license, mech_system)
   - Monster of the Week / PbtA (playbook → move)
-  - Death in Space (ship → module, crew)
+  - Test Sci-Fi (ship → module, crew)
   - 7th Sea (dueling_school → maneuver, advantage)
 """
 
@@ -227,7 +227,7 @@ class TestPbtAHierarchy:
         assert ("Kick Some Ass", "part_of", "Basic Move") in rel_map
 
 
-# ── Death in Space hierarchy ──────────────────────────────────────────────
+# ── Test Sci-Fi hierarchy ──────────────────────────────────────────────
 
 
 class TestDeathInSpaceHierarchy:
@@ -343,7 +343,7 @@ class TestInferSocialEntityIdentity:
         )
 
     def test_crew_keyword(self):
-        """Death in Space: crew should be organization."""
+        """Test Sci-Fi: crew should be organization."""
         assert infer_social_entity_identity("Salvage Crew", "crew") == ("organization", "crew")
 
     def test_generic_member_of(self):
@@ -434,7 +434,7 @@ def test_format_mindscape_context_contains_source_name():
 
 def test_format_mindscape_context_returns_string():
     mindscape = SourceMindscapeArtifact(
-        source_name="Death in Space",
+        source_name="Test Sci-Fi",
         summary="Bleak sci-fi OSR.",
         themes=[],
         taxonomy_hints=[],

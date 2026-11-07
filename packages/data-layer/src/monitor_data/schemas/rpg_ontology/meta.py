@@ -7,7 +7,7 @@ IMPORTS FROM: External libraries only (pydantic, uuid, enum, typing, re)
 Why this exists
 ---------------
 The previous ``base.py`` approach required a *Python class per game system*
-(DISCharacterSheet, DND5ECharacterSheet, …).  This module replaces that with
+(DND5ECharacterSheet, …).  This module replaces that with
 a **data-driven** system: a game system is fully described by a
 ``GameSystemSpec`` object that contains field specs, validator specs, relation
 specs, and entity type specs.  No Python subclassing is needed to add a new
@@ -22,7 +22,7 @@ Design principles
    lives inside a spec; formulas are stored as strings and evaluated by the
    factory layer.
 2. **System-agnostic** — the same spec format covers D20 (D&D 5e), attribute
-   systems (DIS, Year Zero Engine), dice-pool systems (World of Darkness), and
+   systems (Year Zero Engine), dice-pool systems (World of Darkness), and
    narrative / card-based systems.
 3. **Relational integrity** — ``RelationSpec`` records cross-entity links
    (character → ship, character → faction) that the factory can use to build
@@ -459,7 +459,7 @@ class GameSystemSpec(BaseModel):
     system_id: str = Field(
         min_length=2,
         max_length=50,
-        description="Lower-snake-case slug, e.g. 'death_in_space', 'dnd_5e'",
+        description="Lower-snake-case slug, e.g. 'dnd_5e', 'fate_core'",
     )
     system_name: str = Field(min_length=1, max_length=200)
     version: str = Field(default="1.0", max_length=50)

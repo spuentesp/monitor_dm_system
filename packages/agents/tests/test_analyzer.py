@@ -54,7 +54,7 @@ def _patch_common_analyzer_dependencies(monkeypatch, analyzer):
     monkeypatch.setattr(analyzer, "_extract_game_rules", AsyncMock(return_value=[]))
 
 
-def test_heuristic_charsheet_extraction_recovers_death_in_space_abilities():
+def test_heuristic_charsheet_extraction_recovers_sample_system_abilities():
     parsed = heuristic_extract_character_sheet_sections(
         [
             SectionDigest(
@@ -84,7 +84,7 @@ def test_heuristic_charsheet_extraction_recovers_death_in_space_abilities():
                 min_chunk_index=1,
             ),
         ],
-        "Death in Space Core Rules",
+        "Test Sci-Fi Core Rules",
     )
 
     assert {item["name"] for item in parsed["attributes"]} >= {"Body", "Dexterity", "Savvy", "Tech"}
@@ -241,12 +241,12 @@ def test_batched_extraction_module_raises_max_tokens_for_large_outputs(monkeypat
 
     result = module.forward(
         sections_context="# Section: Combat\n\nLots of combat and lore text.",
-        source_name="Death in Space Core Rules",
+        source_name="Test Sci-Fi Core Rules",
         known_graph_context="",
         source_profile_context="",
     )
 
-    assert result["source_name"] == "Death in Space Core Rules"
+    assert result["source_name"] == "Test Sci-Fi Core Rules"
     assert captured == {
         "node_name": "analyzer",
         "role": module._role,
@@ -610,7 +610,7 @@ async def test_synthesize_mindscape_persists_real_chunk_and_section_artifacts(mo
                 global_summary="A bleak sci-fi sourcebook about survival among desperate scavengers.",
                 themes=["resource scarcity", "cosmic dread"],
                 taxonomy_hints=["Crew", "Void"],
-                system_name="Death in Space",
+                system_name="Test Sci-Fi",
             )
         raise AssertionError(f"Unexpected stage: {stage}")
 
@@ -627,11 +627,11 @@ async def test_synthesize_mindscape_persists_real_chunk_and_section_artifacts(mo
 
     mindscape = await analyzer.synthesize_mindscape(
         sections=sections,
-        source_name="Death in Space Core Rules",
+        source_name="Test Sci-Fi Core Rules",
         pack_id=uuid4(),
     )
 
-    assert mindscape.system_name == "Death in Space"
+    assert mindscape.system_name == "Test Sci-Fi"
     assert len(captured["chunk_summaries"]) == 2
     assert captured["chunk_summaries"][0].chunk_id == "chunk-1"
     assert captured["section_summaries"][0].chunk_ids == ["chunk-1", "chunk-2"]
@@ -659,7 +659,7 @@ async def test_project_mindscape_to_qdrant_updates_payloads_and_upserts_summary_
     monkeypatch.setattr("monitor_data.retrieval.default_retrieval_service", lambda: fake_retriever)
 
     await analyzer._project_mindscape_to_qdrant(
-        source_name="Death in Space Core Rules",
+        source_name="Test Sci-Fi Core Rules",
         chunk_summaries=[
             SimpleNamespace(
                 chunk_id="chunk-1",
@@ -684,7 +684,7 @@ async def test_project_mindscape_to_qdrant_updates_payloads_and_upserts_summary_
             summary="Bleak sci-fi survival in a dying galaxy.",
             themes=["resource scarcity"],
             taxonomy_hints=["Crew", "Void"],
-            system_name="Death in Space",
+            system_name="Test Sci-Fi",
             confidence=0.85,
         ),
     )
@@ -692,7 +692,7 @@ async def test_project_mindscape_to_qdrant_updates_payloads_and_upserts_summary_
     fake_qdrant.set_payload.assert_awaited_once()
     payload_patch = fake_qdrant.set_payload.await_args.kwargs["payload"]
     assert payload_patch["chunk_summary"].startswith("Scavenger crews")
-    assert payload_patch["source_system_name"] == "Death in Space"
+    assert payload_patch["source_system_name"] == "Test Sci-Fi"
 
     fake_qdrant.upsert.assert_awaited_once()
     points = fake_qdrant.upsert.await_args.kwargs["points"]
@@ -771,9 +771,9 @@ async def test_analyzer_reads_ingested_chunks_from_snippets(monkeypatch):
 
     await analyzer.analyze_source(
         job_id=uuid4(),
-        source_name="Death In Space Core Rules",
+        source_name="Test Sci-Fi Core Rules",
         source_document_ids=[uuid4()],
-        pack_name="Death in Space",
+        pack_name="Test Sci-Fi",
         pack_type=KnowledgePackType.RULEBOOK,
         analysis_layers=["axioms", "entities", "lore", "game_system", "rules"],
         auto_apply=False,
@@ -826,9 +826,9 @@ async def test_analyzer_uses_http_search_fallback_when_search_method_is_missing(
 
     await analyzer.analyze_source(
         job_id=uuid4(),
-        source_name="Death In Space Core Rules",
+        source_name="Test Sci-Fi Core Rules",
         source_document_ids=[uuid4()],
-        pack_name="Death in Space",
+        pack_name="Test Sci-Fi",
         pack_type=KnowledgePackType.RULEBOOK,
         analysis_layers=["axioms", "entities", "lore", "game_system", "rules"],
         auto_apply=False,

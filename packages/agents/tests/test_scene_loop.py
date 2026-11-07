@@ -690,7 +690,7 @@ class TestPersistMemoriesNode:
             universe_id=universe_id,
             memories=memories,
         )
-        assert result == {}
+        assert result == {"last_persisted_memory_ids": [m["memory_id"] for m in memories]}
 
     @pytest.mark.asyncio
     async def test_persist_memories_node_skips_when_no_memories(self):
@@ -2037,3 +2037,130 @@ class TestNarrateImageSuggestions:
         suggestions = result["image_suggestions"]
         assert len(suggestions) == 1
         assert suggestions[0]["reason"] == "climax"
+
+
+# =============================================================================
+# _revert_durable_turn_artifacts — backtrack undo of Mongo/Qdrant side effects
+# =============================================================================
+
+
+async def _passthrough_read(func, *args, **kwargs):
+    """Run the tool call for real so mocked tools capture exact args."""
+    return func(*args, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_revert_durable_turn_artifacts_restores_working_state():
+    from monitor_agents.loops.scene_loop import _revert_durable_turn_artifacts
+    from monitor_data.schemas.vectors import VectorDeleteRequest
+
+    scene_id = uuid4()
+    turn_id = uuid4()
+    resolution_id = uuid4()
+    actor_id = uuid4()
+    memory_id = uuid4()
+    state_id = uuid4()
+
+    with (
+        patch("monitor_agents.utils.db_readers.run_sync_read", side_effect=_passthrough_read),
+        patch("monitor_agents.utils.db_readers.mongodb_revert_scene_turn", return_value=["user", "gm"]) as rev,
+        patch("monitor_agents.utils.db_readers.mongodb_delete_resolution", return_value=True) as del_res,
+        patch("monitor_agents.utils.db_readers.mongodb_delete_memory", return_value=True) as del_mem,
+        patch("monitor_data.tools.qdrant_tools.qdrant_delete", return_value=None) as del_qd,
+        patch("monitor_data.tools.mongodb_tools.mongodb_get_working_state", return_value=object()) as get_ws,
+        patch("monitor_data.tools.mongodb_tools.mongodb_delete_working_state", return_value=True) as del_ws,
+        patch("monitor_data.tools.mongodb_tools.mongodb_update_working_state", return_value=None) as upd_ws,
+    ):
+        current = {
+            "turn_id": turn_id,
+            "resolution_id": resolution_id,
+            "actor_id": actor_id,
+            "last_persisted_memory_ids": [str(memory_id)],
+            "working_state_snapshot": {
+                "state_id": str(state_id),
+                "current_stats": {"STR": 12},
+                "resources": {"HP": {"current": 8, "max": 12}},
+            },
+        }
+        await _revert_durable_turn_artifacts(scene_id, current)
+
+    rev.assert_called_once_with(scene_id, turn_id)
+    del_res.assert_called_once_with(resolution_id)
+    del_mem.assert_called_once_with(memory_id)
+
+    qd_call = del_qd.call_args.args[0]
+    assert isinstance(qd_call, VectorDeleteRequest)
+    assert qd_call.collection == "memories"
+    assert qd_call.id == memory_id
+
+    get_ws.assert_called_once_with(actor_id, scene_id)
+    del_ws.assert_not_called()
+    upd_ws.assert_called_once()
+    assert upd_ws.call_args.args[0] == state_id
+    from monitor_data.schemas.working_state import WorkingStateUpdate
+
+    update_payload = upd_ws.call_args.args[1]
+    assert isinstance(update_payload, WorkingStateUpdate)
+    assert update_payload.current_stats == {"STR": 12}
+    assert update_payload.resources == {"HP": {"current": 8, "max": 12}}
+
+
+@pytest.mark.asyncio
+async def test_revert_durable_turn_artifacts_deletes_working_state_created_by_turn():
+    from monitor_agents.loops.scene_loop import _revert_durable_turn_artifacts
+
+    scene_id = uuid4()
+    actor_id = uuid4()
+
+    with (
+        patch("monitor_agents.utils.db_readers.run_sync_read", side_effect=_passthrough_read),
+        patch("monitor_agents.utils.db_readers.mongodb_revert_scene_turn", return_value=[]),
+        patch("monitor_agents.utils.db_readers.mongodb_delete_resolution", return_value=True),
+        patch("monitor_agents.utils.db_readers.mongodb_delete_memory", return_value=True),
+        patch("monitor_data.tools.mongodb_tools.mongodb_get_working_state", return_value=object()) as get_ws,
+        patch("monitor_data.tools.mongodb_tools.mongodb_delete_working_state", return_value=True) as del_ws,
+        patch("monitor_data.tools.mongodb_tools.mongodb_update_working_state", return_value=None) as upd_ws,
+    ):
+        # Snapshot is None: the undone turn *created* the working-state doc,
+        # so the correct revert is deletion, not restore.
+        current = {
+            "turn_id": uuid4(),
+            "actor_id": actor_id,
+            "last_persisted_memory_ids": [],
+            "working_state_snapshot": None,
+        }
+        await _revert_durable_turn_artifacts(scene_id, current)
+
+    del_ws.assert_called_once_with(actor_id, scene_id)
+    upd_ws.assert_not_called()
+    get_ws.assert_called_once_with(actor_id, scene_id)
+
+
+@pytest.mark.asyncio
+async def test_revert_durable_turn_artifacts_without_actor_touches_nothing():
+    from monitor_agents.loops.scene_loop import _revert_durable_turn_artifacts
+
+    with (
+        patch("monitor_agents.utils.db_readers.run_sync_read", side_effect=_passthrough_read),
+        patch("monitor_agents.utils.db_readers.mongodb_revert_scene_turn", return_value=[]) as rev,
+        patch("monitor_agents.utils.db_readers.mongodb_delete_resolution", return_value=True) as del_res,
+        patch("monitor_agents.utils.db_readers.mongodb_delete_memory", return_value=True) as del_mem,
+        patch("monitor_data.tools.mongodb_tools.mongodb_get_working_state", return_value=object()) as get_ws,
+        patch("monitor_data.tools.mongodb_tools.mongodb_delete_working_state", return_value=True) as del_ws,
+        patch("monitor_data.tools.mongodb_tools.mongodb_update_working_state", return_value=None) as upd_ws,
+    ):
+        current = {
+            "turn_id": None,
+            "resolution_id": None,
+            "actor_id": None,
+            "last_persisted_memory_ids": [],
+            "working_state_snapshot": None,
+        }
+        await _revert_durable_turn_artifacts(uuid4(), current)
+
+    rev.assert_not_called()
+    del_res.assert_not_called()
+    del_mem.assert_not_called()
+    get_ws.assert_not_called()
+    del_ws.assert_not_called()
+    upd_ws.assert_not_called()

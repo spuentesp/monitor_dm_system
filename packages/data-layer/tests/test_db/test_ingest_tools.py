@@ -158,7 +158,7 @@ def test_extract_pdf_structure_lru_evicts_at_fifth_distinct_pdf():
 def test_chunk_text_adds_structural_topic_metadata():
     chunks = chunk_text(
         "COMBAT\n\nRoll a d20 to attack. Track hit points, armor, and damage each round.",
-        "Death in Space",
+        "D&D 5e",
     )
 
     assert chunks
@@ -171,7 +171,7 @@ def test_chunk_text_adds_structural_topic_metadata():
 def test_chunk_text_tags_lore_sections():
     chunks = chunk_text(
         "HISTORY\n\nThe iron empire fell after a devastating civil war, leaving the sector broken and haunted.",
-        "Death in Space",
+        "D&D 5e",
     )
 
     assert chunks

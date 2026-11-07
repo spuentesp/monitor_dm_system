@@ -64,8 +64,8 @@ def mongodb_find_document_by_content_hash(content_hash: str) -> DocumentResponse
     Find a Document by content hash, system-wide (not scoped to a universe).
 
     INGESTION_PIPELINE_AUDIT.md Finding 7: the same real content was
-    re-uploaded repeatedly under different filenames (``Death_in_Space.pdf``
-    vs ``Death_in_Space_Core_Rules.pdf``) and across many throwaway
+    re-uploaded repeatedly under different filenames (``DnD_5e_Player_Handbook.pdf``
+    vs ``DnD_5e_Player_Handbook_copy.pdf``) and across many throwaway
     universe_ids — filename+universe scoping (``mongodb_find_document_by_filename``)
     doesn't catch either case. Hash-based lookup does.
 

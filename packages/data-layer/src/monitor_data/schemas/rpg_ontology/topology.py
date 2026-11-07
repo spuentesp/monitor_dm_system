@@ -486,9 +486,8 @@ MONITOR_TOPOLOGY = DataTopology(
                     indexed_by=IndexedBy.NO_INDEX,
                     has_mcp_tools=True,
                     notes=(
-                        "Death in Space PDF confirmed present at "
-                        "monitor/uploads/<doc_id>/. "
-                        "Metadata lives in MongoDB 'documents' collection."
+                        "Uploaded source documents. Metadata lives in the "
+                        "MongoDB 'documents' collection."
                     ),
                 ),
             ],

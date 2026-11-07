@@ -5,9 +5,9 @@ LAYER: data-layer
 SCOPE: unit tests (no DB required)
 
 Tests cover:
-- All 7 systems load from builtin_systems.json without error
+- All seeded systems load from builtin_systems.json without error
 - Converter produces a valid GameSystemSpec for each system
-- SystemRegistry is populated with all 7 systems at import time
+- SystemRegistry is populated with all seeded systems at import time
 - `make_entity_model()` generates correct field counts per system
 - VtM non-ASCII condition names are handled (Rötschreck → roetschreck)
 - Narrative Pure/Weighted long dice_notation strings are truncated correctly
@@ -73,7 +73,6 @@ class TestBuiltinToGameSystemSpec:
             "Powered by the Apocalypse",
             "Narrative Pure",
             "Narrative Weighted",
-            "Death in Space",
             "Mistlands Core",
         ],
     )
@@ -156,10 +155,8 @@ class TestBuiltinToGameSystemSpec:
 
 
 class TestSystemRegistryPopulation:
-    def test_all_eight_systems_registered(self, registry):
-        # 8 → 7 after removing the VtM 5e builtin (2026-07-21); will grow
-        # again when a real VtM source is ingested and registered.
-        assert len(registry.list_systems()) == 7
+    def test_all_six_systems_registered(self, registry):
+        assert len(registry.list_systems()) == 6
 
     def test_get_by_system_id(self, registry):
         """Each system is retrievable by its canonical system_id."""
@@ -167,34 +164,33 @@ class TestSystemRegistryPopulation:
         spec = registry.get("dandd_5e")
         assert spec is not None
         assert spec.system_name == "D&D 5e"
-        # Death in Space
-        spec = registry.get("death_in_space")
+        # Fate Core
+        spec = registry.get("fate_core")
         assert spec is not None
-        assert "Death in Space" in spec.system_name
+        assert "Fate" in spec.system_name
 
-    def test_registry_list_systems_returns_all_eight(self, registry):
-        """list_systems() returns the 7 currently registered system IDs."""
+    def test_registry_list_systems_returns_all_six(self, registry):
+        """list_systems() returns the 6 currently registered system IDs."""
         systems = registry.list_systems()
-        assert len(systems) == 7
+        assert len(systems) == 6
         expected = {
             "dandd_5e",
             "fate_core",
             "powered_by_the_apocalypse",
             "narrative_pure",
             "narrative_weighted",
-            "death_in_space",
             "mistlands_core",
         }
         assert set(systems) == expected
 
     def test_unregister_then_reregister(self, registry):
         """A system can be unregistered and re-registered without error."""
-        spec = registry.get("death_in_space")
+        spec = registry.get("fate_core")
         assert spec is not None
-        registry.unregister("death_in_space")
-        assert registry.get("death_in_space") is None
+        registry.unregister("fate_core")
+        assert registry.get("fate_core") is None
         registry.register(spec)
-        assert registry.get("death_in_space") is not None
+        assert registry.get("fate_core") is not None
 
     def test_seed_is_idempotent(self, registry):
         """seed_system_registry() can be called multiple times without error."""
@@ -213,9 +209,9 @@ class TestFactoryModelGeneration:
     def test_make_entity_model_produces_model_per_system(self, registry):
         """make_entity_model generates a distinct model class for each system."""
         dnd = make_entity_model(registry.get("dandd_5e"), "character")
-        dis = make_entity_model(registry.get("death_in_space"), "character")
+        fate = make_entity_model(registry.get("fate_core"), "character")
 
-        assert dnd is not dis
+        assert dnd is not fate
 
     def test_dnd5e_model_has_expected_fields(self, registry):
         """D&D 5e model exposes all expected character sheet fields."""
@@ -256,7 +252,6 @@ class TestFactoryModelGeneration:
             "powered_by_the_apocalypse",
             "narrative_pure",
             "narrative_weighted",
-            "death_in_space",
             "mistlands_core",
         ],
     )
@@ -282,7 +277,6 @@ class TestHelperFunctions:
         # claim about an existing system.
         assert _slugify("Vampire: The Masquerade 5th Edition") == "vampire_the_masquerade_5th_edition"
         assert _slugify("Powered by the Apocalypse") == "powered_by_the_apocalypse"
-        assert _slugify("Death in Space") == "death_in_space"
         assert _slugify("Fate Core") == "fate_core"
         assert _slugify("7th Sea") == "sys_7th_sea"
         assert _slugify("A & B Game") == "a_and_b_game"
@@ -293,3 +287,27 @@ class TestHelperFunctions:
         assert _to_ascii("Mörder") == "Morder"  # umlaut stripped
         assert _to_ascii("Strength") == "Strength"
         assert _to_ascii("Nervous") == "Nervous"
+
+
+# ---------------------------------------------------------------------------
+# Core mechanic type detection
+# ---------------------------------------------------------------------------
+
+
+def test_meet_or_beat_maps_to_d20_over():
+    """meet_or_beat (D&D 5e) must map to D20_OVER, not fall through to CUSTOM."""
+    from monitor_data.schemas.rpg_ontology.converters import _detect_core_mechanic_type
+    from monitor_data.schemas.rpg_ontology.meta import OntologyMechanicType
+
+    assert (
+        _detect_core_mechanic_type({"type": "d20", "formula": "1d20", "success_type": "meet_or_beat"})
+        == OntologyMechanicType.D20_OVER
+    )
+    assert (
+        _detect_core_mechanic_type({"type": "d20", "formula": "1d20", "success_type": "over"})
+        == OntologyMechanicType.D20_OVER
+    )
+    assert (
+        _detect_core_mechanic_type({"type": "d20", "formula": "1d20", "success_type": "roll_under"})
+        == OntologyMechanicType.D20_UNDER
+    )

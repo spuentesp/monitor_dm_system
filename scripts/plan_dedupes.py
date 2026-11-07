@@ -29,8 +29,6 @@ TEST_MV_NAME_RE = re.compile(
     r"StressProbe\d*|TraceProbe\d*|"
     r"Repro Multiverse|Roleplay Test MV|"
     r"observe-ingest|"
-    r"Death in Space — Live Proof|"
-    r"Death in Space \(live-test\)|"
     r"Test Multiverse \d|§.*$|TBD|TBD — awaiting|"
     r"Roleplay Test MV \d|LoopE2E Multiverse \d|"
     r"Walkthrough MV [a-f0-9]{6})",
@@ -38,11 +36,11 @@ TEST_MV_NAME_RE = re.compile(
 )
 
 TEST_UNIVERSE_NAME_RE = re.compile(
-    r"^(LoopE2E Universe|Repro Universe|DiS Test Universe|"
+    r"^(LoopE2E Universe|Repro Universe|"
     r"Entity Promotion (Full Run )?Verification|"
     r"Awakening in Seattle.*|Fallout Re-ingest Drill|"
     r"Entity Promotion Verification|Solo|Repro Universe|§.*$|test|"
-    r"DiS Test Universe \d|LoopE2E Universe \d|"
+    r"LoopE2E Universe \d|"
     r"Test|Entity Promotion)",  # noqa: E501
     re.IGNORECASE,
 )

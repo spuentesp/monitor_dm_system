@@ -15,8 +15,6 @@ These examples are organized as **readable scenario references** for:
 |---|---|---|
 | `vampire-v5-duet-example.md` | *Vampire: The Masquerade* 5e | Hunger, messy criticals, internal struggle, duet pacing |
 | `7th-sea-2e-action-sequence.md` | *7th Sea* 2e | cinematic action, declared risks, success-at-cost |
-| `death-in-space-salvage-example.md` | *Death in Space* | OSR pressure, simple d20 checks, failure consequences |
-| `death-in-space-session-zero-duet.md` | *Death in Space* | randomized setup, ship-as-home, bleak prologue |
 | `freeform-vtm-duet-example.md` | Freeform / *Vampire: The Masquerade* | narrative-only duet, asterisk and literate styles |
 | `lancer-ll0-duet-example.md` | *Lancer* | LL0 onboarding, narrative-to-tactical transition |
 | `monster-of-the-week-spooky-duet.md` | *Monster of the Week* | fiction-first moves, mixed success, horror duet pacing |

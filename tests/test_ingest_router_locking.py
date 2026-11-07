@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 from io import BytesIO
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -144,7 +144,7 @@ async def test_rescan_source_keeps_reserved_slot_without_unboundlocalerror(monke
                 SimpleNamespace(
                     doc_id=doc_id,
                     universe_id=universe_id,
-                    source_title="Death in Space Core Rules",
+                    source_title="D&D 5e Player's Handbook",
                 )
             ]
         ),
@@ -155,9 +155,9 @@ async def test_rescan_source_keeps_reserved_slot_without_unboundlocalerror(monke
         lambda _doc_id: SimpleNamespace(
             doc_id=doc_id,
             universe_id=universe_id,
-            title="Death in Space Core Rules",
-            minio_ref="sources/death-in-space.pdf",
-            filename="Death_in_Space_Core_Rules.pdf",
+            title="D&D 5e Player's Handbook",
+            minio_ref="sources/dnd5e-players-handbook.pdf",
+            filename="DnD_5e_Players_Handbook.pdf",
             file_type="pdf",
         ),
     )
@@ -172,7 +172,7 @@ async def test_rescan_source_keeps_reserved_slot_without_unboundlocalerror(monke
     result = await ingest.rescan_source(source_id=source_id)
 
     assert result["status"] == "processing"
-    assert result["source_title"] == "Death in Space Core Rules"
+    assert result["source_title"] == "D&D 5e Player's Handbook"
     assert (
         "ingestion_jobs",
         {"source_id": str(UUID(source_id))},
@@ -445,7 +445,7 @@ def test_pack_to_dict_exposes_mindscape_artifacts():
         description="Contains semantic ingest artifacts.",
         pack_type=KnowledgePackType.CUSTOM,
         status=KnowledgePackStatus.READY,
-        system_name="Death in Space",
+        system_name="D&D 5e",
         game_system_id=None,
         game_system_data=None,
         source_profile_data=None,
@@ -475,11 +475,11 @@ def test_pack_to_dict_exposes_mindscape_artifacts():
         ],
         source_mindscape=SimpleNamespace(
             model_dump=lambda mode="json": {
-                "source_name": "Death in Space",
+                "source_name": "D&D 5e",
                 "summary": "Bleak survival horror in a decaying cosmos.",
                 "themes": ["scarcity"],
                 "taxonomy_hints": ["Void"],
-                "system_name": "Death in Space",
+                "system_name": "D&D 5e",
                 "confidence": 0.9,
             }
         ),
@@ -501,7 +501,7 @@ def test_pack_to_dict_exposes_mindscape_artifacts():
 
     assert payload["chunk_summaries"][0]["chunk_id"] == "chunk-1"
     assert payload["section_summaries"][0]["section_key"] == "chapter_1"
-    assert payload["source_mindscape"]["system_name"] == "Death in Space"
+    assert payload["source_mindscape"]["system_name"] == "D&D 5e"
 
 
 def test_pack_to_dict_exposes_extended_ingestion_outputs():

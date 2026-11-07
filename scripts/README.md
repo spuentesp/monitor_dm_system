@@ -51,7 +51,6 @@ See `docs/testing/REPLAYS.md` for the full guide; the entry point is
 | `require_tests_for_code_changes.py` |  |
 | `require_use_case_reference.py` |  |
 | `rerun_failed_workflow.sh` | Rerun the latest failed GitHub Actions workflow for a PR or branch. |
-| `run_full_pipeline.py` | Run the full IngestionPipeline end-to-end and report results. |
 | `scaffold_ymls.py` | # {uc_id}: {title} |
 | `seed_game_systems.py` | Seed a minimal game system to MongoDB for character creation. |
 | `seed_gm_profiles.py` |  |

@@ -1232,7 +1232,7 @@ def test_embedded_game_system_new_fields_all_optional():
     from monitor_data.schemas.knowledge_packs import EmbeddedGameSystem
 
     # Construct with only existing fields — should not raise
-    system = EmbeddedGameSystem(name="Death in Space")
+    system = EmbeddedGameSystem(name="D&D 5e")
     assert system.tracks == []
     assert system.tiered_abilities == []
     assert system.advantages == []
@@ -1242,3 +1242,58 @@ def test_embedded_game_system_new_fields_all_optional():
     assert system.action_economy is None
     assert system.advancement_model is None
     assert system.recovery_model is None
+
+
+@patch(
+    "builtins.open",
+    new_callable=mock_open,
+    read_data='[{"name": "Current System", "is_builtin": true}]',
+)
+@patch("monitor_data.tools.mongodb_tools.game_systems.get_mongodb_client")
+def test_builtin_systems_seeder_prunes_removed_builtins(
+    mock_get_mongodb: Mock,
+    mock_file: Mock,
+):
+    """A builtin that is no longer in the seed file is deleted from the DB.
+
+    The seed file is the canonical list of platform-shipped systems — removing
+    a system from builtin_systems.json must not leave a stale builtin doc that
+    keeps resolving in game_systems queries.
+    """
+    mock_mongodb = MagicMock()
+    mock_systems = MagicMock()
+    mock_get_mongodb.return_value = mock_mongodb
+    mock_mongodb.get_collection.return_value = mock_systems
+
+    from monitor_data.tools.mongodb_tools import _ensure_builtin_systems_seeded
+
+    _ensure_builtin_systems_seeded()
+
+    mock_systems.delete_many.assert_called_once_with(
+        {"is_builtin": True, "name": {"$nin": ["Current System"]}}
+    )
+
+
+@patch(
+    "builtins.open",
+    new_callable=mock_open,
+    read_data='[{"name": "Current System", "is_builtin": true}]',
+)
+@patch("monitor_data.tools.mongodb_tools.game_systems.get_mongodb_client")
+def test_builtin_systems_seeder_prune_never_touches_user_systems(
+    mock_get_mongodb: Mock,
+    mock_file: Mock,
+):
+    """Pruning is scoped to is_builtin docs; user-created systems are safe."""
+    mock_mongodb = MagicMock()
+    mock_systems = MagicMock()
+    mock_get_mongodb.return_value = mock_mongodb
+    mock_mongodb.get_collection.return_value = mock_systems
+
+    from monitor_data.tools.mongodb_tools import _ensure_builtin_systems_seeded
+
+    _ensure_builtin_systems_seeded()
+
+    # The delete filter hard-requires is_builtin: True, so it can never
+    # match a user-authored system (is_builtin=False).
+    assert mock_systems.delete_many.call_args[0][0]["is_builtin"] is True

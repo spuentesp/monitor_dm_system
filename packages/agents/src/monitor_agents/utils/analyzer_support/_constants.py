@@ -86,7 +86,7 @@ CONTAINER_TYPE_HINTS: tuple[tuple[str, str], ...] = (
     ("move", "concept"),  # PbtA, Monster of the Week, Dungeon World
     ("knack", "concept"),  # 7th Sea
     ("talent", "concept"),  # Various
-    ("trait", "concept"),  # Death in Space, generic
+    ("trait", "concept"),  # generic
     ("module", "concept"),  # Lancer mech modules
     ("system", "concept"),  # Lancer mech systems
     ("license", "concept"),  # Lancer licenses
@@ -94,7 +94,7 @@ CONTAINER_TYPE_HINTS: tuple[tuple[str, str], ...] = (
     ("weapon", "object"),
     ("armor", "object"),
     ("item", "object"),
-    ("ship", "object"),  # Death in Space, 7th Sea
+    ("ship", "object"),  # spacecraft / 7th Sea
     ("vehicle", "object"),
     ("mech", "object"),  # Lancer frames
     ("frame", "object"),  # Lancer frames
@@ -105,13 +105,13 @@ CONTAINER_TYPE_HINTS: tuple[tuple[str, str], ...] = (
     ("order", "organization"),
     ("corp", "organization"),  # Lancer, cyberpunk
     ("corporation", "organization"),
-    ("crew", "organization"),  # Death in Space
+    ("crew", "organization"),  # ship crews
     # Locations
     ("city", "location"),
     ("region", "location"),
     ("plane", "location"),
     ("sector", "location"),  # Sci-fi
-    ("station", "location"),  # Death in Space
+    ("station", "location"),  # stations / starbases
 )
 
 SOCIAL_RELATION_PROPERTY_KEYS: dict[str, str] = {
@@ -295,7 +295,7 @@ _PART_OF_SUB_TYPES = frozenset(
         "mech_mod",
         "core_bonus",
         "talent_rank",
-        # Death in Space
+        # Sci-fi ship / crew mechanics
         "crew_ability",
         "ship_module",
         "void_ability",

@@ -311,7 +311,7 @@ async def test_scene_end_phase_transitions_in_run_end_scene(monkeypatch):
 def test_ooc_question_detector_distinguishes_meta_from_action():
     assert (
         chat_support.is_ooc_question(
-            "What kind of character can I play in Death in Space?"
+            "What kind of character can I play in this game?"
         )
         is True
     )

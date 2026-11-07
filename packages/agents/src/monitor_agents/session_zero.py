@@ -21,7 +21,7 @@ Inspired by:
   - Legend of the Five Rings' 20 Questions
   - Dungeon World bonds / PbtA playbook prompts
   - Vampire: The Masquerade 20th Anniversary Prelude
-  - Death in Space origin + background rolls
+  - MÖRK BORG-style origin + background rolls
 
 WHY DSPY (NOT INSTRUCTOR)
 -------------------------
@@ -235,7 +235,7 @@ if _DSPY_AVAILABLE:
             desc="The session's narrative tone: grim, horror, dramatic, heroic, mystery, adventure.",
         )
         system_name: str = dspy.InputField(
-            desc="The game system / setting name (e.g., 'Death in Space', 'Vampire: The Masquerade').",
+            desc="The game system / setting name (e.g., 'Call of Cthulhu', 'Vampire: The Masquerade').",
         )
         world_lore: str = dspy.InputField(
             desc="Key world facts and axioms that ground the questions (newline-separated). Empty if no lore available.",
@@ -657,7 +657,7 @@ def ground_world_lore(
     Args:
         world_lore: Lore items from fetch_opening_hook (axioms + facts).
             May be empty.
-        system_name: Universe/system label (e.g. "Death in Space"). May be
+        system_name: Universe/system label (e.g. "D&D 5e"). May be
             empty if the caller hasn't resolved it yet.
         system_context: Backgrounds, creation steps, themes from the
             game system. May be empty.

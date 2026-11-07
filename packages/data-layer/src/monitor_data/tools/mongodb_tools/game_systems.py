@@ -83,6 +83,16 @@ def _ensure_builtin_systems_seeded() -> None:
             upsert=True,
         )
 
+    # Prune builtin docs that are no longer part of the seed file. The seed is
+    # the canonical list of platform-shipped systems — a system removed from
+    # builtin_systems.json must not linger in the live DB (it would otherwise
+    # keep resolving as a builtin in game_systems queries). User-created
+    # systems (is_builtin != True) are never touched.
+    seeded_names = [system_data.get("name") for system_data in builtin_systems]
+    systems_collection.delete_many(
+        {"is_builtin": True, "name": {"$nin": seeded_names}},
+    )
+
 
 def mongodb_create_game_system(params: GameSystemCreate) -> GameSystemResponse:
     """

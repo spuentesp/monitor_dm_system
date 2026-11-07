@@ -35,7 +35,7 @@ log = structlog.get_logger()
 
 # --- Scenario constants -----------------------------------------------------
 
-# Scenario pack. Pick via env: SCENARIO=dis_salvage uv run python ...
+# Scenario pack. Pick via env: SCENARIO=vtm_embrace|vtm_primogen uv run python ...
 import os as _os
 
 SCENARIOS: dict[str, dict[str, Any]] = {
@@ -64,34 +64,6 @@ SCENARIOS: dict[str, dict[str, Any]] = {
             "Chapter 5: The Beast Stirs",
         ],
         "transcript_subdir": "vtm_embrace",
-    },
-    "dis_salvage": {
-        "system_id": "8ad46bf1-3cdd-48c9-9c29-b9139fae0a00",  # Death in Space
-        "system_name_hint": "Death in Space",
-        "player_concept": (
-            "Cass Rix, 31, chrome-augmented salvager aboard the Ozymandias, "
-            "a beat-up Scrapper-class hauler. Ten years scraping derelicts in "
-            "the Outer Belt. Cynical, practical, dry-humored -- but the last "
-            "salvage run went sideways and you know it."
-        ),
-        "player_seed": (
-            "You're on the bridge of the Ozymandias, drifting in the shadow of "
-            "a half-decommissioned orbital platform. The hull's been breached "
-            "twice, the captain's missing, and the life-support is bleeding "
-            "oxy at a rate you can't afford."
-        ),
-        "player_goal": (
-            "Drive the scene forward; react to the GM's last narration. "
-            "Stay in character as a hardened salvager making impossible choices."
-        ),
-        "scene_titles": [
-            "Chapter 1: Drift",
-            "Chapter 2: Breach",
-            "Chapter 3: The Derelict",
-            "Chapter 4: Signal in the Black",
-            "Chapter 5: The Airlock",
-        ],
-        "transcript_subdir": "dis_salvage",
     },
 }
 

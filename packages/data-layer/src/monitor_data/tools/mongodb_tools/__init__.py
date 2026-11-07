@@ -326,6 +326,7 @@ from monitor_data.tools.mongodb_tools.scenes import (
     mongodb_get_scene,
     mongodb_get_scene_summary,
     mongodb_list_scenes,
+    mongodb_revert_scene_turn,
     mongodb_update_scene,
     mongodb_update_turn_resolution,
 )
@@ -396,6 +397,7 @@ from monitor_data.tools.mongodb_tools.working_state import (
     _convert_working_state_doc_to_response,
     mongodb_add_modification,
     mongodb_create_working_state,
+    mongodb_delete_working_state,
     mongodb_get_working_state,
     mongodb_list_working_states,
     mongodb_update_working_state,
@@ -415,6 +417,7 @@ __all__ = [
     "mongodb_list_scenes",
     "mongodb_append_turn",
     "mongodb_update_turn_resolution",
+    "mongodb_revert_scene_turn",
     # Change log (audit trail)
     "make_change_log_entry",
     "mongodb_append_change_log",
@@ -492,6 +495,7 @@ __all__ = [
     "mongodb_create_working_state",
     "mongodb_get_working_state",
     "mongodb_update_working_state",
+    "mongodb_delete_working_state",
     "mongodb_add_modification",
     "mongodb_list_working_states",
     # Ingestion Jobs

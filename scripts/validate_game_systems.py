@@ -69,21 +69,6 @@ class ExpectedProfile:
 
 PROFILES: list[ExpectedProfile] = [
     ExpectedProfile(
-        name_pattern="Death in Space",
-        expected_mechanic_type="d20",
-        expected_success_type="meet_or_beat",
-        expected_attributes=["Body", "Dexterity", "Savvy", "Tech"],
-        attribute_range=(-3, 3),
-        min_attributes=4,
-        max_attributes=4,
-        expect_skills=False,
-        min_skills=0,
-        min_resources=2,  # HP, Void Points at minimum
-        expect_npc_blocks=True,
-        expect_creation_procedure=True,
-        min_creation_steps=3,
-    ),
-    ExpectedProfile(
         name_pattern="Vampire",
         expected_mechanic_type="dice_pool",
         expected_success_type="meet_or_beat",

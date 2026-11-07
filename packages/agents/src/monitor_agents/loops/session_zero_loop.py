@@ -329,7 +329,7 @@ class SessionZeroLoop:
     High-level interface for the session zero interview loop.
 
     Usage:
-        loop = SessionZeroLoop(tone="grim", system_name="Death in Space", ...)
+        loop = SessionZeroLoop(tone="grim", system_name="Call of Cthulhu", ...)
         result = await loop.start()          # get first question
         result = await loop.process_player_input("I was a soldier...")  # answer + next question
         # ... repeat until result["complete"] is True

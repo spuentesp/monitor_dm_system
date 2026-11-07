@@ -51,7 +51,7 @@ def test_source_mindscape_artifact():
 def test_knowledge_pack_create_backward_compat_without_artifacts():
     """Old packs without artifact fields must still deserialize cleanly."""
     pack = KnowledgePackCreate(
-        name="Death in Space",
+        name="Test Sci-Fi",
     )
     assert pack.chunk_summaries == []
     assert pack.section_summaries == []
@@ -60,17 +60,17 @@ def test_knowledge_pack_create_backward_compat_without_artifacts():
 
 def test_knowledge_pack_create_with_mindscape():
     mindscape = SourceMindscapeArtifact(
-        source_name="Death in Space",
+        source_name="Test Sci-Fi",
         summary="Bleak sci-fi OSR where characters are scavengers in a dying galaxy.",
         themes=["cosmic horror", "resource scarcity"],
         taxonomy_hints=["BDY", "Omens", "Void"],
-        system_name="Death in Space",
+        system_name="Test Sci-Fi",
     )
     pack = KnowledgePackCreate(
-        name="Death in Space",
+        name="Test Sci-Fi",
         source_mindscape=mindscape,
     )
-    assert pack.source_mindscape.system_name == "Death in Space"
+    assert pack.source_mindscape.system_name == "Test Sci-Fi"
 
 
 def test_knowledge_pack_response_preserves_artifacts():
@@ -86,19 +86,19 @@ def test_knowledge_pack_response_preserves_artifacts():
         summary="Describes the decaying station and its desperate factions.",
     )
     mindscape = SourceMindscapeArtifact(
-        source_name="Death in Space",
+        source_name="Test Sci-Fi",
         summary="A bleak sci-fi sandbox about survival in a dying galaxy.",
         themes=["resource scarcity", "cosmic dread"],
         taxonomy_hints=["Void", "Omens"],
-        system_name="Death in Space",
+        system_name="Test Sci-Fi",
     )
 
     pack = KnowledgePackResponse(
         pack_id=uuid4(),
-        name="Death in Space",
+        name="Test Sci-Fi",
         description="Mindscape-rich ingest",
         pack_type=KnowledgePackType.RULEBOOK,
-        system_name="Death in Space",
+        system_name="Test Sci-Fi",
         status=KnowledgePackStatus.READY,
         source_document_ids=[],
         ingestion_job_id=None,
@@ -121,7 +121,7 @@ def test_knowledge_pack_response_preserves_artifacts():
 
     assert pack.chunk_summaries[0].chunk_id == "chunk-1"
     assert pack.section_summaries[0].section_key == "chapter_1_iron_ring"
-    assert pack.source_mindscape.system_name == "Death in Space"
+    assert pack.source_mindscape.system_name == "Test Sci-Fi"
 
 
 def test_chunk_summary_artifact_with_all_fields():

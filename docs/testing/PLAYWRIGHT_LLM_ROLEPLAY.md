@@ -141,10 +141,8 @@ even though the harness already exists:
 | -- | ------ | -------- | ---- | ---- | ----- | ------------------ |
 | R-01 | VtM | `vtm_primogen` | dramatic | autonomous_gm | dice_game_system | 3 IC + 1 OOC + wrap |
 | R-02 | VtM | `vtm_embrace` | horror | autonomous_gm | narrative | 3 IC + 1 OOC + wrap |
-| R-03 | DiS | `dis_salvage` | grim | autonomous_gm | dice_game_system | 3 IC (zero-G, alarm) + wrap |
-| R-04 | DiS | `dis_void_whisper` | mystery | gm_assistant | narrative | 2 IC + 1 OOC + wrap |
 
-Run R-01 first; gate R-02..R-04 on it passing.
+Run R-01 first; gate R-02 on it passing.
 
 ## 7. The fixture: bridging Playwright and `InstructablePlayer`
 

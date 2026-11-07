@@ -1484,11 +1484,11 @@ class TestRuntimeProfileFallback:
         agent._ttl = MagicMock(return_value=60)
 
         pack = SimpleNamespace(
-            system_name="Death in Space",
+            system_name="Test Sci-Fi",
             tags=["osr"],
             source_profile_data=None,
             source_mindscape=SimpleNamespace(
-                system_name="Death in Space",
+                system_name="Test Sci-Fi",
                 themes=["cosmic horror", "resource scarcity"],
                 taxonomy_hints=["Void", "Omens"],
                 summary="A decaying-galaxy survival game about desperate scavengers.",
@@ -1500,9 +1500,9 @@ class TestRuntimeProfileFallback:
             lambda _filter: SimpleNamespace(packs=[pack]),
         )
 
-        result = await agent._fetch_runtime_profile(system_name="Death in Space")
+        result = await agent._fetch_runtime_profile(system_name="Test Sci-Fi")
 
-        assert result["system_name"] == "Death in Space"
+        assert result["system_name"] == "Test Sci-Fi"
         assert "Void" in result["taxonomy_containers"]
         assert "cosmic horror" in result["genre_tone"]
 

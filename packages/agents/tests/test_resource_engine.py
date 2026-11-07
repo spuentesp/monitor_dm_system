@@ -2,7 +2,7 @@
 Tests for ResourceEngine — parametrized across all 7 built-in systems.
 
 System list (matches ALL_SYSTEMS from fase-alto-implementation-plan):
-  D&D 5e | Fate Core | PbtA | Death in Space | Vampire V5 | Narrative Pure | Narrative Weighted
+  D&D 5e | Fate Core | PbtA | Test Sci-Fi | Vampire V5 | Narrative Pure | Narrative Weighted
 
 Tests cover:
   - detect_spend: keyword matching per system
@@ -31,7 +31,7 @@ ALL_SYSTEMS = [
     "D&D 5e",
     "Fate Core",
     "Powered by the Apocalypse",
-    "Death in Space",
+    "Test Sci-Fi",
     "Vampire: The Masquerade 5th Edition",
     "Narrative Pure",
     "Narrative Weighted",
@@ -84,8 +84,8 @@ PBTA_GAME_CONTEXT: dict[str, Any] = {
     "recovery_model": {"events": []},
 }
 
-DEATH_IN_SPACE_GAME_CONTEXT: dict[str, Any] = {
-    "name": "Death in Space",
+TEST_SCIFI_GAME_CONTEXT: dict[str, Any] = {
+    "name": "Test Sci-Fi",
     "core_mechanic": {"type": "d20", "success_type": "meet_or_beat"},
     "resources": [
         {"name": "HP", "abbreviation": "HP", "recovers_on": "full rest"},
@@ -249,7 +249,7 @@ SYSTEM_FIXTURES: dict[str, dict[str, Any]] = {
     "D&D 5e": DND5E_GAME_CONTEXT,
     "Fate Core": FATE_GAME_CONTEXT,
     "Powered by the Apocalypse": PBTA_GAME_CONTEXT,
-    "Death in Space": DEATH_IN_SPACE_GAME_CONTEXT,
+    "Test Sci-Fi": TEST_SCIFI_GAME_CONTEXT,
     "Vampire: The Masquerade 5th Edition": VAMPIRE_V5_GAME_CONTEXT,
     "Narrative Pure": NARRATIVE_PURE_GAME_CONTEXT,
     "Narrative Weighted": NARRATIVE_WEIGHTED_GAME_CONTEXT,
@@ -312,19 +312,19 @@ class TestDetectSpendFateCore:
 
 class TestDetectSpendDeathInSpace:
     def test_stress_detected(self):
-        engine = ResourceEngine(DEATH_IN_SPACE_GAME_CONTEXT, {"STR": {"current": 2, "max": 5}})
+        engine = ResourceEngine(TEST_SCIFI_GAME_CONTEXT, {"STR": {"current": 2, "max": 5}})
         attempts = engine.detect_spend("I'm stressed about the void")
         intents = {a.intent for a in attempts}
         assert "stress" in intents
 
     def test_oxygen_detected(self):
-        engine = ResourceEngine(DEATH_IN_SPACE_GAME_CONTEXT, {"O2": {"current": 5, "max": 5}})
+        engine = ResourceEngine(TEST_SCIFI_GAME_CONTEXT, {"O2": {"current": 5, "max": 5}})
         attempts = engine.detect_spend("I run out of oxygen")
         intents = {a.intent for a in attempts}
         assert "oxygen" in intents
 
     def test_void_point_on_failure(self):
-        engine = ResourceEngine(DEATH_IN_SPACE_GAME_CONTEXT, {"VP": {"current": 2, "max": 3}})
+        engine = ResourceEngine(TEST_SCIFI_GAME_CONTEXT, {"VP": {"current": 2, "max": 3}})
         attempts = engine.detect_spend("I failed — give me my void point")
         intents = {a.intent for a in attempts}
         assert "void_point" in intents
@@ -433,18 +433,18 @@ class TestApplyEarn:
 class TestApplyEarnDeathInSpace:
     def test_failure_gives_void_point(self):
         engine = ResourceEngine(
-            DEATH_IN_SPACE_GAME_CONTEXT,
+            TEST_SCIFI_GAME_CONTEXT,
             {"VP": {"current": 0, "max": 3}, "STR": {"current": 2, "max": 5}},
         )
         resolution = {"success_level": "failure", "resolution_type": "dice", "effects": ["setback"]}
         deltas = engine.apply_earn(resolution)
-        # Death in Space earns Void Points on failure via earn_conditions
+        # Test Sci-Fi earns Void Points on failure via earn_conditions
         # (not defined in our fixture, so expect generic stress-on-failure)
         assert isinstance(deltas, list)
 
     def test_stress_on_failure(self):
         engine = ResourceEngine(
-            DEATH_IN_SPACE_GAME_CONTEXT,
+            TEST_SCIFI_GAME_CONTEXT,
             {"STR": {"current": 1, "max": 5}},
         )
         resolution = {"success_level": "failure", "resolution_type": "dice", "effects": ["setback"]}
@@ -492,9 +492,9 @@ class TestCheckThresholds:
         events = engine.check_thresholds()
         assert events == []
 
-    def test_death_in_space_hp_threshold(self):
+    def test_sample_system_hp_threshold(self):
         engine = ResourceEngine(
-            DEATH_IN_SPACE_GAME_CONTEXT,
+            TEST_SCIFI_GAME_CONTEXT,
             {"HP": {"current": 1, "max": 10}},  # Only HP; stress, debt, shiphull not in ws
         )
         events = engine.check_thresholds()
@@ -504,9 +504,9 @@ class TestCheckThresholds:
         assert hp_events[0].threshold_value == 1
         assert "Disadvantage" in hp_events[0].effect
 
-    def test_death_in_space_stress_max_threshold(self):
+    def test_sample_system_stress_max_threshold(self):
         engine = ResourceEngine(
-            DEATH_IN_SPACE_GAME_CONTEXT,
+            TEST_SCIFI_GAME_CONTEXT,
             {"HP": {"current": 10, "max": 10}, "STR": {"current": 5, "max": 5}},
         )
         events = engine.check_thresholds()
@@ -517,7 +517,7 @@ class TestCheckThresholds:
 
     def test_debt_threshold(self):
         engine = ResourceEngine(
-            DEATH_IN_SPACE_GAME_CONTEXT,
+            TEST_SCIFI_GAME_CONTEXT,
             {"Debt": {"current": 3, "max": 10}},
         )
         events = engine.check_thresholds()
@@ -540,7 +540,7 @@ class TestCheckThresholds:
         # Only pass HP=5 — DiS has stress/debt/shiphull thresholds that fire when those
         # resources are absent (defaults to 0 ≤ threshold). Only test HP in isolation.
         engine = ResourceEngine(
-            DEATH_IN_SPACE_GAME_CONTEXT,
+            TEST_SCIFI_GAME_CONTEXT,
             {"HP": {"current": 5, "max": 10}},  # HP=5 is above threshold=1, no events
         )
         events = engine.check_thresholds()
@@ -555,7 +555,7 @@ class TestCheckThresholds:
 
 class TestApplyRecovery:
     def test_unknown_trigger_returns_empty(self):
-        engine = ResourceEngine(DEATH_IN_SPACE_GAME_CONTEXT, _ws(HP=5))
+        engine = ResourceEngine(TEST_SCIFI_GAME_CONTEXT, _ws(HP=5))
         deltas = engine.apply_recovery("Unknown Trigger XYZ")
         assert deltas == []
 
@@ -570,7 +570,7 @@ class TestApplyRecovery:
 
     def test_full_rest_diS(self):
         engine = ResourceEngine(
-            DEATH_IN_SPACE_GAME_CONTEXT,
+            TEST_SCIFI_GAME_CONTEXT,
             {"HP": {"current": 3, "max": 10}, "STR": {"current": 4, "max": 5}},
         )
         deltas = engine.apply_recovery("Full Rest")
@@ -582,7 +582,7 @@ class TestApplyRecovery:
 
     def test_breather_diS(self):
         engine = ResourceEngine(
-            DEATH_IN_SPACE_GAME_CONTEXT,
+            TEST_SCIFI_GAME_CONTEXT,
             {"HP": {"current": 3, "max": 10}, "STR": {"current": 3, "max": 5}},
         )
         deltas = engine.apply_recovery("Breather")
@@ -641,7 +641,7 @@ class TestResourceEngineFull:
 
     def test_diS_combat_turn(self):
         """
-        Simulate a Death in Space combat turn:
+        Simulate a Test Sci-Fi combat turn:
         - Player attacks, fails, earns stress
         - Then takes damage (HP drops to 1)
         - Thresholds fire for low HP
@@ -652,7 +652,7 @@ class TestResourceEngineFull:
             "STR": {"current": 2, "max": 5},
             "Debt": {"current": 0, "max": 10},
         }
-        engine = ResourceEngine(DEATH_IN_SPACE_GAME_CONTEXT, ws)
+        engine = ResourceEngine(TEST_SCIFI_GAME_CONTEXT, ws)
 
         # Apply earn on failure
         resolution = {"success_level": "failure", "resolution_type": "dice", "effects": ["setback"]}
@@ -664,7 +664,7 @@ class TestResourceEngineFull:
         assert ws["HP"]["current"] == 1
 
         # Check thresholds
-        engine2 = ResourceEngine(DEATH_IN_SPACE_GAME_CONTEXT, ws)
+        engine2 = ResourceEngine(TEST_SCIFI_GAME_CONTEXT, ws)
         events = engine2.check_thresholds()
         hp_events = [e for e in events if e.resource_key.lower() in ("hp",)]
         assert len(hp_events) == 1

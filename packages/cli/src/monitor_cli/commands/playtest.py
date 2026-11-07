@@ -131,7 +131,7 @@ def compare(
         case_sensitive=False,
     ),
     benchmark_id: str = typer.Option(
-        "death_in_space_onboarding_probe",
+        "narrative_weighted_derelict",
         "--benchmark",
         help="Configured benchmark flow to compare across runs",
     ),

@@ -45,7 +45,6 @@ def registry():
         "powered_by_the_apocalypse",
         "narrative_pure",
         "narrative_weighted",
-        "death_in_space",
         "mistlands_core",
     ],
 )
@@ -158,29 +157,6 @@ class TestSystemSpecificBehavior:
         assert len(approach_fields) >= 4, (
             f"Narrative Weighted should have 4 approaches (force/finesse/insight/presence), got: {field_names}"
         )
-
-    def test_death_in_space_derived_hp(self, registry):
-        """DIS character attributes are correctly configured.
-
-        Note: The JSON-loaded spec has different ranges than the handwritten DIS spec.
-        This test validates the JSON spec behavior (min=3 for attributes).
-        The handwritten DISCharacterSheet has different derived fields like max_hp.
-        """
-        from monitor_data.schemas.rpg_ontology import make_entity_model
-
-        model_cls = make_entity_model(registry.get("death_in_space"), "character")
-        # JSON spec: attributes have min=3, max=18 (like D&D)
-        sheet = model_cls.model_validate(
-            {
-                "character_name": "Zyx",
-                "body": 3,
-                "dexterity": 3,
-                "insight": 3,
-                "bravery": 3,
-                "charisma": 3,
-            }
-        )
-        assert sheet.body == 3, f"Expected body=3, got {sheet.body}"
 
 
 # ---------------------------------------------------------------------------

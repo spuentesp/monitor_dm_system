@@ -15,7 +15,6 @@ from typing import Any
 log = structlog.get_logger()
 
 _BENCHMARK_SYSTEM_FALLBACKS: dict[str, list[str]] = {
-    "death in space": ["Narrative Weighted", "Narrative Pure"],
     "lancer": ["Narrative Weighted", "Narrative Pure"],
     "monster of the week": ["Powered by the Apocalypse", "Narrative Weighted"],
     "motw": ["Powered by the Apocalypse", "Narrative Weighted"],

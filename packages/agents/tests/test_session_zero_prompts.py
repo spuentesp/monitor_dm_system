@@ -36,7 +36,7 @@ GOLDEN_INPUTS: list[dict[str, Any]] = [
     # ── Grim tone, first question → origin ──
     {
         "tone": "grim",
-        "system_name": "Death in Space",
+        "system_name": "Test Sci-Fi",
         "question_number": 1,
         "max_questions": 7,
         "prior_answers": [],
@@ -47,7 +47,7 @@ GOLDEN_INPUTS: list[dict[str, Any]] = [
     # ── Grim tone, after origin → loss ──
     {
         "tone": "grim",
-        "system_name": "Death in Space",
+        "system_name": "Test Sci-Fi",
         "question_number": 2,
         "max_questions": 7,
         "prior_answers": [
@@ -107,7 +107,7 @@ GOLDEN_INPUTS: list[dict[str, Any]] = [
     # ── Last question → is_final should be True ──
     {
         "tone": "grim",
-        "system_name": "Death in Space",
+        "system_name": "Test Sci-Fi",
         "question_number": 7,
         "max_questions": 7,
         "prior_answers": [
@@ -487,7 +487,7 @@ class TestFallbackSummary:
             },
             {"question": "Where are you from?", "answer": "Inauro station.", "category": "origin"},
         ]
-        summary = _fallback_summary("grim", "Death in Space", answers)
+        summary = _fallback_summary("grim", "Test Sci-Fi", answers)
         assert summary.character_name == "Silas"
         assert summary.concept
         assert summary.backstory
@@ -498,7 +498,7 @@ class TestFallbackSummary:
         answers = [
             {"question": "Where are you from?", "answer": "A mining colony.", "category": "origin"},
         ]
-        summary = _fallback_summary("grim", "Death in Space", answers)
+        summary = _fallback_summary("grim", "Test Sci-Fi", answers)
         assert summary.character_name is None
         assert summary.concept
         assert summary.backstory
@@ -506,7 +506,7 @@ class TestFallbackSummary:
     def test_fallback_summary_empty_answers(self):
         from monitor_agents.session_zero import _fallback_summary
 
-        summary = _fallback_summary("grim", "Death in Space", [])
+        summary = _fallback_summary("grim", "Test Sci-Fi", [])
         assert summary.character_name is None
         assert summary.concept
         assert summary.backstory
@@ -614,7 +614,7 @@ class TestUniverseAnchoring:
         ]
         result = ground_world_lore(
             original,
-            system_name="Death in Space",
+            system_name="Test Sci-Fi",
             system_context="",
         )
 
@@ -625,7 +625,7 @@ class TestUniverseAnchoring:
         # The anchor references the system_name and warns against
         # the specific anti-patterns the play log surfaced.
         anchor = result[-1]
-        assert "Death in Space" in anchor
+        assert "Test Sci-Fi" in anchor
         assert "tavern" in anchor.lower()
         assert "scar" in anchor.lower()
 
