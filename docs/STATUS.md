@@ -316,7 +316,11 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    The deterministic half now has that rate, measured hermetically against a
    synthetic narrative corpus: **0/12 false positives, 3/3 detections**
    (`canonkeeper/synthetic_corpus.py`, pinned by a test). The implication
-   half still needs a configured LLM provider.
+   check was then measured too (`qwen2.5:7b`): **0/16 false positives (0%)
+   but only 2/8 detections (25%)** — the FP gate is met, but the check misses
+   three out of four real contradictions, so hard rejection stays off and the
+   follow-up work is recall rather than enforcement. Record:
+   `docs/testing/canonkeeper_depth_measurement_2026-11-07.md`.
    `scripts/eval_canonkeeper_depth.py` now reports that rate for both checks
    (implication + deterministic rules) but still needs a populated universe to
    run against. Still open: switching Phase 3 on once measured.

@@ -733,10 +733,13 @@ switched on.
 Because the seeded universes are mechanical (see the product boundary above),
 the script also has a **hermetic** mode: `--synthetic` replays a hand-written
 narrative corpus (`canonkeeper/synthetic_corpus.py`) instead of a universe.
-The deterministic rules measure **0/12 false positives, 3/3 detections** on
-it (pinned by `packages/agents/tests/test_canonkeeper_synthetic_corpus.py`).
-The implication check is reported but skipped when no LLM provider is
-configured, so the rejection stays off pending that number.
+**Measured 2026-11-07** (`docs/testing/canonkeeper_depth_measurement_2026-11-07.md`):
+deterministic rules 0/12 false positives, 3/3 detected; implication check
+0/16 false positives (0%) but only 2/8 detections (25%) on `qwen2.5:7b`.
+The FP gate is met; the detection rate is the real blocker — the check is
+conservative to the point of missing three out of four real contradictions,
+so hard rejection would be safe *and useless*. It stays off; the follow-up
+work is recall (per-candidate vs batched checking), not enforcement.
 
 ---
 
