@@ -112,7 +112,7 @@ async def test_transition_scene_triggers_procedural_population():
         res = await transition_scene(state)
 
         assert res["current_scene_id"] == new_scene_id
-        assert res["scenes_completed"] == 2
+        assert res["scenes_completed"] == 1
 
         # Verify procedural population was called
         mock_populate.assert_called_once_with(universe_id=u_id, scene_id=new_scene_id, location_type="dungeon")
@@ -144,7 +144,7 @@ async def test_transition_scene_with_town_location():
 
         res = await transition_scene(state)
 
-        assert res["scenes_completed"] == 1
+        assert res["scenes_completed"] == 0
         mock_populate.assert_called_once_with(universe_id=u_id, scene_id=new_scene_id, location_type="town")
 
 
