@@ -499,11 +499,27 @@ model whose purpose is exactly those bindings. Net-new formalizes proven data.
   mounted at `/api/characters/templates` (list/create/get/update/delete) — a
   thin data-layer-direct wrapper over the tools, following the
   `canon_review.py` precedent.
-- **Still open:** Phase 2 (`backstory_beats`/`voice` in the persona seeding and
-  the CharacterEditor UI — the picker that surfaces a template's voice and beat
-  count, and the "create new template" affordance) and Phase 3 (instantiation
-  — drafting a player answer per creation step from the template, through the
-  existing `process_input` path). The API exists; no UI calls it yet.
+- **Still open:** Phase 3 — instantiating a template into a real character
+  per world (drafting a player answer per creation step through the existing
+  `process_input` path). A template is usable as a persona today (Phase 2);
+  what it does not yet do is drive the *mechanics* of character creation.
+
+**Status (2026-11-07): Phase 2 implemented — the fields, the editor, the picker.**
+- `CharacterCreate`/`CharacterUpdate` (UI backend) gained `voice` and
+  `backstory_beats`, so a persona carries the same voice and backstory the
+  templates do — one editor, no duplicated CRUD.
+- `_seed_answers_from_persona` now emits them: the voice becomes its own
+  seeded answer ("How do you speak?") and the backstory beats become one
+  ordered answer ("What happened before the story began?"), so Session Zero
+  stops re-interviewing what the author already wrote. A template's `concept`
+  seeds the origin answer when it has no `description`.
+- `CharacterEditor.tsx` gained the two fields (voice; backstory beats, one
+  beat per line).
+- The setup picker now lists templates next to personas, shows the selected
+  entry's voice and beat count, and offers "New character template"
+  (`TemplateEditor.tsx` → `POST /api/characters/templates`). A template
+  selected there seeds Session Zero exactly like a persona does.
+- Tests: 4 seeding cases + 1 picker case.
 
 ### Phase 2 — fields + UI polish
 

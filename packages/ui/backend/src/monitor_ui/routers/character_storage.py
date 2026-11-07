@@ -32,6 +32,8 @@ def create_character(data: dict[str, Any]) -> dict[str, Any]:
         "description": data.get("description", ""),
         "avatar_url": data.get("avatar_url"),
         "personality": data.get("personality", ""),
+        "voice": data.get("voice", ""),
+        "backstory_beats": list(data.get("backstory_beats") or []),
         "gm_notes": data.get("gm_notes", ""),
         "first_message": data.get("first_message", ""),
         "is_ooc_persona": data.get("is_ooc_persona", False),

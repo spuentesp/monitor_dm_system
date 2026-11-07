@@ -444,16 +444,21 @@ def _seed_answers_from_persona(persona: dict[str, Any]) -> list[dict[str, str]]:
     seed: list[dict[str, str]] = []
     name = str(persona.get("name") or "").strip()
     description = str(persona.get("description") or "").strip()
+    # A template carries its summary in `concept` (its `description` is empty);
+    # a persona carries it in `description`. Accept either.
+    concept = str(persona.get("concept") or "").strip()
     personality = str(persona.get("personality") or "").strip()
+    voice = str(persona.get("voice") or "").strip()
     first_message = str(persona.get("first_message") or "").strip()
+    backstory_beats = [str(beat).strip() for beat in (persona.get("backstory_beats") or []) if str(beat).strip()]
 
     if name:
         seed.append({"question": "What are you called?", "answer": name, "category": "name"})
-    if description:
+    if description or concept:
         seed.append(
             {
                 "question": "Who are you, in broad strokes?",
-                "answer": description,
+                "answer": description or concept,
                 "category": "origin",
             }
         )
@@ -463,6 +468,22 @@ def _seed_answers_from_persona(persona: dict[str, Any]) -> list[dict[str, str]]:
                 "question": "What are you like?",
                 "answer": personality,
                 "category": "custom",
+            }
+        )
+    if voice:
+        seed.append(
+            {
+                "question": "How do you speak?",
+                "answer": voice,
+                "category": "custom",
+            }
+        )
+    if backstory_beats:
+        seed.append(
+            {
+                "question": "What happened before the story began?",
+                "answer": "\n".join(f"- {beat}" for beat in backstory_beats),
+                "category": "background",
             }
         )
     if first_message:

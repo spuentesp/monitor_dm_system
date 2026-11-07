@@ -457,6 +457,10 @@ export interface StandaloneCharacter {
   gm_notes: string;
   first_message: string;
   is_ooc_persona: boolean;
+  // G-6 — the portable-template fields. A persona carries the same voice and
+  // backstory the templates do, so one editor serves both.
+  voice?: string;
+  backstory_beats?: string[];
   entity_id: string | null;
   // Character Versions: per-universe incarnations. Always present (defaults
   // to [] for legacy docs); see character_storage.add_version.
@@ -465,6 +469,45 @@ export interface StandaloneCharacter {
   memory_count: number;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * A portable character template (G-6 / P&F §6).
+ *
+ * Deliberately carries no stats, skills or world binding: a template says who
+ * a character *is*; the world they play in supplies the mechanics.
+ */
+export interface CharacterTemplate {
+  template_id: string;
+  name: string;
+  concept: string;
+  personality: string;
+  backstory_beats: string[];
+  voice: string;
+  portrait_url: string | null;
+  first_message: string;
+  gm_notes: string;
+  usage_count: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface CharacterTemplateCreate {
+  name: string;
+  concept?: string;
+  personality?: string;
+  backstory_beats?: string[];
+  voice?: string;
+  portrait_url?: string | null;
+  first_message?: string;
+  gm_notes?: string;
+}
+
+export interface CharacterTemplateListResponse {
+  templates: CharacterTemplate[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface PaginatedNPCs {

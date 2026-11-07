@@ -2,12 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus } from "lucide-react";
-import { entitiesApi, universesApi, chatApi } from "@/lib/api";
+import { characterTemplatesApi, entitiesApi, universesApi, chatApi } from "@/lib/api";
 import { useSystems } from "@/hooks/use-systems";
 import { PLAY_KEYS, UNIVERSE_KEYS } from "@/lib/query-keys";
-import type { Character, PlaytestBenchmark, StandaloneCharacter } from "@/lib/types";
+import type {
+  Character,
+  CharacterTemplate,
+  PlaytestBenchmark,
+  StandaloneCharacter,
+} from "@/lib/types";
+import { TemplateEditor } from "@/components/play/TemplateEditor";
 import { cn } from "@/lib/utils";
 
 const TONES = ["dramatic", "grim", "horror", "heroic", "mystery", "adventure"] as const;
@@ -74,6 +80,8 @@ export function SetupPanel({
   const [selectedSystemId, setSelectedSystemId] = useState<string>("");
   const [selectedCharacterId, setSelectedCharacterId] = useState<string>("");
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>("");
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
+  const queryClient = useQueryClient();
   const [selectedBenchmarkId, setSelectedBenchmarkId] = useState<string>("");
 
   const { data: multiverses = [], isLoading: multiversesLoading } = useQuery({
@@ -103,6 +111,13 @@ export function SetupPanel({
   const { data: personas = [], isLoading: personasLoading } = useQuery<StandaloneCharacter[]>({
     queryKey: PLAY_KEYS.personas,
     queryFn: () => entitiesApi.listStandaloneCharacters({ limit: 100 }),
+  });
+
+  // G-6 — portable character templates. They live in the same collection as
+  // personas, so a template can seed Session Zero exactly like a persona does.
+  const { data: templates = [], isLoading: templatesLoading } = useQuery<CharacterTemplate[]>({
+    queryKey: PLAY_KEYS.characterTemplates,
+    queryFn: async () => (await characterTemplatesApi.list({ limit: 100 })).templates,
   });
 
   useEffect(() => {
@@ -140,6 +155,10 @@ export function SetupPanel({
   const selectedSystem = systems.find((s) => s.id === selectedSystemId);
   const selectedCharacter = characters.find((c) => c.id === selectedCharacterId);
   const selectedPersona = personas.find((p) => p.id === selectedPersonaId);
+  const selectedTemplate = templates.find((t) => t.template_id === selectedPersonaId);
+  const selectedVoice = selectedPersona?.voice ?? selectedTemplate?.voice ?? "";
+  const selectedBeatCount =
+    selectedPersona?.backstory_beats?.length ?? selectedTemplate?.backstory_beats.length ?? 0;
   const selectedBenchmark = benchmarks.find((b) => b.benchmark_id === selectedBenchmarkId);
 
   useEffect(() => {
@@ -377,7 +396,7 @@ export function SetupPanel({
           className="input-cyber w-full"
           value={selectedPersonaId}
           onChange={(e) => setSelectedPersonaId(e.target.value)}
-          disabled={personasLoading || !!selectedCharacterId}
+          disabled={personasLoading || templatesLoading || !!selectedCharacterId}
         >
           <option value="">Create a new character in Session Zero</option>
           {personas.map((persona) => (
@@ -385,7 +404,29 @@ export function SetupPanel({
               {persona.name}
             </option>
           ))}
+          {templates.map((template) => (
+            <option key={template.template_id} value={template.template_id}>
+              {template.name} (template)
+            </option>
+          ))}
         </select>
+        <button
+          type="button"
+          onClick={() => setShowTemplateEditor(true)}
+          className="text-[10px] text-slate-500 hover:text-cyan-300 transition-colors flex items-center gap-1 self-start"
+        >
+          <Plus className="w-3 h-3" />
+          New character template
+        </button>
+        {(selectedVoice || selectedBeatCount > 0) && (
+          <p className="text-[10px] text-slate-500" data-testid="persona-template-summary">
+            {selectedVoice ? `Voice: ${selectedVoice}` : ""}
+            {selectedVoice && selectedBeatCount > 0 ? " · " : ""}
+            {selectedBeatCount > 0
+              ? `${selectedBeatCount} backstory beat${selectedBeatCount === 1 ? "" : "s"}`
+              : ""}
+          </p>
+        )}
         {selectedCharacterId ? (
           <p className="text-[10px] text-slate-500">
             A Controlled PC is already selected above and starts play immediately — clear it to play as a persona instead.
@@ -467,6 +508,16 @@ export function SetupPanel({
           Manage Worlds
         </Link>
       </div>
+
+      {showTemplateEditor && (
+        <TemplateEditor
+          onClose={() => setShowTemplateEditor(false)}
+          onCreated={(template) => {
+            queryClient.invalidateQueries({ queryKey: PLAY_KEYS.characterTemplates });
+            setSelectedPersonaId(template.template_id);
+          }}
+        />
+      )}
     </div>
   );
 }

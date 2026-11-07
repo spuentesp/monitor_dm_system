@@ -86,6 +86,50 @@ class TestSeedAnswersFromPersona:
             assert entry["answer"]
             assert entry["category"]
 
+    def test_seeds_voice_and_backstory_beats(self):
+        """G-6 Phase 2: the portable-template fields seed Session Zero too."""
+        persona = {
+            "name": "Rook",
+            "description": "A scavenger.",
+            "personality": "Guarded.",
+            "voice": "Speaks in clipped, wary sentences.",
+            "backstory_beats": ["Lost a city to a bargain", "Never pays his debts"],
+        }
+        seed = _seed_answers_from_persona(persona)
+
+        answers = [a["answer"] for a in seed]
+        assert any("clipped, wary sentences" in answer for answer in answers)
+        # The beats are seeded as one ordered answer.
+        beats = next((a for a in seed if a["category"] == "background"), None)
+        assert beats is not None
+        assert "Lost a city to a bargain" in beats["answer"]
+        assert "Never pays his debts" in beats["answer"]
+
+    def test_template_concept_seeds_the_origin_answer(self):
+        """A template carries its summary in `concept`, not `description`."""
+        template = {
+            "name": "Varys",
+            "concept": "A spymaster who is never where you expect",
+            "personality": "Charming.",
+            "voice": "Speaks in parables.",
+        }
+        seed = _seed_answers_from_persona(template)
+
+        answers_by_category = {a["category"]: a["answer"] for a in seed}
+        assert answers_by_category["origin"] == "A spymaster who is never where you expect"
+        assert any("parables" in a["answer"] for a in seed)
+
+    def test_description_wins_over_concept(self):
+        persona = {
+            "name": "Rook",
+            "description": "A scavenger from the ash flats.",
+            "concept": "A template concept",
+        }
+        seed = _seed_answers_from_persona(persona)
+
+        answers_by_category = {a["category"]: a["answer"] for a in seed}
+        assert answers_by_category["origin"] == "A scavenger from the ash flats."
+
 
 # =============================================================================
 # persist_session_character — source_persona_id back-reference

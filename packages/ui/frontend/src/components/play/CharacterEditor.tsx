@@ -30,6 +30,11 @@ export function CharacterEditor({ character, onClose }: CharacterEditorProps) {
   const [description, setDescription] = useState(character?.description ?? "");
   const [avatarUrl, setAvatarUrl] = useState(character?.avatar_url ?? "");
   const [personality, setPersonality] = useState(character?.personality ?? "");
+  // G-6 — the portable-template fields a persona can carry.
+  const [voice, setVoice] = useState(character?.voice ?? "");
+  const [backstoryBeats, setBackstoryBeats] = useState(
+    (character?.backstory_beats ?? []).join("\n"),
+  );
   const [gmNotes, setGmNotes] = useState(character?.gm_notes ?? "");
   const [firstMessage, setFirstMessage] = useState(character?.first_message ?? "");
   const [isOocPersona, setIsOocPersona] = useState(character?.is_ooc_persona ?? false);
@@ -51,6 +56,12 @@ export function CharacterEditor({ character, onClose }: CharacterEditorProps) {
   const handleSubmit = useCallback(() => {
     if (!name.trim()) return;
 
+    // One beat per line — the editor keeps the list flat and editable.
+    const beats = backstoryBeats
+      .split("\n")
+      .map((beat) => beat.trim())
+      .filter(Boolean);
+
     if (isEdit && character) {
       updateMutation.mutate({
         id: character.id,
@@ -59,6 +70,8 @@ export function CharacterEditor({ character, onClose }: CharacterEditorProps) {
           description,
           avatar_url: avatarUrl || null,
           personality,
+          voice,
+          backstory_beats: beats,
           gm_notes: gmNotes,
           first_message: isOocPersona ? firstMessage : undefined,
           is_ooc_persona: isOocPersona,
@@ -70,14 +83,16 @@ export function CharacterEditor({ character, onClose }: CharacterEditorProps) {
         description,
         avatar_url: avatarUrl || null,
         personality,
+        voice,
+        backstory_beats: beats,
         gm_notes: gmNotes,
         first_message: isOocPersona ? firstMessage : undefined,
         is_ooc_persona: isOocPersona,
       });
     }
   }, [
-    name, description, avatarUrl, personality, gmNotes, firstMessage, isOocPersona,
-    isEdit, character, createMutation, updateMutation,
+    name, description, avatarUrl, personality, voice, backstoryBeats, gmNotes,
+    firstMessage, isOocPersona, isEdit, character, createMutation, updateMutation,
   ]);
 
   return (
@@ -163,6 +178,37 @@ export function CharacterEditor({ character, onClose }: CharacterEditorProps) {
               rows={2}
               className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 resize-none focus:outline-none focus:border-cyan-500/30"
             />
+          </div>
+
+          {/* Voice (G-6 — portable-template field) */}
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 block">
+              Voice
+            </label>
+            <textarea
+              value={voice}
+              onChange={(e) => setVoice(e.target.value)}
+              placeholder="How they speak — tone, cadence, verbal tics..."
+              rows={2}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 resize-none focus:outline-none focus:border-cyan-500/30"
+            />
+          </div>
+
+          {/* Backstory beats (G-6 — portable-template field), one per line */}
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 block">
+              Backstory Beats
+            </label>
+            <textarea
+              value={backstoryBeats}
+              onChange={(e) => setBackstoryBeats(e.target.value)}
+              placeholder={"One beat per line\nLost a city to a bargain\nNever pays his debts"}
+              rows={3}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 resize-none focus:outline-none focus:border-cyan-500/30"
+            />
+            <p className="text-[10px] text-slate-600 mt-1">
+              Beats pre-fill Session Zero instead of re-interviewing the player.
+            </p>
           </div>
 
           {/* GM Notes / Author's Note */}

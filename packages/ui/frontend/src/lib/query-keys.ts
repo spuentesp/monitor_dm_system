@@ -25,6 +25,7 @@ export const PLAY_KEYS = {
   universes: (multiverseId?: string) => ["play-universes", multiverseId] as const,
   characters: (systemId?: string) => ["play-characters", systemId] as const,
   personas: ["play-personas"] as const,
+  characterTemplates: ["play-character-templates"] as const,
   recap: (sessionId: string) => ["session-recap", sessionId] as const,
 };
 

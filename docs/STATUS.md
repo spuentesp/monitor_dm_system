@@ -254,9 +254,13 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    explicitly no stats/skills/world binding) plus create/get/list/update/
    delete/usage tools registered as MCP tools, stored in the existing
    `characters` collection with an `is_template` marker and excluded from the
-   character list; HTTP surface at `/api/characters/templates`. Still open: Phase 2 (persona seeding + CharacterEditor
-   fields + the template picker) and Phase 3 (per-world instantiation —
-   drafting a player answer per creation step).
+   character list; HTTP surface at `/api/characters/templates`. **Phase 2
+   shipped 2026-11-07**: personas carry the same `voice`/`backstory_beats`
+   fields, Session Zero seeds from them (plus a template's `concept`), the
+   CharacterEditor edits them, and the setup picker offers templates with
+   their voice and beat count plus a "New character template" flow. Still
+   open: Phase 3 (per-world instantiation — drafting a player answer per
+   creation step, so a template drives the mechanics, not just the prose).
    (`EntityTemplate` is NPC-generation only and stays separate.)
 6. **Autonomous PC (PC-Agent)** — no implementation. (The P-21 ID was reused for
    downtime/progression, which shipped.)

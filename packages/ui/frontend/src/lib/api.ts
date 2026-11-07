@@ -4,6 +4,9 @@ import type {
   BatchVerdictResponse,
   CanonQueue,
   ChangeLogListResponse,
+  CharacterTemplate,
+  CharacterTemplateCreate,
+  CharacterTemplateListResponse,
   DatabaseStatus,
   IngestJob,
   IngestJobReview,
@@ -1092,6 +1095,9 @@ export const entitiesApi = {
     description?: string;
     avatar_url?: string | null;
     personality?: string;
+    // G-6 — the portable-template fields.
+    voice?: string;
+    backstory_beats?: string[];
     gm_notes?: string;
     first_message?: string;
     is_ooc_persona?: boolean;
@@ -1651,6 +1657,31 @@ export const templatesApi = {
 };
 
 // ─── Random Tables (M-33, DL-21) ────────────────────────────
+
+/**
+ * Portable character templates (G-6 / P&F §6).
+ *
+ * A template is a user-library document: who a player character is, without
+ * the mechanics of any particular world.
+ */
+export const characterTemplatesApi = {
+  list: (params?: { name_contains?: string; limit?: number; offset?: number }) =>
+    req<CharacterTemplateListResponse>("/characters/templates", {
+      query: params as Record<string, string | number | undefined>,
+    }),
+  create: (data: CharacterTemplateCreate) =>
+    req<CharacterTemplate>("/characters/templates", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  get: (id: string) => req<CharacterTemplate>(`/characters/templates/${id}`),
+  update: (id: string, data: Partial<CharacterTemplateCreate>) =>
+    req<CharacterTemplate>(`/characters/templates/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  remove: (id: string) => req<void>(`/characters/templates/${id}`, { method: "DELETE" }),
+};
 
 export const randomTablesApi = {
   list: (universeId?: string, tableType?: string, limit = 50, offset = 0) => {

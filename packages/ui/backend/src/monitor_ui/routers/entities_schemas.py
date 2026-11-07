@@ -229,6 +229,16 @@ class CharacterCreate(BaseModel):
         default=False,
         description="If True, this character is a bare AI persona (no memory/world context in OOC mode)",
     )
+    # G-6 Phase 2 — the portable-template fields. A persona carries the same
+    # voice and backstory the templates do, so one editor serves both.
+    voice: str = Field(
+        default="",
+        description="How the character speaks — tone, cadence, verbal tics",
+    )
+    backstory_beats: list[str] = Field(
+        default_factory=list,
+        description="Ordered backstory beats — the events that shaped this character",
+    )
 
 
 class CharacterUpdate(BaseModel):
@@ -241,6 +251,9 @@ class CharacterUpdate(BaseModel):
     gm_notes: str | None = None
     first_message: str | None = None
     is_ooc_persona: bool | None = None
+    # G-6 Phase 2 — the portable-template fields.
+    voice: str | None = None
+    backstory_beats: list[str] | None = None
 
 
 class CharacterDetail(CharacterCreate):
