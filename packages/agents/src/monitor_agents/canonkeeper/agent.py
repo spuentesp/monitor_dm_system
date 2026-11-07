@@ -1874,6 +1874,37 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         proposal["review_reason"] = violation.reason
         proposal["review_source"] = f"transition_rule:{violation.rule}"
 
+    def _transition_violation_verdict(
+        self,
+        proposal: dict[str, Any],
+        violation: TransitionViolation,
+    ) -> CanonKeeperVerdict | None:
+        """
+        Build the REJECTED verdict for a deterministic transition violation (G-9 Phase 3).
+
+        Returns None when rejection is disabled — the caller then flags the
+        proposal for a human instead (Phase 2 behaviour). Rejection is opt-in
+        (``CANONKEEPER_REJECT_TRANSITION_VIOLATIONS``): the rules are
+        deterministic, but the tag vocabulary reaching them is game-system- and
+        GM-driven, so the false-positive rate has to be measured before it can
+        block anything.
+        """
+        from monitor_data.config import settings
+
+        if not settings.canonkeeper_reject_transition_violations:
+            return None
+        return CanonKeeperVerdict(
+            proposal_id=str(proposal.get("proposal_id") or "unknown"),
+            decision=CanonKeeperDecision.REJECTED,
+            reasoning=(
+                f"Impossible state transition ({violation.rule}): {violation.reason} "
+                "A proposal may carry an explicit override_reason to legalise the transition."
+            ),
+            canon_node_type=proposal.get("change_type", "unknown"),
+            canon_properties={},
+            decided_at=datetime.now(UTC),
+        )
+
     async def _evaluate_single(
         self,
         proposal: dict[str, Any],
@@ -1900,6 +1931,17 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 canon_properties={},
                 decided_at=datetime.now(UTC),
             )
+
+        # Phase 1.6 — deterministic state-transition rules (G-9 Phase 2/3).
+        # Pure Python, no LLM. Advisory by default: the proposal is flagged for
+        # a human. With CANONKEEPER_REJECT_TRANSITION_VIOLATIONS on, a
+        # deterministic violation is rejected outright (Phase 3) — off until
+        # its false-positive rate has been measured.
+        transition_violation = await self._check_state_transition_rules(proposal)
+        if transition_violation is not None:
+            rejection = self._transition_violation_verdict(proposal, transition_violation)
+            if rejection is not None:
+                return rejection
 
         # Phase 1.5 — contradiction detection (Temporal & Contradiction Gap)
         # Check if this proposal contradicts existing canon before proceeding
@@ -1964,13 +2006,11 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             max_tokens=1024,
         )
 
-        # Phase 3.5 — deterministic state-transition rules (G-9 Phase 2).
-        # Pure Python, flag-only: the verdict stays the model's call, but the
-        # proposal is stamped so a human sees it in the review queue.
-        violation = await self._check_state_transition_rules(proposal)
-        if violation is not None:
-            await self._flag_proposal_for_review(proposal, violation)
-            verdict.reasoning = f"{verdict.reasoning}\n\n[FLAGGED FOR REVIEW] {violation.reason}"
+        # Phase 3.5 — stamp the deterministic transition violation for a human.
+        # (In rejection mode the proposal never reached this point.)
+        if transition_violation is not None:
+            await self._flag_proposal_for_review(proposal, transition_violation)
+            verdict.reasoning = f"{verdict.reasoning}\n\n[FLAGGED FOR REVIEW] {transition_violation.reason}"
 
         return verdict
 

@@ -114,6 +114,103 @@ def _collect_candidates(
     return statements, stats
 
 
+def _collect_state_change_proposals(
+    universe_id: UUID,
+    status: str,
+    limit: int,
+    scene_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Collect committed state-change proposals for the transition-rule replay."""
+    mdb = get_mongodb_client()
+    coll = mdb.get_collection("proposed_changes")
+    collected: list[dict[str, Any]] = []
+    for doc in coll.find({"status": status, "change_type": "state_change"}):
+        content = doc.get("content") or {}
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except json.JSONDecodeError:
+                content = {}
+        if not isinstance(content, dict):
+            continue
+        owner = _proposal_universe(doc, scene_map)
+        if owner is not None and owner != str(universe_id):
+            continue
+        entity_id = content.get("entity_id")
+        add_tags = content.get("add_tags") or content.get("condition_tags") or []
+        remove_tags = content.get("remove_tags") or []
+        if not entity_id or not (add_tags or remove_tags):
+            continue
+        collected.append(
+            {
+                "proposal_id": str(doc.get("proposal_id") or ""),
+                "entity_id": str(entity_id),
+                "add_tags": [str(t) for t in add_tags],
+                "remove_tags": [str(t) for t in remove_tags],
+                "override_reason": content.get("override_reason"),
+            }
+        )
+        if len(collected) >= limit:
+            break
+    return collected
+
+
+async def _replay_transition_rules(
+    keeper: Any,
+    universe_id: UUID,
+    proposals: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Run the deterministic transition rules over committed state changes."""
+    from monitor_agents.canonkeeper.transition_rules import check_state_transition
+
+    violations: list[dict[str, Any]] = []
+    for proposal in proposals:
+        try:
+            raw = await keeper.call_tool(
+                "neo4j_get_state_tags", {"entity_id": proposal["entity_id"]}
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: an unreadable entity is skipped, not fatal
+            print(
+                f"warning: could not read state tags for {proposal['entity_id']}: {exc}",
+                file=sys.stderr,
+            )
+            continue
+        current_tags: list[str] = []
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                raw = []
+        if isinstance(raw, dict):
+            raw = raw.get("state_tags") or []
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, str):
+                    current_tags.append(item)
+                elif isinstance(item, dict) and (item.get("tag") or item.get("value")):
+                    current_tags.append(str(item.get("tag") or item.get("value")))
+
+        violation = check_state_transition(
+            current_tags=current_tags,
+            add_tags=proposal["add_tags"],
+            remove_tags=proposal["remove_tags"],
+            override_reason=proposal.get("override_reason"),
+        )
+        if violation is not None:
+            violations.append(
+                {
+                    "proposal_id": proposal["proposal_id"],
+                    "entity_id": proposal["entity_id"],
+                    "current_tags": current_tags,
+                    "add_tags": proposal["add_tags"],
+                    "remove_tags": proposal["remove_tags"],
+                    "rule": violation.rule,
+                    "reason": violation.reason,
+                }
+            )
+    return violations
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--universe-id", required=True, help="Universe whose canon is the context")
@@ -152,7 +249,9 @@ async def main() -> int:
             file=sys.stderr,
         )
 
-    if not statements:
+    if not statements and not _collect_state_change_proposals(
+        universe_id, args.status, args.limit, scene_map
+    ):
         print("\nNo known-good candidates to replay. Nothing measured.")
         return 2
 
@@ -170,6 +269,30 @@ async def main() -> int:
         print(f"implications: {flag['implications']}")
         print(f"type/severity: {flag['contradiction_type']} / {flag['severity']}")
 
+    # ── The deterministic transition rules (G-9 Phase 2/3) ──────────────
+    # Same principle: committed state changes are known-good, so any rule
+    # violation raised against them is a false positive by construction.
+    state_changes = _collect_state_change_proposals(universe_id, args.status, args.limit, scene_map)
+    print(f"\nState changes replayed: {len(state_changes)} (deterministic transition rules)")
+    transition_violations = (
+        await _replay_transition_rules(keeper, universe_id, state_changes) if state_changes else []
+    )
+    if state_changes:
+        t_rate = len(transition_violations) / len(state_changes)
+        print(
+            f"Transition-rule violations: {len(transition_violations)} / "
+            f"{len(state_changes)}  (FP rate {t_rate:.1%})"
+        )
+        for violation in transition_violations[: args.sample]:
+            print("\n--- sample violation ---")
+            print(f"entity    : {violation['entity_id']}")
+            print(f"current   : {violation['current_tags']}")
+            print(f"add/remove: {violation['add_tags']} / {violation['remove_tags']}")
+            print(f"rule      : {violation['rule']}")
+            print(f"reason    : {violation['reason']}")
+    else:
+        t_rate = 0.0
+
     if args.json_out:
         report = {
             "universe_id": str(universe_id),
@@ -179,6 +302,10 @@ async def main() -> int:
             "false_positive_rate": rate,
             "scanned": stats,
             "samples": flags[: args.sample],
+            "state_changes_replayed": len(state_changes),
+            "transition_violations": len(transition_violations),
+            "transition_false_positive_rate": t_rate,
+            "transition_samples": transition_violations[: args.sample],
         }
         Path(args.json_out).write_text(json.dumps(report, indent=2), encoding="utf-8")
         print(f"\nJSON report written to {args.json_out}")

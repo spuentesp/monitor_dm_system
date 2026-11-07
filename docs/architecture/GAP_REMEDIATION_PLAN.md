@@ -475,6 +475,7 @@ model whose purpose is exactly those bindings. Net-new formalizes proven data.
   raw dicts to the new tools (API shape stable).
 - Tests: FakeMCPClient pattern (`tests/conftest.py:165`).
 
+
 ### Phase 2 — fields + UI polish
 
 - Add `backstory_beats`/`voice` to `_seed_answers_from_persona` emissions.
@@ -601,6 +602,30 @@ readable via `neo4j_get_state_tags`.
 Enable REJECTED verdicts for transition-rule violations first (deterministic, low FP
 risk). Implication-level stays flag-only until Phase 1 replay shows FP < 5% on
 committed proposals with manual spot-check confirmation.
+
+**Status (2026-11-07): implemented, opt-in, and still off.** The rejection path
+exists (`CanonKeeper._transition_violation_verdict`, gated on
+`CANONKEEPER_REJECT_TRANSITION_VIOLATIONS`, default **false**) and fires
+*before* the LLM verdict — a deterministic violation needs no reasoning, so a
+rejection costs no model call. The setting stays off until the false-positive
+rate is measured.
+
+**A correction to this plan's premise.** The plan treated the deterministic
+rules as "low FP risk" *because* they are deterministic. The rules are
+deterministic; the tag vocabulary reaching them is not. In the current
+codebase the vital-state tags (`alive`, `dead`) are only written by the Forge
+entity inspector — a GM's own edit — while the play loop writes dispositions
+(`hostile`/`friendly`/`neutral`) and game-system condition names. So the rules
+are near-dormant in the play loop: an unmeasured hard reject has no upside
+today and a real blast radius if vital-state automation ever lands. Opt-in,
+not on.
+
+The measurement script now covers the deterministic rules too:
+`scripts/eval_canonkeeper_depth.py` replays committed **state-change**
+proposals through the transition rules and reports their violation rate — the
+same "every flag on committed material is an FP by construction" logic as the
+implication check. One script, two numbers, both needed before Phase 3 is
+switched on.
 
 ---
 

@@ -284,8 +284,14 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    hatch) stamp `needs_review`/`review_reason` on the proposal through a
    CanonKeeper-only MCP tool; the shared review model, the review workbench and
    the canon-review panel render a "Needs review" badge, and the workbench
-   filters flagged proposals (`?review=flagged`). Still open: Phase 3 (hard
-   rejection, gated on the measured FP rate).
+   filters flagged proposals (`?review=flagged`). Phase 3 (hard rejection) is
+   implemented but **opt-in and off** (`CANONKEEPER_REJECT_TRANSITION_VIOLATIONS`,
+   default false) — the rules are deterministic but the tag vocabulary reaching
+   them is GM/game-system driven, and the rules are near-dormant in the play
+   loop, so the rejection path waits for the measured false-positive rate.
+   `scripts/eval_canonkeeper_depth.py` now reports that rate for both checks
+   (implication + deterministic rules) but still needs a populated universe to
+   run against. Still open: switching Phase 3 on once measured.
 
 ## Latency
 

@@ -10,13 +10,14 @@ Covers:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
 
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_agents.canonkeeper.transition_rules import (
+    TransitionViolation,
     check_state_transition,
 )
 
@@ -178,3 +179,33 @@ class TestTransitionRuleWiring:
         )
 
         assert "needs_review" not in proposal
+
+
+class TestTransitionRejectionOptIn:
+    """G-9 Phase 3 — hard rejection is opt-in and off by default."""
+
+    def _violation(self) -> TransitionViolation:
+        return TransitionViolation(rule="terminal_tag_agency", reason="a dead entity acts")
+
+    def test_no_verdict_when_rejection_is_disabled(self):
+        keeper = CanonKeeper()
+        with patch("monitor_data.config.settings.canonkeeper_reject_transition_violations", False):
+            assert keeper._transition_violation_verdict({"proposal_id": "p1"}, self._violation()) is None
+
+    def test_rejected_verdict_when_rejection_is_enabled(self):
+        keeper = CanonKeeper()
+        proposal = _state_change_proposal(entity_id="e-1", add_tags=["alive"], remove_tags=[])
+        with patch("monitor_data.config.settings.canonkeeper_reject_transition_violations", True):
+            verdict = keeper._transition_violation_verdict(proposal, self._violation())
+
+        assert verdict is not None
+        assert verdict.decision.value == "rejected"
+        assert "terminal_tag_agency" in verdict.reasoning
+        # The escape hatch has to be named, or a GM cannot legalise the fiction.
+        assert "override_reason" in verdict.reasoning
+
+    def test_rejection_is_off_by_default(self):
+        from monitor_data.config import Settings
+
+        field = Settings.model_fields["canonkeeper_reject_transition_violations"]
+        assert field.default is False

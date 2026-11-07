@@ -262,6 +262,18 @@ class Settings(BaseSettings):
         alias="CANONKEEPER_IMPLICATION_CHUNK_SIZE",
         description="Candidate statements per implication-check LLM call.",
     )
+    # G-9 Phase 3 — turn the deterministic transition-rule violations into
+    # outright rejections. Off by default: the rules are deterministic, but the
+    # tag vocabulary reaching them is game-system- and GM-driven, so the
+    # false-positive rate has to be measured before it can block anything.
+    canonkeeper_reject_transition_violations: bool = Field(
+        default=False,
+        alias="CANONKEEPER_REJECT_TRANSITION_VIOLATIONS",
+        description=(
+            "Reject proposals that violate the deterministic state-transition "
+            "rules. When off, violations are flagged for review instead."
+        ),
+    )
 
 
 @lru_cache(maxsize=1)
