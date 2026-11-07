@@ -369,12 +369,15 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
 
     for npc_id in state.npc_ids:
         try:
+            # Each NPC hears the replies the others already gave this round,
+            # so a group answers as a group instead of in isolation.
+            conversation_history = [*prior_turns, *new_turns[len(state.turns) :]]
             if state.mode == ConversationMode.DIRECT:
                 result = await agent.respond_direct(
                     conversation_id=state.conversation_id,
                     npc_id=npc_id,
                     player_said=state.current_player_input,
-                    conversation_history=[*prior_turns, *new_turns[len(state.turns) :]],
+                    conversation_history=conversation_history,
                     player_entity_id=state.player_entity_id,
                     scene_id=state.scene_id,
                     story_id=state.story_id,
@@ -445,7 +448,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     conversation_id=state.conversation_id,
                     npc_id=npc_id,
                     gm_question=state.current_player_input,
-                    conversation_history=[*prior_turns, *new_turns[len(state.turns) :]],
+                    conversation_history=conversation_history,
                     source_profile=state.source_profile,
                     npc_data=state.npc_contexts.get(str(npc_id)),
                 )
