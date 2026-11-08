@@ -96,13 +96,6 @@ class Settings(BaseSettings):
     minio_region: str = Field(default="us-east-1", alias="MINIO_REGION")
 
     # -------------------------------------------------------------------------
-    # OpenSearch
-    # -------------------------------------------------------------------------
-    opensearch_url: str = Field(default="http://localhost:9200", alias="OPENSEARCH_URL")
-    opensearch_user: str | None = Field(default=None, alias="OPENSEARCH_USER")
-    opensearch_password: str | None = Field(default=None, alias="OPENSEARCH_PASSWORD")
-
-    # -------------------------------------------------------------------------
     # Redis (optional runtime cache / pub-sub)
     # -------------------------------------------------------------------------
     redis_url: str | None = Field(default="redis://localhost:6379/0", alias="REDIS_URL")

@@ -49,7 +49,7 @@ class IndexedBy(StrEnum):
     FORMAL_INDEX = "formal_index"  # DB-level index exists
     PRIMARY_KEY = "primary_key"  # PK / unique key
     NO_INDEX = "no_index"  # no index — sequential scan only
-    VECTOR = "vector"  # vector ANN index (Qdrant / OpenSearch)
+    VECTOR = "vector"  # vector ANN index (Qdrant)
 
 
 class CollectionSpec(BaseModel):
@@ -620,27 +620,6 @@ MONITOR_TOPOLOGY = DataTopology(
                     has_mcp_tools=True,
                 ),
             ],
-        ),
-        # ── OpenSearch ───────────────────────────────────────────────────
-        StorageNode(
-            backend=StorageBackend.OPENSEARCH,
-            technology="OpenSearch 2.11.1",
-            docker_service="opensearch",
-            default_port=9200,
-            is_active=False,
-            is_deployed=True,
-            description=(
-                "Full-text search engine. DEPLOYED but NOT ACTIVE — "
-                "zero MCP tools, zero index creation, zero query usage."
-            ),
-            collections=[],
-            notes=(
-                "GAP: OpenSearch is running in docker-compose but the codebase "
-                "has no MCP tools targeting it. world_db_bindings tracks an "
-                "opensearch_index_prefix column but it is never used. "
-                "Potential uses: full-text search over scenes/turns, "
-                "faceted entity search, log analytics."
-            ),
         ),
     ],
     # ── Cross-store data edges ────────────────────────────────────────────

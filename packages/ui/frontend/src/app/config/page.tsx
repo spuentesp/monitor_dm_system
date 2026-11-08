@@ -1070,7 +1070,6 @@ const DB_META: Record<
   mongodb: { label: "MongoDB", role: "Narrative & Proposals", accent: "text-emerald-300", border: "border-emerald-500/20", bg: "bg-emerald-500/5" },
   qdrant: { label: "Qdrant", role: "Semantic Vectors", accent: "text-purple-300", border: "border-purple-500/20", bg: "bg-purple-500/5" },
   minio: { label: "MinIO", role: "Object Storage", accent: "text-amber-300", border: "border-amber-500/20", bg: "bg-amber-500/5" },
-  opensearch: { label: "OpenSearch", role: "Full-Text Search", accent: "text-sky-300", border: "border-sky-500/20", bg: "bg-sky-500/5" },
 };
 
 function DBCard({ db }: { db: DatabaseStatus }) {

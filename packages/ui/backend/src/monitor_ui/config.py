@@ -54,9 +54,6 @@ class UISettings(BaseSettings):
     postgres_password: str = Field(default="", alias="POSTGRES_PASSWORD")
     postgres_db: str = Field(default="monitor", alias="POSTGRES_DB")
 
-    # OpenSearch
-    opensearch_url: str = Field(default="http://localhost:9200", alias="OPENSEARCH_URL")
-
     # LLM
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")

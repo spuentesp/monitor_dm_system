@@ -108,7 +108,6 @@ class StorageBackend(StrEnum):
     QDRANT = "qdrant"
     MINIO = "minio"
     POSTGRES = "postgres"
-    OPENSEARCH = "opensearch"
 
 
 class RelationCardinality(StrEnum):

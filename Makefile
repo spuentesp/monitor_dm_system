@@ -152,9 +152,13 @@ dev-status:
 # scripts/lib/compose_helpers.sh and are sourced by both `dev.sh` and these
 # targets so there is a single source of truth for compose orchestration.
 
-INFRA_SERVICES := neo4j mongodb qdrant minio postgres redis opensearch
-INFRA_PORTS    := 7687:Neo4j 27017:MongoDB 5432:Postgres 6333:Qdrant 9000:MinIO 6379:Redis 9200:OpenSearch
+INFRA_SERVICES := neo4j mongodb qdrant minio postgres redis
+INFRA_PORTS    := 7687:Neo4j 27017:MongoDB 5432:Postgres 6333:Qdrant 9000:MinIO 6379:Redis
 COMPOSE_CMD    := docker compose --env-file .env -f infra/docker-compose.yml
+
+## Fetch pinned Neo4j plugin jars (GDS) into infra/neo4j/plugins (gitignored)
+infra-plugins:
+	./scripts/fetch_neo4j_plugins.sh
 
 ## Bring up docker infra services and wait for their ports
 infra-up:

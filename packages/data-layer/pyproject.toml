@@ -32,7 +32,6 @@ dependencies = [
     "motor>=3.3",            # REPLACES pymongo — async MongoDB driver
     "qdrant-client>=1.7",    # AsyncQdrantClient built-in
     "aiobotocore>=2.7",      # REPLACES minio SDK for async S3/MinIO
-    "opensearch-py>=2.4",    # AsyncOpenSearch built-in
     # MCP and API
     "mcp[cli]>=1.2.0",
     "anthropic>=0.39",

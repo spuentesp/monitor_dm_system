@@ -9,7 +9,7 @@ services:
     environment:
       # Password comes from .env so app containers and the DB always agree
       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-monitor_dev_pass}
-      # Jars are pre-downloaded in ./neo4j/plugins — no internet fetch on startup
+      # Jars are vendored in ./neo4j/plugins (see plugins/README.md) — no internet fetch on startup
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
       # Neo4j 5.x setting names (dbms.memory.* is deprecated)
       - NEO4J_server_memory_heap_initial__size=${NEO4J_HEAP_INITIAL:-512m}
@@ -108,47 +108,17 @@ services:
       - monitor-network
     restart: unless-stopped
 
-  # OpenSearch - Optional full-text search (alternative to Qdrant for text search)
-  opensearch:
-    image: opensearchproject/opensearch:2.11.1
-    container_name: monitor-opensearch
-    ports:
-      - "9200:9200"  # REST API
-      - "9600:9600"  # Performance Analyzer
-    environment:
-      - discovery.type=single-node
-      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
-      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD}
-      - plugins.security.disabled=true
-    volumes:
-      - opensearch-data:/usr/share/opensearch/data
-    networks:
-      - monitor-network
-    restart: unless-stopped
-
-  # OpenSearch Dashboards - Optional UI for OpenSearch (use --profile admin)
-  opensearch-dashboards:
-    image: opensearchproject/opensearch-dashboards:2.11.1
-    container_name: monitor-opensearch-dashboards
-    ports:
-      - "5601:5601"
-    environment:
-      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
-      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
-    depends_on:
-      - opensearch
-    networks:
-      - monitor-network
-    restart: unless-stopped
-    profiles:
-      - admin
-
   # GLiNER - Named Entity Recognition (NER) service.
-  # OPT-IN: upstream image availability is unreliable; the default NLP backend
-  # is spaCy (NLP_BACKEND=spacy). Start with: docker compose --profile gliner up
+  # OPT-IN: the default NLP backend is spaCy (NLP_BACKEND=spacy). Start with:
+  #   docker compose --profile gliner up
+  # Self-built image (infra/gliner/Dockerfile) with the model baked in — no
+  # dependency on the flaky upstream knowledgator image or on HF at runtime.
   gliner:
     profiles: ["gliner"]
-    image: knowledgator/gliner-base:v0.2.1
+    build:
+      context: ./gliner
+      args:
+        MODEL_NAME: ${GLINER_MODEL:-knowledgator/gliner-base-v0.1}
     container_name: monitor-gliner
     ports:
       - "${GLINER_PORT:-8082}:8000"
@@ -168,7 +138,8 @@ services:
       - monitor-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:8000/health || exit 1"]
+      # python:3.11-slim has no wget/curl — probe with the stdlib instead.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -237,8 +208,6 @@ services:
       MINIO_ACCESS_KEY: "monitor"
       MINIO_SECRET_KEY: "${MINIO_PASSWORD}"
       MINIO_SECURE: "false"
-      # --- OpenSearch ---
-      OPENSEARCH_URL: "http://opensearch:9200"
       # --- Redis ---
       REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
       REDIS_ENABLED: "${REDIS_ENABLED:-true}"
@@ -325,13 +294,11 @@ services:
   #     - MINIO_ENDPOINT=minio:9000
   #     - MINIO_ACCESS_KEY=monitor
   #     - MINIO_SECRET_KEY=${MINIO_PASSWORD}
-  #     - OPENSEARCH_URI=https://opensearch:9200
   #   depends_on:
   #     - neo4j
   #     - mongodb
   #     - qdrant
   #     - minio
-  #     - opensearch
   #   networks:
   #     - monitor-network
   #   restart: unless-stopped
@@ -349,6 +316,5 @@ volumes:
   mongodb-configdb:
   qdrant-storage:
   minio-data:
-  opensearch-data:
   postgres-data:
   redis-data:

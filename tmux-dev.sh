@@ -85,7 +85,7 @@ LOAD_ENV="set -o allexport; source '$ROOT/.env'; set +o allexport"
 info "Starting docker containers (detached)..."
 set -o allexport; source "$ROOT/.env"; set +o allexport
 docker compose --env-file "$ROOT/.env" -f "$INFRA_DIR/docker-compose.yml" \
-    up -d neo4j mongodb qdrant minio postgres opensearch
+    up -d neo4j mongodb qdrant minio postgres
 ok "Containers started"
 
 # ── window 0: infra logs ──────────────────────────────────────────────────────

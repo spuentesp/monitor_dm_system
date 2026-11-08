@@ -230,8 +230,6 @@ CREATE TABLE IF NOT EXISTS world_db_bindings (
     minio_bucket        TEXT NOT NULL DEFAULT 'monitor',
     minio_prefix        TEXT NOT NULL DEFAULT '',
                         -- e.g. "forgotten-realms/" inside the bucket
-    -- OpenSearch (optional)
-    opensearch_index_prefix TEXT NOT NULL DEFAULT '',
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -1055,9 +1053,8 @@ class PostgresClient:
                     qdrant_collection,
                     minio_bucket,
                     minio_prefix,
-                    opensearch_index_prefix,
                     updated_at
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,now())
                 ON CONFLICT (world_id) DO UPDATE SET
                     neo4j_database            = EXCLUDED.neo4j_database,
                     mongodb_database          = EXCLUDED.mongodb_database,
@@ -1065,7 +1062,6 @@ class PostgresClient:
                     qdrant_collection         = EXCLUDED.qdrant_collection,
                     minio_bucket              = EXCLUDED.minio_bucket,
                     minio_prefix              = EXCLUDED.minio_prefix,
-                    opensearch_index_prefix   = EXCLUDED.opensearch_index_prefix,
                     updated_at                = now()
                 """,
                 bindings["world_id"],
@@ -1075,7 +1071,6 @@ class PostgresClient:
                 bindings.get("qdrant_collection", "monitor_memories"),
                 bindings.get("minio_bucket", "monitor"),
                 bindings.get("minio_prefix", ""),
-                bindings.get("opensearch_index_prefix", ""),
             )
 
     async def world_full_get(self, world_id: str) -> dict[str, Any] | None:
@@ -1086,7 +1081,7 @@ class PostgresClient:
                 """
                 SELECT w.*, b.neo4j_database, b.mongodb_database,
                        b.mongodb_collection_prefix, b.qdrant_collection,
-                       b.minio_bucket, b.minio_prefix, b.opensearch_index_prefix
+                       b.minio_bucket, b.minio_prefix
                 FROM   worlds w
                 LEFT   JOIN world_db_bindings b ON b.world_id = w.id
                 WHERE  w.id = $1
@@ -1107,7 +1102,7 @@ class PostgresClient:
                 """
                 SELECT w.*, b.neo4j_database, b.mongodb_database,
                        b.mongodb_collection_prefix, b.qdrant_collection,
-                       b.minio_bucket, b.minio_prefix, b.opensearch_index_prefix
+                       b.minio_bucket, b.minio_prefix
                 FROM   active_world aw
                 JOIN   worlds w ON w.id = aw.world_id
                 LEFT   JOIN world_db_bindings b ON b.world_id = w.id

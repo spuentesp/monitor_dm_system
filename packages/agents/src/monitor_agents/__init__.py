@@ -42,7 +42,7 @@ THE 9 AGENTS + 1 UTILITY:
                        Authority: Neo4j (ALL writes), MongoDB (verdicts, proposals)
 
 5. Indexer           - Background embedding/indexing agent
-                       Authority: Qdrant (upsert/delete), OpenSearch
+                       Authority: Qdrant (upsert/delete)
 
 6. Analyzer          - Analyzes ingested content, extracts entities/facts
                        Authority: MongoDB (knowledge packs)

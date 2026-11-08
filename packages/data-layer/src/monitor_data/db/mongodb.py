@@ -19,14 +19,151 @@ Collections:
 """
 
 import threading
+from typing import Any
 
-from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo import ASCENDING, DESCENDING, TEXT, MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 from tenacity import retry
 
 from monitor_data.config import settings
 from monitor_data.db._utils import DB_RETRY, run_sync
+
+
+# ---------------------------------------------------------------------------
+# Index specification
+# ---------------------------------------------------------------------------
+# Every collection maps to a list of (keys, kwargs) handed to
+# Collection.create_index. TEXT keys build a full-text index (MongoDB allows
+# one text index per collection) — these cover the full-text search role that
+# OpenSearch used to be provisioned for. ``ensure_indexes_for_prefix`` replays
+# the same spec against world-prefixed collection names (e.g. "lotr_scenes").
+# ---------------------------------------------------------------------------
+
+_INDEX_SPECS: dict[str, list[tuple[list[tuple[str, Any]], dict[str, Any]]]] = {
+    "scenes": [
+        ([("scene_id", ASCENDING)], {"unique": True}),
+        ([("story_id", ASCENDING), ("order", ASCENDING)], {}),
+        ([("status", ASCENDING)], {}),
+        ([("created_at", DESCENDING)], {}),
+        ([("title", TEXT), ("purpose", TEXT), ("summary", TEXT)], {"name": "scenes_text"}),
+    ],
+    "proposed_changes": [
+        ([("proposal_id", ASCENDING)], {"unique": True}),
+        ([("scene_id", ASCENDING), ("status", ASCENDING)], {}),
+        ([("status", ASCENDING)], {}),
+    ],
+    "memories": [
+        ([("memory_id", ASCENDING)], {"unique": True}),
+        ([("entity_id", ASCENDING)], {}),
+        ([("created_at", DESCENDING)], {}),
+    ],
+    "documents": [
+        ([("doc_id", ASCENDING)], {"unique": True}),
+        ([("universe_id", ASCENDING)], {}),
+        ([("status", ASCENDING)], {}),
+    ],
+    "snippets": [
+        ([("snippet_id", ASCENDING)], {"unique": True}),
+        ([("doc_id", ASCENDING)], {}),
+        ([("text", TEXT), ("section", TEXT)], {"name": "snippets_text"}),
+    ],
+    "ingestion_jobs": [
+        ([("job_id", ASCENDING)], {"unique": True}),
+        ([("source_id", ASCENDING)], {}),
+        ([("universe_id", ASCENDING)], {}),
+        ([("status", ASCENDING)], {}),
+        ([("created_at", DESCENDING)], {}),
+    ],
+    "knowledge_packs": [
+        ([("pack_id", ASCENDING)], {"unique": True}),
+        ([("status", ASCENDING)], {}),
+        ([("pack_type", ASCENDING)], {}),
+        ([("system_name", ASCENDING)], {}),
+        ([("created_at", DESCENDING)], {}),
+        ([("name", TEXT), ("description", TEXT), ("intro_text", TEXT)], {"name": "packs_text"}),
+    ],
+    "chat_sessions": [
+        ([("id", ASCENDING)], {"unique": True}),
+        ([("universe_id", ASCENDING)], {}),
+        ([("updated_at", DESCENDING)], {}),
+    ],
+    "chat_messages": [
+        ([("id", ASCENDING)], {"unique": True}),
+        ([("session_id", ASCENDING), ("timestamp", ASCENDING)], {}),
+        ([("text", TEXT), ("entity_name", TEXT)], {"name": "chat_messages_text"}),
+    ],
+    "world_library": [
+        ([("entry_id", ASCENDING)], {"unique": True}),
+        ([("multiverse_id", ASCENDING)], {}),
+        ([("system_name", ASCENDING)], {}),
+    ],
+    # I-17 book decomposition progress; `_id` already makes each record unique.
+    "book_records": [
+        ([("doc_id", ASCENDING), ("record_type", ASCENDING)], {}),
+    ],
+    # Append-only Q-10 audit trail (R5). Queried by subject history,
+    # type/author/transaction filters, and sorted by timestamp desc.
+    "change_log": [
+        ([("change_id", ASCENDING)], {"unique": True}),
+        ([("subject_id", ASCENDING), ("timestamp", DESCENDING)], {}),
+        ([("subject_type", ASCENDING)], {}),
+        ([("transaction_id", ASCENDING)], {}),
+        ([("author", ASCENDING)], {}),
+        ([("timestamp", DESCENDING)], {}),
+    ],
+    # Curated Session Zero / character-creation prompt collections.
+    # Queried by category + system/universe binding when resolving the
+    # authored interview for a session; sorted by updated_at desc in lists.
+    "prompt_collections": [
+        ([("collection_id", ASCENDING)], {"unique": True}),
+        ([("category", ASCENDING)], {}),
+        ([("system_id", ASCENDING)], {}),
+        ([("universe_id", ASCENDING)], {}),
+        ([("updated_at", DESCENDING)], {}),
+    ],
+    # Immutable published snapshots of prompt collections (versioning).
+    "prompt_collection_versions": [
+        ([("version_id", ASCENDING)], {"unique": True}),
+        ([("collection_id", ASCENDING), ("published_at", DESCENDING)], {}),
+    ],
+    # Generated image assets. Lookup indexes mirror the filters used by
+    # image history/reference selection and keep newest-first scans cheap.
+    "generated_assets": [
+        ([("asset_id", ASCENDING)], {"unique": True}),
+        ([("entity_id", ASCENDING), ("universe_id", ASCENDING), ("created_at", DESCENDING)], {}),
+        ([("character_id", ASCENDING), ("created_at", DESCENDING)], {}),
+        ([("scene_id", ASCENDING), ("created_at", DESCENDING)], {}),
+        ([("conversation_id", ASCENDING), ("created_at", DESCENDING)], {}),
+    ],
+    # Versioned visual identities, queried by canonical or card anchor.
+    "visual_identities": [
+        ([("identity_id", ASCENDING)], {"unique": True}),
+        ([("entity_id", ASCENDING), ("universe_id", ASCENDING), ("status", ASCENDING)], {}),
+        ([("character_id", ASCENDING), ("universe_id", ASCENDING), ("status", ASCENDING)], {}),
+    ],
+    "lorebook_entries": [
+        ([("id", ASCENDING)], {"unique": True}),
+        ([("character_id", ASCENDING), ("is_active", ASCENDING)], {}),
+        ([("content", TEXT), ("comment", TEXT)], {"name": "lorebook_text"}),
+    ],
+    "gm_notes": [
+        ([("universe_id", ASCENDING)], {"unique": True}),
+        ([("content", TEXT)], {"name": "gm_notes_text"}),
+    ],
+}
+
+
+def _apply_index_specs(
+    db: Database,
+    specs: dict[str, list[tuple[list[tuple[str, Any]], dict[str, Any]]]],
+    prefix: str = "",
+) -> None:
+    """Create all indexes in ``specs`` on ``db``, optionally name-prefixed."""
+    for name, indexes in specs.items():
+        coll = db[f"{prefix}{name}"]
+        for keys, kwargs in indexes:
+            coll.create_index(keys, **kwargs)
 
 
 class MongoDBClient:
@@ -117,111 +254,21 @@ class MongoDBClient:
         """Create supporting indexes for all collections (idempotent)."""
         if self._db is None:
             return
+        _apply_index_specs(self._db, _INDEX_SPECS)
 
-        # Implementation continues...
+    async def ensure_indexes_for_prefix(self, prefix: str) -> None:
+        """Create the standard index set on world-prefixed collections.
 
-        scenes: Collection = self._db["scenes"]
-        scenes.create_index([("scene_id", ASCENDING)], unique=True)
-        scenes.create_index([("story_id", ASCENDING), ("order", ASCENDING)])
-        scenes.create_index([("status", ASCENDING)])
-        scenes.create_index([("created_at", DESCENDING)])
-
-        proposed: Collection = self._db["proposed_changes"]
-        proposed.create_index([("proposal_id", ASCENDING)], unique=True)
-        proposed.create_index([("scene_id", ASCENDING), ("status", ASCENDING)])
-        proposed.create_index([("status", ASCENDING)])
-
-        memories: Collection = self._db["memories"]
-        memories.create_index([("memory_id", ASCENDING)], unique=True)
-        memories.create_index([("entity_id", ASCENDING)])
-        memories.create_index([("created_at", DESCENDING)])
-
-        documents: Collection = self._db["documents"]
-        documents.create_index([("doc_id", ASCENDING)], unique=True)
-        documents.create_index([("universe_id", ASCENDING)])
-        documents.create_index([("status", ASCENDING)])
-
-        snippets: Collection = self._db["snippets"]
-        snippets.create_index([("snippet_id", ASCENDING)], unique=True)
-        snippets.create_index([("doc_id", ASCENDING)])
-
-        ingestion_jobs: Collection = self._db["ingestion_jobs"]
-        ingestion_jobs.create_index([("job_id", ASCENDING)], unique=True)
-        ingestion_jobs.create_index([("source_id", ASCENDING)])
-        ingestion_jobs.create_index([("universe_id", ASCENDING)])
-        ingestion_jobs.create_index([("status", ASCENDING)])
-        ingestion_jobs.create_index([("created_at", DESCENDING)])
-
-        knowledge_packs: Collection = self._db["knowledge_packs"]
-        knowledge_packs.create_index([("pack_id", ASCENDING)], unique=True)
-        knowledge_packs.create_index([("status", ASCENDING)])
-        knowledge_packs.create_index([("pack_type", ASCENDING)])
-        knowledge_packs.create_index([("system_name", ASCENDING)])
-        knowledge_packs.create_index([("created_at", DESCENDING)])
-
-        chat_sessions: Collection = self._db["chat_sessions"]
-        chat_sessions.create_index([("id", ASCENDING)], unique=True)
-        chat_sessions.create_index([("universe_id", ASCENDING)])
-        chat_sessions.create_index([("updated_at", DESCENDING)])
-
-        chat_messages: Collection = self._db["chat_messages"]
-        chat_messages.create_index([("id", ASCENDING)], unique=True)
-        chat_messages.create_index([("session_id", ASCENDING), ("timestamp", ASCENDING)])
-
-        world_library: Collection = self._db["world_library"]
-        world_library.create_index([("entry_id", ASCENDING)], unique=True)
-        world_library.create_index([("multiverse_id", ASCENDING)])
-        world_library.create_index([("system_name", ASCENDING)])
-
-        # I-17 book decomposition progress; `_id` already makes each record unique.
-        book_records: Collection = self._db["book_records"]
-        book_records.create_index([("doc_id", ASCENDING), ("record_type", ASCENDING)])
-
-        # Append-only Q-10 audit trail (R5). Queried by subject history,
-        # type/author/transaction filters, and sorted by timestamp desc.
-        change_log: Collection = self._db["change_log"]
-        change_log.create_index([("change_id", ASCENDING)], unique=True)
-        change_log.create_index([("subject_id", ASCENDING), ("timestamp", DESCENDING)])
-        change_log.create_index([("subject_type", ASCENDING)])
-        change_log.create_index([("transaction_id", ASCENDING)])
-        change_log.create_index([("author", ASCENDING)])
-        change_log.create_index([("timestamp", DESCENDING)])
-
-        # Curated Session Zero / character-creation prompt collections.
-        # Queried by category + system/universe binding when resolving the
-        # authored interview for a session; sorted by updated_at desc in lists.
-        prompt_collections: Collection = self._db["prompt_collections"]
-        prompt_collections.create_index([("collection_id", ASCENDING)], unique=True)
-        prompt_collections.create_index([("category", ASCENDING)])
-        prompt_collections.create_index([("system_id", ASCENDING)])
-        prompt_collections.create_index([("universe_id", ASCENDING)])
-        prompt_collections.create_index([("updated_at", DESCENDING)])
-
-        # Immutable published snapshots of prompt collections (versioning).
-        prompt_collection_versions: Collection = self._db["prompt_collection_versions"]
-        prompt_collection_versions.create_index([("version_id", ASCENDING)], unique=True)
-        prompt_collection_versions.create_index([("collection_id", ASCENDING), ("published_at", DESCENDING)])
-
-        # Generated image assets. Lookup indexes mirror the filters used by
-        # image history/reference selection and keep newest-first scans cheap.
-        generated_assets: Collection = self._db["generated_assets"]
-        generated_assets.create_index([("asset_id", ASCENDING)], unique=True)
-        generated_assets.create_index(
-            [("entity_id", ASCENDING), ("universe_id", ASCENDING), ("created_at", DESCENDING)]
-        )
-        generated_assets.create_index([("character_id", ASCENDING), ("created_at", DESCENDING)])
-        generated_assets.create_index([("scene_id", ASCENDING), ("created_at", DESCENDING)])
-        generated_assets.create_index([("conversation_id", ASCENDING), ("created_at", DESCENDING)])
-
-        # Versioned visual identities, queried by canonical or card anchor.
-        visual_identities: Collection = self._db["visual_identities"]
-        visual_identities.create_index([("identity_id", ASCENDING)], unique=True)
-        visual_identities.create_index(
-            [("entity_id", ASCENDING), ("universe_id", ASCENDING), ("status", ASCENDING)]
-        )
-        visual_identities.create_index(
-            [("character_id", ASCENDING), ("universe_id", ASCENDING), ("status", ASCENDING)]
-        )
+        Multi-world support isolates a world's Mongo data by collection-name
+        prefix (world_db_bindings.mongodb_collection_prefix, e.g. "lotr_" →
+        "lotr_scenes"). Call this when a prefixed world is created so its
+        collections get the same indexes — including the text indexes — as
+        the default collections. Idempotent; a no-op for an empty prefix.
+        """
+        prefix = (prefix or "").strip()
+        if not prefix:
+            return
+        _apply_index_specs(self.get_database(), _INDEX_SPECS, prefix=prefix)
 
 
 # =============================================================================
