@@ -32,7 +32,7 @@ See the [documentation map](./_index.md) for core objectives (O1-O5) and epics (
 | **PLAY**       | `P-1` to `P-21`   | Core gameplay loop — narration, scenes, actions | [epic-4-autonomous-gm-P/](use-cases/epic-4-autonomous-gm-P/) |
 | **MANAGE**     | `M-1` to `M-35`   | World administration — CRUD for all entities | [epic-1-world-M/](use-cases/epic-1-world-M/) |
 | **QUERY**      | `Q-1` to `Q-11`   | Canon exploration — search, browse, ask | [epic-6-timeline-Q/](use-cases/epic-6-timeline-Q/) |
-| **INGEST**     | `I-1` to `I-16`   | Knowledge import — documents, extraction, curation, synthesis | [epic-2-ingestion-I/](use-cases/epic-2-ingestion-I/) |
+| **INGEST**     | `I-1` to `I-17`   | Knowledge import — documents, extraction, curation, synthesis | [epic-2-ingestion-I/](use-cases/epic-2-ingestion-I/) |
 | **IDENTITY**   | `M-31` etc.       | Identity and persona management | [epic-3-identity-M/](use-cases/epic-3-identity-M/) |
 | **VERSIONS**  | _no UC id_        | Character Versions — per-universe incarnations (no cross-incarnation leak); see [CHARACTER_VERSIONS.md](use-cases/epic-3-identity-M/M-31/CHARACTER_VERSIONS.md) | — |
 | **SYSTEM**     | `SYS-1` to `SYS-12` | App lifecycle, config, session | [epic-11-system-SYS/](use-cases/epic-11-system-SYS/) |
@@ -61,7 +61,7 @@ See the [documentation map](./_index.md) for core objectives (O1-O5) and epics (
 |------|-----------|------|
 | **Epic 0** — Data Layer | DL-1 to DL-26 | [epic-0-data-layer-DL/](use-cases/epic-0-data-layer-DL/) |
 | **Epic 1** — World Manage | M-1 to M-35 | [epic-1-world-M/](use-cases/epic-1-world-M/) |
-| **Epic 2** — Ingestion | I-1 to I-16 | [epic-2-ingestion-I/](use-cases/epic-2-ingestion-I/) |
+| **Epic 2** — Ingestion | I-1 to I-17 | [epic-2-ingestion-I/](use-cases/epic-2-ingestion-I/) |
 | **Epic 3** — Identity | M-31, etc. | [epic-3-identity-M/](use-cases/epic-3-identity-M/) |
 | **Epic 4** — Autonomous GM | P-1 to P-21 | [epic-4-autonomous-gm-P/](use-cases/epic-4-autonomous-gm-P/) |
 | **Epic 5** — Rules | RS-1 to RS-8 | [epic-5-rules-RS/](use-cases/epic-5-rules-RS/) |

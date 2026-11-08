@@ -9,7 +9,9 @@ Routing modes (chosen by the request body):
   Supports streaming (SSE) and non-streaming.
 - **Session mode** (``monitor_session_id`` or ``character_id``): the request
   is routed through the light-RP conversation loop, so the response benefits
-  from MONITOR's persona binding, lorebook scanning, and NPC memory. The
+  from MONITOR's persona binding, lorebook scanning, and NPC memory. Requests
+  carrying only ``character_id`` continue the conversation their history
+  belongs to (see ``client_history_fingerprint``). The
   reply is non-streaming in v2 — the conversation loop has no streaming
   surface yet, and ``stream=true`` is rejected explicitly so the client
   surfaces the limitation rather than getting a misleading single chunk.
@@ -78,6 +80,8 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[ChatCompletionChoice]
     usage: ChatCompletionUsage
+    # Session mode only. Clients that can echo it may pass it back on later requests.
+    monitor_session_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -228,44 +232,68 @@ async def _session_non_stream(body: ChatCompletionRequest) -> ChatCompletionResp
             detail="session mode requires at least one user message in `messages`.",
         )
 
-    if body.monitor_session_id:
+    # OpenAI-shaped clients resend their history, so everything before the last
+    # player line tells us where this request sits in the chat. System messages are
+    # the client's prompt; in session mode the character card is the authority.
+    last_user_index = max(i for i, m in enumerate(body.messages) if m.role == "user")
+    history = [(m.role, m.content) for m in body.messages[:last_user_index] if m.role != "system"]
+    position = cc.client_history_fingerprint(history)
+
+    conversation_id = body.monitor_session_id
+    if not conversation_id and body.character_id and position:
         try:
-            reply = await cc.send_message(
-                body.monitor_session_id,
-                last_user.content,
-                False,
-                character_id=body.character_id,
-            )
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Conversation {body.monitor_session_id} is no longer active.",
-            ) from exc
-        except Exception as exc:
-            logger.warning("openai_session_send_failed", exc_info=True)
-            raise HTTPException(status_code=502, detail=f"Send failed: {exc}") from exc
-    else:
+            conversation_id = await cc.find_client_conversation(body.character_id, body.persona_character_id, position)
+        except Exception:  # noqa: BLE001  # reason: a failed lookup costs continuity, not the reply; a new conversation still answers
+            logger.warning("openai_session_lookup_failed", exc_info=True)
+
+    if not conversation_id:
         if not body.character_id:
             raise HTTPException(
                 status_code=400,
-                detail="session mode requires either x-monitor-session or character_id.",
+                detail="session mode requires either monitor_session_id or character_id.",
             )
-        opened = await cc.start_conversation(
-            body.character_id,
-            persona_character_id=body.persona_character_id,
-        )
         try:
-            reply = await cc.send_message(
-                str(opened["conversation_id"]),
-                last_user.content,
-                False,
-                character_id=body.character_id,
+            opened = await cc.start_conversation(
+                body.character_id,
+                persona_character_id=body.persona_character_id,
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except Exception as exc:
-            logger.warning("openai_session_send_failed", exc_info=True)
-            raise HTTPException(status_code=502, detail=f"Send failed: {exc}") from exc
+            logger.warning("openai_session_start_failed", exc_info=True)
+            raise HTTPException(status_code=502, detail=f"Could not open a conversation: {exc}") from exc
+        conversation_id = str(opened["conversation_id"])
+
+    try:
+        reply = await cc.send_message(
+            conversation_id,
+            last_user.content,
+            False,
+            character_id=body.character_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Conversation {conversation_id} is no longer active.",
+        ) from exc
+    except Exception as exc:
+        logger.warning("openai_session_send_failed", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Send failed: {exc}") from exc
 
     text = str(reply.get("text") or "")
+
+    if body.character_id:
+        try:
+            after = history + [("user", last_user.content), ("assistant", text)]
+            await cc.remember_client_conversation(
+                conversation_id,
+                body.character_id,
+                body.persona_character_id,
+                [position, cc.client_history_fingerprint(after)],
+            )
+        except Exception:  # noqa: BLE001  # reason: the reply exists; failing here would discard it over continuity bookkeeping
+            logger.warning("openai_session_remember_failed", exc_info=True)
+
     return ChatCompletionResponse(
         id=_new_completion_id(),
         created=_now_epoch(),
@@ -277,6 +305,7 @@ async def _session_non_stream(body: ChatCompletionRequest) -> ChatCompletionResp
             )
         ],
         usage=ChatCompletionUsage(),
+        monitor_session_id=conversation_id,
     )
 
 

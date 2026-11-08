@@ -57,7 +57,7 @@ def patched_lorebook_client(monkeypatch) -> Generator[TestClient, None, None]:
     monkeypatch.setattr(
         lb_router,
         "mongodb_get_lorebook_entries",
-        lambda character_id, sort_by, ascending: [_make_entry()],
+        lambda character_id, sort_by, ascending, include_inactive=False: [_make_entry()],
     )
     monkeypatch.setattr(
         lb_router,

@@ -7,6 +7,7 @@ no game-system-specific engine is registered.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from monitor_data.utils.dice import roll_dice
 
@@ -44,7 +45,7 @@ class GenericDiceEngine:
         *,
         pool_size: int = 0,
         difficulty: int = 0,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> GenericRoll:
         ctx = context or {}
         modifier = int(ctx.get("modifier", 0))

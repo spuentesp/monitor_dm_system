@@ -177,9 +177,12 @@ class TestBuildStLorebook:
         assert st_entry["customField"] == 123
 
     def test_character_book_shape(self):
-        entry = LorebookEntryCreate(content="Lore.", keywords=["lore"])
+        entry = LorebookEntryCreate(content="Lore.", keywords=["lore"], order=42)
         book = build_character_book([entry], name="Card Book")
-        assert "entries" in book
+        assert isinstance(book["entries"], list)
+        assert len(book["entries"]) == 1
+        assert book["entries"][0]["keys"] == ["lore"]
+        assert book["entries"][0]["insertion_order"] == 42
         assert book["scan_depth"] == LorebookScanConfig().scan_depth
 
 
@@ -247,3 +250,81 @@ class TestContentDecorators:
         )
         assert out["content"].startswith("First line.")
         assert out["depth"] == 4
+
+
+class TestCharacterBookEnabledFlag:
+    """CCv2 character_book entries say on/off with `enabled`; World Info uses `disable`."""
+
+    def test_enabled_false_imports_inactive(self):
+        assert parse_st_lorebook_entry({"content": "x", "enabled": False})["is_active"] is False
+
+    def test_enabled_true_imports_active(self):
+        assert parse_st_lorebook_entry({"content": "x", "enabled": True})["is_active"] is True
+
+    def test_either_flag_can_switch_an_entry_off(self):
+        assert parse_st_lorebook_entry({"content": "x", "enabled": True, "disable": True})["is_active"] is False
+        assert parse_st_lorebook_entry({"content": "x", "enabled": False, "disable": False})["is_active"] is False
+
+    def test_card_book_keeps_disabled_entries_off(self):
+        from monitor_data.interop.sillytavern_lorebook import parse_character_book_from_card
+
+        card = {
+            "data": {
+                "character_book": {
+                    "entries": [
+                        {"keys": ["lantern"], "content": "on", "enabled": True},
+                        {"keys": ["cellar"], "content": "off", "enabled": False},
+                    ]
+                }
+            }
+        }
+        entries, _ = parse_character_book_from_card(card)
+        assert {e["content"]: e["is_active"] for e in entries} == {"on": True, "off": False}
+
+    def test_card_export_writes_enabled_and_array_entries(self):
+        from monitor_data.interop.sillytavern_lorebook import build_character_book
+
+        book = build_character_book(
+            [{"content": "on", "is_active": True}, {"content": "off", "is_active": False}]
+        )
+        assert isinstance(book["entries"], list)
+        flags = {e["content"]: (e["enabled"], e["disable"]) for e in book["entries"]}
+        assert flags == {"on": (True, False), "off": (False, True)}
+
+    def test_round_trip_keeps_disabled_entries_off(self):
+        from monitor_data.interop.sillytavern_lorebook import (
+            build_character_book,
+            parse_character_book_from_card,
+        )
+
+        book = build_character_book([{"content": "off", "is_active": False, "order": 15}])
+        assert isinstance(book["entries"], list)
+        (entry,) = book["entries"]
+        assert parse_st_lorebook_entry(entry)["is_active"] is False
+        parsed_entries, _ = parse_character_book_from_card({"data": {"character_book": book}})
+        assert len(parsed_entries) == 1
+        assert parsed_entries[0]["is_active"] is False
+        assert parsed_entries[0]["order"] == 15
+
+    def test_toggling_is_active_after_import_not_overwritten_by_st_extensions(self):
+        from monitor_data.interop.sillytavern_lorebook import (
+            build_character_book,
+            build_st_lorebook_entry,
+            parse_st_lorebook_entry,
+        )
+
+        imported = parse_st_lorebook_entry(
+            {"content": "Secret vault", "keys": ["vault"], "disable": False, "enabled": True}
+        )
+        assert "disable" not in imported.get("st_extensions", {})
+        # User toggles is_active off in UI; even if legacy st_extensions had disable/enabled,
+        # current is_active is authoritative on export.
+        imported["is_active"] = False
+        imported["st_extensions"] = {"disable": False, "enabled": True, "custom": 7}
+        st_out = build_st_lorebook_entry(imported, uid=0)
+        assert st_out["disable"] is True
+        assert st_out["custom"] == 7
+        cb_out = build_character_book([imported])["entries"][0]
+        assert cb_out["enabled"] is False
+        assert cb_out["disable"] is True
+

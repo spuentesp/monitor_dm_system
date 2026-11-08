@@ -14,12 +14,13 @@ layer: 0
 
 | Gate | State |
 |------|-------|
-| Unit/integration suite | 8,361 passed + 226 skipped by design, hermetic (no keys/network), ~17 min — `uv run pytest packages tests -q` (measured 2026-11-06) |
+| Unit/integration suite | 8,363 passed, 226 skipped (2026-11-03), hermetic (no keys/network), ~5.5 min with `-n auto` — `uv run pytest packages tests -q -n auto` |
 | E2E (full stack) | 147 tests incl. three mode walkthroughs — `RUN_E2E=1 RUN_INTEGRATION=1 uv run pytest tests/e2e -q --timeout=300` |
-| Lint / format | `uv run ruff check packages` / `uv run ruff format packages` |
-| Types | `uv run mypy packages/*/src --cache-dir /tmp/mypy-cache` (strict) — **16 pre-existing errors remain** in data-layer/agents (dice, analyzer, ingestion, knowledge_packs); none in the UI backend |
+| Lint / format | `uv run ruff check packages scripts` (incl. BLE001/S110/S112/E722) / `uv run ruff format packages` |
+| Types | `uv run mypy packages/data-layer/src packages/agents/src packages/cli/src packages/ui/backend/src --cache-dir /tmp/mypy-cache` (strict) |
 | Layer boundaries | `python scripts/check_layer_dependencies.py` |
-| Mutation testing | **Active again** — per-module cosmic-ray configs (`cosmic-ray-*.toml`), PR-scoped zero-survivor gate (`.github/workflows/mutation-diff.yml` → `scripts/mutation_diff.py`), sealed-suite guard. The 2026-07-23 "removed" note is superseded (2026-10) |
+| Mutation testing | **Local only, not in CI** (workflows removed 2026-11-03 as too costly) — `make test-mutation` / `scripts/mutation_diff.py --base <ref>`; allowlist in `scripts/mutation_allowlist.toml`. No mutation score is claimed (T-017 stands). |
+| Sealed suites | `tests/verification/**` and `tests/property/**` guarded by `scripts/sealed_suite_guard.py` + CODEOWNERS; changes need the maintainer `sealed-override` label |
 | Live LLM-vs-LLM playtests | `scripts/live_llm_gm_vs_player_test.py`; transcripts in `docs/testing/live_gm_vs_player/` |
 
 ## Live smoke
@@ -41,6 +42,19 @@ scratchpad note persisted → universe bound system resolved. Browser rendering
 of the recorder UI (Active/Archived optgroups, Archive button, scratchpad
 ingest hint) is covered by vitest, not by this pass. Transcript:
 `docs/testing/live_gm_assistant_phase_a_2026-11-06.md`.
+
+## Book decomposition (I-17, 2026-11-04)
+
+The PDF reader now uses a lossless book tree, for all uploads. On Dune, sections went from 5× the book's text to about 1×, and chunks from 3,730 to 889. The Analyzer's sample is now repeatable and spans the book. Decomposition itself is off by default: `MONITOR_BOOK_DECOMPOSITION=1` runs it as a resumable background job. `MONITOR_BOOK_COVERAGE`, `MONITOR_BOOK_GRAPH` and `MONITOR_BOOK_NEO4J` add optional steps. Storage has run on real MongoDB and Neo4j, and one Dune chapter has run with live models, with 27 of 30 sampled claims labeled canon as written. Claims review sends to a person can be accepted, edited or rejected from the job's "Review claims" panel, and accepted ones join the book's pack. Documents indexed before this change keep their old chunks until deleted and uploaded again. See [the implementation plan](architecture/BOOK_DECOMPOSITION_IMPLEMENTATION_PLAN.md).
+
+## Hardening (2026-10-16/17)
+
+Anti-reward-hacking program (spec: `docs/superpowers/specs/2026-10-16-anti-reward-hacking-design.md`):
+sealed T_test suites, diff-scoped mutation gate (process-group kill on timeout,
+line-anchored allowlist), DST suite with tool/node invocation-topology counters,
+~500 blind-`except` sites annotated or narrowed, and six pre-existing failures fixed
+(raw-UUID MCP args, invalid `fact_type`, CanonKeeper write-tool parity, test doubles).
+2026-11-02: strict mypy back to zero errors; CI lint scope now `packages scripts`.
 
 ## Shipped (verified 2026-07-23)
 
@@ -332,7 +346,7 @@ target is < 40s per turn, which current performance meets.** No active work.
 
 ## Deferred (formal)
 
-- Mutation testing (tooling incompatible with async stack).
+- Whole-repo mutation score (tooling incompatible with async stack; only the local diff check exists).
 - Autonomous PC (see gap 7).
 - Latency optimization (see above).
 

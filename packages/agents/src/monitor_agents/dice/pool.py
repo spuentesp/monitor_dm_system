@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
+from typing import Any
 
 from monitor_agents.dice.base import default_dice_registry
 
@@ -43,7 +44,7 @@ class PoolDiceEngine:
         *,
         pool_size: int,
         difficulty: int,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> PoolContestedCheck:
         # Default die size to d10 if not specified
         ctx = context or {}
@@ -64,4 +65,4 @@ class PoolDiceEngine:
 
 
 # Register the engine on import.
-default_dice_registry.register(PoolDiceEngine())  # type: ignore[abstract]
+default_dice_registry.register(PoolDiceEngine())

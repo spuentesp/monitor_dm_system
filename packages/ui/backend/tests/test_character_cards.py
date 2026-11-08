@@ -343,8 +343,79 @@ class TestCharacterBook:
         card_obj = build_character_card(character, lorebook_entries=entries)
         book = card_obj["data"]["character_book"]
         assert book is not None
-        assert book["entries"]["0"]["keys"] == ["dragon"]
-        assert book["entries"]["0"]["constant"] is True
+        assert isinstance(book["entries"], list)
+        assert book["entries"][0]["keys"] == ["dragon"]
+        assert book["entries"][0]["constant"] is True
+        assert book["entries"][0]["enabled"] is True
+
+    @pytest.mark.asyncio
+    async def test_export_endpoints_include_inactive_entries(self, monkeypatch):
+        """Card and lorebook export routes must request inactive entries so
+        CCv2 ``enabled: false`` / World Info ``disable: true`` entries round-trip.
+        """
+        from monitor_data.schemas.lorebook import LorebookEntry, LorebookScanConfig
+        from monitor_data.tools.mongodb_tools import lorebook_tools
+        from monitor_ui.routers import entities as entities_router
+        from monitor_ui.routers import lorebook as lorebook_router
+
+        seen_calls: list[bool] = []
+
+        def fake_get_entries(character_id, sort_by="priority", ascending=False, include_inactive=False):
+            seen_calls.append(include_inactive)
+            return [
+                LorebookEntry(
+                    id="entry-1",
+                    character_id=character_id,
+                    keywords=["lantern"],
+                    content="Roof lantern.",
+                    comment="Lantern",
+                    is_active=True,
+                    order=10,
+                    created_at="2026-01-01T00:00:00Z",
+                ),
+                LorebookEntry(
+                    id="entry-2",
+                    character_id=character_id,
+                    keywords=["cellar"],
+                    content="Hidden cellar.",
+                    comment="Cellar Door",
+                    is_active=False,
+                    order=20,
+                    created_at="2026-01-01T00:00:00Z",
+                ),
+            ]
+
+        monkeypatch.setattr(lorebook_tools, "mongodb_get_lorebook_entries", fake_get_entries)
+        monkeypatch.setattr(lorebook_tools, "mongodb_get_scan_config", lambda _cid: LorebookScanConfig())
+        monkeypatch.setattr(lorebook_router, "mongodb_get_lorebook_entries", fake_get_entries)
+        monkeypatch.setattr(lorebook_router, "mongodb_get_scan_config", lambda _cid: LorebookScanConfig())
+        monkeypatch.setattr(
+            entities_router,
+            "_get_character_doc",
+            lambda cid: {
+                "character_id": cid,
+                "name": "Maeve",
+                "description": "Innkeeper",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+            },
+        )
+
+        card = await entities_router.export_character_card("char-1")
+        entries = card["data"]["character_book"]["entries"]
+        assert [(e["comment"], e["enabled"]) for e in entries] == [
+            ("Lantern", True),
+            ("Cellar Door", False),
+        ]
+
+        resp = await lorebook_router.export_lorebook(character_id="char-1", name="Maeve", description="")
+        st_book = json.loads(resp.body)
+        st_entries = list(st_book["entries"].values())
+        assert [(e["comment"], e["disable"]) for e in st_entries] == [
+            ("Lantern", False),
+            ("Cellar Door", True),
+        ]
+        assert seen_calls == [True, True]
 
 
 # ---------------------------------------------------------------------------

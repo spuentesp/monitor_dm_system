@@ -1,0 +1,30 @@
+# I-17: Exhaustive Book Decomposition
+# ===================================
+
+id: "I-17"
+title: "Exhaustive Book Decomposition"
+category: "i"
+epic: 2
+priority: "high"
+status: "in-progress"
+
+summary: |
+  Turn a whole book into a traceable graph of sentences and claims, resumable after failure.
+  Built behind MONITOR_BOOK_DECOMPOSITION, off by default. One chapter has run with live models; a first sample of 30 claims was labeled 90% canon as written.
+
+acceptance_criteria:
+  - "No extracted text is lost between the PDF and the tree"
+  - "Every sentence ends cited, skipped or reported"
+  - "A failed run resumes without resending finished sentences"
+  - "Every kept claim and graph relationship traces to source sentences"
+  - "A person can accept, reword or reject each held claim, and the decision survives a resumed run"
+
+depends_on: []
+blocks: []
+
+implementation:
+  layer: 2
+  files:
+    create: []
+    modify: []
+  patterns: []

@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
   Unlock,
+  ListChecks,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ingestApi } from "@/lib/api";
@@ -19,8 +20,16 @@ import type { IngestJob } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
 import { JobIcon } from "./JobIcon";
+import { HeldClaimsPanel } from "./HeldClaimsPanel";
 import { useRouter } from "next/navigation";
-import { FAILED_JOB_STATUSES, LIVE_JOB_STATUSES, mergeJobsSafely } from "./ingest-constants";
+import {
+  FAILED_JOB_STATUSES,
+  LIVE_JOB_STATUSES,
+  canResumeJob,
+  decompositionSummary,
+  isDecompositionJob,
+  mergeJobsSafely,
+} from "./ingest-constants";
 import { FORGE_KEYS } from "@/lib/query-keys";
 import { useNotify } from "@/components/NotificationProvider";
 
@@ -38,6 +47,7 @@ export function IngestionJobsList() {
   // id → retry count for transient errors (cleared on a successful message)
   const retryRefs = useRef<Map<string, number>>(new Map());
   const [expandedJobId, setExpandedId] = useState<string | null>(null);
+  const [reviewingJobId, setReviewingJobId] = useState<string | null>(null);
 
   const { data: jobs = [], isLoading } = useQuery<IngestJob[]>({
     queryKey: FORGE_KEYS.jobs,
@@ -197,6 +207,16 @@ export function IngestionJobsList() {
       notify("error", e instanceof Error ? e.message : "Retry failed."),
   });
 
+  const resumeJob = useMutation({
+    mutationFn: (id: string) => ingestApi.resumeJob(id),
+    onSuccess: () => {
+      notify("info", "Decomposition resumed.");
+      queryClient.invalidateQueries({ queryKey: FORGE_KEYS.jobs });
+    },
+    onError: (e: unknown) =>
+      notify("error", e instanceof Error ? e.message : "Resume failed."),
+  });
+
   const unlockQueue = useMutation({
     mutationFn: () => ingestApi.unlockQueue(),
     onSuccess: (r) => {
@@ -316,6 +336,14 @@ export function IngestionJobsList() {
                     </>
                   )}
                 </div>
+                {decompositionSummary(job) && (
+                  <p className="mt-1 text-[11px] text-slate-400 leading-snug">{decompositionSummary(job)}</p>
+                )}
+                {job.status === "paused" && job.decomposition?.pause_reason && (
+                  <p className="mt-1 text-[11px] text-amber-300/90 leading-snug line-clamp-2">
+                    Paused: {job.decomposition.pause_reason}
+                  </p>
+                )}
                 {/* Error visible on the row itself — not buried in the panel */}
                 {isFailed && errorText && (
                   <p className="mt-1 text-[11px] text-red-300/90 leading-snug line-clamp-2">
@@ -325,7 +353,18 @@ export function IngestionJobsList() {
               </div>
 
               <div className="flex items-center gap-1 self-start">
-                {isFailed && job.source_id && (
+                {canResumeJob(job) && (
+                  <button
+                    onClick={() => resumeJob.mutate(job.id)}
+                    disabled={resumeJob.isPending}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-amber-200 border border-amber-500/20 hover:bg-amber-500/10"
+                    title="Continue from where this stopped; finished work isn't repeated"
+                  >
+                    {resumeJob.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                    Resume
+                  </button>
+                )}
+                {isFailed && job.source_id && !isDecompositionJob(job) && (
                   <button
                     onClick={() => retryJob.mutate(job.source_id)}
                     disabled={retryJob.isPending}
@@ -334,6 +373,16 @@ export function IngestionJobsList() {
                   >
                     {retryJob.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
                     Retry
+                  </button>
+                )}
+                {!isLive && (job.decomposition?.claims_for_review ?? 0) > 0 && (
+                  <button
+                    onClick={() => setReviewingJobId(reviewingJobId === job.id ? null : job.id)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-amber-200 border border-amber-500/20 hover:bg-amber-500/10"
+                    title="Accept or reject the claims review couldn't settle"
+                  >
+                    <ListChecks className="w-3 h-3" />
+                    Review claims
                   </button>
                 )}
                 {hasReviewableProposals && (
@@ -392,6 +441,12 @@ export function IngestionJobsList() {
                     transition={{ type: "spring", bounce: 0, duration: 0.5 }}
                   />
                 </div>
+              </div>
+            )}
+
+            {reviewingJobId === job.id && (
+              <div className="px-3 pb-3 border-t border-white/5 pt-2">
+                <HeldClaimsPanel jobId={job.id} />
               </div>
             )}
 

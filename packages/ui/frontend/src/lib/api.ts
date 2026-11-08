@@ -8,6 +8,7 @@ import type {
   CharacterTemplateCreate,
   CharacterTemplateListResponse,
   DatabaseStatus,
+  HeldClaim,
   IngestJob,
   IngestJobReview,
   JobsHealthResponse,
@@ -482,6 +483,14 @@ export const ingestApi = {
 
   deleteJob: (id: string) =>
     req<void>(`/ingest/jobs/${id}`, { method: "DELETE" }),
+  resumeJob: (id: string) =>
+    req<{ job_id: string; status: string; message: string }>(`/ingest/jobs/${id}/resume`, { method: "POST" }),
+  listHeldClaims: (id: string) => req<HeldClaim[]>(`/ingest/jobs/${id}/held-claims`),
+  decideHeldClaim: (id: string, claimId: string, accept: boolean, statement?: string) =>
+    req<{ claims_for_review: number }>(`/ingest/jobs/${id}/held-claims/${encodeURIComponent(claimId)}`, {
+      method: "POST",
+      body: JSON.stringify({ accept, statement: statement ?? null }),
+    }),
   cancelJob: (id: string) =>
     req<{ job_id: string; status: string; message: string }>(`/ingest/jobs/${id}/cancel`, { method: "POST" }),
   purgeFailedJobs: () =>

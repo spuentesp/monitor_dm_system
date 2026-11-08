@@ -86,6 +86,9 @@ AUTHORITY_MATRIX = {
     "neo4j_create_source": ["CanonKeeper", "IngestionPipeline"],
     "neo4j_delete_source": ["CanonKeeper", "IngestionPipeline"],
     "neo4j_get_source": ["*"],
+    # A record of the file's structure, never canon, but still written only by CanonKeeper (I-17).
+    "neo4j_merge_book_tree": ["CanonKeeper"],
+    "neo4j_delete_book_tree": ["CanonKeeper"],
     # =========================================================================
     # NEO4J OPERATIONS - Mechanics (AbilitySystem, Track, Condition)
     # =========================================================================

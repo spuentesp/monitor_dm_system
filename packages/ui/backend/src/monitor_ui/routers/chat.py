@@ -1273,8 +1273,15 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
     try:
         while True:
             raw = await websocket.receive_text()
-            data = json.loads(raw)
-            msg_type: str = data.get("type", "message")
+            try:
+                data = json.loads(raw)
+                if not isinstance(data, dict):
+                    raise ValueError("WebSocket frame must be a JSON object.")
+            except (ValueError, TypeError) as exc:
+                if not await _send_ws_payload(websocket, {"type": "error", "detail": f"Invalid JSON payload: {exc}"}):
+                    break
+                continue
+            msg_type: str = str(data.get("type", "message") or "message")
             raw_content = data.get("content", "")
             content = raw_content if isinstance(raw_content, str) else ""
 
@@ -1301,8 +1308,16 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
 
             # Handle dice_result
             if msg_type == "dice_result":
-                spec: str = data.get("spec", "")
-                value: int = int(data.get("value", 0))
+                spec: str = str(data.get("spec") or "")
+                try:
+                    value: int = int(data.get("value", 0))
+                except (TypeError, ValueError):
+                    if not await _send_ws_payload(
+                        websocket,
+                        {"type": "error", "detail": "dice_result value must be an integer."},
+                    ):
+                        break
+                    continue
                 # reason: `list` is the bare generic missing type parameters; `data` is `Any` (json.loads return), so `.get("rolls", [])` is `Any` and cannot be parameterized without narrowing
                 rolls: list = data.get("rolls", [])  # type: ignore
                 reason: str = data.get("reason", spec)
@@ -1506,6 +1521,29 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                         session_game_system_doc=_session_game_system_doc,
                         gsr_available=_GSR_AVAILABLE,
                     )
+                elif session.get("phase") == "scene_ended":
+                    story_id, scene_id, _ = _bootstrap_story_scene(session)
+                    _db_save_session(session)
+                    if scene_id:
+                        narrative = "The world settles. A new scene opens before you — what do you do?"
+                        meta = {
+                            "type": "scene_resume",
+                            "phase": "active_play",
+                            "story_id": story_id,
+                            "scene_id": scene_id,
+                        }
+                    else:
+                        narrative, meta = await _run_scene_turn(
+                            session_id,
+                            content,
+                            sessions=_SESSIONS,
+                            messages=_MESSAGES,
+                            db_save_session=_db_save_session,
+                            db_load_messages=_db_load_messages,
+                            bootstrap_story_scene=_bootstrap_story_scene,
+                            session_game_system_doc=_session_game_system_doc,
+                            gsr_available=_GSR_AVAILABLE,
+                        )
                 else:
                     narrative, meta = await _run_scene_turn(
                         session_id,
@@ -1531,15 +1569,18 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                 # client-side timeouts, instead of streaming a fake GM
                 # message — the player should see "the AI hit a limit,
                 # retry", not a blank or placeholder turn.
-                error_payload = {
+                error_payload: dict[str, Any] = {
                     "type": "error",
                     "message_id": gm_id,
                     "detail": narrative,
                     "error_class": meta.get("error_class"),
                 }
-                await _send_ws_payload(websocket, error_payload)
+                if meta.get("dice_request"):
+                    error_payload["dice_request"] = meta["dice_request"]
+                if not await _send_ws_payload(websocket, error_payload):
+                    break
                 await fanout_event(session_id, error_payload, exclude=websocket)
-                break
+                continue
 
             if not streamed_tokens:
                 for word in narrative.split():

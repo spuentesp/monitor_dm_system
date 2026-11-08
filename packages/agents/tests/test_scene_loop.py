@@ -690,7 +690,7 @@ class TestPersistMemoriesNode:
             universe_id=universe_id,
             memories=memories,
         )
-        assert result == {}
+        assert result == {"memories_to_persist": []}
 
     @pytest.mark.asyncio
     async def test_persist_memories_node_skips_when_no_memories(self):

@@ -125,8 +125,10 @@ def neo4j_create_entity(params: EntityCreate) -> EntityResponse:
     else:
         entity_props["state_tags"] = []
 
-    # Build creation query
-    extra_labels_str = "".join(extra_labels)
+    # Build creation query. The kind label comes first: parties, agendas, story
+    # lookups and the memory entity check all match on it.
+    kind_label = ":EntityArchetype" if params.is_archetype else ":EntityInstance"
+    extra_labels_str = kind_label + "".join(extra_labels)
     create_query = f"""
     MATCH (u:Universe {{id: $universe_id}})
     CREATE (e:Entity{extra_labels_str} $entity_props)
@@ -400,16 +402,6 @@ def neo4j_update_entity(entity_id: UUID, params: EntityUpdate) -> EntityResponse
     if confidence is not None:
         set_clauses.append("e.confidence = $confidence")
         update_params["confidence"] = confidence
-
-    # Optional backwards-compatible state-tag updates
-    state_tags_update = getattr(params, "state_tags_update", None)
-    if state_tags_update:
-        if state_tags_update.add:
-            set_clauses.append("e.state_tags = apoc.coll.toSet(e.state_tags + $add_tags)")
-            update_params["add_tags"] = state_tags_update.add
-        if state_tags_update.remove:
-            set_clauses.append("e.state_tags = [x IN e.state_tags WHERE NOT x IN $remove_tags]")
-            update_params["remove_tags"] = state_tags_update.remove
 
     if not set_clauses:
         existing = neo4j_get_entity(entity_id)  # Reuse getter logic which now includes fixes

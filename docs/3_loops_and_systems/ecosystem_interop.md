@@ -76,8 +76,12 @@ never at import time — the stored card stays raw so exports remain
 faithful. Substitution happens:
 
 - when a light-RP character is provisioned into an entity + NPC profile
-  (description, personality, GM notes), and
-- when the opening `first_message` is rendered.
+  (description, personality, GM notes). That profile is shared by every
+  conversation with the incarnation, so `{{user}}` takes the `"User"` default here;
+- per conversation, in the card text sent to the voice prompt
+  (`character_card`: description, personality, and the scenario/notes), and
+- when the opening `first_message` is rendered. That greeting is also recorded as
+  the character's first turn.
 
 `{{user}}` resolves to the bound persona's name:
 `POST /characters/{id}/conversations` accepts an optional
@@ -92,11 +96,13 @@ persisted on the conversation document so resumed sessions keep it.
 Two directive mechanisms are supported:
 
 - **Output directives** (`@@activate <name>` / `@@deactivate <name>`):
-  lines the model emits in its reply are stripped from the player-visible
-  prose and toggle the matching lorebook entry's `is_active` flag (matched
-  by `comment`, case-insensitive, across the conversation's lorebook
-  characters). Unmatched names are skipped silently; failures never break
-  a turn.
+  lines the model emits in its reply are stripped before the reply is saved,
+  remembered or shown, and switch the matching lorebook entry on or off for
+  **that conversation only** (matched by `comment`, case-insensitive, across
+  the conversation's lorebook characters, inactive entries included). The
+  lorebook itself isn't changed, so other conversations with the same card are
+  unaffected. The switches are saved on the conversation and survive a resume.
+  Unmatched names are skipped silently; failures never break a turn.
 - **Content decorators** (import time): leading `@@position` / `@@depth` /
   `@@probability` / `@@order` lines at the top of an entry's content
   override the structured fields and are stripped from stored content, per
@@ -124,6 +130,17 @@ point at MONITOR as a backend by configuring the URL to
   benefits from persona binding, lorebook scanning, and NPC memory.
   `stream=true` is rejected (HTTP 400) — the conversation loop is
   non-streaming today; reply is one assistant message.
+
+**Continuity:** clients resend their history instead of holding a session id,
+so a request with only `character_id` finds its conversation from the last two
+messages before the new player line, within active conversations for that
+character and persona. No match opens a new conversation, which is what a new
+chat in the client should do. The response also returns `monitor_session_id`
+for clients that can pass it back. In session mode the server's transcript and
+the character card are the authority: the client's system prompt and older
+messages are not used. If the client edits or rewrites a message, the history no
+longer matches and a new conversation opens. Regenerating a reply continues the
+same conversation, so the earlier attempt stays in the server's transcript.
 
 **Card binding:** session mode threads a `persona_character_id` through
 `start_conversation` for the same `{{user}}` / voice-prompt depth that the
@@ -188,7 +205,5 @@ user-facing diff view are the next tightening pass.
 - **Canon promotion dedup + conflict UX** — the v1 promotion writes
   proposals directly; Qdrant semantic dedup and the "3 conflicts, pick
   per item" diff view are the next layer.
-- **Inbound OpenAI-compatible endpoint** — RisuAI/SillyTavern cannot yet
-  point at MONITOR as a `/v1/chat/completions` backend.
 - **Canon promotion of imported cards** — imports land in the light-RP
   store; the proposal/entity-resolution pipeline is separate future work.

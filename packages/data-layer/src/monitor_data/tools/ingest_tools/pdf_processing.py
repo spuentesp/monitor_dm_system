@@ -24,7 +24,6 @@ import fitz  # pymupdf
 
 from monitor_data.tools.ingest_tools._chunking import (
     _chunk_section,
-    _looks_like_heading,
 )
 from monitor_data.tools.ingest_tools._models import (
     DEFAULT_MAX_TOKENS,
@@ -220,103 +219,15 @@ def extract_pdf_structure(pdf_bytes: bytes) -> list[SectionBlock]:
 
 
 def _extract_pdf_structure_uncached(pdf_bytes: bytes) -> list[SectionBlock]:
+    """Read a PDF's sections through the book tree, so no text is repeated or lost.
+
+    Each section holds only its own text. See ``sections_from_tree`` for how they're divided.
     """
-    Extract PDF bookmark tree and assign page text to each section span.
+    # Imported here because book_tree imports _open_pdf from this module.
+    from monitor_data.tools.ingest_tools.book_tree import decompose_pdf, sections_from_tree
 
-    Uses fitz.get_toc() for heading hierarchy when bookmarks exist.
-    Falls back to _looks_like_heading() heuristic when no bookmarks are found.
-
-    Returns a list of SectionBlock ordered by page_start.
-    """
-    doc = _open_pdf(pdf_bytes)
-    toc = doc.get_toc(simple=False)  # [[level, title, page_1indexed, ...], ...]
-
-    if toc:
-        sections = []
-        for i, entry in enumerate(toc):
-            level = entry[0]
-            title = entry[1]
-            page_1indexed = entry[2]
-            page_start = page_1indexed - 1  # convert to 0-indexed
-
-            # page_end = start of next entry at same or higher level, minus 1
-            page_end = doc.page_count - 1
-            for j in range(i + 1, len(toc)):
-                if toc[j][0] <= level:
-                    page_end = max(page_start, toc[j][2] - 2)
-                    break
-
-            # Build heading_path by collecting ancestor titles at lower levels
-            path: list[str] = []
-            current_level = level
-            for k in range(i - 1, -1, -1):
-                if toc[k][0] < current_level:
-                    path.insert(0, toc[k][1])
-                    current_level = toc[k][0]
-                    if current_level == 1:
-                        break
-            path.append(title)
-
-            # Collect text from page range
-            text_parts = [doc[p].get_text() for p in range(max(0, page_start), min(doc.page_count, page_end + 1))]
-            text = "\n".join(text_parts).strip()
-
-            sections.append(
-                SectionBlock(
-                    heading_path=path,
-                    depth=level - 1,
-                    page_start=page_start,
-                    page_end=page_end,
-                    text=text,
-                )
-            )
-        doc.close()
-        return sections
-
-    # Fallback: no bookmarks — use heuristic heading detection page by page
-    sections = []
-    current_heading = ["(untitled)"]
-    current_depth = 0
-    current_start = 0
-    current_texts: list[str] = []
-
-    for page_num in range(doc.page_count):
-        page_text = doc[page_num].get_text()
-        lines = page_text.splitlines()
-        for line in lines:
-            stripped = line.strip()
-            if stripped and _looks_like_heading(stripped):
-                if current_texts:
-                    sections.append(
-                        SectionBlock(
-                            heading_path=current_heading,
-                            depth=current_depth,
-                            page_start=current_start,
-                            page_end=page_num,
-                            text="\n".join(current_texts).strip(),
-                        )
-                    )
-                current_heading = [stripped]
-                current_depth = 0
-                current_start = page_num
-                current_texts = []
-            else:
-                current_texts.append(line)
-
-    # Flush last section
-    if current_texts or not sections:
-        sections.append(
-            SectionBlock(
-                heading_path=current_heading,
-                depth=current_depth,
-                page_start=current_start,
-                page_end=doc.page_count - 1,
-                text="\n".join(current_texts).strip(),
-            )
-        )
-
-    doc.close()
-    return sections
+    tree = decompose_pdf(pdf_bytes, hashlib.sha256(pdf_bytes).hexdigest(), "")
+    return sections_from_tree(tree)
 
 
 # ---------------------------------------------------------------------------

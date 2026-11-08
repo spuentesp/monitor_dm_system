@@ -182,6 +182,30 @@ export interface IngestJobFailedSection {
   reason: string;
 }
 
+export interface IngestJobDecomposition {
+  sentences_total: number;
+  sentences_done: number;
+  sentences_quarantined: number;
+  claims_kept: number;
+  claims_held_back: number;
+  claims_for_review?: number;
+  pause_reason: string | null;
+}
+
+/** A claim book review couldn't settle, waiting for a person (I-17). */
+export interface HeldClaim {
+  claim_id: string;
+  kind: string;
+  statement: string;
+  original_statement: string;
+  name: string | null;
+  reason: string;
+  page: number;
+  sources: { id: string; text: string; page: number }[];
+  conflicts: { claim_id: string; statement: string }[];
+  decision: { claim_id: string; accepted: boolean; statement: string; decided_at: string } | null;
+}
+
 export interface IngestJob {
   id: string;
   universe_id?: string;
@@ -206,6 +230,7 @@ export interface IngestJob {
   retried_batches?: number;
   total_attempts?: number;
   failed_sections?: IngestJobFailedSection[];
+  decomposition?: IngestJobDecomposition | null;
   current_provider?: string | null;
   current_model?: string | null;
   last_error?: IngestJobLastError | null;

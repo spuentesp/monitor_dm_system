@@ -232,16 +232,19 @@ class ExtractedEntityArchetype(BaseModel):
                 )
             self.group_type = coerced
         elif self.entity_type == "location":
-            coerced = coerce_place_subtype(self.sub_type)
-            if coerced != PlaceType.OTHER and self.sub_type != coerced.value:
-                self.sub_type = coerced.value
-            elif coerced == PlaceType.OTHER and self.sub_type:
+            place_coerced = coerce_place_subtype(self.sub_type)
+            if (
+                place_coerced != PlaceType.OTHER
+                and self.sub_type != place_coerced.value
+            ):
+                self.sub_type = place_coerced.value
+            elif place_coerced == PlaceType.OTHER and self.sub_type:
                 if self.properties is None:
                     self.properties = {}
                 self.properties.setdefault(
                     "_original_sub_type", self.sub_type
                 )
-            self.place_type = coerced
+            self.place_type = place_coerced
         else:
             # For character/faction/object/concept, group/place_type
             # stay None. The cross-field invariant is: only

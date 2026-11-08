@@ -88,7 +88,22 @@ def classify_llm_error(exc: BaseException) -> LLMErrorInfo:
             retry_after_s=_retry_after_seconds(message),
         )
 
-    if any(token in lowered for token in ("quota", "insufficient_quota", "budget exhausted", "billing")):
+    if any(
+        token in lowered
+        for token in (
+            "402",
+            "payment required",
+            "quota",
+            "insufficient_quota",
+            "insufficient balance",
+            "insufficient_balance",
+            "insufficient credit",
+            "credit balance",
+            "out of credits",
+            "budget exhausted",
+            "billing",
+        )
+    ):
         return LLMErrorInfo(LLMErrorClass.QUOTA, retryable=False, message=message)
 
     if any(
@@ -176,7 +191,12 @@ class LLMProviderUnavailable(RuntimeError):
     @property
     def user_message(self) -> str:
         """Human-readable, player-facing explanation of the failure."""
-        if self.info.error_class in (LLMErrorClass.RATE_LIMIT, LLMErrorClass.QUOTA):
+        if self.info.error_class == LLMErrorClass.QUOTA:
+            return (
+                "The GM's AI provider has hit its billing or usage limit "
+                "(account balance or quota exhausted). Check the provider credits or configuration."
+            )
+        if self.info.error_class == LLMErrorClass.RATE_LIMIT:
             return "The GM's AI provider has hit its usage limit. Please wait a moment and try again."
         if self.info.error_class == LLMErrorClass.AUTH:
             return "The GM's AI provider rejected the request (authentication issue)."

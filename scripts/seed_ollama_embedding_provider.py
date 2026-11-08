@@ -43,7 +43,9 @@ async def _seed(model: str, base_url: str, sync_pair: bool = False) -> None:
         host=host, port=port, user=user, password=password, database=database
     )
     try:
-        existing = await conn.fetch("SELECT id, model, provider FROM llm_providers WHERE role='embedding'")
+        existing = await conn.fetch(
+            "SELECT id, model, provider, is_default FROM llm_providers WHERE role='embedding' ORDER BY created_at"
+        )
         if existing:
             for row in existing:
                 await conn.execute(
@@ -55,11 +57,15 @@ async def _seed(model: str, base_url: str, sync_pair: bool = False) -> None:
                     model, base_url, row["id"],
                 )
                 print(f"  updated embedding row {row['id']}: {row['model']} ({row['provider']}) -> {model} (ollama)")
+            # The model pair is derived from role defaults, so one row must be the default.
+            if not any(row["is_default"] for row in existing):
+                await conn.execute("UPDATE llm_providers SET is_default=TRUE WHERE id=$1", existing[0]["id"])
+                print(f"  made {existing[0]['id']} the embedding default")
         else:
             await conn.execute(
                 """
-                INSERT INTO llm_providers (name, provider, model, api_key, base_url, status, is_default, role, created_at, updated_at)
-                VALUES ('Ollama nomic-embed-text', 'ollama', $1, '', $2, 'error', false, 'embedding', NOW(), NOW())
+                INSERT INTO llm_providers (id, name, provider, model, api_key, base_url, status, is_default, role, created_at, updated_at)
+                VALUES ('ollama-embedding', 'Ollama nomic-embed-text', 'ollama', $1, '', $2, 'error', true, 'embedding', NOW(), NOW())
                 """,
                 model, base_url,
             )

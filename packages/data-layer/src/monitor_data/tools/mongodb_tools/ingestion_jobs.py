@@ -72,6 +72,7 @@ def _convert_ingestion_job_doc(doc: dict[str, Any]) -> IngestionJobResponse:
         next_retry_at=doc.get("next_retry_at"),
         partial=doc.get("partial", False),
         kill_reason=doc.get("kill_reason"),
+        decomposition=doc.get("decomposition"),
         errors=doc.get("errors", []),
         warnings=doc.get("warnings", []),
         activity_log=doc.get("activity_log", []),
@@ -198,7 +199,9 @@ def mongodb_update_ingestion_job(job_id: UUID, params: IngestionJobUpdate) -> In
         return normalized
 
     fields_set = set(getattr(params, "model_fields_set", set()))
-    update_fields: dict[str, Any] = {}
+    # Any update means the job is alive. The stale-job watchdog reads this, and without it every
+    # job counted as stale once its age passed the limit, however well it was progressing.
+    update_fields: dict[str, Any] = {"stage_last_progress_at": datetime.now(UTC)}
     if params.status is not None:
         update_fields["status"] = params.status.value
     if params.current_stage is not None:
@@ -249,6 +252,8 @@ def mongodb_update_ingestion_job(job_id: UUID, params: IngestionJobUpdate) -> In
         update_fields["kill_reason"] = params.kill_reason
     if "pack_id" in fields_set and params.pack_id is not None:
         update_fields["pack_id"] = str(params.pack_id)
+    if params.decomposition is not None:
+        update_fields["decomposition"] = params.decomposition.model_dump(mode="json")
     if params.processing_checklist is not None:
         update_fields["processing_checklist"] = list(params.processing_checklist)
     if params.failed_sections is not None:
