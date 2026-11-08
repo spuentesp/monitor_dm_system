@@ -216,6 +216,20 @@ def test_update_never_touches_a_plain_character() -> None:
     assert fake.docs["char-1"]["personality"] == "wry"
 
 
+def test_update_can_clear_portrait_without_clearing_omitted_fields() -> None:
+    fake = _FakeCharactersCollection()
+    with _patch_collection(fake):
+        created = mongodb_create_character_template(
+            CharacterTemplateCreate(name="Varys", portrait_url="https://example.invalid/v.png")
+        )
+        unchanged = mongodb_update_character_template(created.template_id, CharacterTemplateUpdate(voice="soft"))
+        cleared = mongodb_update_character_template(created.template_id, CharacterTemplateUpdate(portrait_url=None))
+
+    assert unchanged is not None and unchanged.portrait_url == "https://example.invalid/v.png"
+    assert cleared is not None and cleared.portrait_url is None
+    assert fake.docs[created.template_id]["avatar_url"] is None
+
+
 def test_delete_only_removes_templates() -> None:
     fake = _FakeCharactersCollection()
     fake.docs["char-1"] = _a_character_doc()

@@ -106,7 +106,9 @@ def mongodb_update_character_template(
     params: CharacterTemplateUpdate,
 ) -> CharacterTemplateResponse | None:
     """Update a character template. Only the provided fields change."""
-    updates = params.model_dump(exclude_none=True)
+    updates = params.model_dump(exclude_unset=True, exclude_none=True)
+    if "portrait_url" in params.model_fields_set:
+        updates["portrait_url"] = params.portrait_url
     if not updates:
         return mongodb_get_character_template(template_id)
     if "portrait_url" in updates:

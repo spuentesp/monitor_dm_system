@@ -13,10 +13,15 @@ Covers:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
+
+import pytest
 
 from monitor_agents.loops.preplay_support import _seed_answers_from_persona
 from monitor_agents.loops.preplay_support import persist_session_character
+from monitor_agents.loops.preplay_support import _persist_generated_entity
 
 # =============================================================================
 # _seed_answers_from_persona
@@ -136,8 +141,41 @@ class TestSeedAnswersFromPersona:
 # =============================================================================
 
 
+def test_generated_character_persists_template_prose():
+    world_id, entity_id, sheet_id = uuid4(), uuid4(), uuid4()
+    preview = {
+        "name": "Varys",
+        "concept": "Spy",
+        "backstory": "Lost a city",
+        "personality": "Patient",
+        "voice": "Quiet",
+    }
+    with (
+        patch(
+            "monitor_data.tools.neo4j_tools.entities.neo4j_create_entity",
+            return_value=SimpleNamespace(id=entity_id, universe_id=world_id),
+        ) as create_entity,
+        patch(
+            "monitor_data.tools.mongodb_tools.mongodb_create_character_sheet",
+            return_value=SimpleNamespace(sheet_id=sheet_id),
+        ),
+    ):
+        _persist_generated_entity(universe_id=str(world_id), preview=preview, source_meta={})
+    properties = create_entity.call_args.args[0].properties
+    assert {key: properties[key] for key in ("concept", "backstory", "personality", "voice")} == {
+        key: preview[key] for key in ("concept", "backstory", "personality", "voice")
+    }
+
+
 class TestPersistSessionCharacterPersonaBackref:
-    def test_injects_source_persona_id_from_session(self):
+    @pytest.fixture(autouse=True)
+    def _usage_counter(self):
+        with patch(
+            "monitor_data.tools.mongodb_tools.character_templates.mongodb_increment_character_template_usage"
+        ) as counter:
+            yield counter
+
+    def test_injects_source_persona_id_from_session(self, _usage_counter):
         session = {"universe_id": "u-1", "persona_id": "persona-42"}
         preview = {"kind": "pc", "name": "Rook"}
 
@@ -149,6 +187,15 @@ class TestPersistSessionCharacterPersonaBackref:
 
         called_preview = mock_persist.call_args.kwargs["preview"]
         assert called_preview["source_persona_id"] == "persona-42"
+        _usage_counter.assert_called_once_with("persona-42")
+
+    def test_does_not_increment_usage_when_no_character_was_saved(self, _usage_counter):
+        with patch(
+            "monitor_agents.loops.preplay_support._persist_generated_entity",
+            return_value={},
+        ):
+            persist_session_character({"universe_id": "u-1", "persona_id": "p-1"}, {}, {})
+        _usage_counter.assert_not_called()
 
     def test_no_persona_id_on_session_leaves_preview_untouched(self):
         session = {"universe_id": "u-1"}

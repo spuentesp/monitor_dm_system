@@ -81,6 +81,7 @@ export function SetupPanel({
   const [selectedCharacterId, setSelectedCharacterId] = useState<string>("");
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>("");
   const [showTemplateEditor, setShowTemplateEditor] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<CharacterTemplate | undefined>();
   const queryClient = useQueryClient();
   const [selectedBenchmarkId, setSelectedBenchmarkId] = useState<string>("");
 
@@ -412,12 +413,17 @@ export function SetupPanel({
         </select>
         <button
           type="button"
-          onClick={() => setShowTemplateEditor(true)}
+          onClick={() => { setEditingTemplate(undefined); setShowTemplateEditor(true); }}
           className="text-[10px] text-slate-500 hover:text-cyan-300 transition-colors flex items-center gap-1 self-start"
         >
           <Plus className="w-3 h-3" />
           New character template
         </button>
+        {selectedTemplate && (
+          <button type="button" onClick={() => { setEditingTemplate(selectedTemplate); setShowTemplateEditor(true); }} className="text-[10px] text-slate-500 hover:text-cyan-300">
+            Edit selected template
+          </button>
+        )}
         {(selectedVoice || selectedBeatCount > 0) && (
           <p className="text-[10px] text-slate-500" data-testid="persona-template-summary">
             {selectedVoice ? `Voice: ${selectedVoice}` : ""}
@@ -511,6 +517,11 @@ export function SetupPanel({
 
       {showTemplateEditor && (
         <TemplateEditor
+          template={editingTemplate}
+          onDeleted={(id) => {
+            queryClient.invalidateQueries({ queryKey: PLAY_KEYS.characterTemplates });
+            setSelectedPersonaId((current) => current === id ? "" : current);
+          }}
           onClose={() => setShowTemplateEditor(false)}
           onCreated={(template) => {
             queryClient.invalidateQueries({ queryKey: PLAY_KEYS.characterTemplates });

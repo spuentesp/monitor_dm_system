@@ -337,6 +337,9 @@ def _persist_generated_entity(
             properties={
                 "role": role,
                 "concept": preview.get("concept") or preview.get("description") or "",
+                "backstory": preview.get("backstory") or "",
+                "personality": preview.get("personality") or "",
+                "voice": preview.get("voice") or "",
                 "generation_source": source_meta.get("source_type"),
                 "system_name": preview.get("system_name") or source_meta.get("source_label"),
                 "tier": preview.get("tier"),
@@ -436,6 +439,15 @@ def persist_session_character(
         if entity_id not in controlled:
             controlled.append(entity_id)
         session["controlled_character_ids"] = controlled
+        if persona_id:
+            try:
+                from monitor_data.tools.mongodb_tools.character_templates import (
+                    mongodb_increment_character_template_usage,
+                )
+
+                mongodb_increment_character_template_usage(str(persona_id))
+            except Exception as exc:  # noqa: BLE001  # reason: usage accounting must not roll back a persisted character (in persist_session_character)
+                log.warning("preplay.template_usage_increment_failed", error=str(exc))
     return saved
 
 

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SetupPanel } from "./SetupPanel";
-import { entitiesApi } from "@/lib/api";
+import { characterTemplatesApi, entitiesApi } from "@/lib/api";
 
 const mockMultiverses = [{ id: "mv-1", name: "Mistlands" }];
 const mockUniverses = [{ id: "u-1", name: "Mistlands — Canon" }];
@@ -62,6 +62,7 @@ vi.mock("@/lib/api", () => ({
     listBenchmarks: vi.fn(async () => []),
   },
   characterTemplatesApi: {
+    remove: vi.fn(async () => undefined),
     list: vi.fn(async () => ({
       templates: mockTemplates,
       total: mockTemplates.length,
@@ -88,6 +89,18 @@ beforeEach(() => {
 });
 
 describe("SetupPanel persona picker", () => {
+  it("clears the selection after deleting the selected template", async () => {
+    const onCreate = renderPanel();
+    await screen.findByRole("option", { name: "Varys (template)" });
+    fireEvent.change(screen.getByLabelText(/play as a saved persona/i), { target: { value: "tpl-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Edit selected template" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete template" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
+    await waitFor(() => expect(characterTemplatesApi.remove).toHaveBeenCalledWith("tpl-1"));
+    await waitFor(() => expect(screen.getByLabelText(/play as a saved persona/i)).toHaveValue(""));
+    fireEvent.click(screen.getByRole("button", { name: /create session/i }));
+    expect(onCreate.mock.calls[0][0].persona_id).toBeNull();
+  });
   it("lists saved personas and sends persona_id when one is selected", async () => {
     const onCreate = renderPanel();
 

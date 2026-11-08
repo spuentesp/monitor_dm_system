@@ -172,7 +172,7 @@ function ReviewRow({
           {item.needs_review && (
             <span
               data-testid="needs-review-badge"
-              title={item.review_reason ?? "Flagged for review"}
+              title={`Advisory flag: this does not prevent acceptance or commit.${item.review_reason ? ` ${item.review_reason}` : ""}`}
               className="text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 font-medium flex items-center gap-1"
             >
               <AlertTriangle className="h-2.5 w-2.5" />
@@ -183,6 +183,10 @@ function ReviewRow({
             {reviewItemTitle(item)}
           </span>
         </div>
+
+        {item.needs_review && (
+          <p className="text-[10px] text-amber-300/80">Advisory flag: it does not prevent acceptance or commit.</p>
+        )}
 
         {isEntity && description && (
           <p className="text-xs text-fg-secondary truncate">{description}</p>

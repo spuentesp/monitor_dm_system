@@ -93,7 +93,7 @@ function ProposalCard({
             {proposal.needs_review && (
               <span
                 data-testid="needs-review-badge"
-                title={proposal.review_reason ?? "Flagged for review"}
+                title={`Advisory flag: this does not prevent acceptance or commit.${proposal.review_reason ? ` ${proposal.review_reason}` : ""}`}
                 className="text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 font-medium flex items-center gap-1"
               >
                 <AlertTriangle className="w-3 h-3" />
@@ -108,6 +108,9 @@ function ProposalCard({
             )}
           </div>
           <p className="text-sm text-slate-300 mt-1 break-words">{contentPreview}</p>
+          {proposal.needs_review && (
+            <p className="text-[10px] text-amber-300/80 mt-1">Advisory flag: it does not prevent acceptance or commit.</p>
+          )}
           {proposal.proposer && (
             <p className="text-[10px] text-slate-500 mt-1">Proposed by: {proposal.proposer}</p>
           )}

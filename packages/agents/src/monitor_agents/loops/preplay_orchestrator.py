@@ -537,11 +537,15 @@ async def handle_char_creation(state: PreplayState) -> dict[str, Any]:
 
     char = result.get("character", {})
     sheet_md = result.get("sheet_markdown", "")
+    concept = char.get("concept") or session.get("pending_character_concept") or ""
     preview = {
         "kind": "pc",
         "name": char.get("name") or session.get("speaker_label") or "Player Character",
-        "description": session.get("pending_character_concept") or "",
-        "concept": session.get("pending_character_concept") or "",
+        "description": concept,
+        "concept": concept,
+        "backstory": char.get("backstory") or "",
+        "personality": char.get("personality") or "",
+        "voice": char.get("voice") or "",
         "system_name": (state.system_doc or {}).get("name", session.get("system_label") or ""),
         "attributes": char.get("attributes") or {},
         "resources": char.get("resources") or {},

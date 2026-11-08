@@ -421,3 +421,56 @@ def test_final_character_carries_the_seeded_prose():
     assert character["backstory"] == "He lost a city."
     assert character["personality"] == "Charming"
     assert character["voice"] == "Parables"
+
+
+def test_completed_character_hands_template_prose_to_persistence(monkeypatch):
+    """The persistence preview must use the final character, not the earlier summary."""
+
+    class _CompleteLoop:
+        async def process_player_input(self, _player_input):
+            return {
+                "complete": True,
+                "character": {
+                    "name": "Varys",
+                    "concept": "Template concept",
+                    "backstory": "Template backstory",
+                    "personality": "Template personality",
+                    "voice": "Template voice",
+                    "attributes": {},
+                    "resources": {},
+                    "skills": {},
+                },
+            }
+
+    captured = {}
+
+    def _persist(_session, preview, _source_meta):
+        captured.update(preview)
+        return {}
+
+    async def _agreements(*_args, **_kwargs):
+        return "agreements", {}
+
+    monkeypatch.setattr(po, "get_character_creation_loop", lambda *args, **kwargs: _CompleteLoop())
+    monkeypatch.setattr(po, "persist_session_character", _persist)
+    monkeypatch.setattr(po, "start_story_agreements", _agreements)
+    state = po.PreplayState(
+        session_id="sess-template-persistence",
+        user_content="done",
+        session_data={
+            "phase": "char_creation",
+            "pending_character_concept": "Session Zero concept",
+        },
+        system_doc={"name": "Test System"},
+        gsr_available=True,
+    )
+
+    import asyncio
+
+    asyncio.run(po.handle_char_creation(state))
+
+    assert captured["concept"] == "Template concept"
+    assert captured["description"] == "Template concept"
+    assert captured["backstory"] == "Template backstory"
+    assert captured["personality"] == "Template personality"
+    assert captured["voice"] == "Template voice"
