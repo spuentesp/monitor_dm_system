@@ -88,6 +88,17 @@ def _convert_knowledge_pack_doc(doc: dict[str, Any]) -> KnowledgePackResponse:
     )
 
 
+def _extraction_provenance() -> dict[str, Any]:
+    """Snapshot of the active NLP backend and label set (import deferred to
+    avoid a tools-package import cycle at module load)."""
+    try:
+        from monitor_data.tools.nlp_tools import nlp_active_backend
+
+        return nlp_active_backend()
+    except Exception:  # noqa: BLE001  # reason: provenance is best-effort; never block pack creation
+        return {"configured_backend": None, "active_backend": None, "fallback": None}
+
+
 def mongodb_create_knowledge_pack(params: KnowledgePackCreate) -> KnowledgePackResponse:
     """
     Create a new knowledge pack.
@@ -141,6 +152,9 @@ def mongodb_create_knowledge_pack(params: KnowledgePackCreate) -> KnowledgePackR
         "section_summaries": [s.model_dump(mode="json") for s in params.section_summaries],
         "source_mindscape": params.source_mindscape.model_dump(mode="json") if params.source_mindscape else None,
         "applied_to": [],
+        # Extraction provenance: which NLP backend + label set produced this
+        # pack's entities (gliner vs spacy fallback), for reproducibility.
+        "extraction": _extraction_provenance(),
         "created_at": now,
         "updated_at": None,
     }

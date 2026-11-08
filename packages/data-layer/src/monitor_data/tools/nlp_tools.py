@@ -47,14 +47,18 @@ class EntityExtractionRequest:
 class EntityExtractionResponse:
     """Response containing extracted entities."""
 
-    def __init__(self, entities: list[Entity], text: str):
+    def __init__(self, entities: list[Entity], text: str, backend: str = "", fallback: bool = False):
         self.entities = entities
         self.text = text
         self.count = len(entities)
+        self.backend = backend
+        self.fallback = fallback
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "text": self.text,
+            "backend": self.backend,
+            "fallback": self.fallback,
             "entities": [
                 e.to_dict()
                 if hasattr(e, "to_dict")
@@ -88,10 +92,12 @@ class BatchEntityExtractionRequest:
 class BatchEntityExtractionResponse:
     """Response containing extracted entities for multiple texts."""
 
-    def __init__(self, results: list[list[Entity]], texts: list[str]):
+    def __init__(self, results: list[list[Entity]], texts: list[str], backend: str = "", fallback: bool = False):
         self.results = results
         self.texts = texts
         self.count = len(texts)
+        self.backend = backend
+        self.fallback = fallback
 
     def to_dict(self) -> dict[str, Any]:
         def entity_to_dict(e: Any) -> dict[str, Any]:
@@ -107,6 +113,8 @@ class BatchEntityExtractionResponse:
 
         return {
             "texts": self.texts,
+            "backend": self.backend,
+            "fallback": self.fallback,
             "results": [[entity_to_dict(e) for e in entities] for entities in self.results],
             "count": self.count,
         }
@@ -150,6 +158,39 @@ def _ensure_nlp_enabled() -> None:
 
 
 _spacy_backend: PerceptionBackend | None = None
+_gliner_health: bool | None = None  # cached after first probe
+
+
+def _gliner_ready() -> bool:
+    """Probe the GLiNER service once, cache the result, log a warning on fallback."""
+    global _gliner_health
+    if _gliner_health is None:
+        try:
+            _gliner_health = bool(_call_sync(get_gliner_client().health_check()))
+        except Exception:  # noqa: BLE001  # reason: any failure means "not ready"; we degrade to spaCy
+            _gliner_health = False
+        if not _gliner_health:
+            log.warning(
+                "gliner_unavailable_falling_back_to_spacy",
+                configured_backend=settings.nlp_backend,
+                gliner_url=settings.gliner_url,
+            )
+    return _gliner_health
+
+
+def _active_backend() -> tuple[str, bool]:
+    """Return (active_backend, fell_back). gliner only when configured AND healthy."""
+    if settings.nlp_backend == "spacy":
+        return "spacy", False
+    if _gliner_ready():
+        return "gliner", False
+    return "spacy", True
+
+
+def _reset_nlp_backend_cache() -> None:
+    """Reset the cached GLiNER probe. Test helper."""
+    global _gliner_health
+    _gliner_health = None
 
 
 def _get_spacy_backend() -> PerceptionBackend:
@@ -214,14 +255,15 @@ def nlp_extract_entities(
     if not text or not text.strip():
         return EntityExtractionResponse(entities=[], text=text).to_dict()
 
-    if settings.nlp_backend == "spacy":
+    active, fell_back = _active_backend()
+    if active == "spacy":
         backend = _get_spacy_backend()
         detected = _call_sync(backend.detect_entities(text))
         entities = [_detected_to_entity(d) for d in detected]
     else:
         request = EntityExtractionRequest(text=text, labels=labels, threshold=threshold)
         entities = _call_sync(extract_entities(request.text, labels=request.labels, threshold=request.threshold))
-    response = EntityExtractionResponse(entities=entities, text=text)
+    response = EntityExtractionResponse(entities=entities, text=text, backend=active, fallback=fell_back)
 
     return response.to_dict()
 
@@ -256,7 +298,8 @@ def nlp_extract_entities_batch(
     if not texts:
         return BatchEntityExtractionResponse(results=[], texts=[]).to_dict()
 
-    if settings.nlp_backend == "spacy":
+    active, fell_back = _active_backend()
+    if active == "spacy":
         backend = _get_spacy_backend()
         all_results: list[list[Entity]] = []
         for t in texts:
@@ -266,7 +309,7 @@ def nlp_extract_entities_batch(
     else:
         request = BatchEntityExtractionRequest(texts=texts, labels=labels, threshold=threshold)
         results = _call_sync(extract_entities_batch(request.texts, labels=request.labels, threshold=request.threshold))
-    response = BatchEntityExtractionResponse(results=results, texts=texts)
+    response = BatchEntityExtractionResponse(results=results, texts=texts, backend=active, fallback=fell_back)
 
     return response.to_dict()
 
@@ -287,21 +330,39 @@ def nlp_health_check() -> dict[str, Any]:
     if not settings.nlp_enabled:
         return NLPHealthCheckResponse(healthy=False, backend=settings.nlp_backend).to_dict()
 
-    if settings.nlp_backend == "spacy":
+    active, fell_back = _active_backend()
+    if active == "spacy":
         try:
             backend = _get_spacy_backend()
             # Run a quick entity extraction as health check
             _call_sync(backend.detect_entities("health check test"))
-            return NLPHealthCheckResponse(healthy=True, backend=settings.nlp_backend).to_dict()
-        except Exception:  # noqa: BLE001  # reason: falls back to `NLPHealthCheckResponse(healthy=False, ba` on failure (in nlp_health_check)
-            return NLPHealthCheckResponse(healthy=False, backend=settings.nlp_backend).to_dict()
+            healthy = True
+        except Exception:  # noqa: BLE001  # reason: falls back to unhealthy on failure (in nlp_health_check)
+            healthy = False
+    else:
+        healthy = True  # _gliner_ready() already probed the service
+    return {
+        "healthy": healthy,
+        "backend": active,
+        "configured_backend": settings.nlp_backend,
+        "fallback": fell_back,
+    }
 
-    try:
-        gliner = get_gliner_client()
-        healthy = _call_sync(gliner.health_check())
-        return NLPHealthCheckResponse(healthy=healthy, backend=settings.nlp_backend).to_dict()
-    except Exception:  # noqa: BLE001  # reason: falls back to `NLPHealthCheckResponse(healthy=False, ba` on failure (in nlp_health_check)
-        return NLPHealthCheckResponse(healthy=False, backend=settings.nlp_backend).to_dict()
+
+def nlp_active_backend() -> dict[str, Any]:
+    """Report which NLP backend is configured vs. actually serving requests.
+
+    Agents call this at extraction time to record provenance on knowledge
+    packs (which backend + labels produced the entities).
+    """
+    active, fell_back = _active_backend()
+    return {
+        "configured_backend": settings.nlp_backend,
+        "active_backend": active,
+        "fallback": fell_back,
+        "entity_types": _parse_entity_types(),
+        "nlp_enabled": settings.nlp_enabled,
+    }
 
 
 def nlp_get_supported_entity_types() -> dict[str, Any]:
