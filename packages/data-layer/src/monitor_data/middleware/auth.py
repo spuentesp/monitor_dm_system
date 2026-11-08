@@ -244,6 +244,11 @@ AUTHORITY_MATRIX = {
     "neo4j_get_scene_relevant_entities": ["*"],
     "neo4j_get_entity_neighborhood": ["*"],
     "neo4j_find_ranked_paths": ["*"],
+    "neo4j_universe_connected_components": ["*"],
+    "neo4j_universe_node_similarity": ["*"],
+    "neo4j_universe_centrality": ["*"],
+    "neo4j_shortest_path": ["*"],
+    "neo4j_graph_algorithms_available": ["*"],
     # =========================================================================
     # MONGODB OPERATIONS - Snippets
     # =========================================================================
