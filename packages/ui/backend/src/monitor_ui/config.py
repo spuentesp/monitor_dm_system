@@ -62,9 +62,53 @@ class UISettings(BaseSettings):
     github_models_base_url: str = Field(default="https://models.github.ai/inference", alias="GITHUB_MODELS_BASE_URL")
     llm_model: str = Field(default="claude-sonnet-4-20250514", alias="LLM_MODEL")
 
+    # Authentication / multi-tenancy (see docs/architecture/MULTI_TENANCY_PLAN.md).
+    # MONITOR_AUTH_DISABLED is an explicit LOCAL-DEVELOPMENT exception only —
+    # never set it on a reachable production host.
+    monitor_auth_disabled: bool = Field(default=False, alias="MONITOR_AUTH_DISABLED")
+    auth_session_cookie: str = Field(default="monitor_session", alias="AUTH_SESSION_COOKIE")
+    auth_csrf_cookie: str = Field(default="monitor_csrf", alias="AUTH_CSRF_COOKIE")
+    auth_csrf_header: str = Field(default="X-CSRF-Token", alias="AUTH_CSRF_HEADER")
+    auth_session_ttl_hours: int = Field(default=168, alias="AUTH_SESSION_TTL_HOURS")
+    # None → Secure cookies everywhere except explicit auth-disabled local dev.
+    auth_cookie_secure: bool | None = Field(default=None, alias="AUTH_COOKIE_SECURE")
+    # Comma-separated client IPs allowed to set X-Forwarded-For (reverse proxies).
+    auth_trusted_proxies: str = Field(default="", alias="AUTH_TRUSTED_PROXIES")
+    auth_login_rate_limit: int = Field(default=5, alias="AUTH_LOGIN_RATE_LIMIT")
+    auth_rate_window_seconds: int = Field(default=60, alias="AUTH_RATE_WINDOW_SECONDS")
+
+    # Google OAuth (optional — unset client id disables the provider)
+    google_client_id: str | None = Field(default=None, alias="GOOGLE_CLIENT_ID")
+    google_client_secret: str | None = Field(default=None, alias="GOOGLE_CLIENT_SECRET")
+    # Must be registered in the Google Cloud console; defaults to the Next.js
+    # proxy path so cookies are set on the frontend origin.
+    google_oauth_redirect_uri: str = Field(
+        default="http://localhost:3000/api/auth/oauth/google/callback",
+        alias="GOOGLE_OAUTH_REDIRECT_URI",
+    )
+    # Where the browser lands after a successful OAuth callback.
+    auth_frontend_url: str = Field(default="http://localhost:3000", alias="AUTH_FRONTEND_URL")
+    oauth_state_cookie: str = Field(default="monitor_oauth_state", alias="OAUTH_STATE_COOKIE")
+    oauth_state_ttl_seconds: int = Field(default=600, alias="OAUTH_STATE_TTL_SECONDS")
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ui_cors_origins.split(",")]
+
+    @property
+    def trusted_proxies_list(self) -> list[str]:
+        return [p.strip() for p in self.auth_trusted_proxies.split(",") if p.strip()]
+
+    @property
+    def cookie_secure(self) -> bool:
+        """Whether auth cookies carry the Secure attribute."""
+        if self.auth_cookie_secure is not None:
+            return self.auth_cookie_secure
+        return not self.monitor_auth_disabled
+
+    @property
+    def google_oauth_configured(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret)
 
 
 @lru_cache

@@ -64,10 +64,7 @@ def _get_asset_doc(asset_id: UUID) -> dict[str, Any]:
 
 def _shares_reference_scope(doc: Mapping[str, Any], asset: Mapping[str, Any]) -> bool:
     """True when both docs share at least one non-null reference anchor."""
-    return any(
-        asset.get(key) is not None and doc.get(key) == asset.get(key)
-        for key in _REFERENCE_SCOPES
-    )
+    return any(asset.get(key) is not None and doc.get(key) == asset.get(key) for key in _REFERENCE_SCOPES)
 
 
 def _demote_other_primaries(collection: Any, asset: Mapping[str, Any]) -> None:
@@ -110,9 +107,7 @@ def mongodb_create_generated_asset(params: GeneratedAssetCreate) -> GeneratedAss
 
 def mongodb_get_generated_asset(asset_id: UUID) -> GeneratedAsset | None:
     """Fetch a generated asset by ID, returning None when absent."""
-    doc = get_mongodb_client().get_collection(_COLLECTION).find_one(
-        {"asset_id": str(asset_id)}
-    )
+    doc = get_mongodb_client().get_collection(_COLLECTION).find_one({"asset_id": str(asset_id)})
     if doc is None:
         return None
     return _generated_asset_doc_to_response(doc)
@@ -121,6 +116,8 @@ def mongodb_get_generated_asset(asset_id: UUID) -> GeneratedAsset | None:
 def mongodb_list_generated_assets(params: GeneratedAssetFilter) -> list[GeneratedAsset]:
     """List generated assets matching the supplied filters, newest first."""
     query: dict[str, Any] = {}
+    if params.universe_ids is not None:
+        query["universe_id"] = {"$in": [str(u) for u in params.universe_ids]}
     for field_name in (
         "character_id",
         "entity_id",
@@ -151,6 +148,8 @@ def mongodb_list_generated_assets(params: GeneratedAssetFilter) -> list[Generate
         .limit(params.limit)
     )
     return [_generated_asset_doc_to_response(doc) for doc in cursor]
+
+
 def mongodb_update_generated_asset(
     asset_id: UUID,
     params: GeneratedAssetUpdate,

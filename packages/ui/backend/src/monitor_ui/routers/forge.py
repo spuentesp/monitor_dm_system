@@ -16,14 +16,53 @@ import structlog
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from monitor_data.db.postgres import PostgresClient
+from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.ownership import owned_world_ids
 from pydantic import BaseModel, Field
 
 log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
+
+
+async def _register_world_ownership(
+    db: PostgresClient,
+    principal: Principal,
+    multiverse_id: UUID,
+    universe_id: UUID,
+    multiverse_name: str,
+    universe_name: str,
+) -> None:
+    """Register a freshly forged world in the Postgres ownership registry.
+
+    Skipped in auth-disabled local mode (the local account owns everything).
+    """
+    if principal.via == "local":
+        return
+    from .universes import _default_world_bindings
+
+    await db.multiverse_upsert(
+        {
+            "id": str(multiverse_id),
+            "owner_id": principal.user_id,
+            "label": multiverse_name,
+            "active": True,
+        }
+    )
+    await db.world_upsert(
+        {
+            "id": str(universe_id),
+            "owner_id": principal.user_id,
+            "multiverse_id": str(multiverse_id),
+            "label": universe_name,
+            "active": True,
+        }
+    )
+    await db.world_bindings_upsert(_default_world_bindings(str(universe_id)))
 
 
 class QuickWorldRequest(BaseModel):
@@ -184,14 +223,22 @@ class DemoWorldResponse(QuickWorldResponse):
 
 
 @router.post("/demo-world", response_model=DemoWorldResponse)
-async def demo_world(start_playing: bool = True) -> DemoWorldResponse:
+async def demo_world(
+    start_playing: bool = True,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> DemoWorldResponse:
     """Create (or reuse) the curated Millhaven demo world and a bound session.
 
     Deterministic and LLM-free so the 'Try the demo' button is instant and
-    always works, even with no provider configured.
+    always works, even with no provider configured. In enforced auth mode the
+    reuse lookup is scoped to the caller's own worlds and every newly created
+    world is registered to the caller.
     """
     import anyio
     from monitor_agents.quick_world.agent import QuickWorldResult
+
+    owned_w = await owned_world_ids(db, principal)
 
     def _ensure_demo() -> tuple[QuickWorldResult, bool]:
         from uuid import UUID
@@ -223,8 +270,15 @@ async def demo_world(start_playing: bool = True) -> DemoWorldResponse:
                 mistlands_id = sys.id  # type: ignore
                 break
 
-        # Idempotent: reuse an existing Millhaven demo if present.
-        existing = [u for u in neo4j_list_universes(UniverseFilter(limit=500)) if u.name == _DEMO_NAME]
+        # Idempotent: reuse an existing Millhaven demo if present — scoped to
+        # the caller's own universes in enforced mode (owned IDs predicate).
+        existing = [
+            u
+            for u in neo4j_list_universes(
+                UniverseFilter(limit=500, ids=[UUID(i) for i in owned_w] if owned_w is not None else None)
+            )
+            if u.name == _DEMO_NAME
+        ]
         entities_payload = [
             {"name": n, "type": t, "description": d, "want": w, "tags": []} for (n, t, d, w) in _DEMO_ENTITIES
         ]
@@ -309,6 +363,15 @@ async def demo_world(start_playing: bool = True) -> DemoWorldResponse:
         traceback.print_exc()
         raise HTTPException(502, f"Could not create demo world: {exc}") from exc
 
+    if not reused:
+        # Register the new world to the caller (authoritative registry, D3).
+        try:
+            await _register_world_ownership(
+                db, principal, result.multiverse_id, result.universe_id, "The Mistlands", result.world_name
+            )
+        except Exception as exc:
+            raise HTTPException(503, f"Database unavailable: {exc}") from exc
+
     # Commit the curated content to canon on first creation.
     if not reused:
         from monitor_agents.quick_world.agent import QuickWorldBuilder
@@ -377,7 +440,11 @@ async def demo_world(start_playing: bool = True) -> DemoWorldResponse:
 
 
 @router.post("/quick-world", response_model=QuickWorldResponse)
-async def quick_world(body: QuickWorldRequest) -> QuickWorldResponse:
+async def quick_world(
+    body: QuickWorldRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> QuickWorldResponse:
     """Expand a seed into a small playable universe and commit it as canon."""
     try:
         from monitor_agents.quick_world.agent import QuickWorldBuilder
@@ -395,6 +462,14 @@ async def quick_world(body: QuickWorldRequest) -> QuickWorldResponse:
     except Exception as exc:
         logger.warning("quick-world build failed: %s", exc)
         raise HTTPException(502, f"World generation failed: {exc}") from exc
+
+    # Register the new world to the caller (authoritative registry, D3).
+    try:
+        await _register_world_ownership(
+            db, principal, result.multiverse_id, result.universe_id, str(result.multiverse_id), result.world_name
+        )
+    except Exception as exc:
+        raise HTTPException(503, f"Database unavailable: {exc}") from exc
 
     # Query MongoDB for "Mistlands Core" system ID
     import anyio

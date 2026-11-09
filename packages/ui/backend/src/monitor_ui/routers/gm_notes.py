@@ -11,16 +11,19 @@ IMPORTS FROM: data-layer only
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from monitor_data.schemas.gm_notes import GmNoteResponse, GmNoteUpsert
 from monitor_data.tools.mongodb_tools import (
     mongodb_get_gm_note,
     mongodb_upsert_gm_note,
 )
 
+from monitor_ui.ownership import resource_route_guard
+
 from .ingest_shared import db_op, validate_uuid
 
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 @router.get("/gm/notes/{universe_id}", response_model=GmNoteResponse)

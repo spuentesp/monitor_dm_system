@@ -31,6 +31,8 @@ from monitor_data.schemas.generated_assets import (
 import monitor_ui.routers.image_gen as image_gen
 from monitor_ui.routers.image_gen import router
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 app = FastAPI()
 app.include_router(router, prefix="/api/image")
 client = TestClient(app)
@@ -205,7 +207,9 @@ def _created_params(create_mock) -> GeneratedAssetCreate:
 # ---------------------------------------------------------------------------
 
 
-def test_portrait_happy_path_persists_one_pending_asset(fake_adapter, mock_storage, mock_create_asset, mock_context, mock_settings):
+def test_portrait_happy_path_persists_one_pending_asset(
+    fake_adapter, mock_storage, mock_create_asset, mock_context, mock_settings
+):
     with (
         patch.object(image_gen, "get_character", return_value=dict(CHAR)),
         patch.object(image_gen, "resolve_image_adapter", new=AsyncMock(return_value=fake_adapter)),
@@ -345,7 +349,9 @@ def test_portrait_404_for_unknown_character(mock_storage, mock_create_asset, moc
     mock_create_asset.assert_not_called()
 
 
-def test_portrait_502_on_provider_failure_persists_nothing(mock_storage, mock_create_asset, mock_context, mock_settings):
+def test_portrait_502_on_provider_failure_persists_nothing(
+    mock_storage, mock_create_asset, mock_context, mock_settings
+):
     failing = _FakeAdapter(fail=True)
     with (
         patch.object(image_gen, "get_character", return_value=dict(CHAR)),
@@ -621,7 +627,9 @@ def test_scene_trigger_defaults_to_user(fake_adapter, mock_storage, mock_create_
     assert params.source_message_ids == ["m-1", "m-2"]
 
 
-def test_scene_records_loop_suggestion_trigger_and_turn_provenance(fake_adapter, mock_storage, mock_create_asset, mock_settings):
+def test_scene_records_loop_suggestion_trigger_and_turn_provenance(
+    fake_adapter, mock_storage, mock_create_asset, mock_settings
+):
     res = _run_play_session_scene(
         fake_adapter,
         mock_storage,
@@ -677,9 +685,7 @@ def test_scene_blocks_on_active_veil_from_session(
     story_agreements. With the fix, the veils stored on the session are
     read by the router and passed into the policy module.
     """
-    rows, session_doc = _play_session_with_agreements(
-        {"lines": [], "veils": ["dismemberment"], "confirmed": True}
-    )
+    rows, session_doc = _play_session_with_agreements({"lines": [], "veils": ["dismemberment"], "confirmed": True})
     mongo = MagicMock()
     mongo.get_collection.return_value.find_one.return_value = session_doc
     with (
@@ -703,9 +709,7 @@ def test_scene_blocks_on_active_line_from_session(
     fake_adapter, mock_storage, mock_create_asset, lines_and_veils_settings
 ) -> None:
     """An active line stored on the session blocks a matching prompt."""
-    rows, session_doc = _play_session_with_agreements(
-        {"lines": ["dismemberment"], "veils": [], "confirmed": True}
-    )
+    rows, session_doc = _play_session_with_agreements({"lines": ["dismemberment"], "veils": [], "confirmed": True})
     mongo = MagicMock()
     mongo.get_collection.return_value.find_one.return_value = session_doc
     with (
@@ -725,9 +729,7 @@ def test_scene_passes_clean_prompt_with_active_veils(
     fake_adapter, mock_storage, mock_create_asset, lines_and_veils_settings
 ) -> None:
     """lines_and_veils mode with active veils must not block a clean prompt."""
-    rows, session_doc = _play_session_with_agreements(
-        {"lines": [], "veils": ["torture"], "confirmed": True}
-    )
+    rows, session_doc = _play_session_with_agreements({"lines": [], "veils": ["torture"], "confirmed": True})
     mongo = MagicMock()
     mongo.get_collection.return_value.find_one.return_value = session_doc
     with (
@@ -789,9 +791,7 @@ def _canon_scene_context() -> CanonicalVisualContext:
                 minio_key="assets/scene/conversation-conv-1/supporting.png",
             ),
         ),
-        identity_versions=(
-            IdentityVersion(identity_id=IDENTITY_ID, version=4),
-        ),
+        identity_versions=(IdentityVersion(identity_id=IDENTITY_ID, version=4),),
         warnings=("No approved visual identity found for character c-1; card defaults will be used.",),
     )
 

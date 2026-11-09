@@ -79,17 +79,23 @@ def world(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     mv_id = uuid4()
     keeper = _FakeKeeper()
 
-    monkeypatch.setattr(pack_library, "mongodb_get_knowledge_pack", lambda _uid: _pack(pack_id) if hasattr(_pack, "__call__") else None)
+    monkeypatch.setattr(
+        pack_library, "mongodb_get_knowledge_pack", lambda _uid: _pack(pack_id) if hasattr(_pack, "__call__") else None
+    )
     monkeypatch.setattr(pack_service, "mongodb_get_knowledge_pack", lambda _uid: _pack(pack_id))
     monkeypatch.setattr(pack_library, "CanonKeeper", lambda: keeper)
     monkeypatch.setattr(pack_service, "CanonKeeper", lambda: keeper)
     monkeypatch.setattr(pack_service.KnowledgePackService, "_propagate_system_to_universe", lambda *_a, **_kw: None)
-    monkeypatch.setattr(pack_service, "neo4j_list_universes",
+    monkeypatch.setattr(
+        pack_service,
+        "neo4j_list_universes",
         lambda _f: [SimpleNamespace(id=universe_id, multiverse_id=mv_id)],
     )
     # World state: "Vampire" exists with different content; one canon axiom
     # opposed by the pack axiom; no facts.
-    monkeypatch.setattr(pack_service, "neo4j_list_entities",
+    monkeypatch.setattr(
+        pack_service,
+        "neo4j_list_entities",
         lambda _f: SimpleNamespace(
             entities=[
                 SimpleNamespace(
@@ -101,7 +107,9 @@ def world(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
             ]
         ),
     )
-    monkeypatch.setattr(pack_service, "neo4j_list_axioms",
+    monkeypatch.setattr(
+        pack_service,
+        "neo4j_list_axioms",
         lambda _f: [
             SimpleNamespace(
                 statement="Elves are immortal",

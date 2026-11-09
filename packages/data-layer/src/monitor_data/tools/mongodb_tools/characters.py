@@ -66,7 +66,10 @@ def mongodb_resolve_character(character_id: str) -> dict[str, Any]:
             if isinstance(props, str):
                 try:
                     props = json.loads(props)
-                except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
+                except (
+                    ValueError,
+                    TypeError,
+                ):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
                     props = {}
 
             eid = e.get("entity_id") or e.get("id") or character_id

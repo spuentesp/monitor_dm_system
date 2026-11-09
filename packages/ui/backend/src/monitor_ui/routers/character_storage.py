@@ -35,6 +35,7 @@ def create_character(data: dict[str, Any]) -> dict[str, Any]:
         "gm_notes": data.get("gm_notes", ""),
         "first_message": data.get("first_message", ""),
         "is_ooc_persona": data.get("is_ooc_persona", False),
+        "owner_id": data.get("owner_id"),  # stamped by the router from the principal
         "entity_id": data.get("entity_id"),  # may be None (legacy compat)
         "source_universe_id": data.get("source_universe_id"),
         "default_universe_id": data.get("source_universe_id"),
@@ -48,13 +49,21 @@ def create_character(data: dict[str, Any]) -> dict[str, Any]:
     return doc
 
 
-def get_character(character_id: str) -> dict[str, Any] | None:
-    """Fetch a single character by ID."""
+def get_character(character_id: str, owner_id: str | None = None) -> dict[str, Any] | None:
+    """Fetch a single character by ID.
+
+    When ``owner_id`` is given it is part of the query predicate (fail
+    closed): a foreign character is indistinguishable from a missing one.
+    Internal callers that already authorized the resource pass no owner.
+    """
+    query: dict[str, Any] = {"id": character_id}
+    if owner_id is not None:
+        query["owner_id"] = owner_id
     # reason: _coll() returns Any (lazy Mongo client access); motor's find_one is typed Any → dict[str, Any] | None but mypy can't bridge until the helper is narrowed
-    return _coll().find_one({"id": character_id})  # type: ignore
+    return _coll().find_one(query)  # type: ignore
 
 
-def update_character(character_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
+def update_character(character_id: str, updates: dict[str, Any], owner_id: str | None = None) -> dict[str, Any] | None:
     """Update fields on a character. Returns the updated doc or None.
 
     Refuses to set reserved keys (versions) — callers must use the dedicated
@@ -67,8 +76,11 @@ def update_character(character_id: str, updates: dict[str, Any]) -> dict[str, An
         )
     updates = dict(updates)
     updates["updated_at"] = datetime.now(UTC)
+    query: dict[str, Any] = {"id": character_id}
+    if owner_id is not None:
+        query["owner_id"] = owner_id
     result = _coll().find_one_and_update(
-        {"id": character_id},
+        query,
         {"$set": updates},
         return_document=True,
     )
@@ -91,9 +103,15 @@ def set_character_avatar(character_id: str, minio_key: str) -> dict[str, Any] | 
     return result
 
 
-def delete_character(character_id: str) -> bool:
-    """Delete a character. Returns True if deleted."""
-    result = _coll().delete_one({"id": character_id})
+def delete_character(character_id: str, owner_id: str | None = None) -> bool:
+    """Delete a character. Returns True if deleted.
+
+    With ``owner_id`` the delete is owner-predicated (foreign → not deleted).
+    """
+    query: dict[str, Any] = {"id": character_id}
+    if owner_id is not None:
+        query["owner_id"] = owner_id
+    result = _coll().delete_one(query)
     deleted = result.deleted_count > 0
     if deleted:
         log.info("character_deleted", character_id=character_id)
@@ -101,10 +119,18 @@ def delete_character(character_id: str) -> bool:
     return deleted  # type: ignore
 
 
-def list_characters(limit: int = 50, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
-    """List characters sorted by updated_at descending. Returns (docs, total)."""
-    total = _coll().count_documents({})
-    cursor = _coll().find({}).sort("updated_at", -1).skip(offset).limit(limit)
+def list_characters(limit: int = 50, offset: int = 0, owner_id: str | None = None) -> tuple[list[dict[str, Any]], int]:
+    """List characters sorted by updated_at descending. Returns (docs, total).
+
+    With ``owner_id`` the filter is applied in Mongo BEFORE skip/limit, so
+    pagination never crosses the ownership boundary. Without it, returns all
+    (internal/legacy callers only).
+    """
+    query: dict[str, Any] = {}
+    if owner_id is not None:
+        query["owner_id"] = owner_id
+    total = _coll().count_documents(query)
+    cursor = _coll().find(query).sort("updated_at", -1).skip(offset).limit(limit)
     return list(cursor), total
 
 

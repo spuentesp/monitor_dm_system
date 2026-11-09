@@ -272,4 +272,3 @@ class DowntimeResponse(BaseModel):
     available_features: list[str] = Field(default_factory=list)
     available_resource_increases: dict[str, Any] = Field(default_factory=dict)
     message: str = ""
-

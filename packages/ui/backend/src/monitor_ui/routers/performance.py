@@ -13,10 +13,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from monitor_ui.auth import require_admin
 from pydantic import BaseModel, Field
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 
 # ---------------------------------------------------------------------------

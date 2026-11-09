@@ -7,11 +7,13 @@ plus their per-session context configuration.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from monitor_ui.auth import get_current_user
 
 from .modes_schemas import ActiveMode, ModeConfig, SetActiveMode
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 # ---------------------------------------------------------------------------
 # Static mode definitions

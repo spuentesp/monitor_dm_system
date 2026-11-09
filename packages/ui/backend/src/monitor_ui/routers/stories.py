@@ -13,10 +13,18 @@ from datetime import UTC
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from monitor_agents.loops.story_loop import StoryState, build_story_graph
 from monitor_data.config import settings
+from monitor_data.db.postgres import PostgresClient
+from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.ownership import (
+    owned_world_ids,
+    require_scene_owner,
+    require_story_owner,
+    require_universe_owner,
+)
 from pydantic import BaseModel
 
 from .chat_schemas import StoryPatch, StoryResponse
@@ -104,14 +112,23 @@ async def list_stories(
     status: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> StoryListOut:
-    """List stories, optionally filtered to one universe."""
+    """List the caller's stories, optionally filtered to one OWNED universe."""
     from monitor_data.schemas.stories import StoryFilter, StoryStatus
     from monitor_data.tools.neo4j_tools import neo4j_list_stories
+
+    if universe_id:
+        await require_universe_owner(db, principal, universe_id)
+    owned = await owned_world_ids(db, principal)
+    if owned is not None and not owned:
+        return StoryListOut(stories=[], total=0)
 
     with db_op("Story database unavailable"):
         params = StoryFilter(
             universe_id=UUID(universe_id) if universe_id else None,
+            universe_ids=[UUID(i) for i in owned] if owned is not None else None,
             status=StoryStatus(status) if status else None,
             limit=max(1, min(limit, 500)),
             offset=max(0, offset),
@@ -137,7 +154,13 @@ async def list_stories(
 
 
 @router.get("/{story_id}/scenes", response_model=list[SceneSummaryOut])
-async def list_story_scenes(story_id: UUID, limit: int = 200) -> list[SceneSummaryOut]:
+async def list_story_scenes(
+    story_id: UUID,
+    limit: int = 200,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> list[SceneSummaryOut]:
+    await require_story_owner(db, principal, story_id)
     """Scene timeline for a story (oldest first), without turn bodies."""
     from monitor_data.schemas.scenes import SceneFilter
     from monitor_data.tools.mongodb_tools import mongodb_list_scenes
@@ -171,7 +194,13 @@ async def list_story_scenes(story_id: UUID, limit: int = 200) -> list[SceneSumma
 
 
 @router.get("/{story_id}/threads", response_model=list[ThreadOut])
-async def list_story_threads(story_id: UUID, only_open: bool = True) -> list[ThreadOut]:
+async def list_story_threads(
+    story_id: UUID,
+    only_open: bool = True,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> list[ThreadOut]:
+    await require_story_owner(db, principal, story_id)
     """Plot threads for a story: graph-tracked threads, falling back to the
     StoryLoop checkpoint's active/completed thread labels."""
     threads: list[ThreadOut] = []
@@ -210,9 +239,16 @@ async def list_story_threads(story_id: UUID, only_open: bool = True) -> list[Thr
 
 
 @scenes_router.get("/scenes/{scene_id}/turns", response_model=list[TurnOut])
-async def get_scene_turns(scene_id: UUID, limit: int = 30) -> list[TurnOut]:
+async def get_scene_turns(
+    scene_id: UUID,
+    limit: int = 30,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> list[TurnOut]:
     """Most recent turns of a scene, oldest first (transcript order)."""
     from monitor_data.tools.mongodb_tools import mongodb_get_recent_turns
+
+    await require_scene_owner(db, principal, scene_id)
 
     with db_op("Scene database unavailable"):
         turns = mongodb_get_recent_turns(scene_id, limit=max(1, min(limit, 50)))
@@ -250,7 +286,10 @@ async def get_story_state(story_id: UUID) -> StoryState | None:
 
 
 @router.get("/{story_id}", response_model=StoryResponse)
-async def get_story(story_id: UUID) -> StoryResponse:
+async def get_story(
+    story_id: UUID, principal: Principal = Depends(get_current_user), db: PostgresClient = Depends(get_postgres)
+) -> StoryResponse:
+    await require_story_owner(db, principal, story_id)
     """Get the current narrative state of a story arc.
 
     Stories that exist in Neo4j but have not run a StoryLoop turn yet have no
@@ -299,7 +338,13 @@ async def get_story(story_id: UUID) -> StoryResponse:
 
 
 @router.patch("/{story_id}", response_model=StoryResponse)
-async def patch_story(story_id: UUID, body: StoryPatch) -> StoryResponse:
+async def patch_story(
+    story_id: UUID,
+    body: StoryPatch,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> StoryResponse:
+    await require_story_owner(db, principal, story_id)
     """
     Override story state fields (DM override).
 

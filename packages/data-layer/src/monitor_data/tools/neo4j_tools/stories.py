@@ -313,6 +313,10 @@ def neo4j_list_stories(params: StoryFilter) -> StoryListResponse:
         where_clauses.append("s.universe_id = $universe_id")
         query_params["universe_id"] = str(params.universe_id)
 
+    if params.universe_ids is not None:
+        where_clauses.append("s.universe_id IN $universe_ids")
+        query_params["universe_ids"] = [str(u) for u in params.universe_ids]
+
     if params.story_type is not None:
         where_clauses.append("s.story_type = $story_type")
         query_params["story_type"] = params.story_type.value

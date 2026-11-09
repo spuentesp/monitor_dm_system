@@ -55,18 +55,14 @@ class VisualIdentityStatus(StrEnum):
 # =============================================================================
 
 
-def transition_visual_identity_status(
-    current: VisualIdentityStatus, target: VisualIdentityStatus
-) -> bool:
+def transition_visual_identity_status(current: VisualIdentityStatus, target: VisualIdentityStatus) -> bool:
     """Return True if ``current`` may legally transition to ``target``.
 
     Allowed transitions:
         DRAFT      -> APPROVED
         APPROVED   -> SUPERSEDED
     """
-    if not isinstance(current, VisualIdentityStatus) or not isinstance(
-        target, VisualIdentityStatus
-    ):
+    if not isinstance(current, VisualIdentityStatus) or not isinstance(target, VisualIdentityStatus):
         return False
     if current == target:
         return False
@@ -141,13 +137,10 @@ class VisualIdentity(BaseModel):
     def _validate_anchor(self) -> VisualIdentity:
         if self.character_id is None and self.entity_id is None:
             raise ValueError(
-                "VisualIdentity requires an anchor: character_id (card/incarnation) "
-                "or entity_id (canonical entity)."
+                "VisualIdentity requires an anchor: character_id (card/incarnation) or entity_id (canonical entity)."
             )
         if self.entity_id is not None and self.universe_id is None:
-            raise ValueError(
-                "VisualIdentity.entity_id requires universe_id as its canonical anchor."
-            )
+            raise ValueError("VisualIdentity.entity_id requires universe_id as its canonical anchor.")
         return self
 
 
@@ -183,13 +176,10 @@ class VisualIdentityCreate(BaseModel):
     def _validate_anchor(self) -> VisualIdentityCreate:
         if self.character_id is None and self.entity_id is None:
             raise ValueError(
-                "VisualIdentity requires an anchor: character_id (card/incarnation) "
-                "or entity_id (canonical entity)."
+                "VisualIdentity requires an anchor: character_id (card/incarnation) or entity_id (canonical entity)."
             )
         if self.entity_id is not None and self.universe_id is None:
-            raise ValueError(
-                "VisualIdentity.entity_id requires universe_id as its canonical anchor."
-            )
+            raise ValueError("VisualIdentity.entity_id requires universe_id as its canonical anchor.")
         return self
 
 

@@ -7,12 +7,18 @@ Invalid payloads (empty entry_text) are rejected with 422.
 
 from __future__ import annotations
 
+import pytest
+
+
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
 from monitor_ui.main import app
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 
 client = TestClient(app)
 

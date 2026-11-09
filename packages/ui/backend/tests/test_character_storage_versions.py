@@ -14,6 +14,8 @@ import pytest
 
 from monitor_ui.routers import character_storage as cs
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

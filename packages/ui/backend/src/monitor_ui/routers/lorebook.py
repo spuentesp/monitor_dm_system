@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
 from monitor_data.interop.sillytavern_lorebook import (
     build_st_lorebook,
@@ -42,8 +42,10 @@ from monitor_data.tools.mongodb_tools.lorebook_tools import (
     mongodb_scan_lorebook,
     mongodb_update_lorebook_entry,
 )
+from monitor_ui.ownership import resource_route_guard
 
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 # ---------------------------------------------------------------------------

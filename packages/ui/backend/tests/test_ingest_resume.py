@@ -14,6 +14,9 @@ from monitor_data.schemas.knowledge_packs import KnowledgePackType
 from monitor_ui.main import app
 from monitor_ui.routers import ingest
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
+
 client = TestClient(app)
 
 
@@ -33,9 +36,14 @@ def test_ingest_worker_reports_job_and_starts_decomposition():
     ):
         pipeline.return_value.ingest_file = run_ingest
         ingest._run_ingest_in_thread(
-            queue_token="request", file_bytes=b"pdf", filename="book.pdf", source_title="Book",
-            universe_uid=None, pack_type_enum=KnowledgePackType.RULEBOOK,
-            selected_layers=["rules"], content_type="application/pdf",
+            queue_token="request",
+            file_bytes=b"pdf",
+            filename="book.pdf",
+            source_title="Book",
+            universe_uid=None,
+            pack_type_enum=KnowledgePackType.RULEBOOK,
+            selected_layers=["rules"],
+            content_type="application/pdf",
         )
 
     attach.assert_called_once_with("request", str(job.job_id))
@@ -45,7 +53,12 @@ def test_ingest_worker_reports_job_and_starts_decomposition():
 
 def _job(status=IngestionStatus.PAUSED, stages=(IngestionStage.DECOMPOSE,)):
     return SimpleNamespace(
-        job_id=uuid.uuid4(), doc_id=uuid.uuid4(), source_id=uuid.uuid4(), status=status, pipeline_stages=list(stages), source_title="Book (decomposition)"
+        job_id=uuid.uuid4(),
+        doc_id=uuid.uuid4(),
+        source_id=uuid.uuid4(),
+        status=status,
+        pipeline_stages=list(stages),
+        source_title="Book (decomposition)",
     )
 
 
@@ -116,7 +129,10 @@ def _finished_ingest(status=IngestionStatus.COMPLETED):
 @pytest.mark.unit
 def test_flag_off_starts_nothing(monkeypatch):
     monkeypatch.delenv("MONITOR_BOOK_DECOMPOSITION", raising=False)
-    with patch.object(ingest, "_start_decomposition") as start, patch.object(ingest, "create_decomposition_job") as create:
+    with (
+        patch.object(ingest, "_start_decomposition") as start,
+        patch.object(ingest, "create_decomposition_job") as create,
+    ):
         ingest._maybe_start_decomposition(_finished_ingest(), b"x", "book.pdf", "Book", KnowledgePackType.MISC)
     start.assert_not_called()
     create.assert_not_called()
@@ -134,7 +150,10 @@ def test_flag_off_starts_nothing(monkeypatch):
 )
 def test_flag_on_starts_only_for_finished_pdfs(monkeypatch, filename, status, starts):
     monkeypatch.setenv("MONITOR_BOOK_DECOMPOSITION", "1")
-    with patch.object(ingest, "_start_decomposition") as start, patch.object(ingest, "create_decomposition_job") as create:
+    with (
+        patch.object(ingest, "_start_decomposition") as start,
+        patch.object(ingest, "create_decomposition_job") as create,
+    ):
         ingest._maybe_start_decomposition(_finished_ingest(status), b"x", filename, "Book", KnowledgePackType.MISC)
     assert start.called is starts and create.called is starts
 
@@ -203,7 +222,15 @@ def test_deleting_a_source_asks_canonkeeper_to_remove_stored_structure_when_enab
 def test_held_claims_are_listed_for_a_job():
     from monitor_agents.book_decomposition.held_claims import HeldClaim
 
-    claim = HeldClaim(claim_id="c1", kind="rule", statement="Roll two dice.", original_statement="Roll two dice.", reason="unsupported", page=3, sources=[])
+    claim = HeldClaim(
+        claim_id="c1",
+        kind="rule",
+        statement="Roll two dice.",
+        original_statement="Roll two dice.",
+        reason="unsupported",
+        page=3,
+        sources=[],
+    )
     with patch.object(ingest, "held_claims_for_job", return_value=[claim]) as held:
         response = client.get(f"/api/ingest/jobs/{uuid.uuid4()}/held-claims")
     assert response.status_code == 200 and response.json()[0]["claim_id"] == "c1"
@@ -214,7 +241,9 @@ def test_held_claims_are_listed_for_a_job():
 def test_a_decision_returns_the_claims_still_waiting():
     job_id = uuid.uuid4()
     with patch.object(ingest, "decide_held_claim_for_job", return_value=4) as decide:
-        response = client.post(f"/api/ingest/jobs/{job_id}/held-claims/c1", json={"accept": True, "statement": "New wording."})
+        response = client.post(
+            f"/api/ingest/jobs/{job_id}/held-claims/c1", json={"accept": True, "statement": "New wording."}
+        )
     assert response.status_code == 200 and response.json() == {"claims_for_review": 4}
     decide.assert_called_once_with(job_id, "c1", accept=True, statement="New wording.")
 

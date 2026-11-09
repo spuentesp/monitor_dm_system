@@ -290,6 +290,7 @@ def test_create_event_returns_201():
     start = datetime.now(UTC).isoformat()
     with patch("monitor_data.tools.mongodb_tools.proposals.mongodb_create_proposed_change") as mock_create:
         from monitor_data.schemas.proposed_changes import ProposedChangeResponse, ProposalStatus
+
         mock_create.return_value = ProposedChangeResponse(
             id=str(uuid4()),
             proposal_id=str(uuid4()),
@@ -300,7 +301,7 @@ def test_create_event_returns_201():
             status=ProposalStatus.PENDING,
             confidence=1.0,
             created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC)
+            updated_at=datetime.now(UTC),
         )
         resp = client.post(
             f"{BASE}/{uni}/events",
@@ -337,6 +338,7 @@ def test_update_event_success():
     eid = uuid4()
     with patch("monitor_data.tools.mongodb_tools.proposals.mongodb_create_proposed_change") as mock_update:
         from monitor_data.schemas.proposed_changes import ProposedChangeResponse, ProposalStatus
+
         mock_update.return_value = ProposedChangeResponse(
             id=str(uuid4()),
             proposal_id=str(uuid4()),
@@ -347,17 +349,17 @@ def test_update_event_success():
             status=ProposalStatus.PENDING,
             confidence=1.0,
             created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC)
+            updated_at=datetime.now(UTC),
         )
         resp = client.patch(f"{BASE}/events/{eid}", json={"title": "Renamed"})
     assert resp.status_code == 200
     assert resp.json()["content"]["title"] == "Renamed"
 
 
-
 def test_delete_event_success():
     with patch("monitor_data.tools.mongodb_tools.proposals.mongodb_create_proposed_change") as mock_delete:
         from monitor_data.schemas.proposed_changes import ProposedChangeResponse, ProposalStatus
+
         mock_delete.return_value = ProposedChangeResponse(
             id=str(uuid4()),
             proposal_id=str(uuid4()),
@@ -368,7 +370,7 @@ def test_delete_event_success():
             status=ProposalStatus.PENDING,
             confidence=1.0,
             created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC)
+            updated_at=datetime.now(UTC),
         )
         resp = client.delete(f"{BASE}/events/{uuid4()}")
     assert resp.status_code == 200

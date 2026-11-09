@@ -6,6 +6,9 @@ Both endpoints were previously untested. Mocks sit at the tool/agent boundary:
 optional session bootstrap.
 """
 
+import pytest
+
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -13,6 +16,9 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from monitor_ui.main import app
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 
 client = TestClient(app)
 

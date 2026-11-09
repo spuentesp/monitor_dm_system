@@ -112,9 +112,7 @@ def mongodb_get_npc_profiles_by_entities(
     if not entity_ids:
         return []
     mongo_client = get_mongodb_client()
-    docs = mongo_client["npc_profiles"].find(
-        {"entity_id": {"$in": [str(e) for e in entity_ids]}}
-    )
+    docs = mongo_client["npc_profiles"].find({"entity_id": {"$in": [str(e) for e in entity_ids]}})
     return [_npc_profile_doc_to_response(d) for d in docs]
 
 

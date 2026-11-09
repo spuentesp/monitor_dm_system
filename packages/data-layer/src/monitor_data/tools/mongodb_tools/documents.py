@@ -122,6 +122,7 @@ def mongodb_create_document(params: DocumentCreate) -> DocumentResponse:
 
     doc = {
         "doc_id": str(doc_id),
+        "owner_id": params.owner_id,
         "source_id": str(params.source_id),
         "universe_id": str(params.universe_id),
         "title": params.title,
@@ -186,10 +187,14 @@ def mongodb_get_document(doc_id: UUID) -> DocumentResponse | None:
     )
 
 
-def mongodb_list_documents(limit: int = 200) -> list[DocumentResponse]:
-    """Return all Document records, newest first."""
+def mongodb_list_documents(limit: int = 200, owner_id: str | None = None) -> list[DocumentResponse]:
+    """Return Document records, newest first, optionally scoped to an owner.
+
+    The owner filter is applied in Mongo before the limit, never after.
+    """
     client = get_mongodb_client()
-    docs = list(client["documents"].find({}, sort=[("created_at", -1)], limit=limit))
+    query: dict[str, Any] = {"owner_id": owner_id} if owner_id else {}
+    docs = list(client["documents"].find(query, sort=[("created_at", -1)], limit=limit))
     results = []
     for doc in docs:
         with suppress(Exception):
@@ -198,6 +203,7 @@ def mongodb_list_documents(limit: int = 200) -> list[DocumentResponse]:
                     doc_id=UUID(doc["doc_id"]),
                     source_id=UUID(doc["source_id"]),
                     universe_id=UUID(doc["universe_id"]),
+                    owner_id=doc.get("owner_id"),
                     title=doc["title"],
                     filename=doc["filename"],
                     file_type=doc["file_type"],
@@ -290,3 +296,9 @@ def mongodb_record_verdict(
     }
     client["canon_verdicts"].insert_one(doc)
     return {"verdict_id": str(verdict_id), "status": "recorded"}
+
+
+def mongodb_set_document_owner(doc_id: UUID | str, owner_id: str) -> None:
+    """Stamp the owning user on a document (called by the router at upload)."""
+    client = get_mongodb_client()
+    client["documents"].update_one({"doc_id": str(doc_id)}, {"$set": {"owner_id": owner_id}})

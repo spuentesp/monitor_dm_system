@@ -68,7 +68,9 @@ def test_returns_only_requested_entities(monkeypatch: pytest.MonkeyPatch) -> Non
     fake_mongo.profiles.docs[str(eid3)] = _seed_doc(eid3, values=["piety"])
 
     monkeypatch.setattr(
-        npc_mod, "get_mongodb_client", lambda: fake_mongo,
+        npc_mod,
+        "get_mongodb_client",
+        lambda: fake_mongo,
     )
     from monitor_data.tools.mongodb_tools.npc_profiles import (
         mongodb_get_npc_profiles_by_entities,
@@ -94,15 +96,14 @@ def test_empty_input_returns_empty() -> None:
     from monitor_data.tools.mongodb_tools.npc_profiles import (
         mongodb_get_npc_profiles_by_entities,
     )
+
     assert mongodb_get_npc_profiles_by_entities([]) == []
 
 
 def test_response_includes_current_emotional_state_by_universe(monkeypatch: pytest.MonkeyPatch) -> None:
     eid = uuid4()
     fake_mongo = _FakeMongoClient()
-    fake_mongo.profiles.docs[str(eid)] = _seed_doc(
-        eid, current_emotional_state_by_universe={"u1": "wary"}
-    )
+    fake_mongo.profiles.docs[str(eid)] = _seed_doc(eid, current_emotional_state_by_universe={"u1": "wary"})
     monkeypatch.setattr(npc_mod, "get_mongodb_client", lambda: fake_mongo)
     from monitor_data.tools.mongodb_tools.npc_profiles import (
         mongodb_get_npc_profiles_by_entities,

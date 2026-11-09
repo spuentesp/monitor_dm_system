@@ -19,9 +19,7 @@ from monitor_data.schemas.memories import (
 log = structlog.get_logger()
 
 
-def mongodb_increment_memory_access(
-    memory_ids: list[UUID], *, increment_by: int = 1
-) -> int:
+def mongodb_increment_memory_access(memory_ids: list[UUID], *, increment_by: int = 1) -> int:
     """Batch increment `access_count` for the given memories (single update_many).
 
     Returns the count actually modified. No-op (returns 0) on empty input.
@@ -65,6 +63,7 @@ def mongodb_forget_stale_memories(
     }
     result = coll.delete_many(filt)
     return int(getattr(result, "deleted_count", 0))
+
 
 # =============================================================================
 # CHARACTER MEMORY OPERATIONS
@@ -174,7 +173,9 @@ def mongodb_create_memory(params: MemoryCreate) -> MemoryResponse:
             try:
                 qdrant_embed_memory(embed_req)
             except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _embed)
-                log.debug("memory embedding failed", exc_info=True)  # Don't let embedding failures affect the memory write
+                log.debug(
+                    "memory embedding failed", exc_info=True
+                )  # Don't let embedding failures affect the memory write
 
         thread = threading.Thread(target=_embed)
         thread.start()

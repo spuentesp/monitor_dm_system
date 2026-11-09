@@ -150,6 +150,8 @@ def mongodb_list_play_sessions(filters: PlaySessionFilter) -> PlaySessionListRes
         query["story_id"] = str(filters.story_id)
     if filters.universe_id is not None:
         query["universe_id"] = str(filters.universe_id)
+    if filters.universe_ids is not None:
+        query["universe_id"] = {"$in": [str(u) for u in filters.universe_ids]}
     if filters.status is not None:
         query["status"] = filters.status.value
 

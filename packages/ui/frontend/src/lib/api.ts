@@ -1889,3 +1889,92 @@ export const systemApi = {
   /** Get backend health status. */
   getHealth: () => req<HealthCheck>("/health", { query: { deep: "true" }, timeout: 8000 }),
 };
+
+// ─── Auth & admin console ────────────────────────────────────
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  username: string;
+  display_name: string;
+  is_admin: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthMode {
+  auth_disabled: boolean;
+  user: AuthUser;
+}
+
+export interface AuthConfig {
+  auth_disabled: boolean;
+  google_oauth: boolean;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  username: string;
+  display_name: string;
+  is_admin: boolean;
+  is_banned: boolean;
+  banned_reason: string | null;
+  email_verified: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminUserList {
+  users: AdminUser[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Read the double-submit CSRF cookie (readable by JS by design). */
+export function csrfToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const m = document.cookie.match(/(?:^|;\s*)monitor_csrf=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+function withCsrf(opts?: RequestInit): RequestInit {
+  const token = csrfToken();
+  if (!token) return opts ?? {};
+  return {
+    ...opts,
+    headers: { "X-CSRF-Token": token, ...(opts?.headers ?? {}) },
+  };
+}
+
+export const authApi = {
+  config: () => req<AuthConfig>("/auth/config"),
+  me: () => req<AuthMode>("/auth/me"),
+  login: (login: string, password: string) =>
+    req<AuthUser>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ login, password }),
+    }),
+  signup: (email: string, username: string, password: string, display_name = "") =>
+    req<AuthUser>("/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ email, username, password, display_name }),
+    }),
+  logout: () => req<{ ok: boolean }>("/auth/logout", withCsrf({ method: "POST" })),
+  /** Full-page navigation to the Google consent screen. */
+  googleLoginUrl: () => apiUrl("/auth/oauth/google"),
+};
+
+export const adminApi = {
+  listUsers: (q?: string, limit = 50, offset = 0) =>
+    req<AdminUserList>("/admin/users", { query: { q: q || undefined, limit, offset } }),
+  ban: (userId: string, reason?: string) =>
+    req<AdminUser>(`/admin/users/${userId}/ban`,
+      withCsrf({ method: "POST", body: JSON.stringify({ reason: reason ?? null }) })),
+  unban: (userId: string) =>
+    req<AdminUser>(`/admin/users/${userId}/unban`, withCsrf({ method: "POST" })),
+  setRole: (userId: string, isAdmin: boolean) =>
+    req<AdminUser>(`/admin/users/${userId}/role`,
+      withCsrf({ method: "POST", body: JSON.stringify({ is_admin: isAdmin }) })),
+};

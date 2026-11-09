@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.tag_registry import (
     TagCategory,
     TagDefinitionCreate,
@@ -33,6 +34,8 @@ from monitor_data.schemas.tone_profiles import (
     ToneProfileResponse,
     ToneProfileUpdate,
 )
+from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin
+from monitor_ui.ownership import owned_world_ids, require_tone_library_owner, require_universe_owner
 from monitor_data.tools.mongodb_tools.tag_registry import (
     mongodb_create_tag_definition,
     mongodb_delete_tag_definition,
@@ -57,7 +60,8 @@ from monitor_data.tools.mongodb_tools.tone_profiles import (
     mongodb_update_tone_profile,
 )
 
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # =============================================================================
@@ -111,13 +115,14 @@ def get_tone_profile(
 
 
 @router.post("/profiles", response_model=ToneProfileResponse, status_code=201)
-def create_tone_profile(body: ToneProfileCreate) -> ToneProfileResponse:
+def create_tone_profile(body: ToneProfileCreate, _admin: Principal = Depends(require_admin)) -> ToneProfileResponse:
     """Create a new Tone Profile."""
     return mongodb_create_tone_profile(body)
 
 
 @router.put("/profiles/{profile_id}", response_model=ToneProfileResponse)
 def update_tone_profile(
+    _admin: Principal = Depends(require_admin),
     profile_id: UUID = Path(description="ID of the ToneProfile to update"),
     body: ToneProfileUpdate = ...,  # type: ignore[assignment]
 ) -> ToneProfileResponse:
@@ -133,6 +138,7 @@ def update_tone_profile(
 
 @router.delete("/profiles/{profile_id}", status_code=204)
 def delete_tone_profile(
+    _admin: Principal = Depends(require_admin),
     profile_id: UUID = Path(description="ID of the ToneProfile to delete"),
 ) -> None:
     """Delete a Tone Profile. Built-in profiles cannot be deleted."""
@@ -150,18 +156,25 @@ def delete_tone_profile(
 
 
 @router.get("/libraries", response_model=ToneLibraryListResponse)
-def list_tone_libraries(
+async def list_tone_libraries(
     pack_id: UUID | None = None,
     universe_id: UUID | None = None,
     is_default: bool | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> ToneLibraryListResponse:
-    """List Tone Libraries with optional filters and pagination."""
+    """List Tone Libraries. With universe_id the caller must own it; without
+    it the list is scoped to the caller's universes plus shared globals."""
     offset = (page - 1) * page_size
+    if universe_id is not None:
+        await require_universe_owner(db, principal, universe_id)
+    owned_w = await owned_world_ids(db, principal)
     return mongodb_list_tone_libraries(
         pack_id=pack_id,
         universe_id=universe_id,
+        universe_ids=[UUID(i) for i in owned_w] if owned_w is not None else None,
         is_default=is_default,
         limit=page_size,
         offset=offset,
@@ -178,28 +191,46 @@ def get_default_tone_library() -> ToneLibraryResponse:
 
 
 @router.get("/libraries/{library_id}", response_model=ToneLibraryResponse)
-def get_tone_library(
+async def get_tone_library(
     library_id: UUID = Path(description="ID of the ToneLibrary to retrieve"),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> ToneLibraryResponse:
-    """Retrieve a single Tone Library by ID."""
+    """Retrieve a single Tone Library by ID (universe-bound ones require ownership)."""
     result = mongodb_get_tone_library(library_id)
     if not result:
         raise HTTPException(status_code=404, detail="ToneLibrary not found")
+    await require_tone_library_owner(db, principal, result)
     return result
 
 
 @router.post("/libraries", response_model=ToneLibraryResponse, status_code=201)
-def create_tone_library(body: ToneLibraryCreate) -> ToneLibraryResponse:
-    """Create a new Tone Library."""
+async def create_tone_library(
+    body: ToneLibraryCreate,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ToneLibraryResponse:
+    """Create a new Tone Library (universe-bound: owner; global: admin)."""
+    if getattr(body, "universe_id", None) is not None:
+        await require_universe_owner(db, principal, body.universe_id)
+    else:
+        await require_admin(principal)
     return mongodb_create_tone_library(body)
 
 
 @router.put("/libraries/{library_id}", response_model=ToneLibraryResponse)
-def update_tone_library(
+async def update_tone_library(
     library_id: UUID = Path(description="ID of the ToneLibrary to update"),
     body: ToneLibraryUpdate = ...,  # type: ignore[assignment]
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> ToneLibraryResponse:
-    """Update an existing Tone Library."""
+    """Update an existing Tone Library (universe-bound: owner; global: admin)."""
+    if principal.via != "local":
+        existing = mongodb_get_tone_library(library_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="ToneLibrary not found")
+        await require_tone_library_owner(db, principal, existing, write=True)
     try:
         result = mongodb_update_tone_library(library_id, body)
     except ValueError as exc:
@@ -210,10 +241,17 @@ def update_tone_library(
 
 
 @router.delete("/libraries/{library_id}", status_code=204)
-def delete_tone_library(
+async def delete_tone_library(
     library_id: UUID = Path(description="ID of the ToneLibrary to delete"),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> None:
     """Delete a Tone Library. The default library cannot be deleted."""
+    if principal.via != "local":
+        existing = mongodb_get_tone_library(library_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="ToneLibrary not found")
+        await require_tone_library_owner(db, principal, existing, write=True)
     try:
         deleted = mongodb_delete_tone_library(library_id)
     except ValueError as exc:
@@ -269,13 +307,16 @@ def get_tag_definition(
 
 
 @router.post("/tags", response_model=TagDefinitionResponse, status_code=201)
-def create_tag_definition(body: TagDefinitionCreate) -> TagDefinitionResponse:
+def create_tag_definition(
+    body: TagDefinitionCreate, _admin: Principal = Depends(require_admin)
+) -> TagDefinitionResponse:
     """Create a new Tag Definition."""
     return mongodb_create_tag_definition(body)
 
 
 @router.put("/tags/{tag}", response_model=TagDefinitionResponse)
 def update_tag_definition(
+    _admin: Principal = Depends(require_admin),
     tag: str = Path(description="Tag name to update (case-insensitive)"),
     body: TagDefinitionUpdate = ...,  # type: ignore[assignment]
 ) -> TagDefinitionResponse:
@@ -288,6 +329,7 @@ def update_tag_definition(
 
 @router.delete("/tags/{tag}", status_code=204)
 def delete_tag_definition(
+    _admin: Principal = Depends(require_admin),
     tag: str = Path(description="Tag name to delete (case-insensitive)"),
 ) -> None:
     """Delete a Tag Definition. Built-in tags cannot be deleted."""

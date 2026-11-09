@@ -16,6 +16,9 @@ Both route through the same builders (``_build_attributes`` /
 uses, so the Finding 2 semantic step_type check applies here too.
 """
 
+import pytest
+
+
 from datetime import UTC, datetime
 from unittest.mock import patch
 from uuid import uuid4
@@ -30,6 +33,8 @@ from monitor_data.schemas.game_systems import (
 )
 
 from monitor_ui.main import app
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 client = TestClient(app)
 

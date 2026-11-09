@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from monitor_agents.canonkeeper.agent import CanonKeeper
@@ -43,6 +43,9 @@ from monitor_agents.ingestion.book_stage import (
 )
 from monitor_data.db.minio import get_minio_client
 from monitor_data.db.mongodb import get_mongodb_client
+from monitor_data.db.postgres import PostgresClient
+from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin
+from monitor_ui.ownership import require_multiverse_owner
 from monitor_data.db.postgres import get_postgres_client
 from monitor_data.schemas.base import IngestionStatus
 from monitor_data.schemas.ingestion_jobs import IngestionJobFilter
@@ -73,6 +76,53 @@ log = structlog.get_logger()
 # Pack Library routes live in `pack_library.py`, which is included here to
 # preserve the existing `/api/ingest/*` surface while keeping this module lean.
 router = APIRouter()
+
+
+class _MissingJob:
+    """Sentinel: owner_id is None, so _check_job_owner always 404s (fail closed)."""
+
+    owner_id = None
+
+
+def _owner_id_of(principal: Principal) -> str | None:
+    """Owner scope for Mongo queries: None in local mode, else the user id."""
+    return None if principal.via == "local" else str(principal.user_id)
+
+
+def _check_job_owner(principal: Principal, job: Any) -> None:
+    """Foreign, missing, or unowned job -> generic 404 (fail closed)."""
+    if principal.via == "local":
+        return
+    if getattr(job, "owner_id", None) != str(principal.user_id):
+        raise HTTPException(404, "Not found")
+
+
+async def _require_job_owner_by_id(principal: Principal, uid: UUID) -> None:
+    """Owner check for job-scoped endpoints; no-op in local mode (no DB read)."""
+    if principal.via == "local":
+        return
+    job = await asyncio.to_thread(mongodb_get_ingestion_job, uid)
+    _check_job_owner(principal, job or _MissingJob())
+
+
+async def _require_source_owner(principal: Principal, source_id: str) -> None:
+    """A source (job- or doc-backed) must belong to the caller, else 404."""
+    if principal.via == "local":
+        return
+    uid = validate_uuid(source_id, "source_id")
+    res = await asyncio.to_thread(
+        mongodb_list_ingestion_jobs,
+        IngestionJobFilter(source_id=uid, limit=1, sort_order="desc"),
+    )
+    if res.jobs:
+        _check_job_owner(principal, res.jobs[0])
+        return
+    docs = await asyncio.to_thread(mongodb_list_documents)
+    doc = next((d for d in docs if str(d.source_id) == str(uid)), None)
+    if doc is None or doc.owner_id != str(principal.user_id):
+        raise HTTPException(404, "Not found")
+
+
 logger = logging.getLogger(__name__)
 
 # Thread pool for running the ingest pipeline without blocking the event loop.
@@ -342,22 +392,24 @@ def _run_ingest_in_thread(
                 logger.info("Created ingestion job %s for '%s'", job_id, source_title)
 
             # 1. Standard ingestion pipeline
-            ingest_results.append(await pipeline.ingest_file(
-                file_bytes=file_bytes,
-                filename=filename,
-                source_title=source_title,
-                # reason: universe_uid: UUID | None passed to IngestionPipeline.ingest_file(universe_id: UUID), which expects a non-None UUID
-                universe_id=universe_uid,  # type: ignore
-                pack_name=source_title,
-                pack_type=pack_type_enum,
-                analysis_layers=selected_layers,
-                auto_apply=False,
-                content_type=content_type,
-                reuse_source_id=reuse_source_id,
-                reuse_doc_id=reuse_doc_id,
-                on_job_created=_capture_job,
-                analyze_timeout_seconds=analyze_timeout_for_job(_JOB_TIMEOUT_SECS),
-            ))
+            ingest_results.append(
+                await pipeline.ingest_file(
+                    file_bytes=file_bytes,
+                    filename=filename,
+                    source_title=source_title,
+                    # reason: universe_uid: UUID | None passed to IngestionPipeline.ingest_file(universe_id: UUID), which expects a non-None UUID
+                    universe_id=universe_uid,  # type: ignore
+                    pack_name=source_title,
+                    pack_type=pack_type_enum,
+                    analysis_layers=selected_layers,
+                    auto_apply=False,
+                    content_type=content_type,
+                    reuse_source_id=reuse_source_id,
+                    reuse_doc_id=reuse_doc_id,
+                    on_job_created=_capture_job,
+                    analyze_timeout_seconds=analyze_timeout_for_job(_JOB_TIMEOUT_SECS),
+                )
+            )
 
             # 2. Record in World Library for the Architect
             if universe_uid:
@@ -696,7 +748,7 @@ async def _save_uploaded_source_only(
 
 @router.post("/unlock", status_code=200)
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
-async def force_unlock_ingest() -> dict:  # type: ignore
+async def force_unlock_ingest(admin: Principal = Depends(require_admin)) -> dict:  # type: ignore
     """Force-clear the ingestion queue and fail any orphaned pending/running DB jobs."""
     return _interrupt_ingest_runtime(
         "Force-unlocked by user; queue state was reset",
@@ -709,11 +761,11 @@ async def force_unlock_ingest() -> dict:  # type: ignore
 
 @router.get("/sources")
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
-async def list_sources() -> list[dict]:  # type: ignore
+async def list_sources(principal: Principal = Depends(get_current_user)) -> list[dict]:  # type: ignore
     with db_op("Could not reach database"):
         result = await asyncio.to_thread(
             mongodb_list_ingestion_jobs,
-            IngestionJobFilter(limit=100, sort_order="desc"),
+            IngestionJobFilter(limit=100, sort_order="desc", owner_id=_owner_id_of(principal)),
         )
 
     seen: set[str] = set()
@@ -727,7 +779,7 @@ async def list_sources() -> list[dict]:  # type: ignore
 
     # Include documents that pre-date or are missing ingestion_job records
     try:
-        all_docs = await asyncio.to_thread(mongodb_list_documents)
+        all_docs = await asyncio.to_thread(mongodb_list_documents, owner_id=_owner_id_of(principal))
     except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure (in list_sources)
         all_docs = []
 
@@ -746,7 +798,7 @@ async def list_sources() -> list[dict]:  # type: ignore
 
 @router.get("/sources/{source_id}")
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
-async def get_source(source_id: str) -> dict:  # type: ignore
+async def get_source(source_id: str, principal: Principal = Depends(get_current_user)) -> dict:  # type: ignore
     uid = validate_uuid(source_id, "source_id")
     with db_op("Database unavailable"):
         result = await asyncio.to_thread(
@@ -754,6 +806,7 @@ async def get_source(source_id: str) -> dict:  # type: ignore
             IngestionJobFilter(source_id=uid, limit=1, sort_order="desc"),
         )
     if result.jobs:
+        _check_job_owner(principal, result.jobs[0])
         return _source_from_job(result.jobs[0])
 
     with db_op("Database unavailable"):
@@ -762,6 +815,8 @@ async def get_source(source_id: str) -> dict:  # type: ignore
     doc = next((item for item in all_docs if str(item.source_id) == str(uid)), None)
     if not doc:
         raise HTTPException(404, "Source not found")
+    if principal.via != "local" and doc.owner_id != str(principal.user_id):
+        raise HTTPException(404, "Not found")
     return _source_from_doc(doc)
 
 
@@ -776,6 +831,8 @@ async def upload_source(
     new_setting_system: str | None = Form(default=None),
     # Existing setting (finds or creates Universe under it)
     multiverse_id: str | None = Form(default=None),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
     title: str | None = Form(default=None),
     # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 ) -> dict:  # type: ignore
@@ -797,6 +854,9 @@ async def upload_source(
     requested_multiverse_id = (
         multiverse_id.strip() if isinstance(multiverse_id, str) and multiverse_id.strip() else None
     )
+    # Uploading into an existing multiverse requires owning it (foreign -> 404).
+    if requested_multiverse_id:
+        await require_multiverse_owner(db, principal, requested_multiverse_id)
 
     try:
         pack_type_enum = KnowledgePackType(scan_type_value)
@@ -969,8 +1029,9 @@ async def upload_source(
 
 
 @router.delete("/sources/{source_id}", status_code=204)
-async def delete_source(source_id: str) -> None:
+async def delete_source(source_id: str, principal: Principal = Depends(get_current_user)) -> None:
     """Delete all records for a source from MongoDB and Qdrant."""
+    await _require_source_owner(principal, source_id)
     uid = validate_uuid(source_id, "source_id")
 
     with _ingest_lock:
@@ -1027,6 +1088,7 @@ async def delete_source(source_id: str) -> None:
 @router.post("/sources/{source_id}/rescan", status_code=202)
 async def rescan_source(
     source_id: str,
+    principal: Principal = Depends(get_current_user),
     scan_type: str = "setting_supplement",
     analysis_layers: list[str] | None = Query(default=None),
     # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
@@ -1038,6 +1100,7 @@ async def rescan_source(
     """
     global _ingest_active_title, _ingest_active_job_id
 
+    await _require_source_owner(principal, source_id)
     src_uid = validate_uuid(source_id, "source_id")
 
     reservation_title = f"source:{str(src_uid)[:8]}"
@@ -1207,7 +1270,7 @@ async def rescan_source(
 
 @router.post("/jobs/{job_id}/cancel", status_code=200)
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
-async def cancel_job(job_id: str) -> dict:  # type: ignore
+async def cancel_job(job_id: str, principal: Principal = Depends(get_current_user)) -> dict:  # type: ignore
     """Cancel a running ingestion job.
 
     Immediately marks the job as cancelled in MongoDB so the UI reflects the
@@ -1218,6 +1281,11 @@ async def cancel_job(job_id: str) -> dict:  # type: ignore
     If the job is not currently running, returns 409.
     """
     uid = validate_uuid(job_id, "job_id")
+    with db_op("Database unavailable"):
+        existing = await asyncio.to_thread(mongodb_get_ingestion_job, uid)
+    if existing is None:
+        raise HTTPException(404, "Not found")
+    _check_job_owner(principal, existing)
     with db_op("Database unavailable"):
         mongodb = get_mongodb_client()
         jobs_col = mongodb.get_collection("ingestion_jobs")
@@ -1267,13 +1335,14 @@ async def cancel_job(job_id: str) -> dict:  # type: ignore
 
 
 @router.post("/jobs/{job_id}/resume", status_code=202)
-async def resume_job(job_id: str) -> dict[str, str]:
+async def resume_job(job_id: str, principal: Principal = Depends(get_current_user)) -> dict[str, str]:
     """Resume a paused or interrupted book decomposition. Finished work isn't repeated."""
     uid = validate_uuid(job_id, "job_id")
     with db_op("Database unavailable"):
         job = mongodb_get_ingestion_job(uid)
     if job is None:
-        raise HTTPException(404, "Job not found")
+        raise HTTPException(404, "Not found")
+    _check_job_owner(principal, job)
     if not is_decomposition_job(job):
         raise HTTPException(409, "Only book decomposition jobs can be resumed")
     resumable = (IngestionStatus.PAUSED, IngestionStatus.FAILED)
@@ -1295,9 +1364,10 @@ class HeldClaimDecisionRequest(BaseModel):
 
 
 @router.get("/jobs/{job_id}/held-claims")
-async def list_held_claims(job_id: str) -> list[dict[str, Any]]:
+async def list_held_claims(job_id: str, principal: Principal = Depends(get_current_user)) -> list[dict[str, Any]]:
     """The claims a book decomposition's review sent to a person (I-17)."""
     uid = validate_uuid(job_id, "job_id")
+    await _require_job_owner_by_id(principal, uid)
     try:
         claims = await asyncio.to_thread(held_claims_for_job, uid)
     except HeldClaimNotFound as exc:
@@ -1306,9 +1376,12 @@ async def list_held_claims(job_id: str) -> list[dict[str, Any]]:
 
 
 @router.post("/jobs/{job_id}/held-claims/{claim_id}")
-async def decide_held_claim(job_id: str, claim_id: str, body: HeldClaimDecisionRequest) -> dict[str, int]:
+async def decide_held_claim(
+    job_id: str, claim_id: str, body: HeldClaimDecisionRequest, principal: Principal = Depends(get_current_user)
+) -> dict[str, int]:
     """Accept a held claim into the book's pack, or reject it (I-17)."""
     uid = validate_uuid(job_id, "job_id")
+    await _require_job_owner_by_id(principal, uid)
     try:
         remaining = await asyncio.to_thread(
             decide_held_claim_for_job, uid, claim_id, accept=body.accept, statement=body.statement
@@ -1415,11 +1488,11 @@ async def clear_llm_cache() -> dict:  # type: ignore
 
 @router.get("/jobs")
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
-async def list_jobs() -> list[dict]:  # type: ignore
+async def list_jobs(principal: Principal = Depends(get_current_user)) -> list[dict]:  # type: ignore
     with db_op("Database unavailable"):
         result = await asyncio.to_thread(
             mongodb_list_ingestion_jobs,
-            IngestionJobFilter(limit=200, sort_order="desc"),
+            IngestionJobFilter(limit=200, sort_order="desc", owner_id=_owner_id_of(principal)),
         )
 
     jobs = [_job_to_dict(j) for j in result.jobs]
@@ -1498,24 +1571,27 @@ async def list_jobs() -> list[dict]:  # type: ignore
 
 @router.get("/jobs/{job_id}")
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
-async def get_job(job_id: str) -> dict:  # type: ignore
+async def get_job(job_id: str, principal: Principal = Depends(get_current_user)) -> dict:  # type: ignore
     uid = validate_uuid(job_id, "job_id")
     with db_op("Database unavailable"):
         job = await asyncio.to_thread(mongodb_get_ingestion_job, uid)
     if not job:
-        raise HTTPException(404, "Job not found")
+        raise HTTPException(404, "Not found")
+    _check_job_owner(principal, job)
     return _job_to_dict(job)
 
 
 @router.get("/jobs/{job_id}/attempts")
 async def list_job_attempts(
     job_id: str,
+    principal: Principal = Depends(get_current_user),
     stage: str | None = Query(default=None),
     batch_id: str | None = Query(default=None),
     provider_id: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[LLMTaskAttemptResponse]:
     """Return durable attempt-level LLM execution history for a specific ingest job."""
+    await _require_job_owner_by_id(principal, UUID(job_id))
     try:
         parsed_job_id = str(UUID(job_id))
     except ValueError:

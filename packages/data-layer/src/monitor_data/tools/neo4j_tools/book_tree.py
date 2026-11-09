@@ -20,9 +20,7 @@ def neo4j_merge_book_tree(tree: BookTree, source_id: UUID) -> int:
     """Store a book tree under its Source. Returns how many nodes were written."""
     client = get_neo4j_client()
     # Without this, each MERGE scans every BookNode, which takes minutes on a full book.
-    client.execute_write(
-        "CREATE CONSTRAINT book_node_id IF NOT EXISTS FOR (n:BookNode) REQUIRE n.id IS UNIQUE"
-    )
+    client.execute_write("CREATE CONSTRAINT book_node_id IF NOT EXISTS FOR (n:BookNode) REQUIRE n.id IS UNIQUE")
     client.execute_write("CREATE INDEX book_node_doc IF NOT EXISTS FOR (n:BookNode) ON (n.doc_id)")
     rows = [
         {

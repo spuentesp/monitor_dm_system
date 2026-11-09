@@ -109,6 +109,9 @@ class PlaySessionFilter(BaseModel):
 
     story_id: UUID | None = None
     universe_id: UUID | None = None
+    # Ownership allowlist (server-derived); applied in the Mongo query
+    # BEFORE skip/limit, ANDed with universe_id.
+    universe_ids: list[UUID] | None = None
     status: SessionStatus | None = None
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)

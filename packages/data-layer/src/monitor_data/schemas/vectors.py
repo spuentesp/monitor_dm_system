@@ -177,6 +177,10 @@ class VectorFilter(BaseModel):
     scene_id: UUID | None = Field(default=None, description="Filter by scene_id (scenes, memories)")
     entity_id: UUID | None = Field(default=None, description="Filter by entity_id (memories, entities)")
     universe_id: UUID | None = Field(default=None, description="Filter by universe_id (all collections)")
+    universe_ids: list[UUID] | None = Field(
+        default=None,
+        description="Allowlist of universe IDs (multi-tenancy scope). ANDed with universe_id if both set.",
+    )
 
     # scenes collection
     temporal_mode: str | None = Field(

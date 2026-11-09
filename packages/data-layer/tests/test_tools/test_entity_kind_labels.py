@@ -51,7 +51,9 @@ def test_create_labels_the_entity_kind(
     ]
 
     neo4j_create_entity(
-        EntityCreate(universe_id=UUID(universe), name="Rook", entity_type=EntityType.CHARACTER, is_archetype=is_archetype)
+        EntityCreate(
+            universe_id=UUID(universe), name="Rook", entity_type=EntityType.CHARACTER, is_archetype=is_archetype
+        )
     )
 
     query = mock_neo4j_client.execute_write.call_args.args[0]
@@ -83,7 +85,9 @@ def test_migration_labels_only_entities_missing_their_kind() -> None:
 
     queries = [c.args[0] for c in client.execute_write.call_args_list]
     assert len(queries) == 2
-    assert any("SET e:EntityArchetype" in q and "NOT e:EntityArchetype" in q and "is_archetype = true" in q for q in queries)
+    assert any(
+        "SET e:EntityArchetype" in q and "NOT e:EntityArchetype" in q and "is_archetype = true" in q for q in queries
+    )
     assert any("SET e:EntityInstance" in q and "NOT e:EntityInstance" in q for q in queries)
     assert all("EntityTemplate" in q for q in queries)  # templates are neither kind
     assert counts == {"archetypes": 2, "instances": 5}

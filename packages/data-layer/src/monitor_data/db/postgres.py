@@ -26,9 +26,11 @@ Schema is created automatically on first connect (idempotent DDL).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import weakref
 from typing import Any
+from uuid import UUID
 
 import asyncpg
 from tenacity import (
@@ -406,7 +408,108 @@ CREATE TABLE IF NOT EXISTS character_equipment (
     notes               TEXT,
     PRIMARY KEY (character_sheet_id, item_id)
 );
+
+-- Migration bookkeeping must exist before the migration loop SELECTs from it
+-- (migration 1 also creates it with IF NOT EXISTS for pre-existing databases).
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version     INTEGER PRIMARY KEY,
+    checksum    TEXT NOT NULL,
+    applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
+
+
+_MIGRATIONS: tuple[tuple[int, str], ...] = (
+    (
+        1,
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version     INTEGER PRIMARY KEY,
+            checksum    TEXT NOT NULL,
+            applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS users (
+            id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            email               TEXT NOT NULL,
+            email_normalized    TEXT NOT NULL UNIQUE,
+            username            TEXT NOT NULL,
+            username_normalized TEXT NOT NULL UNIQUE,
+            password_hash       TEXT NOT NULL,
+            display_name        TEXT NOT NULL DEFAULT '',
+            is_admin            BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS auth_sessions (
+            token_hash   TEXT PRIMARY KEY,
+            user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+            expires_at   TIMESTAMPTZ NOT NULL,
+            last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
+
+        CREATE TABLE IF NOT EXISTS api_tokens (
+            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name         TEXT NOT NULL,
+            token_prefix TEXT NOT NULL,
+            token_hash   TEXT NOT NULL UNIQUE,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+            expires_at   TIMESTAMPTZ,
+            last_used_at TIMESTAMPTZ,
+            revoked_at   TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+
+        CREATE TABLE IF NOT EXISTS multiverses (
+            id         TEXT PRIMARY KEY,
+            owner_id   UUID REFERENCES users(id) ON DELETE RESTRICT,
+            label      TEXT NOT NULL,
+            active     BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_multiverses_owner ON multiverses(owner_id);
+
+        ALTER TABLE worlds ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES users(id) ON DELETE RESTRICT;
+        ALTER TABLE worlds ADD COLUMN IF NOT EXISTS multiverse_id TEXT;
+        CREATE INDEX IF NOT EXISTS idx_worlds_owner ON worlds(owner_id);
+
+        CREATE TABLE IF NOT EXISTS user_preferences_by_user (
+            user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            key        TEXT NOT NULL,
+            value      JSONB NOT NULL DEFAULT '{}',
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (user_id, key)
+        );
+        """,
+    ),
+    (
+        2,
+        """
+        -- OAuth (e.g. Google) linked accounts, banning, and verified emails.
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_at TIMESTAMPTZ;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_reason TEXT;
+
+        CREATE TABLE IF NOT EXISTS oauth_accounts (
+            id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            provider            TEXT NOT NULL,
+            provider_account_id TEXT NOT NULL,
+            email               TEXT NOT NULL DEFAULT '',
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (provider, provider_account_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON oauth_accounts(user_id);
+        """,
+    ),
+)
 
 
 class PostgresClient:
@@ -427,12 +530,12 @@ class PostgresClient:
         self._max_size = max_size
         self._pool: asyncpg.Pool | None = None
         self._pool_loop: asyncio.AbstractEventLoop | None = None
-        self._pools_by_loop: weakref.WeakKeyDictionary[
-            asyncio.AbstractEventLoop, asyncpg.Pool
-        ] = weakref.WeakKeyDictionary()
-        self._locks_by_loop: weakref.WeakKeyDictionary[
-            asyncio.AbstractEventLoop, asyncio.Lock
-        ] = weakref.WeakKeyDictionary()
+        self._pools_by_loop: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncpg.Pool] = (
+            weakref.WeakKeyDictionary()
+        )
+        self._locks_by_loop: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
+            weakref.WeakKeyDictionary()
+        )
         self._schema_applied: bool = False
 
     # ------------------------------------------------------------------
@@ -514,6 +617,22 @@ class PostgresClient:
         target_pool = pool or self._pool
         async with target_pool.acquire() as conn, conn.transaction():  # type: ignore[union-attr]
             await conn.execute(_SCHEMA_SQL)
+            for version, migration_sql in _MIGRATIONS:
+                checksum = hashlib.sha256(migration_sql.encode()).hexdigest()
+                row = await conn.fetchrow(
+                    "SELECT checksum FROM schema_migrations WHERE version = $1",
+                    version,
+                )
+                if row is not None:
+                    if row["checksum"] != checksum:
+                        raise RuntimeError(f"Checksum mismatch for schema migration {version}")
+                    continue
+                await conn.execute(migration_sql)
+                await conn.execute(
+                    "INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)",
+                    version,
+                    checksum,
+                )
         self._schema_applied = True
 
     # ------------------------------------------------------------------
@@ -983,18 +1102,338 @@ class PostgresClient:
             return [self._row_to_dict(r) for r in rows]
 
     # ------------------------------------------------------------------
-    # worlds
+    # users, browser sessions, and API tokens
     # ------------------------------------------------------------------
 
-    async def worlds_list(self, active_only: bool = False) -> list[dict[str, Any]]:
+    async def user_create(self, user: dict[str, Any]) -> dict[str, Any]:
         pool = await self._get_pool()
-        sql = "SELECT * FROM worlds"
-        if active_only:
-            sql += " WHERE active = TRUE"
-        sql += " ORDER BY name"
         async with pool.acquire() as conn:
-            rows = await conn.fetch(sql)
+            row = await conn.fetchrow(
+                """
+                INSERT INTO users (
+                    id, email, email_normalized, username, username_normalized,
+                    password_hash, display_name, is_admin
+                )
+                VALUES (COALESCE($1, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8)
+                RETURNING *
+                """,
+                user.get("id"),
+                user["email"],
+                user["email_normalized"],
+                user["username"],
+                user["username_normalized"],
+                user["password_hash"],
+                user.get("display_name", ""),
+                bool(user.get("is_admin", False)),
+            )
+            return self._row_to_dict(row)
+
+    async def user_get_by_id(self, user_id: UUID) -> dict[str, Any] | None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
+            return self._row_to_dict(row) if row else None
+
+    async def user_get_by_login(self, normalized_login: str) -> dict[str, Any] | None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT * FROM users
+                WHERE email_normalized = $1 OR username_normalized = $1
+                """,
+                normalized_login,
+            )
+            return self._row_to_dict(row) if row else None
+
+    async def user_update_password_hash(self, user_id: UUID, password_hash: str) -> None:
+        """Rehash-on-login: store a freshly generated hash for an existing user."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1",
+                user_id,
+                password_hash,
+            )
+
+    async def user_set_email_verified(self, user_id: UUID, verified: bool) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE users SET email_verified = $2, updated_at = now() WHERE id = $1",
+                user_id,
+                verified,
+            )
+
+    async def user_set_banned(self, user_id: UUID, banned: bool, reason: str | None) -> bool:
+        """Ban/unban an account. Banned sessions are rejected at resolution time."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE users SET is_banned = $2,
+                    banned_at = CASE WHEN $2 THEN now() ELSE NULL END,
+                    banned_reason = CASE WHEN $2 THEN $3 ELSE NULL END,
+                    updated_at = now()
+                WHERE id = $1
+                """,
+                user_id,
+                banned,
+                reason,
+            )
+            return bool(result == "UPDATE 1")
+
+    async def user_set_admin(self, user_id: UUID, is_admin: bool) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE users SET is_admin = $2, updated_at = now() WHERE id = $1",
+                user_id,
+                is_admin,
+            )
+            return bool(result == "UPDATE 1")
+
+    async def users_list_admin(self, q: str | None, limit: int, offset: int) -> list[dict[str, Any]]:
+        """Admin-only user listing with optional search over email/username."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            if q:
+                rows = await conn.fetch(
+                    """
+                    SELECT * FROM users
+                    WHERE email_normalized LIKE $1 OR username_normalized LIKE $1
+                    ORDER BY created_at DESC
+                    LIMIT $2 OFFSET $3
+                    """,
+                    f"%{q}%",
+                    limit,
+                    offset,
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT * FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                    limit,
+                    offset,
+                )
             return [self._row_to_dict(r) for r in rows]
+
+    async def users_count_admin(self, q: str | None) -> int:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            if q:
+                return int(
+                    await conn.fetchval(
+                        "SELECT count(*) FROM users WHERE email_normalized LIKE $1 OR username_normalized LIKE $1",
+                        f"%{q}%",
+                    )
+                )
+            return int(await conn.fetchval("SELECT count(*) FROM users"))
+
+    async def oauth_account_upsert(self, account: dict[str, Any]) -> dict[str, Any]:
+        """Link an OAuth identity to a user; idempotent on (provider, account id)."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO oauth_accounts (user_id, provider, provider_account_id, email)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (provider, provider_account_id) DO UPDATE SET
+                    user_id = EXCLUDED.user_id,
+                    email = EXCLUDED.email
+                RETURNING *
+                """,
+                account["user_id"],
+                account["provider"],
+                account["provider_account_id"],
+                account.get("email", ""),
+            )
+            return self._row_to_dict(row)
+
+    async def oauth_account_get(self, provider: str, provider_account_id: str) -> dict[str, Any] | None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM oauth_accounts WHERE provider = $1 AND provider_account_id = $2",
+                provider,
+                provider_account_id,
+            )
+            return self._row_to_dict(row) if row else None
+
+    async def session_create(
+        self,
+        *,
+        token_hash: str,
+        user_id: UUID,
+        expires_at: Any,
+    ) -> dict[str, Any]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO auth_sessions (token_hash, user_id, expires_at)
+                VALUES ($1, $2, $3)
+                RETURNING *
+                """,
+                token_hash,
+                user_id,
+                expires_at,
+            )
+            return self._row_to_dict(row)
+
+    async def session_get(self, token_hash: str) -> dict[str, Any] | None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM auth_sessions WHERE token_hash = $1",
+                token_hash,
+            )
+            return self._row_to_dict(row) if row else None
+
+    async def session_delete(self, token_hash: str) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM auth_sessions WHERE token_hash = $1", token_hash)
+            return bool(result == "DELETE 1")
+
+    async def session_touch(self, token_hash: str) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE auth_sessions SET last_seen_at = now() WHERE token_hash = $1",
+                token_hash,
+            )
+
+    async def api_token_create(self, token: dict[str, Any]) -> dict[str, Any]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO api_tokens (
+                    user_id, name, token_prefix, token_hash, expires_at
+                )
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING *
+                """,
+                token["user_id"],
+                token["name"],
+                token["token_prefix"],
+                token["token_hash"],
+                token.get("expires_at"),
+            )
+            return self._row_to_dict(row)
+
+    async def api_token_get_by_hash(self, token_hash: str) -> dict[str, Any] | None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM api_tokens WHERE token_hash = $1",
+                token_hash,
+            )
+            return self._row_to_dict(row) if row else None
+
+    async def api_tokens_list(self, user_id: UUID) -> list[dict[str, Any]]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC",
+                user_id,
+            )
+            return [self._row_to_dict(row) for row in rows]
+
+    async def api_token_revoke(self, token_id: UUID, user_id: UUID) -> bool:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE api_tokens SET revoked_at = now()
+                WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+                """,
+                token_id,
+                user_id,
+            )
+            return bool(result == "UPDATE 1")
+
+    async def api_token_touch(self, token_hash: str) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE api_tokens SET last_used_at = now() WHERE token_hash = $1",
+                token_hash,
+            )
+
+    # ------------------------------------------------------------------
+    # multiverses and worlds
+    # ------------------------------------------------------------------
+
+    async def multiverse_upsert(self, multiverse: dict[str, Any]) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO multiverses (id, owner_id, label, active, updated_at)
+                VALUES ($1, $2, $3, $4, now())
+                ON CONFLICT (id) DO UPDATE SET
+                    label = EXCLUDED.label,
+                    active = EXCLUDED.active,
+                    updated_at = now()
+                """,
+                multiverse["id"],
+                multiverse.get("owner_id"),
+                multiverse["label"],
+                bool(multiverse.get("active", True)),
+            )
+
+    async def multiverse_get_for_owner(
+        self,
+        multiverse_id: str,
+        owner_id: UUID,
+    ) -> dict[str, Any] | None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM multiverses WHERE id = $1 AND owner_id = $2",
+                multiverse_id,
+                owner_id,
+            )
+            return self._row_to_dict(row) if row else None
+
+    async def multiverses_list(self, owner_id: UUID) -> list[dict[str, Any]]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM multiverses WHERE owner_id = $1 ORDER BY label",
+                owner_id,
+            )
+            return [self._row_to_dict(row) for row in rows]
+
+    async def multiverse_delete(self, multiverse_id: str) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM multiverses WHERE id = $1", multiverse_id)
+
+    async def worlds_list(
+        self,
+        owner_id: UUID,
+        active_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        pool = await self._get_pool()
+        sql = "SELECT * FROM worlds WHERE owner_id = $1"
+        if active_only:
+            sql += " AND active = TRUE"
+        sql += " ORDER BY label"
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql, owner_id)
+            return [self._row_to_dict(r) for r in rows]
+
+    async def world_get_for_owner(self, world_id: str, owner_id: UUID) -> dict[str, Any] | None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM worlds WHERE id = $1 AND owner_id = $2",
+                world_id,
+                owner_id,
+            )
+            return self._row_to_dict(row) if row else None
 
     async def world_get(self, world_id: str) -> dict[str, Any] | None:
         pool = await self._get_pool()
@@ -1013,14 +1452,17 @@ class PostgresClient:
         async with pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO worlds (id, label, active, updated_at)
-                VALUES ($1,$2,$3,now())
+                INSERT INTO worlds (id, owner_id, multiverse_id, label, active, updated_at)
+                VALUES ($1, $2, $3, $4, $5, now())
                 ON CONFLICT (id) DO UPDATE SET
-                    label      = EXCLUDED.label,
-                    active     = EXCLUDED.active,
-                    updated_at = now()
+                    multiverse_id = EXCLUDED.multiverse_id,
+                    label         = EXCLUDED.label,
+                    active        = EXCLUDED.active,
+                    updated_at    = now()
                 """,
                 world["id"],
+                world.get("owner_id"),
+                world.get("multiverse_id"),
                 world["label"],
                 bool(world.get("active", True)),
             )
@@ -1217,22 +1659,27 @@ class PostgresClient:
     # user_preferences
     # ------------------------------------------------------------------
 
-    async def pref_get(self, key: str) -> dict[str, Any] | None:
+    async def pref_get(self, user_id: UUID, key: str) -> dict[str, Any] | None:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT value FROM user_preferences WHERE key = $1", key)
+            row = await conn.fetchrow(
+                "SELECT value FROM user_preferences_by_user WHERE user_id = $1 AND key = $2",
+                user_id,
+                key,
+            )
             return dict(row["value"]) if row else None
 
-    async def pref_set(self, key: str, value: dict[str, Any]) -> None:
+    async def pref_set(self, user_id: UUID, key: str, value: dict[str, Any]) -> None:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO user_preferences (key, value, updated_at)
-                VALUES ($1, $2::jsonb, now())
-                ON CONFLICT (key) DO UPDATE
+                INSERT INTO user_preferences_by_user (user_id, key, value, updated_at)
+                VALUES ($1, $2, $3::jsonb, now())
+                ON CONFLICT (user_id, key) DO UPDATE
                     SET value = EXCLUDED.value, updated_at = now()
                 """,
+                user_id,
                 key,
                 json.dumps(value),
             )
@@ -1252,10 +1699,7 @@ class PostgresClient:
             if cached is not None:
                 return cached
 
-        if (
-            self._pool is not None
-            and (running is None or self._pool_loop is None or self._pool_loop is running)
-        ):
+        if self._pool is not None and (running is None or self._pool_loop is None or self._pool_loop is running):
             return self._pool
 
         await self.connect()

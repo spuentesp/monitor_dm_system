@@ -1,0 +1,292 @@
+"""Authentication, principal resolution, CSRF, and rate limiting for the UI backend.
+
+Implements Phase 2 of docs/architecture/MULTI_TENANCY_PLAN.md:
+
+- Opaque browser session tokens (cookie holds the raw token, Postgres stores
+  only its SHA-256 hash) and per-user revocable API tokens for non-browser
+  OpenAI-compatible clients (Authorization: Bearer).
+- ``MONITOR_AUTH_DISABLED=true`` resolves every request to a fixed local
+  admin account — an explicit local-development exception, never a production
+  rollback mechanism.
+- Deny by default: no valid session/API token → 401. Missing or expired
+  server-side credentials fail closed.
+- In-memory per-key rate limiting for login attempts (keyed by normalized
+  login + trusted client IP).
+
+CSRF protection for cookie-authenticated unsafe requests lives in
+``main.py`` (``_csrf_middleware``) so it covers every router without
+per-route wiring.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import secrets
+import time
+from collections import deque
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import UUID
+
+from fastapi import Depends, HTTPException, Request, status
+
+from monitor_data.db.postgres import PostgresClient, get_postgres_client
+from monitor_data.schemas.users import UserResponse
+from monitor_data.security import hash_password, hash_token
+
+from monitor_ui.config import UISettings, get_settings
+
+# Fixed identity for MONITOR_AUTH_DISABLED local-development mode (plan D5).
+LOCAL_USER_ID = UUID("00000000-0000-4000-8000-000000000001")
+LOCAL_USER_EMAIL = "local@monitor.invalid"
+LOCAL_USER_USERNAME = "local"
+
+
+@dataclass(frozen=True)
+class Principal:
+    """The authenticated caller for one request. Never carries secrets."""
+
+    user_id: UUID
+    is_admin: bool
+    via: str  # "session" | "api_token" | "local"
+
+
+def public_user(row: dict[str, Any]) -> UserResponse:
+    """Project a raw ``users`` row onto the secret-free response contract."""
+    return UserResponse(
+        id=row["id"],
+        email=row["email"],
+        username=row["username"],
+        display_name=row.get("display_name", ""),
+        is_admin=bool(row.get("is_admin", False)),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+async def get_postgres() -> PostgresClient:
+    """FastAPI dependency: connected shared Postgres client (ownership registry)."""
+    client = get_postgres_client()
+    await client.connect()
+    return client
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting (in-memory, per-process; adequate for a single-instance UI)
+# ---------------------------------------------------------------------------
+
+
+class RateLimiter:
+    """Fixed-window-per-key limiter. ``hit`` returns True when allowed."""
+
+    def __init__(self, limit: int, window_seconds: int) -> None:
+        self._limit = max(1, limit)
+        self._window = max(1, window_seconds)
+        self._hits: dict[str, deque[float]] = {}
+        self._lock = asyncio.Lock()
+
+    async def hit(self, key: str) -> bool:
+        now = time.monotonic()
+        async with self._lock:
+            dq = self._hits.setdefault(key, deque())
+            while dq and now - dq[0] >= self._window:
+                dq.popleft()
+            if len(dq) >= self._limit:
+                return False
+            dq.append(now)
+            return True
+
+
+_login_limiter: RateLimiter | None = None
+
+
+def get_login_limiter(settings: UISettings) -> RateLimiter:
+    """Process-wide login limiter configured from settings.
+
+    Recreated when settings change so tests can adjust limits via env vars.
+    """
+    global _login_limiter
+    if (
+        _login_limiter is None
+        or _login_limiter._limit != settings.auth_login_rate_limit
+        or _login_limiter._window != settings.auth_rate_window_seconds
+    ):
+        _login_limiter = RateLimiter(settings.auth_login_rate_limit, settings.auth_rate_window_seconds)
+    return _login_limiter
+
+
+def client_ip(request: Request, settings: UISettings) -> str:
+    """Client IP, honoring X-Forwarded-For only from configured trusted proxies."""
+    host = request.client.host if request.client else "unknown"
+    if host in settings.trusted_proxies_list:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return host
+
+
+# ---------------------------------------------------------------------------
+# Principal resolution
+# ---------------------------------------------------------------------------
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+def _is_expired(expires_at: Any) -> bool:
+    if expires_at is None:
+        return False
+    if isinstance(expires_at, str):
+        # Some rows cross the asyncpg boundary as ISO strings; normalize.
+        expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    return bool(expires_at <= _utcnow())
+
+
+def _check_not_banned(user: dict[str, Any]) -> None:
+    """Banned accounts get 403 on every authenticated request."""
+    if user.get("is_banned"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account suspended.",
+        )
+
+
+async def _principal_from_session(db: PostgresClient, raw_token: str) -> Principal:
+    token_hash = hash_token(raw_token)
+    session = await db.session_get(token_hash)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    if _is_expired(session.get("expires_at")):
+        await db.session_delete(token_hash)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    await db.session_touch(token_hash)
+    user = await db.user_get_by_id(session["user_id"])
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    _check_not_banned(user)
+    return Principal(user_id=user["id"], is_admin=bool(user.get("is_admin", False)), via="session")
+
+
+async def _principal_from_api_token(db: PostgresClient, raw_token: str) -> Principal:
+    token_hash = hash_token(raw_token)
+    token = await db.api_token_get_by_hash(token_hash)
+    if token is None or token.get("revoked_at") is not None or _is_expired(token.get("expires_at")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    await db.api_token_touch(token_hash)
+    user = await db.user_get_by_id(token["user_id"])
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    _check_not_banned(user)
+    return Principal(user_id=user["id"], is_admin=bool(user.get("is_admin", False)), via="api_token")
+
+
+async def _local_principal(db: PostgresClient) -> Principal:
+    """Auth-disabled mode: resolve to the fixed local admin account.
+
+    The local account is created on first use with a random, unusable
+    password hash — an operator enabling auth later must set its password
+    explicitly via the local password-setting command (plan D5).
+    """
+    user = await db.user_get_by_id(LOCAL_USER_ID)
+    if user is None:
+        user = await db.user_create(
+            {
+                "id": LOCAL_USER_ID,
+                "email": LOCAL_USER_EMAIL,
+                "email_normalized": LOCAL_USER_EMAIL,
+                "username": LOCAL_USER_USERNAME,
+                "username_normalized": LOCAL_USER_USERNAME,
+                "password_hash": hash_password(secrets.token_urlsafe(32)),
+                "display_name": "Local developer",
+                "is_admin": True,
+            }
+        )
+    return Principal(user_id=user["id"], is_admin=True, via="local")
+
+
+async def resolve_principal(
+    *,
+    authorization: str | None,
+    cookies: dict[str, str],
+    settings: UISettings,
+    db: PostgresClient,
+) -> Principal:
+    """Resolve a principal from raw credentials (HTTP or WebSocket). Raises 401.
+
+    Shared by the HTTP dependency and the WebSocket handler so both surfaces
+    enforce identical rules: bearer token first, then session cookie, else 401.
+    """
+    if settings.monitor_auth_disabled:
+        return await _local_principal(db)
+    if authorization and authorization.lower().startswith("bearer "):
+        return await _principal_from_api_token(db, authorization[7:].strip())
+    session_cookie = cookies.get(settings.auth_session_cookie)
+    if session_cookie:
+        return await _principal_from_session(db, session_cookie)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+
+async def get_current_user(
+    request: Request,
+    settings: UISettings = Depends(get_settings),
+    db: PostgresClient = Depends(get_postgres),
+) -> Principal:
+    """Resolve the authenticated principal or raise 401. Deny by default."""
+    return await resolve_principal(
+        authorization=request.headers.get("authorization"),
+        cookies=dict(request.cookies),
+        settings=settings,
+        db=db,
+    )
+
+
+async def get_optional_principal(
+    request: Request,
+    settings: UISettings = Depends(get_settings),
+    db: PostgresClient = Depends(get_postgres),
+) -> Principal | None:
+    """Like get_current_user but returns None when unauthenticated (public routes)."""
+    try:
+        return await get_current_user(request, settings, db)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            return None
+        raise
+
+
+async def require_admin(principal: Principal = Depends(get_current_user)) -> Principal:
+    """Operator-only routes: authenticated AND admin, else 403."""
+    if not principal.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return principal
+
+
+# ---------------------------------------------------------------------------
+# Session-cookie helpers used by the auth router
+# ---------------------------------------------------------------------------
+
+
+def session_expiry(settings: UISettings) -> datetime:
+    return _utcnow() + timedelta(hours=settings.auth_session_ttl_hours)
+
+
+__all__ = [
+    "LOCAL_USER_EMAIL",
+    "LOCAL_USER_ID",
+    "LOCAL_USER_USERNAME",
+    "Principal",
+    "RateLimiter",
+    "client_ip",
+    "get_current_user",
+    "get_login_limiter",
+    "get_optional_principal",
+    "get_postgres",
+    "public_user",
+    "require_admin",
+    "resolve_principal",
+    "session_expiry",
+]

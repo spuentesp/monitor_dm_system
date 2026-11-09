@@ -228,23 +228,16 @@ class ExtractedEntityArchetype(BaseModel):
                 # Unknown term — preserve original for auditability.
                 if self.properties is None:
                     self.properties = {}
-                self.properties.setdefault(
-                    "_original_sub_type", self.sub_type
-                )
+                self.properties.setdefault("_original_sub_type", self.sub_type)
             self.group_type = coerced
         elif self.entity_type == "location":
             place_coerced = coerce_place_subtype(self.sub_type)
-            if (
-                place_coerced != PlaceType.OTHER
-                and self.sub_type != place_coerced.value
-            ):
+            if place_coerced != PlaceType.OTHER and self.sub_type != place_coerced.value:
                 self.sub_type = place_coerced.value
             elif place_coerced == PlaceType.OTHER and self.sub_type:
                 if self.properties is None:
                     self.properties = {}
-                self.properties.setdefault(
-                    "_original_sub_type", self.sub_type
-                )
+                self.properties.setdefault("_original_sub_type", self.sub_type)
             self.place_type = place_coerced
         else:
             # For character/faction/object/concept, group/place_type
@@ -374,12 +367,7 @@ class ExtractedRelationship(BaseModel):
         if not value:
             return "related_to"
         original = str(value)
-        normalised = (
-            original.strip()
-            .lower()
-            .replace(" ", "_")
-            .replace("-", "_")
-        )
+        normalised = original.strip().lower().replace(" ", "_").replace("-", "_")
         if normalised in _REL_TYPE_ALIASES:
             return _REL_TYPE_ALIASES[normalised]
         # Already-canonical values (uppercase enum) pass through.
@@ -476,13 +464,11 @@ _REL_TYPE_ALIASES: dict[str, str] = {
     "in_region": "LOCATED_IN_PLACE",
     "contains": "CONTAINS_PLACE",
     "within": "LOCATED_IN_PLACE",
-
     # === Aliases observed in the live VtM ingest (2026-08-02) ===
     # The LLM doesn't always use the canonical vocabulary from the
     # prompt; it also invents lowercase game-system-specific terms.
     # These aliases are added based on what the LLM actually emitted
     # so the next canonicalisation picks them up.
-
     # "power_of" / "powers" — LLM tends to write "Discipline is the
     # power_of Blood Pool" or "Blood Pool powers Discipline". Both
     # are AFFECTED_BY (the discipline is affected by the resource).
@@ -492,22 +478,18 @@ _REL_TYPE_ALIASES: dict[str, str] = {
     "has_power_source": "AFFECTED_BY",
     "granted_by": "GRANTS_POWER",
     "grants_access_to": "GRANTS_POWER",
-
     # "is_example_of" / "has_example" / "example_of" — example-of
     # is a taxonomic relationship (an example is a subtype).
     "is_example_of": "SUBTYPE_OF",
     "has_example": "SUBTYPE_OF",
     "example_of": "SUBTYPE_OF",
-
     # "has_member" / "possesses" — generic "has" for groups/entities.
     # Maps to MEMBER_OF_GROUP (the canonical way to express
     # "X is a member of Y" or "X has Y as a member").
     "has_member": "MEMBER_OF_GROUP",
     "possesses": "MEMBER_OF_GROUP",
-
     # "works_with" — collaboration, mapped to ALLIED_WITH_GROUP.
     "works_with": "ALLIED_WITH_GROUP",
-
     # "defined_by" / "causes" / "subject_to" / "involved_in" / "leads_to"
     # — generic causal / affected relationships. Map to AFFECTED_BY
     # which is the universal "X is affected by Y" type.
@@ -516,7 +498,6 @@ _REL_TYPE_ALIASES: dict[str, str] = {
     "subject_to": "AFFECTED_BY",
     "involved_in": "AFFECTED_BY",
     "leads_to": "AFFECTED_BY",
-
     # "uses" / "used_by" / "used_in" / "uses_ability" / "applies_to" /
     # "available_to" — generic "X uses Y" relationship, mapped to
     # PRACTICES_DISCIPLINE (X practices a power Y).
@@ -526,10 +507,8 @@ _REL_TYPE_ALIASES: dict[str, str] = {
     "uses_ability": "PRACTICES_DISCIPLINE",
     "applies_to": "PRACTICES_DISCIPLINE",
     "available_to": "PRACTICES_DISCIPLINE",
-
     # "leader_of" — leadership, maps to LEADS_GROUP.
     "leader_of": "LEADS_GROUP",
-
     # "also_known_as" — alias relationship. Map to SUBTYPE_OF
     # (an alias is a kind of name-substitution; semantically closest
     # available in our enum). Future: add an ALIAS_OF type.
@@ -787,6 +766,7 @@ class KnowledgePackCreate(BaseModel):
     """Request to create a new knowledge pack."""
 
     pack_id: UUID | None = None
+    owner_id: str | None = Field(default=None, description="Owning user (server-stamped)")
     name: Trimmed200 = Field(max_length=200)
     description: TrimmedCoerce1000 = Field(default="", max_length=1000)
     # [G-2] Authored verbatim intro the GM reads aloud when this pack is the
@@ -869,6 +849,7 @@ class KnowledgePackResponse(BaseModel):
     """Complete knowledge pack data for the UI/Library."""
 
     id: UUID = Field(alias="pack_id")
+    owner_id: str | None = None
     name: str
     description: str
     # [G-2] Authored verbatim intro — surfaced in the UI for re-reading and
@@ -942,6 +923,7 @@ class KnowledgePackFilter(BaseModel):
     pack_type: KnowledgePackType | None = None
     system_name: str | None = Field(None, max_length=200)
     status: KnowledgePackStatus | None = None
+    owner_id: str | None = None  # ownership scope (server-derived), applied before pagination
     tag: str | None = Field(None, max_length=200)
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)

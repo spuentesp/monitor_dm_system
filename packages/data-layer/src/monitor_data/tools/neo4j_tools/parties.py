@@ -234,6 +234,16 @@ def neo4j_list_parties(params: PartyFilter = PartyFilter()) -> list[PartyRespons
         where_clauses.append("p.story_id = $story_id")
         query_params["story_id"] = str(params.story_id)
 
+    if params.party_id:
+        where_clauses.append("p.id = $party_id")
+        query_params["party_id"] = str(params.party_id)
+
+    if params.universe_ids is not None:
+        # Parties inherit ownership through their story's universe (plan D3).
+        # An empty list matches nothing — never an unscoped fallback.
+        where_clauses.append("EXISTS { MATCH (s:Story {id: p.story_id}) WHERE s.universe_id IN $universe_ids }")
+        query_params["universe_ids"] = [str(u) for u in params.universe_ids]
+
     if params.status:
         where_clauses.append("p.status = $status")
         query_params["status"] = params.status

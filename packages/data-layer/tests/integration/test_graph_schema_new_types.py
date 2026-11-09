@@ -10,6 +10,7 @@ type can be written and queried, the new :Group/:World/:Region/:Place/
 :Structure labels are set by the data-layer on entity creation, and
 the Qdrant payload indexes exist.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -28,8 +29,7 @@ async def test_neo4j_bootstrap_creates_new_label_constraints(neo4j_client):
     for label in ("Group", "World", "Region", "Place", "Structure", "KnowledgeTree"):
         # SHOW CONSTRAINTS is the standard way to check existence
         result = neo4j_client.execute_read(
-            f"SHOW CONSTRAINTS YIELD name, labelsOrTypes WHERE labelsOrTypes = ['{label}'] "
-            f"RETURN count(*) AS n"
+            f"SHOW CONSTRAINTS YIELD name, labelsOrTypes WHERE labelsOrTypes = ['{label}'] RETURN count(*) AS n"
         )
         # Each label should have at least one constraint
         n = result[0]["n"] if result else 0
@@ -64,6 +64,7 @@ async def test_create_entity_adds_group_label_for_organization(neo4j_client):
     )
 
     from monitor_data.tools.neo4j_tools.entities import neo4j_create_entity
+
     response = neo4j_create_entity(entity)
 
     # The new label should be set
@@ -115,6 +116,7 @@ async def test_create_entity_adds_place_label_for_location(neo4j_client):
     )
 
     from monitor_data.tools.neo4j_tools.entities import neo4j_create_entity
+
     response = neo4j_create_entity(entity)
 
     rows = neo4j_client.execute_read(
@@ -153,35 +155,46 @@ async def test_create_relationship_with_new_rel_types(neo4j_client):
     )
 
     from monitor_data.schemas.entities import (
-        EntityCreate, EntityType, CanonLevel, Authority,
+        EntityCreate,
+        EntityType,
+        CanonLevel,
+        Authority,
     )
     from monitor_data.tools.neo4j_tools.entities import neo4j_create_entity
 
-    src = neo4j_create_entity(EntityCreate(
-        universe_id=UUID(universe_id),
-        name="Toreador",
-        entity_type=EntityType.ORGANIZATION,
-        sub_type="clan",
-        description="A test clan",
-        canon_level=CanonLevel.PROPOSED,
-        authority=Authority.SOURCE,
-        confidence=0.9,
-    ))
-    tgt = neo4j_create_entity(EntityCreate(
-        universe_id=UUID(universe_id),
-        name="Presence",
-        entity_type=EntityType.CONCEPT,
-        sub_type="discipline",
-        description="A test discipline",
-        canon_level=CanonLevel.PROPOSED,
-        authority=Authority.SOURCE,
-        confidence=0.9,
-    ))
+    src = neo4j_create_entity(
+        EntityCreate(
+            universe_id=UUID(universe_id),
+            name="Toreador",
+            entity_type=EntityType.ORGANIZATION,
+            sub_type="clan",
+            description="A test clan",
+            canon_level=CanonLevel.PROPOSED,
+            authority=Authority.SOURCE,
+            confidence=0.9,
+        )
+    )
+    tgt = neo4j_create_entity(
+        EntityCreate(
+            universe_id=UUID(universe_id),
+            name="Presence",
+            entity_type=EntityType.CONCEPT,
+            sub_type="discipline",
+            description="A test discipline",
+            canon_level=CanonLevel.PROPOSED,
+            authority=Authority.SOURCE,
+            confidence=0.9,
+        )
+    )
 
     # Test the new rel types — none should raise
     for rel_type in (
-        "MEMBER_OF_GROUP", "GRANTS_POWER", "LOCATED_IN_PLACE",
-        "PRACTICES_DISCIPLINE", "IS_BACKGROUND", "CONTAINS_PLACE",
+        "MEMBER_OF_GROUP",
+        "GRANTS_POWER",
+        "LOCATED_IN_PLACE",
+        "PRACTICES_DISCIPLINE",
+        "IS_BACKGROUND",
+        "CONTAINS_PLACE",
     ):
         neo4j_create_relationship(
             RelationshipCreate(

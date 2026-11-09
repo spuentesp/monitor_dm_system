@@ -143,35 +143,44 @@ def neo4j_get_multiverse(multiverse_id: UUID) -> MultiverseResponse | None:
     )
 
 
-def neo4j_list_multiverses(omniverse_id: UUID | None = None) -> list[MultiverseResponse]:
+def neo4j_list_multiverses(
+    omniverse_id: UUID | None = None,
+    ids: list[UUID] | None = None,
+) -> list[MultiverseResponse]:
     """
-    List all Multiverses.
+    List Multiverses.
 
     Authority: Any agent (read-only)
     Use Case: DL-1
 
     Args:
         omniverse_id: Optional filter by parent omniverse
+        ids: Optional explicit ID allowlist (e.g. the caller's owned
+            multiverse IDs from the Postgres registry). Applied in Cypher
+            so ownership filtering happens before any pagination.
 
     Returns:
         List of MultiverseResponse objects ordered by creation time
     """
     client = get_neo4j_client()
 
+    where_clauses = []
+    params: dict[str, Any] = {}
     if omniverse_id:
-        query = """
-        MATCH (m:Multiverse {omniverse_id: $omniverse_id})
-        RETURN m
-        ORDER BY m.created_at ASC
-        """
-        params: dict[str, Any] = {"omniverse_id": str(omniverse_id)}
-    else:
-        query = """
-        MATCH (m:Multiverse)
-        RETURN m
-        ORDER BY m.created_at ASC
-        """
-        params = {}
+        where_clauses.append("m.omniverse_id = $omniverse_id")
+        params["omniverse_id"] = str(omniverse_id)
+    if ids is not None:
+        # Empty allowlist matches nothing — never an unscoped fallback (D4).
+        where_clauses.append("m.id IN $ids")
+        params["ids"] = [str(i) for i in ids]
+    where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+    query = f"""
+    MATCH (m:Multiverse)
+    {where_clause}
+    RETURN m
+    ORDER BY m.created_at ASC
+    """
 
     result = client.execute_read(query, params)
 
@@ -483,6 +492,10 @@ def neo4j_list_universes(
     if filters.genre:
         where_clauses.append("u.genre = $genre")
         params["genre"] = filters.genre
+
+    if filters.ids is not None:
+        where_clauses.append("u.id IN $ids")
+        params["ids"] = [str(i) for i in filters.ids]
 
     where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 

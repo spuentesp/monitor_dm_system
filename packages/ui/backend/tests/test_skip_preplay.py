@@ -16,7 +16,10 @@ from fastapi.testclient import TestClient
 
 from monitor_ui.main import app
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 client = TestClient(app)
+
 
 BASE = "/api/chat"
 
@@ -28,6 +31,7 @@ def _make_session(
     **overrides,
 ) -> dict:
     now = datetime.now(UTC).isoformat()
+
     sid = session_id or str(uuid4())
     session = {
         "id": sid,
@@ -84,7 +88,8 @@ def test_skip_preplay_returns_404_for_unknown_session() -> None:
             resp = client.post(f"{BASE}/{uuid4()}/skip-preplay")
 
     assert resp.status_code == 404
-    assert resp.json()["detail"] == "Session not found"
+    # Generic "Not found": identical for foreign and nonexistent sessions.
+    assert resp.json()["detail"] == "Not found"
 
 
 def test_skip_preplay_returns_409_when_already_in_active_play() -> None:

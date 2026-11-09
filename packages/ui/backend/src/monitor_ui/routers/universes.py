@@ -15,7 +15,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from monitor_data.db.postgres import PostgresClient, get_postgres_client
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.universe import (
     MultiverseCreate as DLMultiverseCreate,
 )
@@ -50,18 +50,19 @@ from monitor_data.tools.neo4j_tools import (
 )
 from pydantic import BaseModel
 
+from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.ownership import (
+    owned_multiverse_ids,
+    owned_world_ids,
+    require_multiverse_owner,
+    require_universe_owner,
+)
+
 from .ingest_shared import db_op
 
 log = structlog.get_logger()
 
 router = APIRouter()
-
-
-def _get_db() -> PostgresClient:
-    """Request-scoped Postgres client (pre-auth local mode: single shared DB)."""
-    return get_postgres_client()
-
-
 
 
 def _default_world_bindings(world_id: str) -> dict[str, Any]:
@@ -226,11 +227,31 @@ class UniverseUpdate(BaseModel):
 
 @router.get("/multiverses")
 # reason: `-> list[dict]` return is the bare generic missing type parameters; handler delegates to `_mv_to_dict` which builds a heterogeneous multiverse response literal
-async def list_multiverses() -> list[dict]:  # type: ignore
-    """Return all multiverses, each annotated with universe count."""
+async def list_multiverses(
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> list[dict]:  # type: ignore
+    """Return the caller's multiverses, each annotated with universe count.
+
+    Owner-before-pagination: the owned-ID allowlist comes from the Postgres
+    registry and is pushed into the Cypher query; an empty allowlist returns
+    an empty list, never an unscoped one.
+    """
     with db_op("Database unavailable"):
-        multiverses = neo4j_list_multiverses()
-        universes = neo4j_list_universes(UniverseFilter(limit=100))
+        owned_mv = await owned_multiverse_ids(db, principal)
+        if owned_mv is not None and not owned_mv:
+            return []
+        owned_w = await owned_world_ids(db, principal)
+        if owned_w is not None and not owned_w:
+            multiverses = neo4j_list_multiverses(ids=[UUID(i) for i in owned_mv] if owned_mv else None)
+            return [_mv_to_dict(mv, 0) for mv in multiverses]
+        multiverses = neo4j_list_multiverses(ids=[UUID(i) for i in owned_mv] if owned_mv else None)
+        universes = neo4j_list_universes(
+            UniverseFilter(
+                limit=1000,
+                ids=[UUID(i) for i in owned_w] if owned_w is not None else None,
+            )
+        )
 
         # Count universes per multiverse
         counts: dict[str, int] = {}
@@ -243,7 +264,11 @@ async def list_multiverses() -> list[dict]:  # type: ignore
 
 @router.post("/multiverses", status_code=201)
 # reason: `-> dict` return is the bare generic missing type parameters; handler delegates to `_mv_to_dict` which builds a heterogeneous multiverse response literal
-async def create_multiverse(body: MultiverseCreate) -> dict:  # type: ignore
+async def create_multiverse(
+    body: MultiverseCreate,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore
     with db_op("Database unavailable"):
         omniverse_id = _get_omniverse_id()
         system_name = body.tags[0] if body.tags else "Custom"
@@ -254,21 +279,51 @@ async def create_multiverse(body: MultiverseCreate) -> dict:  # type: ignore
             description=body.description or "",
         )
         mv = neo4j_create_multiverse(params)
+        # Register ownership in Postgres (authoritative registry, plan D3).
+        # Neo4j and Postgres share no transaction: on registration failure,
+        # roll back the canonical node so we never return an ownerless world.
+        try:
+            await db.multiverse_upsert(
+                {
+                    "id": str(mv.id),
+                    "owner_id": principal.user_id,
+                    "label": mv.name,
+                    "active": True,
+                }
+            )
+        except Exception as exc:
+            try:
+                neo4j_delete_multiverse(mv.id, force=True)
+            except Exception:  # noqa: BLE001  # reason: compensating rollback is best-effort; the orphan is logged for reconciliation
+                log.warning("compensating delete of multiverse failed", mv_id=str(mv.id), exc_info=True)
+            raise HTTPException(503, f"Database unavailable: {exc}") from exc
         return _mv_to_dict(mv, 0)
 
 
 @router.put("/multiverses/{mv_id}")
 @router.patch("/multiverses/{mv_id}")
 # reason: `-> dict` return is the bare generic missing type parameters; handler delegates to `_mv_to_dict` which builds a heterogeneous multiverse response literal
-async def update_multiverse(mv_id: str, body: MultiverseUpdate) -> dict:  # type: ignore
+async def update_multiverse(
+    mv_id: str,
+    body: MultiverseUpdate,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore
     try:
+        await require_multiverse_owner(db, principal, mv_id)
         params = DLMultiverseUpdate(
             name=body.name,
             system_name=body.system_name,
             description=body.description,
         )
         mv = neo4j_update_multiverse(UUID(mv_id), params)
+        if body.name is not None:
+            await db.multiverse_upsert(
+                {"id": str(mv.id), "owner_id": principal.user_id, "label": mv.name, "active": True}
+            )
         return _mv_to_dict(mv)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     except Exception as exc:
@@ -276,10 +331,16 @@ async def update_multiverse(mv_id: str, body: MultiverseUpdate) -> dict:  # type
 
 
 @router.delete("/multiverses/{mv_id}", status_code=204)
-async def delete_multiverse(mv_id: str, force: bool = False) -> None:
+async def delete_multiverse(
+    mv_id: str,
+    force: bool = False,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> None:
     """Delete a multiverse. Non-empty multiverses require an explicit
     ?force=true cascade; otherwise they are refused with 409."""
     try:
+        await require_multiverse_owner(db, principal, mv_id)
         mv_uuid = UUID(mv_id)
         if neo4j_get_multiverse(mv_uuid) is None:
             raise HTTPException(404, f"Multiverse {mv_id} not found")
@@ -291,6 +352,10 @@ async def delete_multiverse(mv_id: str, force: bool = False) -> None:
                 "Delete them first, or retry with ?force=true to cascade.",
             )
         neo4j_delete_multiverse(mv_uuid, force=force)
+        # Canonical delete succeeded: detach registry rows (worlds first).
+        for child in children:
+            await db.world_delete(str(child.id))
+        await db.multiverse_delete(str(mv_uuid))
     except HTTPException:
         raise
     except ValueError as exc:
@@ -304,10 +369,21 @@ async def delete_multiverse(mv_id: str, force: bool = False) -> None:
 
 @router.get("/universes")
 # reason: `-> list[dict]` return is the bare generic missing type parameters; handler delegates to `_u_to_dict` which builds a heterogeneous universe response literal
-async def list_universes(multiverse_id: str | None = None) -> list[dict]:  # type: ignore
+async def list_universes(
+    multiverse_id: str | None = None,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> list[dict]:  # type: ignore
+    """List the caller's universes, optionally within an owned multiverse."""
     with db_op("Database unavailable"):
+        if multiverse_id is not None:
+            await require_multiverse_owner(db, principal, multiverse_id)
+        owned = await owned_world_ids(db, principal)
+        if owned is not None and not owned:
+            return []
         f = UniverseFilter(
             multiverse_id=UUID(multiverse_id) if multiverse_id else None,
+            ids=[UUID(i) for i in owned] if owned is not None else None,
             limit=200,
         )
         universes = neo4j_list_universes(f)
@@ -317,8 +393,13 @@ async def list_universes(multiverse_id: str | None = None) -> list[dict]:  # typ
 
 @router.get("/universes/{universe_id}")
 # reason: `-> dict` return is the bare generic missing type parameters; handler delegates to `_u_to_dict` which builds a heterogeneous universe response literal
-async def get_universe(universe_id: str) -> dict:  # type: ignore
+async def get_universe(
+    universe_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore
     with db_op("Database unavailable"):
+        await require_universe_owner(db, principal, universe_id)
         u = neo4j_get_universe(UUID(universe_id))
         if not u:
             raise HTTPException(404, "Universe not found")
@@ -328,16 +409,28 @@ async def get_universe(universe_id: str) -> dict:  # type: ignore
 
 @router.get("/universes/{universe_id}/state")
 # reason: `-> dict` return is the bare generic missing type parameters; handler returns the full Neo4j state dict directly (`entities`, `facts`, `axioms`, `relationships`) with heterogeneous value types
-async def get_universe_state(universe_id: str) -> dict:  # type: ignore
+async def get_universe_state(
+    universe_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore
     """Full world state: entities, facts, axioms, relationships (O1/O5 view)."""
     with db_op("Database unavailable"):
+        await require_universe_owner(db, principal, universe_id)
         return neo4j_get_universe_state(UUID(universe_id))
 
 
 @router.post("/universes", status_code=201)
 # reason: `-> dict` return is the bare generic missing type parameters; handler delegates to `_u_to_dict` which builds a heterogeneous universe response literal
-async def create_universe(body: UniverseCreate, db: PostgresClient = Depends(_get_db)) -> dict:  # type: ignore
+async def create_universe(
+    body: UniverseCreate,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore
     try:
+        # The parent multiverse must belong to the caller — a foreign or
+        # missing parent is a generic 404, never an error that reveals it.
+        await require_multiverse_owner(db, principal, body.multiverse_id)
         params = DLUniverseCreate(
             multiverse_id=UUID(body.multiverse_id),
             name=body.name,
@@ -350,6 +443,7 @@ async def create_universe(body: UniverseCreate, db: PostgresClient = Depends(_ge
             await db.world_upsert(
                 {
                     "id": str(u.id),
+                    "owner_id": principal.user_id,
                     "multiverse_id": str(u.multiverse_id),
                     "label": u.name,
                     "active": True,
@@ -373,8 +467,14 @@ async def create_universe(body: UniverseCreate, db: PostgresClient = Depends(_ge
 
 @router.put("/universes/{universe_id}")
 # reason: `-> dict` return is the bare generic missing type parameters; handler delegates to `_u_to_dict` which builds a heterogeneous universe response literal
-async def update_universe(universe_id: str, body: UniverseUpdate) -> dict:  # type: ignore
+async def update_universe(
+    universe_id: str,
+    body: UniverseUpdate,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore
     try:
+        await require_universe_owner(db, principal, universe_id)
         params = DLUniverseUpdate(
             name=body.name,
             genre=body.genre,
@@ -382,7 +482,19 @@ async def update_universe(universe_id: str, body: UniverseUpdate) -> dict:  # ty
             description=body.description,
         )
         u = neo4j_update_universe(UUID(universe_id), params)
+        if body.name is not None:
+            await db.world_upsert(
+                {
+                    "id": str(u.id),
+                    "owner_id": principal.user_id,
+                    "multiverse_id": str(u.multiverse_id),
+                    "label": u.name,
+                    "active": True,
+                }
+            )
         return _u_to_dict(u)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     except Exception as exc:
@@ -390,9 +502,18 @@ async def update_universe(universe_id: str, body: UniverseUpdate) -> dict:  # ty
 
 
 @router.delete("/universes/{universe_id}", status_code=204)
-async def delete_universe(universe_id: str) -> None:
+async def delete_universe(
+    universe_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> None:
     try:
+        await require_universe_owner(db, principal, universe_id)
         neo4j_delete_universe(UUID(universe_id), force=True)
+        # Canonical delete succeeded: detach the ownership registry row.
+        await db.world_delete(str(universe_id))
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     except Exception as exc:
@@ -436,7 +557,12 @@ class SnapshotRestoreRequest(BaseModel):
 
 @router.post("/universes/{universe_id}/seed")
 # reason: `-> dict` return is the bare generic missing type parameters; handler builds a heterogeneous seed response literal (`universe_id`, `entities_created`, `entities`, `errors`, `status`)
-async def seed_universe(universe_id: str, body: SeedRequest) -> dict:  # type: ignore
+async def seed_universe(
+    universe_id: str,
+    body: SeedRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore
     """
     Seed a universe with procedurally generated entities from random tables.
 
@@ -445,6 +571,7 @@ async def seed_universe(universe_id: str, body: SeedRequest) -> dict:  # type: i
     try:
         from monitor_agents.world_architect.agent import WorldArchitect
 
+        await require_universe_owner(db, principal, universe_id)
         universe = neo4j_get_universe(UUID(universe_id))
         if not universe:
             raise HTTPException(404, "Universe not found")
@@ -472,14 +599,20 @@ async def seed_universe(universe_id: str, body: SeedRequest) -> dict:  # type: i
 
 @router.post("/universes/{universe_id}/fork")
 # reason: `-> dict` return is the bare generic missing type parameters; handler builds a heterogeneous fork response literal (`source_universe_id`, `new_universe_id`, `name`, `entities_cloned`, `relationships_cloned`, `status`)
-async def fork_universe(universe_id: str, body: ForkRequest, db: PostgresClient = Depends(_get_db)) -> dict:  # type: ignore
+async def fork_universe(
+    universe_id: str,
+    body: ForkRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore
     """
     Fork a universe: deep-clone all entities, facts, and relationships
-    into a new universe.
+    into a new universe registered under the CALLER, not the source owner.
     """
     try:
         from monitor_data.tools.neo4j_tools import neo4j_fork_universe
 
+        await require_universe_owner(db, principal, universe_id)
         universe = neo4j_get_universe(UUID(universe_id))
         if not universe:
             raise HTTPException(404, "Universe not found")
@@ -496,6 +629,7 @@ async def fork_universe(universe_id: str, body: ForkRequest, db: PostgresClient 
             await db.world_upsert(
                 {
                     "id": str(new_id),
+                    "owner_id": principal.user_id,
                     "multiverse_id": str(universe.multiverse_id),
                     "label": body.name,
                     "active": True,
@@ -543,7 +677,12 @@ async def fork_universe(universe_id: str, body: ForkRequest, db: PostgresClient 
 
 @router.post("/universes/{universe_id}/snapshots")
 # reason: `-> dict` return is the bare generic missing type parameters; handler builds a heterogeneous snapshot-create response literal (`snapshot_id`, `universe_id`, `name`, `entity_count`, `fact_count`, `status`)
-async def create_snapshot(universe_id: str, body: SnapshotRequest) -> dict:  # type: ignore
+async def create_snapshot(
+    universe_id: str,
+    body: SnapshotRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore
     """Create a snapshot of the current universe state."""
     try:
         from monitor_data.schemas.world_snapshots import WorldSnapshotCreate
@@ -551,6 +690,7 @@ async def create_snapshot(universe_id: str, body: SnapshotRequest) -> dict:  # t
             mongodb_create_world_snapshot,
         )
 
+        await require_universe_owner(db, principal, universe_id)
         universe = neo4j_get_universe(UUID(universe_id))
         if not universe:
             raise HTTPException(404, "Universe not found")
@@ -579,7 +719,11 @@ async def create_snapshot(universe_id: str, body: SnapshotRequest) -> dict:  # t
 
 @router.get("/universes/{universe_id}/snapshots")
 # reason: `-> list[dict]` return is the bare generic missing type parameters; handler builds a list of heterogeneous per-snapshot dict literals (`id`, `name`, `description`, `entity_count`, `fact_count`, `created_at`)
-async def list_snapshots(universe_id: str) -> list[dict]:  # type: ignore
+async def list_snapshots(
+    universe_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> list[dict]:  # type: ignore
     """List all snapshots for a universe."""
     try:
         from monitor_data.schemas.world_snapshots import WorldSnapshotFilter
@@ -587,6 +731,7 @@ async def list_snapshots(universe_id: str) -> list[dict]:  # type: ignore
             mongodb_list_world_snapshots,
         )
 
+        await require_universe_owner(db, principal, universe_id)
         universe = neo4j_get_universe(UUID(universe_id))
         if not universe:
             raise HTTPException(404, "Universe not found")
@@ -610,14 +755,33 @@ async def list_snapshots(universe_id: str) -> list[dict]:  # type: ignore
         raise HTTPException(503, f"Database unavailable: {exc}") from exc
 
 
+async def _require_snapshot_in_universe(
+    universe_id: str,
+    snapshot_id: str,
+) -> None:
+    """The snapshot must exist AND belong to the path universe, else 404."""
+    from monitor_data.tools.mongodb_tools.snapshots import mongodb_get_world_snapshot
+
+    snapshot = mongodb_get_world_snapshot(UUID(snapshot_id))
+    if snapshot is None or str(snapshot.universe_id) != str(universe_id):
+        raise HTTPException(404, "Not found")
+
+
 @router.delete("/universes/{universe_id}/snapshots/{snapshot_id}", status_code=204)
-async def delete_snapshot(universe_id: str, snapshot_id: str) -> None:
-    """Delete a single snapshot. Idempotent — returns 204 whether or not it existed."""
+async def delete_snapshot(
+    universe_id: str,
+    snapshot_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> None:
+    """Delete a single snapshot that belongs to the caller's universe."""
     try:
         from monitor_data.tools.mongodb_tools.snapshots import (
             mongodb_delete_world_snapshot,
         )
 
+        await require_universe_owner(db, principal, universe_id)
+        await _require_snapshot_in_universe(universe_id, snapshot_id)
         mongodb_delete_world_snapshot(UUID(snapshot_id))
     except HTTPException:
         raise
@@ -627,13 +791,21 @@ async def delete_snapshot(universe_id: str, snapshot_id: str) -> None:
 
 @router.post("/universes/{universe_id}/snapshots/{snapshot_id}/restore")
 # reason: `-> dict` return is the bare generic missing type parameters; handler builds a heterogeneous snapshot-restore response literal (`universe_id`, `snapshot_id`, `status`, `entities_restored`)
-async def restore_snapshot(universe_id: str, snapshot_id: str, body: SnapshotRestoreRequest) -> dict:  # type: ignore
+async def restore_snapshot(
+    universe_id: str,
+    snapshot_id: str,
+    body: SnapshotRestoreRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore
     """Restore a universe from a snapshot."""
     try:
         from monitor_data.tools.mongodb_tools.snapshots import (
             mongodb_restore_world_snapshot,
         )
 
+        await require_universe_owner(db, principal, universe_id)
+        await _require_snapshot_in_universe(universe_id, snapshot_id)
         if not body.confirm:
             raise HTTPException(400, "Must confirm snapshot restore with confirm=true")
 
@@ -656,6 +828,8 @@ async def compare_snapshots(
     universe_id: str,
     snapshot_a_id: str,
     snapshot_b_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
     # reason: `-> dict` return is the bare generic missing type parameters; handler builds a heterogeneous snapshot-compare response literal (`snapshot_a_id`, `snapshot_b_id`, `universe_id`, three summary dicts, three diff lists, two name fields, `compared_at`)
 ) -> dict:  # type: ignore
     """
@@ -666,6 +840,9 @@ async def compare_snapshots(
     try:
         from monitor_data.tools.mongodb_tools.snapshots import mongodb_compare_snapshots
 
+        await require_universe_owner(db, principal, universe_id)
+        await _require_snapshot_in_universe(universe_id, snapshot_a_id)
+        await _require_snapshot_in_universe(universe_id, snapshot_b_id)
         universe = neo4j_get_universe(UUID(universe_id))
         if not universe:
             raise HTTPException(404, "Universe not found")

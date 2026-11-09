@@ -17,6 +17,7 @@ from uuid import UUID
 from qdrant_client.models import (
     FieldCondition,
     Filter,
+    MatchAny,
     MatchText,
     MatchValue,
     PointStruct,
@@ -188,6 +189,18 @@ def _build_qdrant_filter(filter_params: VectorFilter) -> Filter | None:
                     match=MatchValue(value=str(value) if isinstance(value, UUID) else value),
                 )
             )
+
+    # Multi-tenant scope allowlist: MatchAny on universe_id. Server-added by
+    # the UI backend from the Postgres ownership registry; web callers cannot
+    # remove or widen it because the route never accepts raw custom filters
+    # for this field.
+    if filter_params.universe_ids is not None:  # empty allowlist matches nothing (D4)
+        must_conditions.append(
+            FieldCondition(
+                key="universe_id",
+                match=MatchAny(any=[str(u) for u in filter_params.universe_ids]),
+            )
+        )
 
     if filter_params.is_archetype is not None:
         must_conditions.append(

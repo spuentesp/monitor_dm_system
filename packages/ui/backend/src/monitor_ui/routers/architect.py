@@ -10,16 +10,21 @@ known_open_questions / priority_gaps flow in the chat router is untouched.
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from monitor_data.schemas.coverage import CoverageThresholds, WorldCoverage
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.tools.neo4j_tools import neo4j_get_universe
+from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.ownership import require_universe_owner
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.get("/architect/{universe_id}/coverage", response_model=WorldCoverage)
 async def get_world_coverage(
     universe_id: UUID,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
     require_mechanics: bool = Query(
         default=False,
         description="Treat game mechanics as required (mechanical play intent)",
@@ -38,6 +43,7 @@ async def get_world_coverage(
     try:
         from monitor_agents.world_architect.agent import WorldArchitect
 
+        await require_universe_owner(db, principal, universe_id)
         universe = neo4j_get_universe(universe_id)
         if not universe:
             raise HTTPException(404, "Universe not found")

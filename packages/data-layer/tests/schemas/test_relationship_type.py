@@ -2,6 +2,7 @@
 
 Sub-plan 1 of docs/superpowers/plans/2026-08-02-monitordm-coverage-and-shape.md.
 """
+
 from __future__ import annotations
 
 from monitor_data.schemas.relationships import (
@@ -13,11 +14,21 @@ from monitor_data.schemas.relationships import (
 def test_new_relationship_types_exist():
     """All game-system-agnostic types added in sub-plan 1 must be present."""
     expected = {
-        "MEMBER_OF_GROUP", "SUBGROUP_OF_GROUP", "LEADS_GROUP",
-        "FOUNDED_GROUP", "CONTROLS_GROUP", "ALLIED_WITH_GROUP",
-        "HOSTILE_TO_GROUP", "AFFECTED_BY", "GRANTS_POWER",
-        "PRACTICES_DISCIPLINE", "LOCATED_IN_PLACE", "CONTAINS_PLACE",
-        "IS_BACKGROUND", "IS_TOUCHSTONE", "IS_RESOURCE",
+        "MEMBER_OF_GROUP",
+        "SUBGROUP_OF_GROUP",
+        "LEADS_GROUP",
+        "FOUNDED_GROUP",
+        "CONTROLS_GROUP",
+        "ALLIED_WITH_GROUP",
+        "HOSTILE_TO_GROUP",
+        "AFFECTED_BY",
+        "GRANTS_POWER",
+        "PRACTICES_DISCIPLINE",
+        "LOCATED_IN_PLACE",
+        "CONTAINS_PLACE",
+        "IS_BACKGROUND",
+        "IS_TOUCHSTONE",
+        "IS_RESOURCE",
     }
     actual = {t.name for t in RelationshipType}
     missing = expected - actual
@@ -27,11 +38,25 @@ def test_new_relationship_types_exist():
 def test_legacy_relationship_types_still_exist():
     """Adding new types must not break the existing schema."""
     expected_legacy = {
-        "MEMBER_OF", "SUBTYPE_OF", "RELATED_TO", "ALLIED_WITH",
-        "HOSTILE_TO", "PART_OF", "LOCATED_IN", "CONTAINS",
-        "INSTANCE_OF", "KNOWS", "OWNS", "CONTROLLED_BY",
-        "CONTROLS", "REVERES", "LEADS", "WORKS_FOR",
-        "PARTICIPATES_IN", "AFFILIATED_WITH", "DERIVES_FROM",
+        "MEMBER_OF",
+        "SUBTYPE_OF",
+        "RELATED_TO",
+        "ALLIED_WITH",
+        "HOSTILE_TO",
+        "PART_OF",
+        "LOCATED_IN",
+        "CONTAINS",
+        "INSTANCE_OF",
+        "KNOWS",
+        "OWNS",
+        "CONTROLLED_BY",
+        "CONTROLS",
+        "REVERES",
+        "LEADS",
+        "WORKS_FOR",
+        "PARTICIPATES_IN",
+        "AFFILIATED_WITH",
+        "DERIVES_FROM",
     }
     actual = {t.name for t in RelationshipType}
     missing = expected_legacy - actual

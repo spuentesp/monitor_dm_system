@@ -71,8 +71,7 @@ def _latest_identity(collection: Any, query: dict[str, Any]) -> dict[str, Any] |
 
 def _version_conflict(identity_id: object, expected_version: object) -> VisualIdentityConflictError:
     return VisualIdentityConflictError(
-        f"Visual identity version conflict for {identity_id}: expected version "
-        f"{expected_version} is no longer current"
+        f"Visual identity version conflict for {identity_id}: expected version {expected_version} is no longer current"
     )
 
 
@@ -283,8 +282,7 @@ def mongodb_update_visual_identity_status(
     current = VisualIdentityStatus(raw["status"])
     if coerced_status != current and not transition_visual_identity_status(current, coerced_status):
         raise VisualIdentityConflictError(
-            f"Illegal visual identity status transition for {identity_id}: "
-            f"{current.value} -> {coerced_status.value}"
+            f"Illegal visual identity status transition for {identity_id}: {current.value} -> {coerced_status.value}"
         )
 
     now = datetime.now(UTC)

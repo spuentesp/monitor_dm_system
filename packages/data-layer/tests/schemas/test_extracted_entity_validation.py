@@ -2,6 +2,7 @@
 
 Sub-plan 1 of docs/superpowers/plans/2026-08-02-monitordm-coverage-and-shape.md.
 """
+
 from __future__ import annotations
 
 from monitor_data.schemas.entity_subtypes import GroupType, PlaceType
@@ -105,6 +106,7 @@ def test_organization_known_group_term_preserved_unchanged():
 
 
 # === Task 4: ExtractedRelationship.rel_type normalisation ===
+
 
 def test_relationship_rel_type_accepts_new_canonical_value():
     r = ExtractedRelationship(
@@ -224,6 +226,5 @@ def test_relationship_rel_type_normalises_live_ingest_aliases():
             rel_type=llm_emitted,
         )
         assert r.rel_type == expected_canonical, (
-            f"LLM-emitted '{llm_emitted}' should normalise to "
-            f"'{expected_canonical}', got '{r.rel_type}'"
+            f"LLM-emitted '{llm_emitted}' should normalise to '{expected_canonical}', got '{r.rel_type}'"
         )

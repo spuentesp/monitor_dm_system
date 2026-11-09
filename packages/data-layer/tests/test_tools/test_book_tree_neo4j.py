@@ -13,8 +13,21 @@ from monitor_data.tools.neo4j_tools import book_tree as tools
 def _tree(paragraphs: int = 2) -> BookTree:
     nodes = [BookNode(id="root", doc_id="d", kind=BookNodeKind.BOOK, seq=0, page_start=0, page_end=0)]
     for i in range(paragraphs):
-        nodes.append(BookNode(id=f"p{i}", doc_id="d", kind=BookNodeKind.PARAGRAPH, parent_id="root", seq=i + 1, text="T", page_start=0, page_end=0))
-    return BookTree(doc_id="d", title="T", decomposer_version="5", content_hash="x", nodes=nodes, report=DecompositionReport())
+        nodes.append(
+            BookNode(
+                id=f"p{i}",
+                doc_id="d",
+                kind=BookNodeKind.PARAGRAPH,
+                parent_id="root",
+                seq=i + 1,
+                text="T",
+                page_start=0,
+                page_end=0,
+            )
+        )
+    return BookTree(
+        doc_id="d", title="T", decomposer_version="5", content_hash="x", nodes=nodes, report=DecompositionReport()
+    )
 
 
 @pytest.fixture

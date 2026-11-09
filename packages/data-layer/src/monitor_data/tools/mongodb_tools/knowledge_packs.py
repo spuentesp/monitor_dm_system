@@ -50,6 +50,7 @@ def _convert_knowledge_pack_doc(doc: dict[str, Any]) -> KnowledgePackResponse:
     return KnowledgePackResponse(
         id=doc["_id"],
         pack_id=UUID(doc["pack_id"]),
+        owner_id=doc.get("owner_id"),
         name=doc["name"],
         description=doc.get("description", ""),
         # [G-2] Round-trip the verbatim authored intro (None for older packs).
@@ -121,6 +122,7 @@ def mongodb_create_knowledge_pack(params: KnowledgePackCreate) -> KnowledgePackR
 
     doc = {
         "pack_id": str(pack_id),
+        "owner_id": params.owner_id,
         "name": params.name,
         "description": params.description,
         # [G-2] Persist the verbatim authored intro (None on packs without one;
@@ -285,6 +287,8 @@ def mongodb_list_knowledge_packs(params: KnowledgePackFilter) -> KnowledgePackLi
         query["status"] = params.status.value
     if params.tag:
         query["tags"] = params.tag
+    if params.owner_id:
+        query["owner_id"] = params.owner_id
 
     total = packs_collection.count_documents(query)
     cursor = packs_collection.find(query).sort("created_at", -1).skip(params.offset).limit(params.limit)
@@ -943,3 +947,9 @@ def mongodb_list_published_packs(limit: int = 30) -> list[KnowledgePackResponse]
         KnowledgePackFilter(status=KnowledgePackStatus.PUBLISHED, tag=None, limit=safe_limit)
     )
     return list(result.packs)
+
+
+def mongodb_set_knowledge_pack_owner(pack_id: UUID | str, owner_id: str) -> None:
+    """Stamp the owning user on a pack (called by the router at creation)."""
+    mongodb = get_mongodb_client()
+    mongodb.get_collection("knowledge_packs").update_one({"pack_id": str(pack_id)}, {"$set": {"owner_id": owner_id}})

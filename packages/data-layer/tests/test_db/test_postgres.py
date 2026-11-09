@@ -5,6 +5,7 @@ Covers all PostgresClient public methods with mocked asyncpg pool.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
@@ -28,6 +29,8 @@ def mock_pool():
     """Return a mocked asyncpg pool with async context-manager connections."""
     pool = AsyncMock()
     conn = AsyncMock()
+    # Default: no stored migration checksum rows (schema not yet applied)
+    conn.fetchrow = AsyncMock(return_value=None)
     # Mock transaction as async context manager
     tx = AsyncMock()
     tx.__aenter__ = AsyncMock(return_value=None)
@@ -95,7 +98,9 @@ def test_multi_loop_reuses_per_loop_pools_and_applies_schema_once(mock_pool):
             assert loop1.run_until_complete(c._get_pool()) is pool1
             assert create_mock.call_count == 2
         # Schema DDL was executed only once across both event loops
-        assert conn1.execute.call_count == 1
+        # (one _apply_schema run = DDL + migration SQL + migration-record insert)
+        ddl_calls = [c for c in conn1.execute.call_args_list if "pg_advisory_xact_lock" in str(c[0][0])]
+        assert len(ddl_calls) == 1
     finally:
         loop1.close()
         loop2.close()
@@ -143,7 +148,6 @@ def test_close_releases_current_loop_pool_even_after_other_loop_connects(mock_po
     finally:
         loop1.close()
         loop2.close()
-
 
 
 @pytest.mark.asyncio
@@ -426,17 +430,21 @@ async def test_llm_task_attempts_list_with_filters(client):
 async def test_worlds_list(client):
     c, conn = client
     conn.fetch = AsyncMock(return_value=[{"id": "w1", "name": "Test World"}])
-    result = await c.worlds_list()
+    owner = uuid4()
+    result = await c.worlds_list(owner)
     assert len(result) == 1
+    assert "WHERE owner_id = $1" in conn.fetch.call_args[0][0]
+    assert conn.fetch.call_args[0][1] == owner
 
 
 @pytest.mark.asyncio
 async def test_worlds_list_active_only(client):
     c, conn = client
     conn.fetch = AsyncMock(return_value=[])
-    await c.worlds_list(active_only=True)
+    await c.worlds_list(uuid4(), active_only=True)
     sql = conn.fetch.call_args[0][0]
-    assert "WHERE active = TRUE" in sql
+    assert "WHERE owner_id = $1" in sql
+    assert "AND active = TRUE" in sql
 
 
 @pytest.mark.asyncio
@@ -607,7 +615,7 @@ async def test_mode_set(client):
 async def test_pref_get_found(client):
     c, conn = client
     conn.fetchrow = AsyncMock(return_value={"value": {"theme": "dark"}})
-    result = await c.pref_get("ui")
+    result = await c.pref_get(uuid4(), "ui")
     assert result["theme"] == "dark"
 
 
@@ -615,14 +623,14 @@ async def test_pref_get_found(client):
 async def test_pref_get_not_found(client):
     c, conn = client
     conn.fetchrow = AsyncMock(return_value=None)
-    assert await c.pref_get("ui") is None
+    assert await c.pref_get(uuid4(), "ui") is None
 
 
 @pytest.mark.asyncio
 async def test_pref_set(client):
     c, conn = client
-    await c.pref_set("ui", {"theme": "light"})
-    assert "INSERT INTO user_preferences" in conn.execute.call_args[0][0]
+    await c.pref_set(uuid4(), "ui", {"theme": "light"})
+    assert "INSERT INTO user_preferences_by_user" in conn.execute.call_args[0][0]
 
 
 # =============================================================================

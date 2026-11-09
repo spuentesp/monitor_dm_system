@@ -210,9 +210,7 @@ class TestContentDecorators:
     def test_probability_and_order_decorators(self):
         from monitor_data.interop.sillytavern_lorebook import parse_st_lorebook_entry
 
-        out = parse_st_lorebook_entry(
-            {"content": "@@probability 50\n@@order 7\nBody.", "keys": ["x"]}
-        )
+        out = parse_st_lorebook_entry({"content": "@@probability 50\n@@order 7\nBody.", "keys": ["x"]})
         assert out["probability"] == 50
         assert out["order"] == 7
         assert out["content"] == "Body."
@@ -220,17 +218,13 @@ class TestContentDecorators:
     def test_decorator_overrides_structured_field(self):
         from monitor_data.interop.sillytavern_lorebook import parse_st_lorebook_entry
 
-        out = parse_st_lorebook_entry(
-            {"content": "@@depth 9\nBody.", "keys": ["x"], "depth": 3}
-        )
+        out = parse_st_lorebook_entry({"content": "@@depth 9\nBody.", "keys": ["x"], "depth": 3})
         assert out["depth"] == 9
 
     def test_unknown_decorator_preserved_and_stops_block(self):
         from monitor_data.interop.sillytavern_lorebook import parse_st_lorebook_entry
 
-        out = parse_st_lorebook_entry(
-            {"content": "@@role system\n@@depth 2\nBody.", "keys": ["x"]}
-        )
+        out = parse_st_lorebook_entry({"content": "@@role system\n@@depth 2\nBody.", "keys": ["x"]})
         # Unknown directive ends the leading block; everything stays verbatim.
         assert out["content"] == "@@role system\n@@depth 2\nBody."
         assert out["depth"] == 4  # schema default, decorator not applied
@@ -245,9 +239,7 @@ class TestContentDecorators:
     def test_mid_content_at_lines_not_treated_as_decorators(self):
         from monitor_data.interop.sillytavern_lorebook import parse_st_lorebook_entry
 
-        out = parse_st_lorebook_entry(
-            {"content": "First line.\n@@depth 2\nBody.", "keys": ["x"]}
-        )
+        out = parse_st_lorebook_entry({"content": "First line.\n@@depth 2\nBody.", "keys": ["x"]})
         assert out["content"].startswith("First line.")
         assert out["depth"] == 4
 
@@ -284,9 +276,7 @@ class TestCharacterBookEnabledFlag:
     def test_card_export_writes_enabled_and_array_entries(self):
         from monitor_data.interop.sillytavern_lorebook import build_character_book
 
-        book = build_character_book(
-            [{"content": "on", "is_active": True}, {"content": "off", "is_active": False}]
-        )
+        book = build_character_book([{"content": "on", "is_active": True}, {"content": "off", "is_active": False}])
         assert isinstance(book["entries"], list)
         flags = {e["content"]: (e["enabled"], e["disable"]) for e in book["entries"]}
         assert flags == {"on": (True, False), "off": (False, True)}
@@ -327,4 +317,3 @@ class TestCharacterBookEnabledFlag:
         cb_out = build_character_book([imported])["entries"][0]
         assert cb_out["enabled"] is False
         assert cb_out["disable"] is True
-

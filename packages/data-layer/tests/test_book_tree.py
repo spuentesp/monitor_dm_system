@@ -84,7 +84,9 @@ def test_section_starting_mid_page_keeps_the_text_before_it_in_the_previous_sect
 
 @pytest.mark.unit
 def test_two_columns_are_read_column_by_column():
-    data = _pdf([[(320, 72, "Right top."), (320, 120, "Right bottom."), (72, 96, "Left top."), (72, 144, "Left bottom.")]])
+    data = _pdf(
+        [[(320, 72, "Right top."), (320, 120, "Right bottom."), (72, 96, "Left top."), (72, 144, "Left bottom.")]]
+    )
     assert _texts(decompose_pdf(data, "d", "T"), BookNodeKind.PARAGRAPH) == [
         "Left top.",
         "Left bottom.",
@@ -209,7 +211,12 @@ def _ids_by_text(tree: BookTree, kind: BookNodeKind) -> dict[str, str]:
 def test_adding_a_paragraph_leaves_every_other_paragraph_id_unchanged():
     """The idempotency guarantee: a decomposer fix can't invalidate work on unchanged text."""
     original = _pdf([[(72, 72, "Alpha text here."), (72, 120, "Beta text here.")], [(72, 72, "Gamma text here.")]])
-    with_extra = _pdf([[(72, 40, "A brand new paragraph."), (72, 72, "Alpha text here."), (72, 120, "Beta text here.")], [(72, 72, "Gamma text here.")]])
+    with_extra = _pdf(
+        [
+            [(72, 40, "A brand new paragraph."), (72, 72, "Alpha text here."), (72, 120, "Beta text here.")],
+            [(72, 72, "Gamma text here.")],
+        ]
+    )
     before = _ids_by_text(decompose_pdf(original, "d", "T"), BookNodeKind.PARAGRAPH)
     after = _ids_by_text(decompose_pdf(with_extra, "d", "T"), BookNodeKind.PARAGRAPH)
     assert len(before) == 3
@@ -232,12 +239,16 @@ def test_paragraph_id_survives_moving_to_a_different_section():
 def test_changed_text_gets_a_new_id():
     first = decompose_pdf(_pdf([[(72, 72, "Pool holds 6.")]]), "d", "T")
     second = decompose_pdf(_pdf([[(72, 72, "Pool holds 8.")]]), "d", "T")
-    assert set(_ids_by_text(first, BookNodeKind.PARAGRAPH).values()).isdisjoint(_ids_by_text(second, BookNodeKind.PARAGRAPH).values())
+    assert set(_ids_by_text(first, BookNodeKind.PARAGRAPH).values()).isdisjoint(
+        _ids_by_text(second, BookNodeKind.PARAGRAPH).values()
+    )
 
 
 @pytest.mark.unit
 def test_repeated_identical_text_gets_distinct_ids():
-    tree = decompose_pdf(_pdf([[(72, 100, "Repeat this."), (72, 200, "Repeat this."), (72, 300, "Repeat this.")]]), "d", "T")
+    tree = decompose_pdf(
+        _pdf([[(72, 100, "Repeat this."), (72, 200, "Repeat this."), (72, 300, "Repeat this.")]]), "d", "T"
+    )
     ids = [n.id for n in tree.nodes if n.kind == BookNodeKind.PARAGRAPH]
     assert len(ids) == 3
     assert len(set(ids)) == 3
@@ -368,7 +379,14 @@ def test_nested_bookmarks_do_not_repeat_child_text_in_the_parent():
 @pytest.mark.unit
 def test_same_page_bookmarks_each_get_only_their_own_text():
     sections = _sections(
-        [[(72, 100, "First section"), (72, 130, "First body sentence."), (72, 400, "Second section"), (72, 430, "Second body sentence.")]],
+        [
+            [
+                (72, 100, "First section"),
+                (72, 130, "First body sentence."),
+                (72, 400, "Second section"),
+                (72, 430, "Second body sentence."),
+            ]
+        ],
         [[1, "First section", 1], [1, "Second section", 1]],
     )
     joined = " ".join(section.text for section in sections)

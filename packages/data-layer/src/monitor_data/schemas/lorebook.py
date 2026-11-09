@@ -304,9 +304,15 @@ class LorebookEntryDraft(BaseModel):
 class LorebookScanConfig(BaseModel):
     """Per-character SillyTavern-style scan settings."""
 
-    scan_depth: int = Field(default=2, ge=0, le=100, description="How many recent turns to scan in addition to the current input.")
-    token_budget: int = Field(default=500, ge=0, le=10000, description="Approximate token budget for injected lore content.")
-    recursive_scanning: bool = Field(default=True, description="Recursively scan triggered entry contents for further keywords.")
+    scan_depth: int = Field(
+        default=2, ge=0, le=100, description="How many recent turns to scan in addition to the current input."
+    )
+    token_budget: int = Field(
+        default=500, ge=0, le=10000, description="Approximate token budget for injected lore content."
+    )
+    recursive_scanning: bool = Field(
+        default=True, description="Recursively scan triggered entry contents for further keywords."
+    )
     case_sensitive: bool = Field(default=False)
     match_whole_words: bool = Field(default=False)
     include_names: bool = Field(default=True, description="Include speaker names/labels when scanning history.")
@@ -316,7 +322,9 @@ class LorebookScanResult(BaseModel):
     """Output of a lorebook scan, grouped by ST insertion position."""
 
     before: list[str] = Field(default_factory=list, description="Contents for position=before_char (0).")
-    after: list[str] = Field(default_factory=list, description="Contents for positions after_char (1), AN_top (2), AN_bottom (3).")
+    after: list[str] = Field(
+        default_factory=list, description="Contents for positions after_char (1), AN_top (2), AN_bottom (3)."
+    )
     depth: list[str] = Field(default_factory=list, description="Contents for position=@depth (4).")
     triggered_entry_ids: list[str] = Field(default_factory=list)
 

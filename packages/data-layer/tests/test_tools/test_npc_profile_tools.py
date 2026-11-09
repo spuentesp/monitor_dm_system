@@ -799,9 +799,7 @@ def test_update_npc_profile_per_universe_maps_do_not_cross_contaminate(monkeypat
         ),
     )
 
-    assert result.current_emotional_state_by_universe == {
-        str(universe_id): "roused, cautiously allied"
-    }
+    assert result.current_emotional_state_by_universe == {str(universe_id): "roused, cautiously allied"}
     assert result.relationship_states_by_universe == {str(universe_id): {str(player_id): snapshot}}
 
 

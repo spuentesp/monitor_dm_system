@@ -11,7 +11,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import Response
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_agents.services.pack_service import KnowledgePackService
@@ -68,7 +68,17 @@ from .ingest_shared import (
     validate_uuid,
 )
 
-router = APIRouter()
+
+from monitor_ui.auth import Principal, get_current_user
+from monitor_ui.ownership import resource_route_guard
+
+
+def _owner_of(principal: Principal) -> str | None:
+    """Owner scope for Mongo queries: None in local mode, else the user id."""
+    return None if principal.via == "local" else str(principal.user_id)
+
+
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 # reason: helper accepts an unannotated pack model shared across dynamically typed database routes
@@ -101,7 +111,11 @@ def _assert_pack_not_building(pack, *, action: str) -> None:  # type: ignore[no-
 
 @router.get("/packs")
 # reason: route response contains dynamically shaped pack dictionaries without a concrete response model
-async def list_packs(status: str | None = None, limit: int = 30) -> list[dict]:  # type: ignore[type-arg]
+async def list_packs(
+    status: str | None = None,
+    limit: int = 30,
+    principal: Principal = Depends(get_current_user),
+) -> list[dict]:  # type: ignore[type-arg]
     pack_status = None
     if status:
         with suppress(ValueError):
@@ -109,7 +123,7 @@ async def list_packs(status: str | None = None, limit: int = 30) -> list[dict]: 
     with db_op("Database unavailable"):
         result = await asyncio.to_thread(
             mongodb_list_knowledge_packs,
-            KnowledgePackFilter(status=pack_status, tag=None, limit=limit),
+            KnowledgePackFilter(status=pack_status, tag=None, limit=limit, owner_id=_owner_of(principal)),
         )
     return [_pack_to_dict(p) for p in result.packs]
 
@@ -681,7 +695,10 @@ class CreatePackRequest(BaseModel):
 
 @router.post("/packs", status_code=201)
 # reason: pack creation route returns a dynamically shaped pack dictionary
-async def create_pack(body: CreatePackRequest) -> dict:  # type: ignore[type-arg]
+async def create_pack(
+    body: CreatePackRequest,
+    principal: Principal = Depends(get_current_user),
+) -> dict:  # type: ignore[type-arg]
     """Create an empty KnowledgePack manually (MP-1)."""
     try:
         pack_type_enum = KnowledgePackType(body.pack_type)
@@ -698,6 +715,7 @@ async def create_pack(body: CreatePackRequest) -> dict:  # type: ignore[type-arg
                 ingestion_job_id=None,
                 tags=body.tags,
                 game_system_id=None,
+                owner_id=_owner_of(principal),
             )
         )
     except Exception as exc:
@@ -763,7 +781,10 @@ class ImportPackRequest(BaseModel):
 
 @router.post("/packs/import", status_code=201)
 # reason: import route returns a dynamically shaped pack dictionary
-async def import_pack(body: ImportPackRequest) -> dict:  # type: ignore[type-arg]
+async def import_pack(
+    body: ImportPackRequest,
+    principal: Principal = Depends(get_current_user),
+) -> dict:  # type: ignore[type-arg]
     """Import a `.monitorpack` JSON envelope as a new KnowledgePack."""
     if body.schema_version != "1.0":
         raise HTTPException(
@@ -810,6 +831,7 @@ async def import_pack(body: ImportPackRequest) -> dict:  # type: ignore[type-arg
                 if pack_data.get("source_mindscape")
                 else None,
                 game_system_id=None,
+                owner_id=_owner_of(principal),
             )
         )
     except Exception as exc:
@@ -826,7 +848,11 @@ class ClonePackRequest(BaseModel):
 
 @router.post("/packs/{pack_id}/clone", status_code=201)
 # reason: clone route returns a dynamically shaped pack dictionary
-async def clone_pack(pack_id: str, body: ClonePackRequest) -> dict:  # type: ignore[type-arg]
+async def clone_pack(
+    pack_id: str,
+    body: ClonePackRequest,
+    principal: Principal = Depends(get_current_user),
+) -> dict:  # type: ignore[type-arg]
     """Clone a KnowledgePack into a new editable copy."""
     uid = validate_uuid(pack_id, "pack_id")
     with db_op("Database unavailable"):
@@ -890,7 +916,11 @@ class SlicePackRequest(BaseModel):
 
 @router.post("/packs/{pack_id}/slice", status_code=201)
 # reason: slice route returns a dynamically shaped pack dictionary
-async def slice_pack(pack_id: str, body: SlicePackRequest) -> dict:  # type: ignore[type-arg]
+async def slice_pack(
+    pack_id: str,
+    body: SlicePackRequest,
+    principal: Principal = Depends(get_current_user),
+) -> dict:  # type: ignore[type-arg]
     """Create a new pack from a user-selected subset of an existing pack."""
     uid = validate_uuid(pack_id, "pack_id")
     with db_op("Database unavailable"):
@@ -923,6 +953,7 @@ async def slice_pack(pack_id: str, body: SlicePackRequest) -> dict:  # type: ign
                 agendas=_pick(src.agendas, body.agenda_indices),
                 topologies=_pick(src.topologies, body.topology_indices),
                 tone_profiles=_pick(src.tone_profiles, body.tone_profile_indices),
+                owner_id=_owner_of(principal),
                 character_profiles=_pick(src.character_profiles, body.character_profile_indices),
                 generation_templates=_pick(src.generation_templates, body.generation_template_indices),
                 game_system_id=None,

@@ -2,6 +2,7 @@
 
 Sub-plan 1 of docs/superpowers/plans/2026-08-02-monitordm-coverage-and-shape.md.
 """
+
 from __future__ import annotations
 
 from monitor_data.db.neo4j import _SCHEMA_BOOTSTRAP_QUERIES

@@ -10,13 +10,17 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.parties import PartyResponse
+from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.ownership import owned_world_ids, require_story_owner, resource_route_guard
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 class PartyCreateRequest(BaseModel):
@@ -38,8 +42,13 @@ class AddMemberRequest(BaseModel):
 
 
 @router.post("", response_model=PartyResponse, status_code=201)
-async def create_party(body: PartyCreateRequest) -> PartyResponse:
+async def create_party(
+    body: PartyCreateRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> PartyResponse:
     """Create a new party for a story (P-13)."""
+    await require_story_owner(db, principal, body.story_id)
     from monitor_data.schemas.parties import PartyCreate
     from monitor_data.tools.neo4j_tools.parties import neo4j_create_party
 
@@ -63,14 +72,24 @@ async def list_parties(
     story_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> list[PartyResponse]:
-    """List parties, optionally filtered by story_id (P-13)."""
+    """List parties, optionally filtered by story_id (P-13).
+
+    With ``story_id`` the caller must own that story; without it the list is
+    scoped to the caller's universes (empty owned set -> empty list).
+    """
     from monitor_data.schemas.parties import PartyFilter
     from monitor_data.tools.neo4j_tools.parties import neo4j_list_parties
 
+    if story_id:
+        await require_story_owner(db, principal, story_id)
+    owned_w = await owned_world_ids(db, principal)
     try:
         params = PartyFilter(
             story_id=UUID(story_id) if story_id else None,
+            universe_ids=[UUID(i) for i in owned_w] if owned_w is not None else None,
             limit=limit,
             offset=offset,
         )

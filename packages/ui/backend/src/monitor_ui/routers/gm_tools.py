@@ -14,7 +14,7 @@ import re
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_agents.ingestion.capture_insights import CaptureInsight, CaptureInsightAgent
 from monitor_agents.plot_hooks import (
@@ -24,10 +24,13 @@ from monitor_agents.plot_hooks import (
     PlotHookAgent,
     SessionPrep,
 )
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.utils.dice import roll_dice
+from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.ownership import require_universe_owner
 from pydantic import BaseModel, Field
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 log = structlog.get_logger()
 
 # Bounds for the /gm/roll endpoint. ``roll_dice`` enforces no upper cap, so an
@@ -148,8 +151,13 @@ class CaptureInsightsRequest(BaseModel):
 
 
 @router.post("/gm/hooks", response_model=SuggestHooksResponse)
-async def suggest_hooks(req: SuggestHooksRequest) -> SuggestHooksResponse:
+async def suggest_hooks(
+    req: SuggestHooksRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> SuggestHooksResponse:
     """Suggest narrative hooks based on open plot threads and recent events."""
+    await require_universe_owner(db, principal, req.universe_id)
     agent = PlotHookAgent()
     try:
         hooks = await agent.suggest_hooks(
@@ -165,8 +173,11 @@ async def suggest_hooks(req: SuggestHooksRequest) -> SuggestHooksResponse:
 @router.post("/gm/contradictions", response_model=DetectContradictionsResponse)
 async def detect_contradictions(
     req: DetectContradictionsRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> DetectContradictionsResponse:
     """Detect contradictions in the canon for a given universe."""
+    await require_universe_owner(db, principal, req.universe_id)
     agent = PlotHookAgent()
     try:
         contradictions = await agent.detect_contradictions(
@@ -179,8 +190,13 @@ async def detect_contradictions(
 
 
 @router.post("/gm/session-prep", response_model=SessionPrepResponse)
-async def generate_session_prep(req: SessionPrepRequest) -> SessionPrepResponse:
+async def generate_session_prep(
+    req: SessionPrepRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> SessionPrepResponse:
     """Generate session preparation materials for the GM."""
+    await require_universe_owner(db, principal, req.universe_id)
     agent = PlotHookAgent()
     try:
         prep = await agent.generate_session_prep(
@@ -194,8 +210,13 @@ async def generate_session_prep(req: SessionPrepRequest) -> SessionPrepResponse:
 
 
 @router.post("/gm/handouts", response_model=GenerateHandoutResponse)
-async def generate_handout(req: GenerateHandoutRequest) -> GenerateHandoutResponse:
+async def generate_handout(
+    req: GenerateHandoutRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> GenerateHandoutResponse:
     """Generate a player handout from world data."""
+    await require_universe_owner(db, principal, req.universe_id)
     agent = PlotHookAgent()
     try:
         handout = await agent.generate_handout(
@@ -248,6 +269,8 @@ async def roll_gm_dice(req: RollDiceRequest) -> RollDiceResponse:
 )
 async def check_capture_contradiction(
     req: CaptureContradictionCheckRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> CaptureContradictionCheckResponse:
     """Advisory live contradiction check for a Session Recorder entry (CF-1).
 
@@ -255,6 +278,7 @@ async def check_capture_contradiction(
     never writes to Neo4j. Returns an alert only when the entry collides
     with established canon.
     """
+    await require_universe_owner(db, principal, req.universe_id)
     agent = CanonKeeper()
     try:
         result = await agent.check_live_entry(
@@ -286,13 +310,18 @@ async def check_capture_contradiction(
 
 
 @router.post("/gm/capture/insights", response_model=CaptureInsight)
-async def capture_entry_insights(req: CaptureInsightsRequest) -> CaptureInsight:
+async def capture_entry_insights(
+    req: CaptureInsightsRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> CaptureInsight:
     """Per-entry capture insights for the Session Recorder (CF-1, P1.2).
 
     Advisory: analyzes the entry for participants, locations, and candidate
     facts. Candidate facts are visible, not proposed — promotion happens via
     the scene-end canon review (CF-8).
     """
+    await require_universe_owner(db, principal, req.universe_id)
     agent = CaptureInsightAgent()
     try:
         return await agent.analyze_entry(

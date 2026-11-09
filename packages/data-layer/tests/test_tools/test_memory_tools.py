@@ -233,7 +233,7 @@ def test_create_memory_version_entity_id_accepted(
     params = MemoryCreate(
         universe_id=UUID(entity_data["universe_id"]),
         entity_id=incarnation_entity_id,
-        text="Player said: \"I'm hunting the same corsairs you are.\"",
+        text='Player said: "I\'m hunting the same corsairs you are."',
         importance=0.65,
     )
 

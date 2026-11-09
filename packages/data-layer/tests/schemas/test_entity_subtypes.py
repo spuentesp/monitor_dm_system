@@ -2,6 +2,7 @@
 
 Sub-plan 1 of docs/superpowers/plans/2026-08-02-monitordm-coverage-and-shape.md.
 """
+
 from __future__ import annotations
 
 from monitor_data.schemas.entity_subtypes import (
@@ -16,10 +17,27 @@ from monitor_data.schemas.entity_subtypes import (
 
 def test_group_type_has_universal_values():
     expected = {
-        "clan", "sect", "organization", "race", "species",
-        "faction", "party", "team", "crew", "house", "tribe",
-        "brood", "coven", "cult", "band", "gang", "dynasty",
-        "cabal", "fellowship", "alliance", "other",
+        "clan",
+        "sect",
+        "organization",
+        "race",
+        "species",
+        "faction",
+        "party",
+        "team",
+        "crew",
+        "house",
+        "tribe",
+        "brood",
+        "coven",
+        "cult",
+        "band",
+        "gang",
+        "dynasty",
+        "cabal",
+        "fellowship",
+        "alliance",
+        "other",
     }
     actual = {t.value for t in GroupType}
     assert actual == expected
@@ -27,10 +45,24 @@ def test_group_type_has_universal_values():
 
 def test_place_type_has_universal_values():
     expected = {
-        "world", "plane", "dimension", "continent", "region",
-        "kingdom", "country", "city", "town", "district",
-        "neighborhood", "structure", "building", "room", "landmark",
-        "dungeon", "wilderness", "other",
+        "world",
+        "plane",
+        "dimension",
+        "continent",
+        "region",
+        "kingdom",
+        "country",
+        "city",
+        "town",
+        "district",
+        "neighborhood",
+        "structure",
+        "building",
+        "room",
+        "landmark",
+        "dungeon",
+        "wilderness",
+        "other",
     }
     actual = {t.value for t in PlaceType}
     assert actual == expected

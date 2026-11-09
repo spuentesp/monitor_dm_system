@@ -8,6 +8,7 @@ Use Case: DL-17
 
 import logging
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from monitor_data.db.mongodb import get_mongodb_client
@@ -73,9 +74,11 @@ def mongodb_list_entity_templates(filters: EntityTemplateFilter) -> EntityTempla
     client = get_mongodb_client()
     collection = client.get_collection("entity_templates")
 
-    query = {}
+    query: dict[str, Any] = {}
     if filters.universe_id:
         query["universe_id"] = str(filters.universe_id)
+    if filters.universe_ids is not None:
+        query["universe_id"] = {"$in": [str(u) for u in filters.universe_ids]}
     if filters.entity_type:
         query["entity_type"] = filters.entity_type.value
     if filters.parent_template_id:

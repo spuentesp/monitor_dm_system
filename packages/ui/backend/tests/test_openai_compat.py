@@ -14,6 +14,9 @@ from fastapi.testclient import TestClient
 
 from monitor_ui.main import app
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
+
 client = TestClient(app)
 
 
@@ -51,7 +54,7 @@ def _sse_chunks(body: str) -> list[dict]:
     out = []
     for line in body.splitlines():
         if line.startswith("data: ") and line != "data: [DONE]":
-            payload = line[len("data: "):]
+            payload = line[len("data: ") :]
             out.append(json.loads(payload))
     return out
 
@@ -185,11 +188,7 @@ def test_plain_stream_emits_sse_chunks():
     chunks = _sse_chunks(body)
     assert body.strip().endswith("data: [DONE]")
     assert chunks[0]["choices"][0]["delta"] == {"role": "assistant"}
-    content_pieces = [
-        c["choices"][0]["delta"]["content"]
-        for c in chunks[1:]
-        if "content" in c["choices"][0]["delta"]
-    ]
+    content_pieces = [c["choices"][0]["delta"]["content"] for c in chunks[1:] if "content" in c["choices"][0]["delta"]]
     assert "".join(content_pieces) == "Good reply."
     assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
     assert all(c["model"] == "gpt-4o-mini" for c in chunks)

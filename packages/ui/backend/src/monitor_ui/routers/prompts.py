@@ -26,13 +26,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 import dspy
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from monitor_data.db.postgres import get_postgres_client
+from monitor_ui.auth import require_admin
 from pydantic import BaseModel
 
 log = structlog.get_logger()
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 # ---------------------------------------------------------------------------
 # Import DSPy signatures (best-effort — agents optional dep)
@@ -334,7 +335,10 @@ async def list_modules() -> list[PromptModuleSummary]:
             try:
                 parsed = json.loads(raw)
                 has_override = "instructions" in parsed
-            except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
+            except (
+                ValueError,
+                TypeError,
+            ):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
                 log.debug("prompt override JSON parse failed", exc_info=True)
 
         result.append(

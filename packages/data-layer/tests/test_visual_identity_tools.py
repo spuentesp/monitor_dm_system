@@ -191,9 +191,7 @@ def test_update_creates_next_version_and_supersedes_previous(
     assert updated.hair == "chin-length blonde hair"
     assert updated.status == VisualIdentityStatus.DRAFT
     assert len(fake_mongo.identities.docs) == 2
-    old_doc = next(
-        doc for doc in fake_mongo.identities.docs if doc["identity_id"] == str(original.identity_id)
-    )
+    old_doc = next(doc for doc in fake_mongo.identities.docs if doc["identity_id"] == str(original.identity_id))
     assert old_doc["status"] == VisualIdentityStatus.SUPERSEDED.value
 
 
@@ -256,9 +254,7 @@ def test_create_for_existing_anchor_versions_latest_identity(
     assert replacement.version == 2
     assert replacement.identity_id != original.identity_id
     assert replacement.description == "A replacement extracted from newer canon facts."
-    old_doc = next(
-        doc for doc in fake_mongo.identities.docs if doc["identity_id"] == str(original.identity_id)
-    )
+    old_doc = next(doc for doc in fake_mongo.identities.docs if doc["identity_id"] == str(original.identity_id))
     assert old_doc["status"] == VisualIdentityStatus.SUPERSEDED.value
 
 
@@ -349,19 +345,13 @@ def test_list_visual_identities_filters_by_anchor_and_status(
         _sample_identity(character_id="oliver-queen", universe_id=other_universe)
     )
 
-    result = identity_tools.mongodb_list_visual_identities(
-        VisualIdentityFilter(character_id="dinah-lance")
-    )
+    result = identity_tools.mongodb_list_visual_identities(VisualIdentityFilter(character_id="dinah-lance"))
     assert [identity.identity_id for identity in result] == [mine.identity_id]
 
-    by_status = identity_tools.mongodb_list_visual_identities(
-        VisualIdentityFilter(status=VisualIdentityStatus.DRAFT)
-    )
+    by_status = identity_tools.mongodb_list_visual_identities(VisualIdentityFilter(status=VisualIdentityStatus.DRAFT))
     assert len(by_status) == 2
 
-    empty = identity_tools.mongodb_list_visual_identities(
-        VisualIdentityFilter(status=VisualIdentityStatus.APPROVED)
-    )
+    empty = identity_tools.mongodb_list_visual_identities(VisualIdentityFilter(status=VisualIdentityStatus.APPROVED))
     assert empty == []
 
 
@@ -374,9 +364,7 @@ def test_list_visual_identities_filters_entity_and_universe_and_paginates(
         _sample_identity(character_id=None, entity_id=entity_id, universe_id=universe_id)
     )
     for index in range(2):
-        identity_tools.mongodb_upsert_visual_identity(
-            _sample_identity(character_id=f"card-{index}")
-        )
+        identity_tools.mongodb_upsert_visual_identity(_sample_identity(character_id=f"card-{index}"))
 
     by_entity = identity_tools.mongodb_list_visual_identities(
         VisualIdentityFilter(entity_id=entity_id, universe_id=universe_id)

@@ -23,6 +23,8 @@ from monitor_ui.routers.character_cards import (
     parse_character_card_with_book,
 )
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 
 def _png_with_text_chunk(keyword: str, text: str) -> bytes:
     """Build a minimal PNG that has a single tEXt chunk carrying `text` for `keyword`."""
@@ -505,10 +507,7 @@ class TestCharX:
         card = {
             "data": {
                 "name": "Rin",
-                "assets": [
-                    {"type": "icon", "name": "main", "ext": "png",
-                     "uri": "embeded://assets/icon/main.png"}
-                ],
+                "assets": [{"type": "icon", "name": "main", "ext": "png", "uri": "embeded://assets/icon/main.png"}],
             }
         }
         assets = {"assets/icon/main.png": _PNG_ICON, "assets/emotion/happy.png": b"\xff\xd8\xffxx"}

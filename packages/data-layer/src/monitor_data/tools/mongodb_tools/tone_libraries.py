@@ -130,6 +130,7 @@ def mongodb_get_default_tone_library() -> ToneLibraryResponse | None:
 def mongodb_list_tone_libraries(
     pack_id: UUID | None = None,
     universe_id: UUID | None = None,
+    universe_ids: list[UUID] | None = None,
     is_default: bool | None = None,
     limit: int = 50,
     offset: int = 0,
@@ -156,6 +157,15 @@ def mongodb_list_tone_libraries(
         query["pack_id"] = str(pack_id)
     if universe_id:
         query["universe_id"] = str(universe_id)
+    if universe_ids is not None:
+        # Ownership allowlist plus global rows (null/missing universe_id);
+        # an empty owned list still matches the shared globals, never all rows.
+        ids = [str(u) for u in universe_ids]
+        query["$or"] = [
+            {"universe_id": {"$in": ids}},
+            {"universe_id": None},
+            {"universe_id": {"$exists": False}},
+        ]
     if is_default is not None:
         query["is_default"] = is_default
 

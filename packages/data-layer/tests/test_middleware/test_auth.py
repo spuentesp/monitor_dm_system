@@ -243,22 +243,17 @@ def test_authority_matrix_matches_actual_neo4j_tools():
     """
     from monitor_data.tools import neo4j_tools
 
-    exported = sorted(
-        n for n in dir(neo4j_tools)
-        if not n.startswith("_") and n.startswith("neo4j_")
-    )
+    exported = sorted(n for n in dir(neo4j_tools) if not n.startswith("_") and n.startswith("neo4j_"))
     neo4j_matrix_entries = [t for t in AUTHORITY_MATRIX if t.startswith("neo4j_")]
 
     missing_from_matrix = [t for t in exported if t not in AUTHORITY_MATRIX]
     assert not missing_from_matrix, (
-        f"Tools exported from neo4j_tools but missing from AUTHORITY_MATRIX: "
-        f"{missing_from_matrix}"
+        f"Tools exported from neo4j_tools but missing from AUTHORITY_MATRIX: {missing_from_matrix}"
     )
 
     stale_matrix_entries = [t for t in neo4j_matrix_entries if t not in set(exported)]
     assert not stale_matrix_entries, (
-        f"AUTHORITY_MATRIX has neo4j entries with no matching exported tool: "
-        f"{stale_matrix_entries}"
+        f"AUTHORITY_MATRIX has neo4j entries with no matching exported tool: {stale_matrix_entries}"
     )
 
 
@@ -270,8 +265,18 @@ def test_authority_matrix_writes_require_canonkeeper():
     tick_agendas).
     """
     write_verbs = (
-        "create", "update", "delete", "save", "merge", "split",
-        "batch", "ensure", "tick", "fork", "add", "remove",
+        "create",
+        "update",
+        "delete",
+        "save",
+        "merge",
+        "split",
+        "batch",
+        "ensure",
+        "tick",
+        "fork",
+        "add",
+        "remove",
     )
     # Tools with names ending in _set or _state_tags don't match canonical
     # write-verb patterns; we still verify they require CanonKeeper separately
@@ -294,13 +299,9 @@ def test_authority_matrix_writes_require_canonkeeper():
         if tool_name in shared_with_others:
             assert "CanonKeeper" in allowed, f"{tool_name} must allow CanonKeeper"
         else:
-            assert allowed == ["CanonKeeper"], (
-                f"{tool_name} should only allow CanonKeeper, got {allowed}"
-            )
+            assert allowed == ["CanonKeeper"], f"{tool_name} should only allow CanonKeeper, got {allowed}"
 
     # _state_tags writes are CanonKeeper-only
     for tag_tool in ("neo4j_set_state_tags", "neo4j_update_state_tags"):
         if tag_tool in AUTHORITY_MATRIX:
-            assert AUTHORITY_MATRIX[tag_tool] == ["CanonKeeper"], (
-                f"{tag_tool} should only allow CanonKeeper"
-            )
+            assert AUTHORITY_MATRIX[tag_tool] == ["CanonKeeper"], f"{tag_tool} should only allow CanonKeeper"

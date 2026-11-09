@@ -63,10 +63,14 @@ from monitor_data.tools.mongodb_tools.visual_identities import (
 from pydantic import BaseModel
 
 from .character_storage import get_character, set_character_avatar
+from monitor_data.db.postgres import PostgresClient
+from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin
+from monitor_ui.ownership import owned_world_ids, resource_route_guard
 
 log = structlog.get_logger()
 
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +134,7 @@ def _require_settings_admin(
 
 
 @router.get("/assets", response_model=list[GeneratedAsset])
-def list_assets(
+async def list_assets(
     character_id: str | None = None,
     entity_id: UUID | None = None,
     universe_id: UUID | None = None,
@@ -144,11 +148,16 @@ def list_assets(
     include_rejected: bool = False,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> list[GeneratedAsset]:
     """List generated assets, newest first. Rejected assets are hidden unless
     ``approval_status`` is explicit or ``include_rejected=true``."""
+    owned = await owned_world_ids(db, principal)
+    scope = [UUID(i) for i in owned] if (owned is not None and universe_id is None) else None
     return mongodb_list_generated_assets(
         GeneratedAssetFilter(
+            universe_ids=scope,
             character_id=character_id,
             entity_id=entity_id,
             universe_id=universe_id,
@@ -356,7 +365,7 @@ def _stage_visual_identity_proposal(identity: VisualIdentity) -> None:
 # is reserved for ImageRouter / CanonKeeper agents; reading is open).
 
 
-@router.get("/settings", response_model=ImageGenerationSettings)
+@router.get("/settings", response_model=ImageGenerationSettings, dependencies=[Depends(require_admin)])
 def get_image_generation_settings() -> ImageGenerationSettings:
     """Return the merged image-generation settings.
 
@@ -366,7 +375,7 @@ def get_image_generation_settings() -> ImageGenerationSettings:
     return mongodb_get_image_generation_settings()
 
 
-@router.put("/settings", response_model=ImageGenerationSettings)
+@router.put("/settings", response_model=ImageGenerationSettings, dependencies=[Depends(require_admin)])
 def update_image_generation_settings(
     body: ImageGenerationSettings,
     _admin: None = Depends(_require_settings_admin),

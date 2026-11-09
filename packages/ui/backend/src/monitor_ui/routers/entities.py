@@ -17,7 +17,7 @@ import structlog
 from monitor_data.schemas.entities import LevelUpResponse, LevelUpRequest, DowntimeResponse
 from monitor_agents.services.entity_service import EntityProgressionService
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, Depends
 from monitor_agents.analyzer._game_system_persistence import (
     _build_attributes,
     _build_character_creation,
@@ -55,6 +55,10 @@ from monitor_data.tools.mongodb_tools import (
 from pydantic import BaseModel
 
 from monitor_ui.config import get_settings
+
+from monitor_data.db.postgres import PostgresClient
+from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.ownership import require_character_owner, require_universe_owner
 
 from .character_storage import (
     create_character as _create_character_doc,
@@ -516,7 +520,10 @@ async def get_npc(npc_id: str) -> NPCDetail:
         if isinstance(props, str):
             try:
                 props = _json.loads(props)
-            except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
+            except (
+                ValueError,
+                TypeError,
+            ):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
                 props = {}
 
         return NPCDetail(
@@ -1022,14 +1029,18 @@ def _serialise_character(doc: dict) -> dict:  # type: ignore
 
 
 @router.post("/characters", response_model=CharacterDetail, status_code=201)
-async def create_character_endpoint(body: CharacterCreate) -> CharacterDetail:
+async def create_character_endpoint(
+    body: CharacterCreate, principal: Principal = Depends(get_current_user)
+) -> CharacterDetail:
     """Create a standalone character (stored in MongoDB, no universe required)."""
-    doc = _create_character_doc(body.model_dump())
+    doc = _create_character_doc({**body.model_dump(), "owner_id": str(principal.user_id)})
     return CharacterDetail(**_serialise_character(doc))
 
 
 @router.post("/characters/import-card", response_model=CharacterDetail, status_code=201)
-async def import_character_card(file: UploadFile = File(...)) -> CharacterDetail:
+async def import_character_card(
+    file: UploadFile = File(...), principal: Principal = Depends(get_current_user)
+) -> CharacterDetail:
     """Import a SillyTavern/Tavern character card (chara_card_v2 JSON, PNG, or CharX).
 
     Also imports any embedded ``character_book`` lorebook entries. For CharX
@@ -1078,7 +1089,7 @@ async def import_character_card(file: UploadFile = File(...)) -> CharacterDetail
             # still a valid import.
             logger.warning("charx asset extraction failed, importing without avatar: %s", exc)
 
-    doc = _create_character_doc(create.model_dump())
+    doc = _create_character_doc({**create.model_dump(), "owner_id": str(principal.user_id)})
     character_id = doc.get("id") or doc.get("_id")
     if character_id and lorebook_entries:
         mongodb_bulk_create_lorebook_entries(character_id=str(character_id), entries=lorebook_entries)
@@ -1089,7 +1100,7 @@ async def import_character_card(file: UploadFile = File(...)) -> CharacterDetail
 
 @router.get("/characters/{character_id}/export-card")
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
-async def export_character_card(character_id: str) -> dict:  # type: ignore
+async def export_character_card(character_id: str, principal: Principal = Depends(get_current_user)) -> dict:  # type: ignore
     """Export a standalone character as a chara_card_v2 object.
 
     Includes the character's lorebook as an embedded ``character_book``.
@@ -1100,6 +1111,7 @@ async def export_character_card(character_id: str) -> dict:  # type: ignore
     )
     from .character_cards import build_character_card
 
+    await require_character_owner(principal, character_id)
     doc = _get_character_doc(character_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -1122,13 +1134,19 @@ async def export_character_card(character_id: str) -> dict:  # type: ignore
 async def list_characters_endpoint(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    principal: Principal = Depends(get_current_user),
 ) -> list[CharacterDetail]:
-    chars, _total = _list_characters_docs(limit=limit, offset=offset)
+    # Owner filter applied in Mongo before skip/limit (never unscoped).
+    owner = None if principal.via == "local" else str(principal.user_id)
+    chars, _total = _list_characters_docs(limit=limit, offset=offset, owner_id=owner)
     return [CharacterDetail(**_serialise_character(c)) for c in chars]
 
 
 @router.get("/characters/{character_id}", response_model=CharacterDetail)
-async def get_character_endpoint(character_id: str) -> CharacterDetail:
+async def get_character_endpoint(
+    character_id: str, principal: Principal = Depends(get_current_user)
+) -> CharacterDetail:
+    await require_character_owner(principal, character_id)
     doc = _get_character_doc(character_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -1139,7 +1157,9 @@ async def get_character_endpoint(character_id: str) -> CharacterDetail:
 async def update_character_endpoint(
     character_id: str,
     body: CharacterUpdate,
+    principal: Principal = Depends(get_current_user),
 ) -> CharacterDetail:
+    await require_character_owner(principal, character_id)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -1152,8 +1172,9 @@ async def update_character_endpoint(
 
 
 @router.delete("/characters/{character_id}", status_code=204)
-async def delete_character_endpoint(character_id: str) -> None:
-    deleted = _delete_character_doc(character_id)
+async def delete_character_endpoint(character_id: str, principal: Principal = Depends(get_current_user)) -> None:
+    await require_character_owner(principal, character_id)
+    deleted = _delete_character_doc(character_id, owner_id=None if principal.via == "local" else str(principal.user_id))
     if not deleted:
         raise HTTPException(status_code=404, detail="Character not found")
 
@@ -1162,6 +1183,8 @@ async def delete_character_endpoint(character_id: str) -> None:
 async def import_character_from_universe(
     character_id: str,
     body: CharacterImportRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> CharacterDetail:
     """Import an existing universe NPC as a standalone character."""
     try:
@@ -1179,6 +1202,14 @@ async def import_character_from_universe(
         raise HTTPException(status_code=404, detail="NPC not found in universe")
     entity = rows[0]["e"]
 
+    # The source NPC's universe must belong to the caller (foreign → 404).
+    uni_rows = client.execute_read(
+        "MATCH (e:EntityInstance {id: $id})-[:IN_UNIVERSE]->(u:Universe) RETURN u.id AS uid",
+        {"id": body.source_entity_id},
+    )
+    if uni_rows:
+        await require_universe_owner(db, principal, uni_rows[0]["uid"])
+
     doc = _create_character_doc(
         {
             "name": entity.get("name", "Unknown"),
@@ -1187,6 +1218,7 @@ async def import_character_from_universe(
             "gm_notes": entity.get("properties", {}).get("gm_notes", ""),
             "is_ooc_persona": body.as_ooc_persona,
             "entity_id": body.source_entity_id,
+            "owner_id": str(principal.user_id),
         }
     )
     return CharacterDetail(**_serialise_character(doc))
@@ -1194,9 +1226,10 @@ async def import_character_from_universe(
 
 @router.post("/characters/{character_id}/save-template")
 # reason: FastAPI handler with no return annotation; response_model inference needs Annotated[] for the returned dict literal
-async def save_template(character_id: str, template_name: str):  # type: ignore
+async def save_template(character_id: str, template_name: str, principal: Principal = Depends(get_current_user)):  # type: ignore
     from monitor_data.tools.neo4j_tools.entities import neo4j_save_template
 
+    await require_character_owner(principal, character_id)
     tid = neo4j_save_template(character_id, template_name)
     if not tid:
         from fastapi import HTTPException
@@ -1208,11 +1241,13 @@ async def save_template(character_id: str, template_name: str):  # type: ignore
 @router.get("/characters/{character_id}/memories")
 async def get_character_memories(
     character_id: str,
+    principal: Principal = Depends(get_current_user),
     min_importance: float = Query(default=0.0, ge=0.0, le=1.0),
     limit: int = Query(default=20, ge=1, le=100),
     # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 ) -> dict:  # type: ignore
     """List memories for a character (from MongoDB character_memories collection)."""
+    await require_character_owner(principal, character_id)
     char = _get_character_doc(character_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -1248,8 +1283,9 @@ async def get_character_memories(
 
 
 @router.delete("/characters/{character_id}/memories", status_code=204)
-async def clear_character_memories(character_id: str) -> None:
+async def clear_character_memories(character_id: str, principal: Principal = Depends(get_current_user)) -> None:
     """Delete all memories for a character."""
+    await require_character_owner(principal, character_id)
     char = _get_character_doc(character_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -1271,7 +1307,9 @@ async def clear_character_memories(character_id: str) -> None:
 
 
 @router.post("/characters/draft", response_model=CardDraftResponse)
-async def draft_character_card(body: CardDraftRequest) -> CardDraftResponse:
+async def draft_character_card(
+    body: CardDraftRequest, principal: Principal = Depends(get_current_user)
+) -> CardDraftResponse:
     """LLM-assisted: draft card fields from a concept (does not persist)."""
     from . import character_conversation as cc
 
@@ -1289,7 +1327,10 @@ async def draft_character_card(body: CardDraftRequest) -> CardDraftResponse:
 
 @router.post("/characters/{character_id}/expand", response_model=CharacterExpandResponse)
 async def expand_character(
-    character_id: str, body: CharacterVersionCreateRequest | None = None
+    character_id: str,
+    body: CharacterVersionCreateRequest | None = None,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> CharacterExpandResponse:
     """Promote a light card into a MONITOR-backed character (entity + NPCProfile).
 
@@ -1297,9 +1338,12 @@ async def expand_character(
     """
     from . import character_conversation as cc
 
+    await require_character_owner(principal, character_id)
     if not _get_character_doc(character_id):
         raise HTTPException(status_code=404, detail="Character not found")
     target_universe = body.universe_id if body else None
+    if target_universe:
+        await require_universe_owner(db, principal, target_universe)
     try:
         backing = await cc.ensure_character_backed(character_id, target_universe)
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in expand_character)
@@ -1316,19 +1360,24 @@ async def expand_character(
     "/characters/{character_id}/versions",
     response_model=CharacterExpandResponse,
 )
-async def create_character_version(character_id: str, body: CharacterVersionCreateRequest) -> CharacterExpandResponse:
+async def create_character_version(
+    character_id: str, body: CharacterVersionCreateRequest, principal: Principal = Depends(get_current_user)
+) -> CharacterExpandResponse:
     """Create (or fetch) a per-universe incarnation of the character."""
-    return await expand_character(character_id, body)
+    return await expand_character(character_id, body=body, principal=principal)
 
 
 @router.get(
     "/characters/{character_id}/versions",
     response_model=list[CharacterVersion],
 )
-async def list_character_versions(character_id: str) -> list[CharacterVersion]:
+async def list_character_versions(
+    character_id: str, principal: Principal = Depends(get_current_user)
+) -> list[CharacterVersion]:
     """List all per-universe incarnations of a character (newest first)."""
     from .character_storage import list_versions
 
+    await require_character_owner(principal, character_id)
     if not _get_character_doc(character_id):
         raise HTTPException(status_code=404, detail="Character not found")
     return [CharacterVersion(**v) for v in list_versions(character_id)]
@@ -1338,10 +1387,16 @@ async def list_character_versions(character_id: str) -> list[CharacterVersion]:
     "/characters/{character_id}/versions/{universe_id}",
     status_code=204,
 )
-async def delete_character_version(character_id: str, universe_id: str) -> None:
+async def delete_character_version(
+    character_id: str,
+    universe_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> None:
     """Tear down a Character Version (deletes the EntityInstance + NPCProfile)."""
     from . import character_conversation as cc
 
+    await require_character_owner(principal, character_id)
     if not _get_character_doc(character_id):
         raise HTTPException(status_code=404, detail="Character not found")
     try:
@@ -1357,7 +1412,7 @@ async def delete_character_version(character_id: str, universe_id: str) -> None:
     response_model=dict,
 )
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
-async def get_character_profile(character_id: str) -> dict:  # type: ignore
+async def get_character_profile(character_id: str, principal: Principal = Depends(get_current_user)) -> dict:  # type: ignore
     """Return the NPCProfile doc for the character's default incarnation.
 
     Read-only introspection — primarily used by e2e property tests and
@@ -1365,6 +1420,7 @@ async def get_character_profile(character_id: str) -> dict:  # type: ignore
     """
     from monitor_data.tools.mongodb_tools import mongodb_get_npc_profile
 
+    await require_character_owner(principal, character_id)
     if not _get_character_doc(character_id):
         raise HTTPException(status_code=404, detail="Character not found")
     # Ensure backing entity exists; don't auto-provision (read-only).
@@ -1389,7 +1445,10 @@ async def get_character_profile(character_id: str) -> dict:  # type: ignore
 
 @router.post("/characters/{character_id}/conversations", response_model=ConversationStartResponse)
 async def start_character_conversation(
-    character_id: str, body: ConversationStartRequest | None = None
+    character_id: str,
+    body: ConversationStartRequest | None = None,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> ConversationStartResponse:
     """Open a story-less conversatory session.
 
@@ -1398,9 +1457,12 @@ async def start_character_conversation(
     """
     from . import character_conversation as cc
 
+    await require_character_owner(principal, character_id)
     if not _get_character_doc(character_id):
         raise HTTPException(status_code=404, detail="Character not found")
     target_universe = body.universe_id if body else None
+    if target_universe:
+        await require_universe_owner(db, principal, target_universe)
     persona_id = body.persona_character_id if body else None
     try:
         result = await cc.start_conversation(character_id, target_universe, persona_character_id=persona_id)
@@ -1416,7 +1478,10 @@ async def start_character_conversation(
     response_model=ConversationReply,
 )
 async def send_character_message(
-    character_id: str, conversation_id: str, body: ConversationSendRequest
+    character_id: str,
+    conversation_id: str,
+    body: ConversationSendRequest,
+    principal: Principal = Depends(get_current_user),
 ) -> ConversationReply:
     """Send one line; return the character's reply + emotional/relationship read.
 
@@ -1445,7 +1510,9 @@ async def send_character_message(
 
 @router.post("/characters/{character_id}/conversations/{conversation_id}/end")
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
-async def end_character_conversation(character_id: str, conversation_id: str) -> dict:  # type: ignore
+async def end_character_conversation(
+    character_id: str, conversation_id: str, principal: Principal = Depends(get_current_user)
+) -> dict:  # type: ignore
     """Close a conversatory session (persist working state + stage proposals).
 
     If the loop was lost to a backend restart, it is rebuilt from the
@@ -1461,6 +1528,7 @@ async def redistill_character_conversation(
     character_id: str,
     conversation_id: str,
     force: bool = False,
+    principal: Principal = Depends(get_current_user),
     # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 ) -> dict:  # type: ignore
     """Rebuild episodic event proposals from the persisted transcript.
@@ -1483,10 +1551,12 @@ async def redistill_character_conversation(
 async def list_character_conversations(
     character_id: str,
     limit: int = Query(default=20, ge=1, le=100),
+    principal: Principal = Depends(get_current_user),
 ) -> list[ConversationSummary]:
     """List past conversatory sessions for this character (newest first)."""
     from . import character_conversation as cc
 
+    await require_character_owner(principal, character_id)
     char = _get_character_doc(character_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")

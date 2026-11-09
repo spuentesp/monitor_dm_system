@@ -4,11 +4,15 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 from monitor_data.schemas.coverage import CoverageSnapshot
 from monitor_data.schemas.universe import UniverseResponse
 
 from monitor_ui.main import app
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 
 client = TestClient(app)
 

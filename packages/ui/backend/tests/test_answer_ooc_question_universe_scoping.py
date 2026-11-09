@@ -12,9 +12,13 @@ database, not just the session's own. The GM's OOC answer named NPCs
 
 from __future__ import annotations
 
+import pytest
+
 import inspect
 
 from monitor_agents.loops import preplay_support
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 
 def test_archetype_query_has_no_universe_bypass():

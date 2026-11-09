@@ -135,6 +135,7 @@ class DocumentCreate(BaseModel):
     source_id: UUID = Field(description="References Neo4j Source node")
     universe_id: UUID
     doc_id: UUID | None = Field(None, description="Optional explicit Document ID")
+    owner_id: str | None = Field(default=None, description="Owning user (server-stamped, never client-supplied)")
     title: str = Field(min_length=1, max_length=500)
     filename: str = Field(min_length=1, max_length=500)
     file_type: str = Field(
@@ -170,6 +171,7 @@ class DocumentResponse(BaseModel):
     doc_id: UUID
     source_id: UUID
     universe_id: UUID
+    owner_id: str | None = None
     title: str
     filename: str
     file_type: str

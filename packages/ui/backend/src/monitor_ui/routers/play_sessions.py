@@ -10,8 +10,18 @@ IMPORTS FROM: data-layer only
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.base import SessionStatus
+from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.ownership import (
+    owned_world_ids,
+    require_play_session_owner,
+    require_scene_owner,
+    require_story_owner,
+    require_universe_owner,
+)
+
 from monitor_data.schemas.play_sessions import (
     PlaySessionCreate,
     PlaySessionFilter,
@@ -29,6 +39,8 @@ from monitor_data.tools.mongodb_tools.play_sessions import (
     mongodb_update_play_session,
 )
 from pydantic import BaseModel
+
+from uuid import UUID
 
 from .ingest_shared import db_op, validate_uuid
 
@@ -53,8 +65,14 @@ class PlayHomeResponse(BaseModel):
 
 
 @router.post("/play-sessions", response_model=PlaySessionResponse, status_code=201)
-async def create_play_session(body: PlaySessionCreate) -> PlaySessionResponse:
-    """Start a new PlaySession. Rejects duplicate session numbers per story."""
+async def create_play_session(
+    body: PlaySessionCreate,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> PlaySessionResponse:
+    """Start a new PlaySession. The story and universe must belong to the caller."""
+    await require_universe_owner(db, principal, body.universe_id)
+    await require_story_owner(db, principal, body.story_id)
     with db_op():
         try:
             return mongodb_create_play_session(body)
@@ -63,8 +81,11 @@ async def create_play_session(body: PlaySessionCreate) -> PlaySessionResponse:
 
 
 @router.get("/play-sessions/{session_id}", response_model=PlaySessionResponse)
-async def get_play_session(session_id: str) -> PlaySessionResponse:
-    """Fetch one session by id."""
+async def get_play_session(
+    session_id: str, principal: Principal = Depends(get_current_user), db: PostgresClient = Depends(get_postgres)
+) -> PlaySessionResponse:
+    """Fetch one session by id (owner-scoped via its universe)."""
+    await require_play_session_owner(db, principal, session_id)
     session_uuid = validate_uuid(session_id, "session_id")
     with db_op():
         result = mongodb_get_play_session(session_uuid)
@@ -81,9 +102,19 @@ async def list_play_sessions(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     sort_order: str = Query(default="asc", pattern="^(asc|desc)$"),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> PlaySessionListResponse:
-    """List sessions with optional filters + pagination."""
+    """List the caller's sessions (owner allowlist applied in Mongo before pagination)."""
+    if universe_id:
+        await require_universe_owner(db, principal, universe_id)
+    if story_id:
+        await require_story_owner(db, principal, story_id)
+    owned = await owned_world_ids(db, principal)
+    if owned is not None and not owned:
+        return PlaySessionListResponse(sessions=[], total=0, limit=limit, offset=offset)
     filters = PlaySessionFilter(
+        universe_ids=[UUID(i) for i in owned] if owned is not None else None,
         story_id=validate_uuid(story_id, "story_id") if story_id else None,
         universe_id=validate_uuid(universe_id, "universe_id") if universe_id else None,
         status=status,
@@ -96,8 +127,14 @@ async def list_play_sessions(
 
 
 @router.patch("/play-sessions/{session_id}", response_model=PlaySessionResponse)
-async def update_play_session(session_id: str, body: PlaySessionUpdate) -> PlaySessionResponse:
+async def update_play_session(
+    session_id: str,
+    body: PlaySessionUpdate,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> PlaySessionResponse:
     """Apply a partial update (status, notes, summary, xp, scene_ids)."""
+    await require_play_session_owner(db, principal, session_id)
     session_uuid = validate_uuid(session_id, "session_id")
     with db_op():
         result = mongodb_update_play_session(session_uuid, body)
@@ -107,8 +144,15 @@ async def update_play_session(session_id: str, body: PlaySessionUpdate) -> PlayS
 
 
 @router.post("/play-sessions/{session_id}/scenes/{scene_id}", response_model=PlaySessionResponse)
-async def add_scene(session_id: str, scene_id: str) -> PlaySessionResponse:
+async def add_scene(
+    session_id: str,
+    scene_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> PlaySessionResponse:
     """Append a scene to a session's ordered scene list (idempotent)."""
+    await require_play_session_owner(db, principal, session_id)
+    await require_scene_owner(db, principal, scene_id)
     session_uuid = validate_uuid(session_id, "session_id")
     scene_uuid = validate_uuid(scene_id, "scene_id")
     with db_op():
@@ -127,8 +171,11 @@ async def add_scene(session_id: str, scene_id: str) -> PlaySessionResponse:
     "/stories/{story_id}/play-sessions/latest",
     response_model=PlaySessionResponse | None,
 )
-async def latest_session(story_id: str) -> PlaySessionResponse | None:
+async def latest_session(
+    story_id: str, principal: Principal = Depends(get_current_user), db: PostgresClient = Depends(get_postgres)
+) -> PlaySessionResponse | None:
     """Return the most recent session for a story, or null."""
+    await require_story_owner(db, principal, story_id)
     story_uuid = validate_uuid(story_id, "story_id")
     with db_op():
         return mongodb_get_latest_play_session(story_uuid)
@@ -141,16 +188,22 @@ async def latest_session(story_id: str) -> PlaySessionResponse | None:
 async def recent_sessions(
     universe_id: str,
     limit: int = Query(default=10, ge=1, le=50),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> list[PlaySessionResponse]:
-    """Return the N most recent sessions for a universe (any status)."""
+    """Return the N most recent sessions for an OWNED universe (any status)."""
+    await require_universe_owner(db, principal, universe_id)
     universe_uuid = validate_uuid(universe_id, "universe_id")
     with db_op():
         return mongodb_list_recent_play_sessions(universe_uuid, limit=limit)
 
 
 @router.get("/universes/{universe_id}/play-home", response_model=PlayHomeResponse)
-async def play_home(universe_id: str) -> PlayHomeResponse:
-    """P-15 Play Home aggregate payload: active + recent sessions for a universe."""
+async def play_home(
+    universe_id: str, principal: Principal = Depends(get_current_user), db: PostgresClient = Depends(get_postgres)
+) -> PlayHomeResponse:
+    """P-15 Play Home aggregate payload: active + recent sessions for an OWNED universe."""
+    await require_universe_owner(db, principal, universe_id)
     universe_uuid = validate_uuid(universe_id, "universe_id")
     with db_op():
         active = mongodb_list_play_sessions(

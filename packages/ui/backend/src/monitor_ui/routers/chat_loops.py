@@ -328,9 +328,7 @@ async def run_preplay_turn(
 
     phase = session.get("phase", "character_interview")
     legacy_character_interview = (
-        phase == "session_zero"
-        and not session.get("character_id")
-        and not session.get("story_agreements_started")
+        phase == "session_zero" and not session.get("character_id") and not session.get("story_agreements_started")
     )
     if phase in {"character_interview", "awaiting_character"} or legacy_character_interview:
         from .chat_opening import fetch_opening_hook
