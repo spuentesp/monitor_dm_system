@@ -356,7 +356,7 @@ class StoryLoop:
             thread_id = f"story-{self.story_id}"
             config = {"configurable": {"thread_id": thread_id}}
 
-            snapshot = await compiled.aget_state(config)
+            snapshot = await compiled.aget_state(config)  # type: ignore[arg-type]
             if snapshot.values:
                 return dict(snapshot.values)
             initial = StoryState(
@@ -455,7 +455,7 @@ class StoryLoop:
 
             if force_complete:
                 await finalize_story(run_state)
-                await compiled.aupdate_state(config, run_state.model_dump(), as_node="init_story")
+                await compiled.aupdate_state(config, run_state.model_dump(), as_node="init_story")  # type: ignore[arg-type]
                 return {"story_complete": True, "completed_scene_id": scene_id}
 
             # Step 1: Run world simulation
@@ -511,7 +511,7 @@ class StoryLoop:
 
             if arc_update.get("story_complete"):
                 await finalize_story(run_state)
-                await compiled.aupdate_state(config, run_state.model_dump(), as_node="init_story")
+                await compiled.aupdate_state(config, run_state.model_dump(), as_node="init_story")  # type: ignore[arg-type]
                 return {
                     **run_state.model_dump(),
                     **progression_update,
@@ -521,7 +521,7 @@ class StoryLoop:
             # Step 3: Create next scene via transition
             transition_update = await transition_scene(run_state)
             checkpoint_state = {**run_state.model_dump(), **transition_update}
-            await compiled.aupdate_state(config, checkpoint_state, as_node="init_story")
+            await compiled.aupdate_state(config, checkpoint_state, as_node="init_story")  # type: ignore[arg-type]
             return {
                 **checkpoint_state,
                 **progression_update,

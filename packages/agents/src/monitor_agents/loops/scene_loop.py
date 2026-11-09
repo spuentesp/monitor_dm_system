@@ -1125,7 +1125,7 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
     """
     from datetime import timedelta
 
-    updates: dict[str, Any] = {"scene_complete": True}
+    updates: dict[str, Any] = {}
 
     # 1. Persist any remaining memories (belt-and-suspenders)
     if state.memories_to_persist and state.actor_id:
