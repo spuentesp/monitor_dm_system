@@ -47,6 +47,7 @@ class TestReviewPendingStatus:
             "ready",
             "review_pending",
             "applied",
+            "published",
             "failed",
             "archived",
         }
