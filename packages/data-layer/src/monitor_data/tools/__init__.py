@@ -34,6 +34,7 @@ from monitor_data.tools.ingest_tools import (
 )
 from monitor_data.tools.mongodb_tools import (
     mongodb_create_document,
+    mongodb_fork_universe_data,
     mongodb_get_document,
     mongodb_record_verdict,
     mongodb_update_document,
@@ -74,6 +75,7 @@ from monitor_data.tools.qdrant_tools import (
     qdrant_get_collection_info,
     qdrant_search,
     qdrant_upsert,
+    qdrant_clone_collection,
     qdrant_upsert_batch,
 )
 
@@ -101,6 +103,7 @@ __all__ = [
     "neo4j_get_entities_by_names",
     # Qdrant Vector tools
     "qdrant_upsert",
+    "qdrant_clone_collection",
     "qdrant_upsert_batch",
     "qdrant_search",
     "qdrant_delete",
@@ -134,4 +137,5 @@ __all__ = [
     "BatchEntityExtractionRequest",
     "BatchEntityExtractionResponse",
     "NLPHealthCheckResponse",
+    "mongodb_fork_universe_data",
 ]

@@ -10,9 +10,12 @@ database is unreachable so the frontend can show a clean error state.
 
 import structlog
 
+from typing import Any
+
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.universe import (
     MultiverseCreate as DLMultiverseCreate,
 )
@@ -28,6 +31,9 @@ from monitor_data.schemas.universe import (
 from monitor_data.schemas.universe import (
     UniverseUpdate as DLUniverseUpdate,
 )
+from monitor_data.db.minio import get_minio_client
+from monitor_data.tools.mongodb_tools import mongodb_fork_universe_data
+from monitor_data.tools.qdrant_tools import qdrant_clone_collection
 from monitor_data.tools.neo4j_tools import (
     neo4j_create_multiverse,
     neo4j_create_universe,
@@ -49,6 +55,24 @@ from .ingest_shared import db_op
 log = structlog.get_logger()
 
 router = APIRouter()
+
+
+def _default_world_bindings(world_id: str) -> dict[str, Any]:
+    """Per-world DB bindings for a freshly created/forked world.
+
+    Neo4j Community has a single user database, so graph isolation is by the
+    Universe node (not neo4j_database); Mongo/Qdrant/MinIO isolate by prefix.
+    """
+    short = world_id.replace("-", "")[:12]
+    return {
+        "world_id": world_id,
+        "neo4j_database": "neo4j",
+        "mongodb_database": "monitor",
+        "mongodb_collection_prefix": f"w{short}_",
+        "qdrant_collection": f"world_{short}",
+        "minio_bucket": "monitor",
+        "minio_prefix": f"{short}/",
+    }
 
 
 # ─── Helpers ──────────────────────────────────────────────────
@@ -314,7 +338,27 @@ async def create_universe(body: UniverseCreate) -> dict:  # type: ignore
             genre=body.genre,
         )
         u = neo4j_create_universe(params)
+        # Register ownership (compensating delete on failure, as above).
+        try:
+            await db.world_upsert(
+                {
+                    "id": str(u.id),
+                    "owner_id": principal.user_id,
+                    "multiverse_id": str(u.multiverse_id),
+                    "label": u.name,
+                    "active": True,
+                }
+            )
+        except Exception as exc:
+            try:
+                neo4j_delete_universe(u.id, force=True)
+            except Exception:  # noqa: BLE001  # reason: compensating rollback is best-effort; the orphan is logged for reconciliation
+                log.warning("compensating delete of universe failed", universe_id=str(u.id), exc_info=True)
+            raise HTTPException(503, f"Database unavailable: {exc}") from exc
+        await db.world_bindings_upsert(_default_world_bindings(str(u.id)))
         return _u_to_dict(u)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     except Exception as exc:
@@ -440,12 +484,50 @@ async def fork_universe(universe_id: str, body: ForkRequest) -> dict:  # type: i
             description=body.description or f"Fork of {universe.name}",
         )
 
+        # Register the fork under the caller (compensating delete on failure).
+        new_id = result.get("new_universe_id")
+        try:
+            await db.world_upsert(
+                {
+                    "id": str(new_id),
+                    "owner_id": principal.user_id,
+                    "multiverse_id": str(universe.multiverse_id),
+                    "label": body.name,
+                    "active": True,
+                }
+            )
+        except Exception as exc:
+            try:
+                neo4j_delete_universe(UUID(str(new_id)), force=True)
+            except Exception:  # noqa: BLE001  # reason: compensating rollback is best-effort; the orphan is logged for reconciliation
+                log.warning("compensating delete of fork failed", universe_id=str(new_id), exc_info=True)
+            raise HTTPException(503, f"Database unavailable: {exc}") from exc
+
+        # Register per-world DB bindings and clone the world's data into the
+        # forked world's prefixed Mongo collections / Qdrant collection /
+        # MinIO prefix (multi-world isolation).
+        src_bindings = await db.world_bindings_get(universe_id) or {}
+        dst_bindings = _default_world_bindings(str(new_id))
+        await db.world_bindings_upsert(dst_bindings)
+        mongo_res = mongodb_fork_universe_data(universe_id, str(new_id), dst_bindings["mongodb_collection_prefix"])
+        qdrant_res = qdrant_clone_collection(
+            src_bindings.get("qdrant_collection", "monitor_memories"),
+            dst_bindings["qdrant_collection"],
+        )
+        minio_res = await get_minio_client().copy_prefix(
+            src_bindings.get("minio_prefix", ""), dst_bindings["minio_prefix"]
+        )
+
         return {
             "source_universe_id": universe_id,
             "new_universe_id": result.get("new_universe_id"),
             "name": body.name,
             "entities_cloned": result.get("entities_cloned", 0),
             "relationships_cloned": result.get("relationships_cloned", 0),
+            "bindings": dst_bindings,
+            "mongo": mongo_res,
+            "qdrant": qdrant_res,
+            "minio": minio_res,
             "status": "forked",
         }
     except HTTPException:

@@ -183,6 +183,9 @@ class MongoDBClient:
         self._client: MongoClient | None = None
         self._db: Database | None = None
         self._indexes_created: bool = False
+        # Multi-world support: when a world is active, collections resolve to
+        # "<prefix><name>" (see world_db_bindings.mongodb_collection_prefix).
+        self._collection_prefix: str = ""
 
     # ------------------------------------------------------------------
     # Connection lifecycle
@@ -238,9 +241,17 @@ class MongoDBClient:
         assert self._db is not None
         return self._db
 
+    def set_collection_prefix(self, prefix: str) -> None:
+        """Set the world prefix applied by get_collection ('' = default collections)."""
+        self._collection_prefix = (prefix or "").strip()
+
+    @property
+    def collection_prefix(self) -> str:
+        return self._collection_prefix
+
     def get_collection(self, name: str) -> Collection:
-        """Return a Mongo collection by name (auto-connects)."""
-        return self.get_database()[name]
+        """Return a Mongo collection by name (auto-connects, world prefix applied)."""
+        return self.get_database()[f"{self._collection_prefix}{name}"]
 
     def __getitem__(self, name: str) -> Collection:
         """Allow legacy code to access collections via client["collection"]."""

@@ -92,10 +92,40 @@ class BaseAgent(ABC):
         self.agent_type = agent_type
         self.agent_id = agent_id
         self.model = model or settings.llm_model
+        # Active world's DB bindings (set by load_world_context); empty dict
+        # means the default single-world layout.
+        self.world_context: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Structured LLM calls
     # ------------------------------------------------------------------
+
+    async def load_world_context(self) -> dict[str, Any]:
+        """Load the active world's DB bindings and apply the Mongo collection prefix.
+
+        Reads active_world (joined with world_db_bindings) from Postgres, then:
+        - sets the Mongo client's collection prefix so get_collection() resolves
+          to the world's prefixed collections,
+        - exposes qdrant_collection / minio_prefix for loops that address those
+          stores directly.
+
+        Returns the context dict (also stored on self.world_context).
+        """
+        from monitor_data.db.mongodb import get_mongodb_client
+
+        pg = get_postgres_client()
+        active = await pg.active_world_get()
+        active = active or {}
+        mongo_prefix: str = str(active.get("mongodb_collection_prefix") or "")
+        ctx: dict[str, Any] = {
+            "world_id": active.get("id"),
+            "mongodb_collection_prefix": mongo_prefix,
+            "qdrant_collection": str(active.get("qdrant_collection") or "monitor_memories"),
+            "minio_prefix": str(active.get("minio_prefix") or ""),
+        }
+        get_mongodb_client().set_collection_prefix(mongo_prefix)
+        self.world_context = ctx
+        return ctx
 
     def _node_name(self) -> str:
         return normalize_node_name(self.agent_type)
