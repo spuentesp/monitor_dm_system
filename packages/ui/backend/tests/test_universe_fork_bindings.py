@@ -8,7 +8,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
+from monitor_ui.auth import Principal
 from monitor_ui.routers import universes
+
+_LOCAL = Principal(user_id=uuid4(), is_admin=True, via="local")
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 
 SRC = str(uuid4())
@@ -47,7 +52,7 @@ async def test_fork_registers_bindings_and_clones_data():
         patch.object(universes, "qdrant_clone_collection", return_value={"points_copied": 11}) as qdrant_clone,
         patch.object(universes, "get_minio_client", return_value=minio),
     ):
-        result = await universes.fork_universe(SRC, universes.ForkRequest(name="My Story"), db=db)
+        result = await universes.fork_universe(SRC, universes.ForkRequest(name="My Story"), principal=_LOCAL, db=db)
 
     assert result["status"] == "forked"
     assert result["new_universe_id"] == DST
@@ -83,7 +88,9 @@ async def test_create_universe_registers_default_bindings():
         patch.object(universes, "_u_to_dict", return_value={"id": DST}),
     ):
         out = await universes.create_universe(
-            universes.UniverseCreate(name="W", multiverse_id=str(uuid4()), description="d"), db=db
+            universes.UniverseCreate(name="W", multiverse_id=str(uuid4()), description="d"),
+            principal=_LOCAL,
+            db=db,
         )
 
     assert out == {"id": DST}

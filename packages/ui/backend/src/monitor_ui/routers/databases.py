@@ -13,13 +13,14 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from pydantic import BaseModel
 
+from monitor_ui.auth import require_admin
 from monitor_ui.config import get_settings
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 _settings = get_settings()
 
 
