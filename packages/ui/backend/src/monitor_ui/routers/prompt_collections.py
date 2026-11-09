@@ -28,7 +28,7 @@ from monitor_data.schemas.prompt_collections import (
     PromptCollectionVersionListResponse,
     PromptCollectionVersionResponse,
 )
-from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin
+from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin, is_local_mode
 from monitor_ui.ownership import require_collection_owner, require_universe_owner
 from monitor_data.tools.mongodb_tools.prompt_collections import (
     mongodb_create_prompt_collection,
@@ -180,7 +180,7 @@ async def restore_prompt_collection_version(
     db: PostgresClient = Depends(get_postgres),
 ) -> PromptCollectionResponse:
     """Restore a published version's content into its live collection (owner/admin only)."""
-    if principal.via != "local":
+    if not is_local_mode(principal):
         from monitor_data.db.mongodb import get_mongodb_client
 
         snapshot = (

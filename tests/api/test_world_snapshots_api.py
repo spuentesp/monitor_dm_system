@@ -83,6 +83,11 @@ def patched_snapshot_client(monkeypatch) -> Generator[TestClient, None, None]:
         "neo4j_get_universe",
         lambda uid: MagicMock(id=uid, name="Test"),
     )
+    # The ownership/existence helper queries Mongo; in local mode the mocked
+    # snapshots module is authoritative, so bypass the helper.
+    from unittest.mock import AsyncMock as _AM
+
+    monkeypatch.setattr(universes_router, "_require_snapshot_in_universe", _AM())
 
     # Patch mongodb tools (deferred import inside endpoints)
     import sys

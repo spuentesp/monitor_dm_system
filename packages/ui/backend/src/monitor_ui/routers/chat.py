@@ -22,7 +22,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from monitor_data.db.postgres import PostgresClient, get_postgres_client
-from monitor_ui.auth import Principal, get_current_user, get_postgres, resolve_principal
+from monitor_ui.auth import Principal, get_current_user, get_postgres, resolve_principal, is_local_mode
 from monitor_ui.config import get_settings
 from monitor_ui.ownership import require_chat_session_owner, require_universe_owner
 from monitor_agents.dspy_runtime import stream_callback_var
@@ -272,7 +272,7 @@ async def list_sessions(principal: Principal = Depends(get_current_user)) -> lis
     _ensure_sessions_loaded()
     # Owner-scoped listing: in auth-disabled local mode the local account owns
     # all (legacy) sessions; otherwise only sessions stamped with owner_id.
-    owner_filter = None if principal.via == "local" else str(principal.user_id)
+    owner_filter = None if is_local_mode(principal) else str(principal.user_id)
     return [
         Session(
             id=sid,

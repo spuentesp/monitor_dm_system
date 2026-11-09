@@ -18,7 +18,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from monitor_data.db.postgres import PostgresClient
-from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
 from monitor_ui.ownership import owned_world_ids
 from pydantic import BaseModel, Field
 
@@ -41,7 +41,7 @@ async def _register_world_ownership(
 
     Skipped in auth-disabled local mode (the local account owns everything).
     """
-    if principal.via == "local":
+    if is_local_mode(principal):
         return
     from .universes import _default_world_bindings
 

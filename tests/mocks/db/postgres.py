@@ -85,6 +85,16 @@ class FakePostgresClient:
     # Async API (mirrors PostgresClient)
     # ------------------------------------------------------------------
 
+    async def connect(self) -> None:
+        """No-op: the fake is always connected (matches the real client's lazy connect)."""
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    async def verify_connectivity(self) -> bool:
+        return True
+
     async def _get_pool(self) -> Any:
         return self._pool
 

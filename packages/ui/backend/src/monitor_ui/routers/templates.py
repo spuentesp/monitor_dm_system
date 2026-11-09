@@ -33,7 +33,7 @@ from monitor_data.schemas.entity_templates import (  # type: ignore
     VariableProperty,
 )
 from monitor_data.tools.mongodb_tools.random_tables import mongodb_roll_on_table
-from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
 from monitor_ui.ownership import owned_world_ids, require_template_owner, require_universe_owner
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.tools.mongodb_tools.templates import (
@@ -329,7 +329,7 @@ async def increment_template_usage(
     db: PostgresClient = Depends(get_postgres),
 ) -> EntityTemplateResponse:
     """Manually bump a template's usage_count (e.g. out-of-band instantiation)."""
-    if principal.via != "local":
+    if not is_local_mode(principal):
         await require_template_owner(db, principal, template_id)
     template = mongodb_get_entity_template(template_id)
     if not template:

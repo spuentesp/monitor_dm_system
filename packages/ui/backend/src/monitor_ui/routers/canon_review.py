@@ -38,7 +38,7 @@ from monitor_data.tools.mongodb_tools import (
     mongodb_list_proposed_changes,
     mongodb_update_proposed_change,
 )
-from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
 from monitor_ui.ownership import (
     require_proposal_owner,
     require_scene_owner,
@@ -569,7 +569,7 @@ async def apply_verdicts_by_filter(
     # A by-filter verdict must be anchored to an owned scene/story/job —
     # an unscoped filter would sweep every tenant's proposals. Local
     # auth-disabled mode bypasses (the local admin owns everything).
-    if principal.via != "local":
+    if not is_local_mode(principal):
         if body.scene_id is not None:
             await require_scene_owner(db, principal, body.scene_id)
         if body.story_id is not None:

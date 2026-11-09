@@ -57,7 +57,7 @@ from pydantic import BaseModel
 from monitor_ui.config import get_settings
 
 from monitor_data.db.postgres import PostgresClient
-from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
 from monitor_ui.ownership import require_character_owner, require_universe_owner
 
 from .character_storage import (
@@ -1137,7 +1137,7 @@ async def list_characters_endpoint(
     principal: Principal = Depends(get_current_user),
 ) -> list[CharacterDetail]:
     # Owner filter applied in Mongo before skip/limit (never unscoped).
-    owner = None if principal.via == "local" else str(principal.user_id)
+    owner = None if is_local_mode(principal) else str(principal.user_id)
     chars, _total = _list_characters_docs(limit=limit, offset=offset, owner_id=owner)
     return [CharacterDetail(**_serialise_character(c)) for c in chars]
 
@@ -1174,7 +1174,7 @@ async def update_character_endpoint(
 @router.delete("/characters/{character_id}", status_code=204)
 async def delete_character_endpoint(character_id: str, principal: Principal = Depends(get_current_user)) -> None:
     await require_character_owner(principal, character_id)
-    deleted = _delete_character_doc(character_id, owner_id=None if principal.via == "local" else str(principal.user_id))
+    deleted = _delete_character_doc(character_id, owner_id=None if is_local_mode(principal) else str(principal.user_id))
     if not deleted:
         raise HTTPException(status_code=404, detail="Character not found")
 

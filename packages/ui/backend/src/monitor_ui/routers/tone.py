@@ -34,7 +34,7 @@ from monitor_data.schemas.tone_profiles import (
     ToneProfileResponse,
     ToneProfileUpdate,
 )
-from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin
+from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin, is_local_mode
 from monitor_ui.ownership import owned_world_ids, require_tone_library_owner, require_universe_owner
 from monitor_data.tools.mongodb_tools.tag_registry import (
     mongodb_create_tag_definition,
@@ -226,7 +226,7 @@ async def update_tone_library(
     db: PostgresClient = Depends(get_postgres),
 ) -> ToneLibraryResponse:
     """Update an existing Tone Library (universe-bound: owner; global: admin)."""
-    if principal.via != "local":
+    if not is_local_mode(principal):
         existing = mongodb_get_tone_library(library_id)
         if not existing:
             raise HTTPException(status_code=404, detail="ToneLibrary not found")
@@ -247,7 +247,7 @@ async def delete_tone_library(
     db: PostgresClient = Depends(get_postgres),
 ) -> None:
     """Delete a Tone Library. The default library cannot be deleted."""
-    if principal.via != "local":
+    if not is_local_mode(principal):
         existing = mongodb_get_tone_library(library_id)
         if not existing:
             raise HTTPException(status_code=404, detail="ToneLibrary not found")

@@ -69,13 +69,13 @@ from .ingest_shared import (
 )
 
 
-from monitor_ui.auth import Principal, get_current_user
+from monitor_ui.auth import Principal, get_current_user, is_local_mode
 from monitor_ui.ownership import resource_route_guard
 
 
 def _owner_of(principal: Principal) -> str | None:
     """Owner scope for Mongo queries: None in local mode, else the user id."""
-    return None if principal.via == "local" else str(principal.user_id)
+    return None if is_local_mode(principal) else str(principal.user_id)
 
 
 router = APIRouter(dependencies=[Depends(resource_route_guard)])

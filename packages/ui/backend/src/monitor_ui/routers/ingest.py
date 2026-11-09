@@ -44,7 +44,7 @@ from monitor_agents.ingestion.book_stage import (
 from monitor_data.db.minio import get_minio_client
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.db.postgres import PostgresClient
-from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin
+from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin, is_local_mode
 from monitor_ui.ownership import require_multiverse_owner
 from monitor_data.db.postgres import get_postgres_client
 from monitor_data.schemas.base import IngestionStatus
@@ -86,12 +86,12 @@ class _MissingJob:
 
 def _owner_id_of(principal: Principal) -> str | None:
     """Owner scope for Mongo queries: None in local mode, else the user id."""
-    return None if principal.via == "local" else str(principal.user_id)
+    return None if is_local_mode(principal) else str(principal.user_id)
 
 
 def _check_job_owner(principal: Principal, job: Any) -> None:
     """Foreign, missing, or unowned job -> generic 404 (fail closed)."""
-    if principal.via == "local":
+    if is_local_mode(principal):
         return
     if getattr(job, "owner_id", None) != str(principal.user_id):
         raise HTTPException(404, "Not found")
@@ -99,7 +99,7 @@ def _check_job_owner(principal: Principal, job: Any) -> None:
 
 async def _require_job_owner_by_id(principal: Principal, uid: UUID) -> None:
     """Owner check for job-scoped endpoints; no-op in local mode (no DB read)."""
-    if principal.via == "local":
+    if is_local_mode(principal):
         return
     job = await asyncio.to_thread(mongodb_get_ingestion_job, uid)
     _check_job_owner(principal, job or _MissingJob())
@@ -107,7 +107,7 @@ async def _require_job_owner_by_id(principal: Principal, uid: UUID) -> None:
 
 async def _require_source_owner(principal: Principal, source_id: str) -> None:
     """A source (job- or doc-backed) must belong to the caller, else 404."""
-    if principal.via == "local":
+    if is_local_mode(principal):
         return
     uid = validate_uuid(source_id, "source_id")
     res = await asyncio.to_thread(
@@ -815,7 +815,7 @@ async def get_source(source_id: str, principal: Principal = Depends(get_current_
     doc = next((item for item in all_docs if str(item.source_id) == str(uid)), None)
     if not doc:
         raise HTTPException(404, "Source not found")
-    if principal.via != "local" and doc.owner_id != str(principal.user_id):
+    if not is_local_mode(principal) and doc.owner_id != str(principal.user_id):
         raise HTTPException(404, "Not found")
     return _source_from_doc(doc)
 
@@ -1591,12 +1591,13 @@ async def list_job_attempts(
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[LLMTaskAttemptResponse]:
     """Return durable attempt-level LLM execution history for a specific ingest job."""
-    await _require_job_owner_by_id(principal, UUID(job_id))
     try:
-        parsed_job_id = str(UUID(job_id))
+        uid = UUID(job_id)
     except ValueError:
         # Placeholder IDs like `pending:<token>` do not have a durable ledger yet.
         return []
+    await _require_job_owner_by_id(principal, uid)
+    parsed_job_id = str(uid)
 
     normalized_stage = stage if isinstance(stage, str) else None
     normalized_batch_id = batch_id if isinstance(batch_id, str) else None

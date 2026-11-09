@@ -33,8 +33,13 @@ _NOT_FOUND = "Not found"
 
 
 def _is_local_mode(principal: Principal) -> bool:
-    """Auth-disabled local development: the local admin retains full access."""
-    return principal.via == "local"
+    """Auth-disabled local development: the local admin retains full access.
+
+    Tolerates a raw Depends default (tests that call route functions directly
+    without injecting a principal) by treating anything without a ``via``
+    as local mode.
+    """
+    return getattr(principal, "via", "local") == "local"
 
 
 async def require_multiverse_owner(

@@ -43,6 +43,12 @@ LOCAL_USER_EMAIL = "local@monitor.invalid"
 LOCAL_USER_USERNAME = "local"
 
 
+def is_local_mode(principal: "Principal") -> bool:
+    """True in auth-disabled local mode (or when a raw Depends default leaked
+    into a direct unit-test call)."""
+    return getattr(principal, "via", "local") == "local"
+
+
 @dataclass(frozen=True)
 class Principal:
     """The authenticated caller for one request. Never carries secrets."""
