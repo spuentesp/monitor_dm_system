@@ -17,7 +17,6 @@ from monitor_data.config import settings
 from monitor_data.db.gliner import (
     Entity,
     extract_entities,
-    extract_entities_batch,
     get_gliner_client,
 )
 from monitor_data.tools._shared import call_sync as _call_sync
@@ -49,11 +48,35 @@ def _bounded_threshold(threshold: float) -> float:
     return threshold
 
 
-def _bounded_text(text: str) -> str:
+def _max_text_chars() -> int:
     # GLINER_MAX_LENGTH is a token budget; 4 chars/token is the usual estimate.
-    max_chars = max(1, settings.gliner_max_length) * 4
-    if len(text) > max_chars:
-        raise ValueError(f"text too long: {len(text)} chars (max {max_chars})")
+    return max(1, settings.gliner_max_length) * 4
+
+
+def _split_text(text: str, max_chars: int) -> list[str]:
+    """Split an oversized text into model-sized windows at paragraph/sentence
+    boundaries, so long inputs are processed instead of rejected."""
+    if len(text) <= max_chars:
+        return [text]
+    windows: list[str] = []
+    start = 0
+    while start < len(text):
+        end = min(start + max_chars, len(text))
+        if end < len(text):
+            # prefer a paragraph, then sentence, then space boundary
+            for sep in ("\n\n", "\n", ". ", " "):
+                cut = text.rfind(sep, start + max_chars // 2, end)
+                if cut != -1:
+                    end = cut + len(sep)
+                    break
+        windows.append(text[start:end])
+        start = end
+    return [w for w in windows if w.strip()] or [text[:max_chars]]
+
+
+def _bounded_text(text: str) -> str:
+    if len(text) > _max_text_chars():
+        raise ValueError(f"text too long: {len(text)} chars (max {_max_text_chars()})")
     return text
 
 
@@ -285,21 +308,51 @@ def nlp_extract_entities(
     if not text or not text.strip():
         return EntityExtractionResponse(entities=[], text=text).to_dict()
 
-    text = _bounded_text(text)
     threshold = _bounded_threshold(threshold)
     labels = _bounded_labels(labels)
+    max_chars = _max_text_chars()
 
     active, fell_back = _active_backend()
-    if active == "spacy":
-        backend = _get_spacy_backend()
-        detected = _call_sync(backend.detect_entities(text))
-        entities = [_detected_to_entity(d) for d in detected]
-    else:
-        request = EntityExtractionRequest(text=text, labels=labels, threshold=threshold)
-        entities = _call_sync(extract_entities(request.text, labels=request.labels, threshold=request.threshold))
+    entities: list[Entity] = []
+    # Oversized texts are split into model-sized windows and processed
+    # sequentially; entity offsets are shifted back to whole-text coordinates.
+    for offset, window in _enumerate_windows(text, max_chars):
+        if active == "spacy":
+            backend = _get_spacy_backend()
+            detected = _call_sync(backend.detect_entities(window))
+            entities.extend(
+                Entity(
+                    text=d.text,
+                    label=d.entity_type.value,
+                    start=d.start + offset,
+                    end=d.end + offset,
+                    confidence=d.confidence,
+                )
+                for d in detected
+            )
+        else:
+            request = EntityExtractionRequest(text=window, labels=labels, threshold=threshold)
+            for e in _call_sync(extract_entities(request.text, labels=request.labels, threshold=request.threshold)):
+                entities.append(
+                    Entity(
+                        text=e.text, label=e.label, start=e.start + offset, end=e.end + offset, confidence=e.confidence
+                    )
+                )
     response = EntityExtractionResponse(entities=entities, text=text, backend=active, fallback=fell_back)
 
     return response.to_dict()
+
+
+def _enumerate_windows(text: str, max_chars: int) -> list[tuple[int, str]]:
+    """[(offset, window)] covering ``text`` in model-sized pieces."""
+    if len(text) <= max_chars:
+        return [(0, text)]
+    out: list[tuple[int, str]] = []
+    start = 0
+    for window in _split_text(text, max_chars):
+        out.append((start, window))
+        start += len(window)
+    return out
 
 
 def nlp_extract_entities_batch(
@@ -333,23 +386,51 @@ def nlp_extract_entities_batch(
         return BatchEntityExtractionResponse(results=[], texts=[]).to_dict()
 
     max_batch = max(1, settings.gliner_batch_size)
-    if len(texts) > max_batch:
-        raise ValueError(f"batch too large: {len(texts)} texts (max {max_batch})")
-    texts = [_bounded_text(t) for t in texts]
     threshold = _bounded_threshold(threshold)
     labels = _bounded_labels(labels)
 
     active, fell_back = _active_backend()
-    if active == "spacy":
-        backend = _get_spacy_backend()
-        all_results: list[list[Entity]] = []
-        for t in texts:
-            detected = _call_sync(backend.detect_entities(t))
-            all_results.append([_detected_to_entity(d) for d in detected])
-        results = all_results
-    else:
-        request = BatchEntityExtractionRequest(texts=texts, labels=labels, threshold=threshold)
-        results = _call_sync(extract_entities_batch(request.texts, labels=request.labels, threshold=request.threshold))
+    all_results: list[list[Entity]] = []
+    max_chars = _max_text_chars()
+    # Oversized batches are processed in bounded chunks; oversized texts are
+    # split into windows with offset-adjusted entities (per-text results stay
+    # aligned with the input order).
+    for i in range(0, len(texts), max_batch):
+        chunk = texts[i : i + max_batch]
+        chunk_results: list[list[Entity]] = []
+        for t in chunk:
+            per_text: list[Entity] = []
+            for offset, window in _enumerate_windows(t, max_chars):
+                if active == "spacy":
+                    backend = _get_spacy_backend()
+                    detected = _call_sync(backend.detect_entities(window))
+                    per_text.extend(
+                        Entity(
+                            text=d.text,
+                            label=d.entity_type.value,
+                            start=d.start + offset,
+                            end=d.end + offset,
+                            confidence=d.confidence,
+                        )
+                        for d in detected
+                    )
+                else:
+                    request = EntityExtractionRequest(text=window, labels=labels, threshold=threshold)
+                    for e in _call_sync(
+                        extract_entities(request.text, labels=request.labels, threshold=request.threshold)
+                    ):
+                        per_text.append(
+                            Entity(
+                                text=e.text,
+                                label=e.label,
+                                start=e.start + offset,
+                                end=e.end + offset,
+                                confidence=e.confidence,
+                            )
+                        )
+            chunk_results.append(per_text)
+        all_results.extend(chunk_results)
+    results = all_results
     response = BatchEntityExtractionResponse(results=results, texts=texts, backend=active, fallback=fell_back)
 
     return response.to_dict()

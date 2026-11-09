@@ -20,9 +20,7 @@ class TestNeo4jHealthCheckContract:
     """Contract tests for neo4j_health_check data layer tool."""
 
     @pytest.mark.unit
-    async def test_returns_health_status_with_all_required_fields(
-        self, fake_mcp_client
-    ):
+    async def test_returns_health_status_with_all_required_fields(self, fake_mcp_client):
         """Contract: Returns dict with healthy, message, response_time_ms."""
         # Mock response matching contract
         fake_mcp_client.call_tool.return_value = {
@@ -66,9 +64,7 @@ class TestNeo4jHealthCheckContract:
         assert not result["healthy"]
 
     @pytest.mark.unit
-    async def test_raises_connection_error_when_neo4j_not_accessible(
-        self, fake_mcp_client
-    ):
+    async def test_raises_connection_error_when_neo4j_not_accessible(self, fake_mcp_client):
         """Contract: Raises ConnectionError when Neo4j is not accessible."""
         # Mock error response
         fake_mcp_client.call_tool.side_effect = Exception(
@@ -86,9 +82,7 @@ class TestMongodbHealthCheckContract:
     """Contract tests for mongodb_health_check data layer tool."""
 
     @pytest.mark.unit
-    async def test_returns_health_status_with_all_required_fields(
-        self, fake_mcp_client
-    ):
+    async def test_returns_health_status_with_all_required_fields(self, fake_mcp_client):
         """Contract: Returns dict with healthy, message, response_time_ms."""
         # Mock response matching contract
         fake_mcp_client.call_tool.return_value = {
@@ -114,9 +108,7 @@ class TestMongodbHealthCheckContract:
         assert isinstance(result["response_time_ms"], int)
 
     @pytest.mark.unit
-    async def test_raises_connection_error_when_mongodb_not_accessible(
-        self, fake_mcp_client
-    ):
+    async def test_raises_connection_error_when_mongodb_not_accessible(self, fake_mcp_client):
         """Contract: Raises ConnectionError when MongoDB is not accessible."""
         # Mock error response
         fake_mcp_client.call_tool.side_effect = Exception(
@@ -134,9 +126,7 @@ class TestQdrantHealthCheckContract:
     """Contract tests for qdrant_health_check data layer tool."""
 
     @pytest.mark.unit
-    async def test_returns_health_status_with_all_required_fields(
-        self, fake_mcp_client
-    ):
+    async def test_returns_health_status_with_all_required_fields(self, fake_mcp_client):
         """Contract: Returns dict with healthy, message, response_time_ms."""
         # Mock response matching contract
         fake_mcp_client.call_tool.return_value = {
@@ -157,9 +147,7 @@ class TestQdrantHealthCheckContract:
         assert "response_time_ms" in result
 
     @pytest.mark.unit
-    async def test_raises_connection_error_when_qdrant_not_accessible(
-        self, fake_mcp_client
-    ):
+    async def test_raises_connection_error_when_qdrant_not_accessible(self, fake_mcp_client):
         """Contract: Raises ConnectionError when Qdrant is not accessible."""
         # Mock error response
         fake_mcp_client.call_tool.side_effect = Exception(
@@ -177,9 +165,7 @@ class TestMinioHealthCheckContract:
     """Contract tests for minio_health_check data layer tool."""
 
     @pytest.mark.unit
-    async def test_returns_health_status_with_all_required_fields(
-        self, fake_mcp_client
-    ):
+    async def test_returns_health_status_with_all_required_fields(self, fake_mcp_client):
         """Contract: Returns dict with healthy, message, response_time_ms."""
         # Mock response matching contract
         fake_mcp_client.call_tool.return_value = {
@@ -200,9 +186,7 @@ class TestMinioHealthCheckContract:
         assert "response_time_ms" in result
 
     @pytest.mark.unit
-    async def test_raises_connection_error_when_minio_not_accessible(
-        self, fake_mcp_client
-    ):
+    async def test_raises_connection_error_when_minio_not_accessible(self, fake_mcp_client):
         """Contract: Raises ConnectionError when MinIO is not accessible."""
         # Mock error response
         fake_mcp_client.call_tool.side_effect = Exception(
@@ -220,9 +204,7 @@ class TestLLMHealthCheckContract:
     """Contract tests for llm_health_check data layer tool."""
 
     @pytest.mark.unit
-    async def test_returns_health_status_with_all_required_fields(
-        self, fake_mcp_client
-    ):
+    async def test_returns_health_status_with_all_required_fields(self, fake_mcp_client):
         """Contract: Returns dict with healthy, message, response_time_ms."""
         # Mock response matching contract
         fake_mcp_client.call_tool.return_value = {
@@ -243,9 +225,7 @@ class TestLLMHealthCheckContract:
         assert "response_time_ms" in result
 
     @pytest.mark.unit
-    async def test_raises_authentication_error_when_api_key_invalid(
-        self, fake_mcp_client
-    ):
+    async def test_raises_authentication_error_when_api_key_invalid(self, fake_mcp_client):
         """Contract: Raises AuthenticationError when API key is invalid."""
         # Mock error response
         fake_mcp_client.call_tool.side_effect = Exception(
@@ -269,9 +249,7 @@ class TestAppInitializerInitializeContract:
     """Contract tests for AppInitializer.initialize method."""
 
     @pytest.mark.unit
-    async def test_returns_complete_initialization_status(
-        self, fake_mcp_client, fake_llm_client
-    ):
+    async def test_returns_complete_initialization_status(self, fake_mcp_client, fake_llm_client):
         """Contract: Returns dict with success, health_status, errors, warnings."""
         # Mock MCP responses for all health checks
         fake_mcp_client.call_tool.side_effect = [
@@ -302,9 +280,7 @@ class TestAppInitializerInitializeContract:
         # Create AppInitializer instance
         from monitor_agents.app_initializer import AppInitializer
 
-        initializer = AppInitializer(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        initializer = AppInitializer(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method with contract-specified parameters
         result = await initializer.initialize()
@@ -340,9 +316,7 @@ class TestAppInitializerInitializeContract:
 
         from monitor_agents.app_initializer import AppInitializer
 
-        initializer = AppInitializer(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        initializer = AppInitializer(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         result = await initializer.initialize()
 
@@ -369,9 +343,7 @@ class TestAppInitializerInitializeContract:
 
         from monitor_agents.app_initializer import AppInitializer
 
-        initializer = AppInitializer(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        initializer = AppInitializer(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         result = await initializer.initialize()
 
@@ -392,9 +364,7 @@ class TestAppInitializerInitializeContract:
 
         from monitor_agents.app_initializer import AppInitializer
 
-        initializer = AppInitializer(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        initializer = AppInitializer(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         await initializer.initialize()
 
@@ -411,9 +381,7 @@ class TestAppInitializerInitializeContract:
         assert "llm_health_check" in tool_names
 
     @pytest.mark.unit
-    async def test_collects_and_returns_all_errors(
-        self, fake_mcp_client, fake_llm_client
-    ):
+    async def test_collects_and_returns_all_errors(self, fake_mcp_client, fake_llm_client):
         """Contract: Collects and returns all errors encountered."""
         # Mock some services failing
         fake_mcp_client.call_tool.side_effect = [
@@ -434,9 +402,7 @@ class TestAppInitializerInitializeContract:
 
         from monitor_agents.app_initializer import AppInitializer
 
-        initializer = AppInitializer(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        initializer = AppInitializer(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         result = await initializer.initialize()
 
@@ -526,9 +492,7 @@ APP_AUTO_SAVE=true
             config_loader.load_config(str(tmp_path / "nonexistent.env"))
 
     @pytest.mark.unit
-    def test_raises_configuration_error_when_required_keys_missing(
-        self, tmp_path, monkeypatch
-    ):
+    def test_raises_configuration_error_when_required_keys_missing(self, tmp_path, monkeypatch):
         """Contract: Raises ConfigurationError when required configuration keys are missing."""
         # Clear all MONITOR-related env vars to avoid pollution from other tests
         for key in list(os.environ.keys()):
@@ -561,9 +525,7 @@ class TestSYS1Integration:
     """Integration tests for SYS-1 using FakeMCPClient."""
 
     @pytest.mark.integration
-    async def test_full_application_initialization_workflow(
-        self, fake_mcp_client, fake_llm_client
-    ):
+    async def test_full_application_initialization_workflow(self, fake_mcp_client, fake_llm_client):
         """Contract: Full initialization workflow returns success and health status for all services."""
         # Setup: Mock all required MCP tool calls
         fake_mcp_client.call_tool.side_effect = [
@@ -602,9 +564,7 @@ class TestSYS1Integration:
         # Create AppInitializer instance
         from monitor_agents.app_initializer import AppInitializer
 
-        initializer = AppInitializer(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        initializer = AppInitializer(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Execute: Initialize application
         result = await initializer.initialize()
@@ -676,9 +636,7 @@ class TestSYS1Integration:
 
         from monitor_agents.app_initializer import AppInitializer
 
-        initializer = AppInitializer(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        initializer = AppInitializer(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Execute: Initialize application
         result = await initializer.initialize()

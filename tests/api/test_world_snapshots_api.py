@@ -23,15 +23,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 # Add UI backend to path
-_backend_src = (
-    Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-)
+_backend_src = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
 sys.path.insert(0, str(_backend_src))
 
 
-def _make_mock_snapshot(
-    snapshot_id=None, name="Test Snap", entity_count=10, fact_count=5
-):
+def _make_mock_snapshot(snapshot_id=None, name="Test Snap", entity_count=10, fact_count=5):
     snap = MagicMock()
     snap.snapshot_id = snapshot_id or uuid4()
     snap.name = name
@@ -93,23 +89,19 @@ def patched_snapshot_client(monkeypatch) -> Generator[TestClient, None, None]:
     import sys
 
     mock_snapshots_module = MagicMock()
-    mock_snapshots_module.mongodb_create_world_snapshot = lambda req: (
-        _make_mock_snapshot(
-            snapshot_id=uuid4(), name=req.name, entity_count=10, fact_count=5
-        )
+    mock_snapshots_module.mongodb_create_world_snapshot = lambda req: _make_mock_snapshot(
+        snapshot_id=uuid4(), name=req.name, entity_count=10, fact_count=5
     )
-    mock_snapshots_module.mongodb_list_world_snapshots = lambda fltr: (
-        _make_mock_list_response(
-            [_make_mock_snapshot(name="S1"), _make_mock_snapshot(name="S2")], 2
-        )
+    mock_snapshots_module.mongodb_list_world_snapshots = lambda fltr: _make_mock_list_response(
+        [_make_mock_snapshot(name="S1"), _make_mock_snapshot(name="S2")], 2
     )
     mock_snapshots_module.mongodb_restore_world_snapshot = lambda sid: {
         "entities_restored": 42,
         "facts_restored": 15,
         "snapshot_id": str(sid),
     }
-    mock_snapshots_module.mongodb_compare_snapshots = lambda a, b: (
-        _make_mock_compare_response(a_id=a, b_id=b)
+    mock_snapshots_module.mongodb_compare_snapshots = lambda a, b: _make_mock_compare_response(
+        a_id=a, b_id=b
     )
 
     sys.modules["monitor_data.tools.mongodb_tools.snapshots"] = mock_snapshots_module

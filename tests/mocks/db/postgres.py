@@ -114,9 +114,7 @@ class FakePostgresClient:
                 for provider in self._tables["llm_providers"]:
                     if provider["id"] == provider_id:
                         merged = dict(provider)
-                        merged["param_overrides"] = assignment.get(
-                            "param_overrides", {}
-                        )
+                        merged["param_overrides"] = assignment.get("param_overrides", {})
                         merged["prompt_version"] = assignment.get("prompt_version")
                         params = {
                             **(merged.get("model_params") or {}),
@@ -124,9 +122,7 @@ class FakePostgresClient:
                         }
                         merged["effective_params"] = params
                         return merged
-                raise ValueError(
-                    f"Provider '{provider_id}' not found for node '{node_name}'"
-                )
+                raise ValueError(f"Provider '{provider_id}' not found for node '{node_name}'")
 
         # Fall back to default provider
         for provider in self._tables["llm_providers"]:
@@ -162,9 +158,7 @@ class FakePostgresClient:
         self._tables["llm_providers"].append(provider)
         return provider
 
-    async def node_assignment_upsert(
-        self, assignment: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def node_assignment_upsert(self, assignment: dict[str, Any]) -> dict[str, Any]:
         """Insert or update a node assignment."""
         for i, existing in enumerate(self._tables["llm_node_assignments"]):
             if existing["node_name"] == assignment["node_name"]:

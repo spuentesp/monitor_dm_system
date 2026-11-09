@@ -209,12 +209,8 @@ class TestNPCProfileCreate:
             speech_style="formal and verbose",
             catchphrases=["By the Seven!"],
             mannerisms=["tugs ear when lying"],
-            emotional_tendencies=[
-                EmotionalTendency(emotion="anger", baseline=0.2, volatility=0.7)
-            ],
-            preferences=[
-                CharacterPreference(category="food", item="apples", valence=0.7)
-            ],
+            emotional_tendencies=[EmotionalTendency(emotion="anger", baseline=0.2, volatility=0.7)],
+            preferences=[CharacterPreference(category="food", item="apples", valence=0.7)],
             triggers=[BehavioralTrigger(condition="sees a sword", reaction="freezes")],
             secrets=["is actually the king's bastard"],
             gm_notes="Motivated by revenge",
@@ -275,9 +271,7 @@ class TestNPCProfileUpdate:
 
     def test_append_helpers(self):
         u = NPCProfileUpdate(
-            add_preference=CharacterPreference(
-                category="food", item="apples", valence=0.7
-            ),
+            add_preference=CharacterPreference(category="food", item="apples", valence=0.7),
             add_trigger=BehavioralTrigger(condition="sees a sword", reaction="freezes"),
             add_secret="is a spy",
         )

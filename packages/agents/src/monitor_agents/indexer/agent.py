@@ -704,7 +704,10 @@ class Indexer(BaseAgent):
         if isinstance(raw, str):
             try:
                 return base64.b64decode(raw)
-            except (ValueError, TypeError):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
+            except (
+                ValueError,
+                TypeError,
+            ):  # narrowed: JSON/base64/enum failures; RecursionError/MemoryError now propagate
                 return raw.encode()
         return cast(bytes | None, raw)
 
@@ -769,8 +772,11 @@ class Indexer(BaseAgent):
             # A subsection gives a more precise cue than its parent chapter.
             # Fall back through ancestors when a heading has no known tag.
             tag_category = next(
-                (category for heading in reversed(block.heading_path)
-                 if (category := TagPool.classify_text(heading)) and category != "general"),
+                (
+                    category
+                    for heading in reversed(block.heading_path)
+                    if (category := TagPool.classify_text(heading)) and category != "general"
+                ),
                 "general",
             )
             blocks_with_tags.append((block, tag_category))

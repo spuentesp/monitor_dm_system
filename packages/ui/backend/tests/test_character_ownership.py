@@ -13,6 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import monitor_ui.ownership as ownership_mod
+
+
 import monitor_ui.routers.character_storage as cs_mod
 from monitor_ui.auth import get_postgres
 from monitor_ui.config import get_settings
@@ -240,3 +242,8 @@ class TestCharacterOwnership:
             headers=_csrf(client),
         )
         assert r.status_code == 404
+
+
+@pytest.fixture(autouse=True)
+def _no_world_entities(monkeypatch):
+    monkeypatch.setattr(ownership_mod, "_universes_of_entities", lambda ids: {})

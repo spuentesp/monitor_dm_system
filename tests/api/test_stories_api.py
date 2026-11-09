@@ -6,6 +6,8 @@ Tests story schemas and route structure without real DB connections.
 
 from __future__ import annotations
 
+from tests.conftest import LOCAL_PRINCIPAL
+
 from datetime import datetime, timezone, UTC
 from uuid import uuid4
 
@@ -113,7 +115,9 @@ class TestBrowseRoutes:
         # asyncio.get_event_loop() raises on the main thread under Python
         # 3.10+ when no loop is running — use asyncio.run() instead so
         # the test works regardless of the host thread's loop state.
-        out = asyncio.run(stories_mod.list_stories(universe_id=str(record.universe_id)))
+        out = asyncio.run(
+            stories_mod.list_stories(universe_id=str(record.universe_id), principal=LOCAL_PRINCIPAL)
+        )
         assert out.total == 1
         assert out.stories[0].title == "The Sunken Vault"
         assert out.stories[0].scene_count == 3

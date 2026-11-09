@@ -219,9 +219,7 @@ class TestNormaliseResourceValue:
         result = normalise_resource_value("Stamina", {"value": 8, "max": 15})
         assert result["current"] == 8
 
-    def_dict_with_amount_alias = staticmethod(
-        lambda self: None
-    )  # placeholder, see below
+    def_dict_with_amount_alias = staticmethod(lambda self: None)  # placeholder, see below
 
     def test_scalar_int(self):
         result = normalise_resource_value("Gold", 100)

@@ -488,9 +488,7 @@ class TestResolutionPropertyBased:
         mechanics_target=st.integers(min_value=1, max_value=30),
     )
     @settings(max_examples=50)
-    def test_mechanics_invariant_valid_inputs(
-        self, mechanics_formula, mechanics_target
-    ):
+    def test_mechanics_invariant_valid_inputs(self, mechanics_formula, mechanics_target):
         """Valid mechanics inputs pass invariant."""
         mechanics = Mechanics(formula=mechanics_formula, target=mechanics_target)
         assert ResolutionInvariants.mechanics_invariant(mechanics) is True

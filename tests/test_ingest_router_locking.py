@@ -19,6 +19,7 @@ from monitor_data.schemas.knowledge_packs import (
     KnowledgePackType,
 )
 from monitor_ui.routers import ingest, ingest_shared
+from tests.conftest import LOCAL_PRINCIPAL
 
 
 @pytest.fixture(autouse=True)
@@ -100,9 +101,7 @@ async def test_upload_source_claims_ingest_lock_before_background_thread_starts(
     _reset_ingest_state()
 
     monkeypatch.setattr(ingest.asyncio, "get_running_loop", lambda: _DummyLoop())
-    monkeypatch.setattr(
-        ingest, "_create_setting", lambda name, system_name: (uuid4(), uuid4())
-    )
+    monkeypatch.setattr(ingest, "_create_setting", lambda name, system_name: (uuid4(), uuid4()))
 
     upload = UploadFile(filename="seventh_sea.pdf", file=BytesIO(b"test pdf bytes"))
 
@@ -114,6 +113,7 @@ async def test_upload_source_claims_ingest_lock_before_background_thread_starts(
         new_setting_system=None,
         multiverse_id=None,
         title="Seventh Sea",
+        principal=LOCAL_PRINCIPAL,
     )
 
     assert result["status"] == "processing"
@@ -162,14 +162,12 @@ async def test_rescan_source_keeps_reserved_slot_without_unboundlocalerror(monke
         ),
     )
     fake_mongo = _DummyMongo()
-    monkeypatch.setattr(
-        ingest, "neo4j_get_universe", lambda _uid: {"id": str(universe_id)}
-    )
+    monkeypatch.setattr(ingest, "neo4j_get_universe", lambda _uid: {"id": str(universe_id)})
     monkeypatch.setattr(ingest, "get_minio_client", lambda: _DummyMinio())
     monkeypatch.setattr(ingest, "get_mongodb_client", lambda: fake_mongo)
     monkeypatch.setattr(ingest, "neo4j_delete_source", lambda _uid: None)
 
-    result = await ingest.rescan_source(source_id=source_id)
+    result = await ingest.rescan_source(source_id=source_id, principal=LOCAL_PRINCIPAL)
 
     assert result["status"] == "processing"
     assert result["source_title"] == "Death in Space Core Rules"
@@ -187,15 +185,17 @@ async def test_second_upload_is_queued_instead_of_rejected(monkeypatch):
     _reset_ingest_state()
 
     monkeypatch.setattr(ingest.asyncio, "get_running_loop", lambda: _DummyLoop())
-    monkeypatch.setattr(
-        ingest, "_create_setting", lambda name, system_name: (uuid4(), uuid4())
-    )
+    monkeypatch.setattr(ingest, "_create_setting", lambda name, system_name: (uuid4(), uuid4()))
 
     first = UploadFile(filename="first.pdf", file=BytesIO(b"first pdf bytes"))
     second = UploadFile(filename="second.pdf", file=BytesIO(b"second pdf bytes"))
 
-    result1 = await ingest.upload_source(file=first, title="First Source")
-    result2 = await ingest.upload_source(file=second, title="Second Source")
+    result1 = await ingest.upload_source(
+        file=first, title="First Source", principal=LOCAL_PRINCIPAL
+    )
+    result2 = await ingest.upload_source(
+        file=second, title="Second Source", principal=LOCAL_PRINCIPAL
+    )
 
     assert result1["status"] == "processing"
     assert result2["status"] == "processing"
@@ -207,7 +207,7 @@ async def test_second_upload_is_queued_instead_of_rejected(monkeypatch):
         lambda _filters: SimpleNamespace(jobs=[]),
     )
     monkeypatch.setattr(ingest, "mongodb_list_documents", lambda: [])
-    jobs = await ingest.list_jobs()
+    jobs = await ingest.list_jobs(principal=LOCAL_PRINCIPAL)
     titles = [job["source_title"] for job in jobs]
 
     assert "First Source" in titles
@@ -227,9 +227,7 @@ async def test_upload_source_can_save_without_starting_ingest(monkeypatch):
     doc_id = uuid4()
 
     monkeypatch.setattr(ingest.asyncio, "get_running_loop", lambda: loop)
-    monkeypatch.setattr(
-        ingest, "_create_setting", lambda name, system_name: (uuid4(), universe_id)
-    )
+    monkeypatch.setattr(ingest, "_create_setting", lambda name, system_name: (uuid4(), universe_id))
 
     async def _fake_save_uploaded_source_only(**_kwargs):
         return {
@@ -238,9 +236,7 @@ async def test_upload_source_can_save_without_starting_ingest(monkeypatch):
             "universe_id": universe_id,
         }
 
-    monkeypatch.setattr(
-        ingest, "_save_uploaded_source_only", _fake_save_uploaded_source_only
-    )
+    monkeypatch.setattr(ingest, "_save_uploaded_source_only", _fake_save_uploaded_source_only)
 
     upload = UploadFile(filename="library_only.pdf", file=BytesIO(b"saved bytes"))
 
@@ -248,6 +244,7 @@ async def test_upload_source_can_save_without_starting_ingest(monkeypatch):
         file=upload,
         title="Library Only",
         ingest_now=False,
+        principal=LOCAL_PRINCIPAL,
     )
 
     assert result["status"] == "saved"
@@ -271,7 +268,7 @@ async def test_list_jobs_surfaces_pending_placeholder_when_mutex_reserved(monkey
     )
     monkeypatch.setattr(ingest, "mongodb_list_documents", lambda: [])
 
-    jobs = await ingest.list_jobs()
+    jobs = await ingest.list_jobs(principal=LOCAL_PRINCIPAL)
 
     assert len(jobs) == 1
     assert jobs[0]["status"] == "pending"
@@ -313,7 +310,7 @@ async def test_list_jobs_surfaces_saved_source_without_job(monkeypatch):
         ],
     )
 
-    jobs = await ingest.list_jobs()
+    jobs = await ingest.list_jobs(principal=LOCAL_PRINCIPAL)
 
     assert len(jobs) == 1
     assert jobs[0]["source_title"] == "Upload Only Source"
@@ -339,7 +336,9 @@ async def test_list_job_attempts_returns_durable_audit_rows(monkeypatch):
     monkeypatch.setattr(ingest, "get_postgres_client", lambda: fake_postgres)
 
     job_id = str(uuid4())
-    result = await ingest.list_job_attempts(job_id=job_id, stage="rules", limit=25)
+    result = await ingest.list_job_attempts(
+        job_id=job_id, stage="rules", limit=25, principal=LOCAL_PRINCIPAL
+    )
 
     assert len(result) == 1
     assert result[0].stage == "rules"
@@ -359,7 +358,9 @@ async def test_list_job_attempts_returns_durable_audit_rows(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_list_job_attempts_returns_empty_for_placeholder_ids():
-    assert await ingest.list_job_attempts(job_id="pending:queued-job") == []
+    assert (
+        await ingest.list_job_attempts(job_id="pending:queued-job", principal=LOCAL_PRINCIPAL) == []
+    )
 
 
 @pytest.mark.asyncio
@@ -392,7 +393,7 @@ async def test_cancel_job_marks_cancelled_state(monkeypatch):
         lambda uid: SimpleNamespace(job_id=str(uid), status="running", owner_id=None),
     )
 
-    response = await ingest.cancel_job(job_id)
+    response = await ingest.cancel_job(job_id, principal=LOCAL_PRINCIPAL)
 
     assert collection.update["$set"]["status"] == "cancelled"
     assert response["status"] == "cancelled"
@@ -532,9 +533,7 @@ def test_pack_to_dict_exposes_extended_ingestion_outputs():
         entity_relationships=[],
         random_tables=[ExtractedRandomTable(name="Street Encounters")],
         agendas=[
-            ExtractedAgenda(
-                title="Prince's Clock", description="The court tightens control."
-            )
+            ExtractedAgenda(title="Prince's Clock", description="The court tightens control.")
         ],
         topologies=[ExtractedTopology(from_location="Elysium", to_location="Haven")],
         tone_profiles=[
@@ -569,18 +568,12 @@ def test_pack_to_dict_exposes_extended_ingestion_outputs():
 
 
 def test_normalize_selected_layers_returns_default_for_none():
-    result = ingest._normalize_selected_layers(
-        None, KnowledgePackType.SETTING_SUPPLEMENT
-    )
-    assert result == ingest._default_processing_checklist(
-        KnowledgePackType.SETTING_SUPPLEMENT
-    )
+    result = ingest._normalize_selected_layers(None, KnowledgePackType.SETTING_SUPPLEMENT)
+    assert result == ingest._default_processing_checklist(KnowledgePackType.SETTING_SUPPLEMENT)
 
 
 def test_normalize_selected_layers_returns_provided_list():
-    result = ingest._normalize_selected_layers(
-        ["entities", "facts"], KnowledgePackType.RULEBOOK
-    )
+    result = ingest._normalize_selected_layers(["entities", "facts"], KnowledgePackType.RULEBOOK)
     assert result == ["entities", "facts"]
 
 

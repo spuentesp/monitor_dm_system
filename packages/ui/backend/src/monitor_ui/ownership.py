@@ -415,21 +415,6 @@ async def require_tone_library_owner(
 # table for every path/query parameter present on the incoming request, so a
 # router opts into ownership enforcement simply by mounting with the guard —
 # no per-router guard code.
-_SCOPE_RESOLVERS: dict[str, Callable[..., Awaitable[Any]]] = {
-    "universe_id": require_universe_owner,
-    "multiverse_id": require_multiverse_owner,
-    "scene_id": require_scene_owner,
-    "story_id": require_story_owner,
-    "character_id": require_character_scope,
-    "ingestion_job_id": require_ingestion_job_owner,
-    "proposal_id": require_proposal_owner,
-    "pack_id": require_pack_owner,
-    "party_id": require_party_owner,
-    "entry_id": require_lorebook_entry_owner,
-    "template_id": require_template_owner,
-    "asset_id": require_asset_id_owner,
-    "collection_id": require_collection_owner,
-}
 
 
 def _uuid_or_404(value: str | UUID) -> str:
@@ -471,6 +456,107 @@ async def require_entities_owner(db: PostgresClient, principal: Principal, entit
 async def require_entity_owner(db: PostgresClient, principal: Principal, entity_id: str | UUID) -> None:
     """World entities inherit ownership through their universe (plan D3)."""
     await require_entities_owner(db, principal, [entity_id])
+
+
+async def _require_graph_node_owner(db: PostgresClient, principal: Principal, label: str, node_id: str) -> None:
+    """Owner check for a universe-scoped Neo4j node (Fact/Axiom/Event/...).
+
+    ``label`` is a code constant, never client input. Nodes without a
+    universe_id, and missing nodes, get the generic 404.
+    """
+    if _is_local_mode(principal):
+        return
+    from monitor_data.db.neo4j import get_neo4j_client
+
+    rows = get_neo4j_client().execute_read(
+        f"MATCH (n:{label} {{id: $id}}) RETURN n.universe_id AS uid",
+        {"id": _uuid_or_404(node_id)},
+    )
+    uid = rows[0]["uid"] if rows else None
+    if uid is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+    await require_universe_owner(db, principal, uid)
+
+
+async def require_fact_owner(db: PostgresClient, principal: Principal, fact_id: str) -> None:
+    await _require_graph_node_owner(db, principal, "Fact", fact_id)
+
+
+async def require_axiom_owner(db: PostgresClient, principal: Principal, axiom_id: str) -> None:
+    await _require_graph_node_owner(db, principal, "Axiom", axiom_id)
+
+
+async def require_event_owner(db: PostgresClient, principal: Principal, event_id: str) -> None:
+    await _require_graph_node_owner(db, principal, "Event", event_id)
+
+
+async def require_relationship_owner(db: PostgresClient, principal: Principal, relationship_id: str) -> None:
+    """Relationships inherit ownership through either endpoint entity."""
+    if _is_local_mode(principal):
+        return
+    from monitor_data.db.neo4j import get_neo4j_client
+
+    rows = get_neo4j_client().execute_read(
+        "MATCH (r:Relationship {id: $id}) RETURN r.from_entity_id AS fid, r.to_entity_id AS tid",
+        {"id": _uuid_or_404(relationship_id)},
+    )
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+    await require_entities_owner(db, principal, [rows[0]["fid"], rows[0]["tid"]])
+
+
+async def require_sheet_owner(db: PostgresClient, principal: Principal, sheet_id: str) -> None:
+    """Character sheets resolve through their Neo4j entity's universe."""
+    if _is_local_mode(principal):
+        return
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    doc = get_mongodb_client().get_collection("character_sheets").find_one({"id": _uuid_or_404(sheet_id)})
+    if doc is None or not doc.get("entity_id"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+    await require_entity_owner(db, principal, doc["entity_id"])
+
+
+async def require_playable_character(db: PostgresClient, principal: Principal, character_id: str) -> None:
+    """A playable character is either a standalone Mongo card the caller owns
+    OR a Neo4j world entity living in a universe the caller owns (Play setup,
+    downtime, level-up all address characters this way). Foreign/missing -> 404.
+    """
+    if _is_local_mode(principal):
+        return
+    if character_id.startswith("universe:"):
+        await require_universe_owner(db, principal, character_id[len("universe:") :])
+        return
+    try:
+        await require_character_owner(principal, character_id)
+        return
+    except HTTPException:
+        pass
+    # Not a Mongo card — try as a Neo4j entity in an owned universe.
+    await require_entity_owner(db, principal, character_id)
+
+
+_SCOPE_RESOLVERS: dict[str, Callable[..., Awaitable[Any]]] = {
+    "universe_id": require_universe_owner,
+    "entity_id": require_entity_owner,
+    "fact_id": require_fact_owner,
+    "axiom_id": require_axiom_owner,
+    "event_id": require_event_owner,
+    "relationship_id": require_relationship_owner,
+    "sheet_id": require_sheet_owner,
+    "multiverse_id": require_multiverse_owner,
+    "scene_id": require_scene_owner,
+    "story_id": require_story_owner,
+    "character_id": require_playable_character,
+    "ingestion_job_id": require_ingestion_job_owner,
+    "proposal_id": require_proposal_owner,
+    "pack_id": require_pack_owner,
+    "party_id": require_party_owner,
+    "entry_id": require_lorebook_entry_owner,
+    "template_id": require_template_owner,
+    "asset_id": require_asset_id_owner,
+    "collection_id": require_collection_owner,
+}
 
 
 async def resource_route_guard(

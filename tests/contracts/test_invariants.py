@@ -51,9 +51,7 @@ class TestCanonKeeperExclusivityInvariant:
         }
 
         for tool in expected_tools:
-            assert tool in CANON_KEEPER_WRITE_TOOLS, (
-                f"{tool} should be in CANON_KEEPER_WRITE_TOOLS"
-            )
+            assert tool in CANON_KEEPER_WRITE_TOOLS, f"{tool} should be in CANON_KEEPER_WRITE_TOOLS"
 
     def test_canon_keeper_is_only_authorized_writer(self):
         """Only CanonKeeper is in AUTHORIZED_NEO4J_WRITERS."""
@@ -66,9 +64,7 @@ class TestCanonKeeperExclusivityInvariant:
 
         # IngestionPipeline should be authorized for shared tools
         assert (
-            CanonKeeperExclusivity.is_authorized_writer(
-                "neo4j_create_source", "IngestionPipeline"
-            )
+            CanonKeeperExclusivity.is_authorized_writer("neo4j_create_source", "IngestionPipeline")
             is True
         )
 
@@ -84,28 +80,21 @@ class TestCanonKeeperExclusivityInvariant:
         }
 
         for tool in read_tools:
-            assert tool not in CANON_KEEPER_WRITE_TOOLS, (
-                f"{tool} should not be a write tool"
-            )
+            assert tool not in CANON_KEEPER_WRITE_TOOLS, f"{tool} should not be a write tool"
 
     def test_canon_keeper_can_call_any_neo4j_tool(self):
         """CanonKeeper is authorized for all Neo4j write tools."""
 
         all_write_tools = CANON_KEEPER_WRITE_TOOLS | SHARED_NEO4J_WRITE_TOOLS
         for tool in all_write_tools:
-            assert (
-                CanonKeeperExclusivity.is_authorized_writer(tool, "CanonKeeper") is True
-            )
+            assert CanonKeeperExclusivity.is_authorized_writer(tool, "CanonKeeper") is True
 
     def test_narrator_cannot_call_exclusive_tool(self):
         """Narrator is not authorized for exclusive write tools."""
 
         for tool in CANON_KEEPER_WRITE_TOOLS:
             if tool not in SHARED_NEO4J_WRITE_TOOLS:
-                assert (
-                    CanonKeeperExclusivity.is_authorized_writer(tool, "Narrator")
-                    is False
-                )
+                assert CanonKeeperExclusivity.is_authorized_writer(tool, "Narrator") is False
 
 
 class TestSceneAtomicityInvariant:
@@ -133,49 +122,28 @@ class TestSceneAtomicityInvariant:
     def test_valid_transitions_from_active(self):
         """Valid transitions from ACTIVE are defined."""
         assert (
-            SceneAtomicity.is_valid_transition(
-                SceneStatus.ACTIVE, SceneStatus.FINALIZING
-            )
-            is True
+            SceneAtomicity.is_valid_transition(SceneStatus.ACTIVE, SceneStatus.FINALIZING) is True
         )
-        assert (
-            SceneAtomicity.is_valid_transition(
-                SceneStatus.ACTIVE, SceneStatus.COMPLETED
-            )
-            is True
-        )
-        assert (
-            SceneAtomicity.is_valid_transition(SceneStatus.ACTIVE, SceneStatus.ACTIVE)
-            is True
-        )
+        assert SceneAtomicity.is_valid_transition(SceneStatus.ACTIVE, SceneStatus.COMPLETED) is True
+        assert SceneAtomicity.is_valid_transition(SceneStatus.ACTIVE, SceneStatus.ACTIVE) is True
 
     def test_valid_transitions_from_finalizing(self):
         """Valid transitions from FINALIZING are defined."""
         assert (
-            SceneAtomicity.is_valid_transition(
-                SceneStatus.FINALIZING, SceneStatus.ACTIVE
-            )
-            is True
+            SceneAtomicity.is_valid_transition(SceneStatus.FINALIZING, SceneStatus.ACTIVE) is True
         )
         assert (
-            SceneAtomicity.is_valid_transition(
-                SceneStatus.FINALIZING, SceneStatus.COMPLETED
-            )
+            SceneAtomicity.is_valid_transition(SceneStatus.FINALIZING, SceneStatus.COMPLETED)
             is True
         )
 
     def test_invalid_transitions_from_completed(self):
         """No valid transitions from COMPLETED (terminal)."""
         assert (
-            SceneAtomicity.is_valid_transition(
-                SceneStatus.COMPLETED, SceneStatus.ACTIVE
-            )
-            is False
+            SceneAtomicity.is_valid_transition(SceneStatus.COMPLETED, SceneStatus.ACTIVE) is False
         )
         assert (
-            SceneAtomicity.is_valid_transition(
-                SceneStatus.COMPLETED, SceneStatus.FINALIZING
-            )
+            SceneAtomicity.is_valid_transition(SceneStatus.COMPLETED, SceneStatus.FINALIZING)
             is False
         )
 
@@ -214,34 +182,20 @@ class TestTurnFlowInvariant:
         from monitor_data.invariants.turn_flow import TurnFlow, TurnPhase
 
         # USER_INPUT can go to RESOLVE
-        assert (
-            TurnFlow.is_valid_transition(TurnPhase.USER_INPUT, TurnPhase.RESOLVE)
-            is True
-        )
+        assert TurnFlow.is_valid_transition(TurnPhase.USER_INPUT, TurnPhase.RESOLVE) is True
         # RESOLVE can go to NARRATE
-        assert (
-            TurnFlow.is_valid_transition(TurnPhase.RESOLVE, TurnPhase.NARRATE) is True
-        )
+        assert TurnFlow.is_valid_transition(TurnPhase.RESOLVE, TurnPhase.NARRATE) is True
         # NARRATE can loop back to USER_INPUT
-        assert (
-            TurnFlow.is_valid_transition(TurnPhase.NARRATE, TurnPhase.USER_INPUT)
-            is True
-        )
+        assert TurnFlow.is_valid_transition(TurnPhase.NARRATE, TurnPhase.USER_INPUT) is True
 
     def test_invalid_phase_transitions(self):
         """Invalid phase transitions are rejected."""
         from monitor_data.invariants.turn_flow import TurnFlow, TurnPhase
 
         # Cannot skip from USER_INPUT to NARRATE directly
-        assert (
-            TurnFlow.is_valid_transition(TurnPhase.USER_INPUT, TurnPhase.NARRATE)
-            is False
-        )
+        assert TurnFlow.is_valid_transition(TurnPhase.USER_INPUT, TurnPhase.NARRATE) is False
         # Cannot go backwards from RESOLVE to USER_INPUT
-        assert (
-            TurnFlow.is_valid_transition(TurnPhase.RESOLVE, TurnPhase.USER_INPUT)
-            is False
-        )
+        assert TurnFlow.is_valid_transition(TurnPhase.RESOLVE, TurnPhase.USER_INPUT) is False
 
     def test_terminal_phase_detection(self):
         """NARRATE is correctly identified as terminal."""
@@ -340,22 +294,10 @@ class TestProposedChangeWorkflowInvariant:
             ProposedChangeWorkflow,
         )
 
-        assert (
-            ProposedChangeWorkflow.is_terminal_status(ProposedChangeStatus.COMMITTED)
-            is True
-        )
-        assert (
-            ProposedChangeWorkflow.is_terminal_status(ProposedChangeStatus.REJECTED)
-            is True
-        )
-        assert (
-            ProposedChangeWorkflow.is_terminal_status(ProposedChangeStatus.ROLLED_BACK)
-            is True
-        )
-        assert (
-            ProposedChangeWorkflow.is_terminal_status(ProposedChangeStatus.PENDING)
-            is False
-        )
+        assert ProposedChangeWorkflow.is_terminal_status(ProposedChangeStatus.COMMITTED) is True
+        assert ProposedChangeWorkflow.is_terminal_status(ProposedChangeStatus.REJECTED) is True
+        assert ProposedChangeWorkflow.is_terminal_status(ProposedChangeStatus.ROLLED_BACK) is True
+        assert ProposedChangeWorkflow.is_terminal_status(ProposedChangeStatus.PENDING) is False
 
     def test_requires_canon_keeper(self):
         """Correct transitions require CanonKeeper."""
@@ -433,41 +375,27 @@ class TestSceneStatusTransitionInvariants:
         """Transitions don't need to be symmetric."""
         # ACTIVE -> FINALIZING is valid
         assert (
-            SceneAtomicity.is_valid_transition(
-                SceneStatus.ACTIVE, SceneStatus.FINALIZING
-            )
-            is True
+            SceneAtomicity.is_valid_transition(SceneStatus.ACTIVE, SceneStatus.FINALIZING) is True
         )
         # But FINALIZING -> ACTIVE is also valid (resume)
         assert (
-            SceneAtomicity.is_valid_transition(
-                SceneStatus.FINALIZING, SceneStatus.ACTIVE
-            )
-            is True
+            SceneAtomicity.is_valid_transition(SceneStatus.FINALIZING, SceneStatus.ACTIVE) is True
         )
 
     def test_completed_scene_cannot_become_active(self):
         """COMPLETED is terminal - scene cannot resume."""
         assert (
-            SceneAtomicity.is_valid_transition(
-                SceneStatus.COMPLETED, SceneStatus.ACTIVE
-            )
-            is False
+            SceneAtomicity.is_valid_transition(SceneStatus.COMPLETED, SceneStatus.ACTIVE) is False
         )
         assert (
-            SceneAtomicity.is_valid_transition(
-                SceneStatus.COMPLETED, SceneStatus.FINALIZING
-            )
+            SceneAtomicity.is_valid_transition(SceneStatus.COMPLETED, SceneStatus.FINALIZING)
             is False
         )
 
     def test_finalizing_scene_can_resume(self):
         """FINALIZING is not terminal - scene can resume to ACTIVE."""
         assert (
-            SceneAtomicity.is_valid_transition(
-                SceneStatus.FINALIZING, SceneStatus.ACTIVE
-            )
-            is True
+            SceneAtomicity.is_valid_transition(SceneStatus.FINALIZING, SceneStatus.ACTIVE) is True
         )
 
 
@@ -496,6 +424,5 @@ class TestInvariantConsistency:
             ):
                 # Should be restricted to CanonKeeper (or shared)
                 assert (
-                    tool_name in CANON_KEEPER_WRITE_TOOLS
-                    or tool_name in SHARED_NEO4J_WRITE_TOOLS
+                    tool_name in CANON_KEEPER_WRITE_TOOLS or tool_name in SHARED_NEO4J_WRITE_TOOLS
                 )

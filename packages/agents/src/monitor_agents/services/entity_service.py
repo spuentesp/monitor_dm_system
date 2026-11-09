@@ -48,7 +48,9 @@ class EntityProgressionService:
                     current_level = int(ws.state.level or 1)
                     state_id = ws.state.state_id
             except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in process_level_up)
-                log.debug("working-state probe failed; falling through to character sheet", exc_info=True)  # Fall through to character sheet
+                log.debug(
+                    "working-state probe failed; falling through to character sheet", exc_info=True
+                )  # Fall through to character sheet
 
         # 1b. Get current XP/level from character sheet
         if current_xp == 0 and not state_id:

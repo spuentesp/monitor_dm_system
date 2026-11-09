@@ -36,10 +36,7 @@ class TestScenePreConditions:
 
         # Should not raise
         assert (
-            ScenePreConditions.create_scene(
-                params, story_exists=True, universe_exists=True
-            )
-            is True
+            ScenePreConditions.create_scene(params, story_exists=True, universe_exists=True) is True
         )
 
     def test_create_scene_preconditions_missing_story(self):
@@ -51,9 +48,7 @@ class TestScenePreConditions:
         )
 
         with pytest.raises(ValueError, match="Story does not exist"):
-            ScenePreConditions.create_scene(
-                params, story_exists=False, universe_exists=True
-            )
+            ScenePreConditions.create_scene(params, story_exists=False, universe_exists=True)
 
     def test_create_scene_preconditions_missing_universe(self):
         """Scene creation fails if universe doesn't exist."""
@@ -64,9 +59,7 @@ class TestScenePreConditions:
         )
 
         with pytest.raises(ValueError, match="Universe does not exist"):
-            ScenePreConditions.create_scene(
-                params, story_exists=True, universe_exists=False
-            )
+            ScenePreConditions.create_scene(params, story_exists=True, universe_exists=False)
 
     def test_append_turn_preconditions_valid(self):
         """Valid turn append passes pre-conditions."""
@@ -81,10 +74,7 @@ class TestScenePreConditions:
             updated_at=datetime.now(UTC),
         )
 
-        assert (
-            ScenePreConditions.append_turn(scene, Speaker.USER, None, caller="Narrator")
-            is True
-        )
+        assert ScenePreConditions.append_turn(scene, Speaker.USER, None, caller="Narrator") is True
 
     def test_append_turn_preconditions_inactive_scene(self):
         """Turn append fails for inactive scene."""
@@ -115,12 +105,8 @@ class TestScenePreConditions:
             updated_at=datetime.now(UTC),
         )
 
-        with pytest.raises(
-            ValueError, match="entity_id required when speaker is ENTITY"
-        ):
-            ScenePreConditions.append_turn(
-                scene, Speaker.ENTITY, None, caller="Narrator"
-            )
+        with pytest.raises(ValueError, match="entity_id required when speaker is ENTITY"):
+            ScenePreConditions.append_turn(scene, Speaker.ENTITY, None, caller="Narrator")
 
     def test_append_turn_preconditions_unauthorized_caller(self):
         """Turn append fails for unauthorized caller."""
@@ -136,9 +122,7 @@ class TestScenePreConditions:
         )
 
         with pytest.raises(ValueError, match="not authorized"):
-            ScenePreConditions.append_turn(
-                scene, Speaker.USER, None, caller="ContextAssembly"
-            )
+            ScenePreConditions.append_turn(scene, Speaker.USER, None, caller="ContextAssembly")
 
     def test_update_scene_valid_transition(self):
         """Valid status transition passes pre-conditions."""

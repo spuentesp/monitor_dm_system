@@ -168,7 +168,6 @@ class TestConversationLoopWiring:
         assert out["lorebook_overrides"] == {"e1": True}
 
 
-
 def test_voice_strips_directives_before_saving_the_turn():
     """The reply is saved and remembered without the directive lines."""
     import types

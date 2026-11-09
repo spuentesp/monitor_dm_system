@@ -226,9 +226,7 @@ class TestSeedAnswers:
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
         seed = [{"question": "Q", "answer": "A", "category": "custom"}] * 3
-        loop = SessionZeroLoop(
-            tone="grim", system_name="Test", max_questions=7, seed_answers=seed
-        )
+        loop = SessionZeroLoop(tone="grim", system_name="Test", max_questions=7, seed_answers=seed)
 
         # 7 - 3 seeded = 4 remaining questions, not the full 7.
         assert loop.state.max_questions == 4
@@ -237,9 +235,7 @@ class TestSeedAnswers:
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
         seed = [{"question": "Q", "answer": "A", "category": "custom"}] * 6
-        loop = SessionZeroLoop(
-            tone="grim", system_name="Test", max_questions=7, seed_answers=seed
-        )
+        loop = SessionZeroLoop(tone="grim", system_name="Test", max_questions=7, seed_answers=seed)
 
         # 7 - 6 = 1, floored up to the 2-question minimum -- still room to
         # ground the persona in *this* setting, not just repeat what it says.
@@ -250,14 +246,10 @@ class TestSeedAnswers:
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
         seed = [{"question": "Q", "answer": "A", "category": "custom"}] * 5
-        loop = SessionZeroLoop(
-            tone="grim", system_name="Test", max_questions=7, seed_answers=seed
-        )
+        loop = SessionZeroLoop(tone="grim", system_name="Test", max_questions=7, seed_answers=seed)
 
         await loop.start()  # Q1 (of the shrunk 2-question budget)
-        result = await loop.process_player_input(
-            "Confirmed, that's still me."
-        )  # Q2 → complete
+        result = await loop.process_player_input("Confirmed, that's still me.")  # Q2 → complete
 
         assert result["complete"] is True
         # Seeded answers plus the one new one asked during the interview.
@@ -287,9 +279,7 @@ class TestCampaignIntent:
             SessionZeroLoop,
         )
 
-        loop = SessionZeroLoop(
-            tone="grim", system_name="Test", ask_campaign_intent=True
-        )
+        loop = SessionZeroLoop(tone="grim", system_name="Test", ask_campaign_intent=True)
         result = await loop.start()
 
         assert result["complete"] is False
@@ -301,13 +291,9 @@ class TestCampaignIntent:
     async def test_answering_campaign_intent_advances_to_real_question_one(self):
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
-        loop = SessionZeroLoop(
-            tone="grim", system_name="Test", ask_campaign_intent=True
-        )
+        loop = SessionZeroLoop(tone="grim", system_name="Test", ask_campaign_intent=True)
         await loop.start()
-        result = await loop.process_player_input(
-            "A heist against a rival gang, no combat."
-        )
+        result = await loop.process_player_input("A heist against a rival gang, no combat.")
 
         assert result["complete"] is False
         assert result["question_number"] == 1
@@ -321,9 +307,7 @@ class TestCampaignIntent:
         concern from "what story do you want"."""
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
-        loop = SessionZeroLoop(
-            tone="grim", system_name="Test", ask_campaign_intent=True
-        )
+        loop = SessionZeroLoop(tone="grim", system_name="Test", ask_campaign_intent=True)
         await loop.start()
         await loop.process_player_input("Survival horror, minimal combat.")
 
@@ -334,9 +318,7 @@ class TestCampaignIntent:
     async def test_skip_signal_yields_no_campaign_intent(self):
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
-        loop = SessionZeroLoop(
-            tone="grim", system_name="Test", ask_campaign_intent=True
-        )
+        loop = SessionZeroLoop(tone="grim", system_name="Test", ask_campaign_intent=True)
         await loop.start()
         result = await loop.process_player_input("skip")
 
@@ -347,9 +329,7 @@ class TestCampaignIntent:
     async def test_empty_answer_yields_no_campaign_intent(self):
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
-        loop = SessionZeroLoop(
-            tone="grim", system_name="Test", ask_campaign_intent=True
-        )
+        loop = SessionZeroLoop(tone="grim", system_name="Test", ask_campaign_intent=True)
         await loop.start()
         result = await loop.process_player_input("   ")
 
@@ -400,9 +380,7 @@ class TestSummary:
     async def test_summary_has_concept_and_backstory(self):
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
-        loop = SessionZeroLoop(
-            tone="grim", system_name="Death in Space", max_questions=2
-        )
+        loop = SessionZeroLoop(tone="grim", system_name="Death in Space", max_questions=2)
         await loop.start()
         await loop.process_player_input("My name is Silas, a chrome scrapper.")
         result = await loop.process_player_input("I lost my crew in the Gem War.")
@@ -416,9 +394,7 @@ class TestSummary:
     async def test_summary_extracts_name(self):
         from monitor_agents.loops.session_zero_loop import SessionZeroLoop
 
-        loop = SessionZeroLoop(
-            tone="grim", system_name="Death in Space", max_questions=2
-        )
+        loop = SessionZeroLoop(tone="grim", system_name="Death in Space", max_questions=2)
         await loop.start()
         await loop.process_player_input("My name is Silas, a chrome scrapper.")
         result = await loop.process_player_input("I lost my crew.")

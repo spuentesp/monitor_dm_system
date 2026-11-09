@@ -15,9 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-BACKEND_SRC = (
-    Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-)
+BACKEND_SRC = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
 if str(BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(BACKEND_SRC))
 
@@ -79,9 +77,7 @@ def _mock_db(monkeypatch: pytest.MonkeyPatch) -> None:
         def get_collection(self, name):
             return _FakeMongoCollection()
 
-    monkeypatch.setattr(
-        "monitor_data.db.mongodb.get_mongodb_client", lambda: _FakeMongoClient()
-    )
+    monkeypatch.setattr("monitor_data.db.mongodb.get_mongodb_client", lambda: _FakeMongoClient())
     monkeypatch.setattr(
         chat_router,
         "purge_chat_runtime_cache",
@@ -216,9 +212,7 @@ class TestSessionLifecycle:
         client.delete(f"/api/chat/{sid}")
         assert sid not in chat_router._SESSIONS
 
-    def test_session_messages_endpoint_returns_messages(
-        self, client: TestClient
-    ) -> None:
+    def test_session_messages_endpoint_returns_messages(self, client: TestClient) -> None:
         """P-3: GET /messages returns the conversation."""
         s = client.post(
             "/api/chat",
@@ -289,9 +283,7 @@ class TestSessionLifecycle:
         assert "AAA" in contents_a
         assert "BBB" in contents_b
         # Cross-contamination check
-        assert (
-            "BBB" not in contents_a or "AAA" in contents_b
-        )  # both could be in shared turns
+        assert "BBB" not in contents_a or "AAA" in contents_b  # both could be in shared turns
         # More robust: message IDs are unique per session
         ids_a = {m.get("id") for m in msgs_a}
         ids_b = {m.get("id") for m in msgs_b}

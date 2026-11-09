@@ -150,9 +150,7 @@ class TestContestedRoll:
     def test_minimal(self):
         opp_id = uuid4()
         opponent_roll = RollResult(raw_rolls=[10], total=10)
-        c = ContestedRoll(
-            opponent_id=opp_id, opponent_roll=opponent_roll, margin_of_victory=5
-        )
+        c = ContestedRoll(opponent_id=opp_id, opponent_roll=opponent_roll, margin_of_victory=5)
         assert c.opponent_id == opp_id
         assert c.opponent_modifiers == []
 

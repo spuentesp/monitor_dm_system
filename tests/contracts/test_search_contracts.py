@@ -125,18 +125,10 @@ class TestSemanticSearchResponseContract:
 
         # Different collections
         results = [
-            SearchResultItem(
-                id=str(uuid4()), collection="entities", score=0.9, payload={}
-            ),
-            SearchResultItem(
-                id=str(uuid4()), collection="scenes", score=0.85, payload={}
-            ),
-            SearchResultItem(
-                id=str(uuid4()), collection="snippets", score=0.8, payload={}
-            ),
-            SearchResultItem(
-                id=str(uuid4()), collection="knowledge", score=0.75, payload={}
-            ),
+            SearchResultItem(id=str(uuid4()), collection="entities", score=0.9, payload={}),
+            SearchResultItem(id=str(uuid4()), collection="scenes", score=0.85, payload={}),
+            SearchResultItem(id=str(uuid4()), collection="snippets", score=0.8, payload={}),
+            SearchResultItem(id=str(uuid4()), collection="knowledge", score=0.75, payload={}),
         ]
         response = SemanticSearchResponse(
             query="ancient temple",
@@ -185,9 +177,7 @@ class TestSearchRouterContract:
         routes = {r.path: r.methods for r in router.routes}
         # Find universe-scoped search route
         universe_routes = [p for p in routes if "/universes/" in p and "/search" in p]
-        assert len(universe_routes) >= 1, (
-            f"Expected universe search route, got {routes}"
-        )
+        assert len(universe_routes) >= 1, f"Expected universe search route, got {routes}"
 
 
 # =============================================================================
@@ -320,9 +310,7 @@ class TestSearchGracefulDegradation:
                 raise RuntimeError(f"Qdrant unavailable for {col}")
 
         with patch("monitor_ui.routers.search.qdrant_search", mock_qdrant_search):
-            with patch(
-                "monitor_ui.routers.search._embed_query_text", return_value=[0.1] * 1536
-            ):
+            with patch("monitor_ui.routers.search._embed_query_text", return_value=[0.1] * 1536):
                 response = client.get("/api/search/search?q=wizard")
                 # Should still return 200 with partial results
                 assert response.status_code == 200, (

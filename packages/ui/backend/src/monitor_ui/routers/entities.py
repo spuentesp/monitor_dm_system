@@ -59,6 +59,7 @@ from monitor_ui.config import get_settings
 from monitor_data.db.postgres import PostgresClient
 from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
 from monitor_ui.ownership import (
+    owned_world_ids,
     require_character_owner,
     require_entities_owner,
     require_universe_owner,
@@ -926,7 +927,12 @@ async def generate_entity(body: GenerateEntityRequest) -> dict[str, Any]:
 
 
 @router.get("/systems/{system_id}/characters", response_model=list[Character])
-async def list_characters(system_id: str) -> list[Character]:
+async def list_characters(
+    system_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> list[Character]:
+    """Characters for a game system, scoped to the caller's universes (D4)."""
     try:
         from monitor_data.schemas.character_sheets import CharacterSheetFilter
         from monitor_data.schemas.entities import EntityFilter
@@ -934,6 +940,7 @@ async def list_characters(system_id: str) -> list[Character]:
         from monitor_data.tools.neo4j_tools.entities import neo4j_list_entities
 
         system_uuid = UUID(system_id)
+        owned_w = await owned_world_ids(db, principal)
         sheets = mongodb_list_character_sheets(
             CharacterSheetFilter(
                 entity_id=None,
@@ -948,9 +955,14 @@ async def list_characters(system_id: str) -> list[Character]:
         if not sheets.sheets:
             return []
 
-        entities = neo4j_list_entities(EntityFilter(limit=500)).entities
+        # Only entities in the caller's universes — never an unscoped list.
+        entities = neo4j_list_entities(
+            EntityFilter(limit=500, universe_ids=[UUID(i) for i in owned_w] if owned_w is not None else None)
+        ).entities
         entities_by_id: dict[str, Any] = {str(entity.id): entity for entity in entities}
 
+        # Drop sheets whose entity is not in the caller's universes —
+        # otherwise the sheet row itself (entity id, system, universe) leaks.
         return [
             Character(
                 id=str(sheet.entity_id),
@@ -964,6 +976,7 @@ async def list_characters(system_id: str) -> list[Character]:
                 canon_level=str(getattr(entities_by_id.get(str(sheet.entity_id)), "canon_level", "canon")),
             )
             for sheet in sheets.sheets
+            if str(sheet.entity_id) in entities_by_id
         ]
     except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure (in list_characters)
         return []

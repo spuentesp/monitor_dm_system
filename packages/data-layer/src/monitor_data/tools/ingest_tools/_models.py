@@ -99,9 +99,14 @@ class IngestedChunk:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
-    def stable_id(source_name: str, chunk_index: int, text: str) -> str:
-        """Deterministic Qdrant-safe UUID for a chunk."""
-        seed = f"{source_name}:{chunk_index}:{text}"
+    def stable_id(source_name: str, chunk_index: int, text: str, scope: str | None = None) -> str:
+        """Deterministic Qdrant-safe UUID for a chunk.
+
+        ``scope`` (universe_id / job_id) namespaces the seed so the same book
+        ingested under the same title in two different universes gets distinct
+        point IDs instead of overwriting each other.
+        """
+        seed = f"{scope or ''}:{source_name}:{chunk_index}:{text}"
         return str(uuid5(NAMESPACE_URL, seed))
 
     def to_qdrant_payload(self) -> dict[str, Any]:

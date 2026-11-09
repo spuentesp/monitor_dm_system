@@ -40,9 +40,7 @@ def test_scenarios_load_and_resolve_system_ids() -> None:
     for s in VTM_SCENARIOS + DIS_SCENARIOS:
         assert s.name in SCENARIOS
         assert s.world_id in SYSTEM_ID_BY_WORLD
-        assert scripted_pairs(s) == [
-            (t.player_action, t.intent) for t in s.scripted_opens
-        ]
+        assert scripted_pairs(s) == [(t.player_action, t.intent) for t in s.scripted_opens]
 
 
 def test_dis_salvage_seed_mentions_oxygen() -> None:

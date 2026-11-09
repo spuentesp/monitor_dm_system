@@ -27,10 +27,7 @@ async def test_pool_engine_uses_seed_mechanics():
     # The repo root is the parent of the ``packages/`` directory.
     # That is 4 levels up: dice → tests → agents → packages → repo_root.
     repo_root = Path(__file__).resolve().parents[4]
-    seed_path = (
-        repo_root / "packages" / "data-layer" / "src"
-        / "monitor_data" / "defaults" / "systems" / "vampire.json"
-    )
+    seed_path = repo_root / "packages" / "data-layer" / "src" / "monitor_data" / "defaults" / "systems" / "vampire.json"
     with open(seed_path) as f:
         seed_data = json.load(f)
 

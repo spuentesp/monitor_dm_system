@@ -74,9 +74,7 @@ class TestNarratorResponse:
     def test_with_proposals(self):
         r = NarratorResponse(
             narrative_text="Bartender introduces himself.",
-            proposals=[
-                ProposedChangeRef(change_type="entity_create", summary="new bartender")
-            ],
+            proposals=[ProposedChangeRef(change_type="entity_create", summary="new bartender")],
             mood="whimsical",
         )
         assert len(r.proposals) == 1

@@ -100,9 +100,7 @@ class GMVerdict:
             action_type=ActionType(raw_action) if not isinstance(raw_action, ActionType) else raw_action,
             roll_necessity=RollNecessity(raw_roll) if not isinstance(raw_roll, RollNecessity) else raw_roll,
             causality_action=(
-                CausalityAction(raw_causality)
-                if not isinstance(raw_causality, CausalityAction)
-                else raw_causality
+                CausalityAction(raw_causality) if not isinstance(raw_causality, CausalityAction) else raw_causality
             ),
             suggested_stat=data.get("suggested_stat"),
             suggested_dc=data.get("suggested_dc"),
@@ -119,4 +117,3 @@ class GMVerdict:
             tool_call_count=int(data.get("tool_call_count", 0)),
             reasoning=str(data.get("reasoning", "")),
         )
-

@@ -228,10 +228,7 @@ class TestRankSnippets:
         )
 
         scope = {"preferred_semantic_categories": ["combat_rules"]}
-        assert (
-            rank_snippets_with_source_scope([], scope=scope, player_action="attack")
-            == []
-        )
+        assert rank_snippets_with_source_scope([], scope=scope, player_action="attack") == []
 
     def test_no_preferences_returns_input(self):
         from monitor_agents.utils.source_scope_support import (
@@ -240,9 +237,7 @@ class TestRankSnippets:
 
         snippets = [{"text": "hello", "score": 1.0}]
         scope = {}
-        result = rank_snippets_with_source_scope(
-            snippets, scope=scope, player_action="zzz"
-        )
+        result = rank_snippets_with_source_scope(snippets, scope=scope, player_action="zzz")
         assert result == snippets
 
     def test_category_match_boosts(self):
@@ -255,9 +250,7 @@ class TestRankSnippets:
             {"text": "b", "score": 1.0, "semantic_category": "combat_rules"},
         ]
         scope = {"preferred_semantic_categories": ["combat_rules"]}
-        result = rank_snippets_with_source_scope(
-            snippets, scope=scope, player_action="attack"
-        )
+        result = rank_snippets_with_source_scope(snippets, scope=scope, player_action="attack")
         # combat_rules snippet (b) should be first
         assert result[0]["text"] == "b"
 
@@ -271,9 +264,7 @@ class TestRankSnippets:
             {"text": "b", "score": 1.0, "source_system_name": "TargetSystem"},
         ]
         scope = {"system_name": "TargetSystem"}
-        result = rank_snippets_with_source_scope(
-            snippets, scope=scope, player_action="zzz"
-        )
+        result = rank_snippets_with_source_scope(snippets, scope=scope, player_action="zzz")
         # target system snippet (b) should be first
         assert result[0]["text"] == "b"
 
@@ -287,9 +278,7 @@ class TestRankSnippets:
             {"text": "the netrunner strikes", "score": 1.0},
         ]
         scope = {"preferred_terms": ["netrunner"]}
-        result = rank_snippets_with_source_scope(
-            snippets, scope=scope, player_action="zzz"
-        )
+        result = rank_snippets_with_source_scope(snippets, scope=scope, player_action="zzz")
         # netrunner snippet should be first
         assert "netrunner" in result[0]["text"]
 
@@ -303,9 +292,7 @@ class TestRankSnippets:
             {"text": "I attack the dragon", "score": 1.0},
         ]
         scope = {"preferred_semantic_categories": ["combat_rules"]}
-        result = rank_snippets_with_source_scope(
-            snippets, scope=scope, player_action="attack"
-        )
+        result = rank_snippets_with_source_scope(snippets, scope=scope, player_action="attack")
         # action-match snippet should be first
         assert "attack" in result[0]["text"]
 
@@ -316,7 +303,5 @@ class TestRankSnippets:
 
         snippets = [{"text": "a"}]  # No score
         scope = {"preferred_semantic_categories": ["combat_rules"]}
-        result = rank_snippets_with_source_scope(
-            snippets, scope=scope, player_action="zzz"
-        )
+        result = rank_snippets_with_source_scope(snippets, scope=scope, player_action="zzz")
         assert len(result) == 1

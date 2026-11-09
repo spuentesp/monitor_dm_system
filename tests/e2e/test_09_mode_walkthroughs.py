@@ -174,15 +174,11 @@ def test_world_architect_walkthrough(
         timeout=120,
     )
     assert reviewed2.status_code == 200, reviewed2.text
-    committed2 = requests.post(
-        f"{live_backend}/ingest/packs/{pack2.id}/commit", timeout=180
-    )
+    committed2 = requests.post(f"{live_backend}/ingest/packs/{pack2.id}/commit", timeout=180)
     assert committed2.status_code == 200, committed2.text
 
     # 3. The world state endpoint shows the new canon (O1)
-    state = requests.get(
-        f"{live_backend}/universes/universes/{universe_id}/state", timeout=60
-    )
+    state = requests.get(f"{live_backend}/universes/universes/{universe_id}/state", timeout=60)
     assert state.status_code == 200, state.text
     payload = state.json()
     names = {e.get("name") for e in payload.get("entities", [])}
@@ -194,9 +190,7 @@ def test_world_architect_walkthrough(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_gm_copilot_walkthrough(
-    live_backend: str, walkthrough_universe: dict[str, Any]
-) -> None:
+def test_gm_copilot_walkthrough(live_backend: str, walkthrough_universe: dict[str, Any]) -> None:
     from monitor_data.schemas.base import Authority, ProposalType
     from monitor_data.schemas.proposed_changes import ProposedChangeCreate
     from monitor_data.schemas.stories import StoryCreate, StoryStatus, StoryType
@@ -337,11 +331,7 @@ async def test_autonomous_gm_extras_walkthrough(
     res = await resolver.resolve_turn(
         scene_id=str(uuid4()),
         user_input="I swing my sword at the possessed villager!",
-        context={
-            "entities": [
-                {"name": "Kael", "properties": {"attributes": {"Strength": 14}}}
-            ]
-        },
+        context={"entities": [{"name": "Kael", "properties": {"attributes": {"Strength": 14}}}]},
         play_mode="dice_standard",
     )
     assert res["resolution_type"] in {"dice", "propose_roll", "trivial", "narrative"}

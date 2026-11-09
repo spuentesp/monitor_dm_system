@@ -327,9 +327,7 @@ class TestNeo4jListMultiversesContract:
     async def test_returns_empty_list_if_no_multiverses(self, fake_mcp_client):
         """Contract: Returns empty list if no multiverses exist."""
         # Setup
-        fake_mcp_client.add_response(
-            "neo4j_list_multiverses", {"omniverse_id": "omni123"}, []
-        )
+        fake_mcp_client.add_response("neo4j_list_multiverses", {"omniverse_id": "omni123"}, [])
 
         # Execute
         result = await fake_mcp_client.call_tool(
@@ -457,9 +455,7 @@ class TestMultiverseCreatorContract:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_seed_from_knowledge_pack_invalid_pack_id_raises_error(
-        self, fake_mcp_client
-    ):
+    async def test_seed_from_knowledge_pack_invalid_pack_id_raises_error(self, fake_mcp_client):
         """Contract: Invalid pack_id raises NotFoundError."""
         # Setup - simulate pack not found
         fake_mcp_client.add_error(
@@ -533,9 +529,7 @@ class TestMultiverseCreationIntegration:
         assert isinstance(multiverse_id, str)
 
     @pytest.mark.asyncio
-    async def test_multiverse_creation_with_knowledge_pack_seeding(
-        self, fake_mcp_client
-    ):
+    async def test_multiverse_creation_with_knowledge_pack_seeding(self, fake_mcp_client):
         """Contract: Create multiverse and seed from knowledge pack."""
         # Setup
         fake_mcp_client.add_response(

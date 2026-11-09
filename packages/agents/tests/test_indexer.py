@@ -499,8 +499,11 @@ class TestChunkPdfWithStructure:
     async def test_specific_bookmark_takes_precedence_and_preserves_page_range(self):
         agent = _make_indexer()
         block = _make_section_block(
-            heading_path=["Combat Rules", "Magic"], depth=1,
-            text="A spell effect.", page_start=9, page_end=14,
+            heading_path=["Combat Rules", "Magic"],
+            depth=1,
+            text="A spell effect.",
+            page_start=9,
+            page_end=14,
         )
         with (
             patch("monitor_agents.indexer.agent.extract_pdf_structure", return_value=[block]),
@@ -509,7 +512,8 @@ class TestChunkPdfWithStructure:
             patch("monitor_agents.indexer.agent.chunk_text", return_value=[]) as chunker,
         ):
             tags.classify_text.side_effect = lambda heading: {
-                "Combat Rules": "combat_rules", "Magic": "power_system"
+                "Combat Rules": "combat_rules",
+                "Magic": "power_system",
             }.get(heading)
             await agent._chunk_pdf_with_structure(b"%PDF", "rulebook")
 

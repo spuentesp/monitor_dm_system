@@ -28,6 +28,9 @@ from monitor_ui.ownership import (
     require_character_owner,
     require_chat_session_owner,
     require_pack_owner,
+    require_playable_character,
+    require_scene_owner,
+    require_story_owner,
     require_universe_owner,
 )
 from monitor_agents.dspy_runtime import stream_callback_var
@@ -401,13 +404,24 @@ async def create_session(
 
     # Body-referenced characters/persona/pack must belong to the caller
     # (foreign → generic 404; the session would otherwise leak them).
-    char_ids = {body.character_id, body.speaker_character_id, *body.controlled_character_ids}
+    # Characters may be standalone cards OR Neo4j entities in an owned
+    # universe (Play setup picks from Neo4j).
+    char_ids = {
+        body.character_id,
+        body.speaker_character_id,
+        body.selected_character_id,
+        *body.controlled_character_ids,
+    }
     for cid in char_ids - {None}:
-        await require_character_owner(principal, cid)  # type: ignore[arg-type]
+        await require_playable_character(db, principal, cid)  # type: ignore[arg-type]
     if body.persona_id:
         await require_character_owner(principal, body.persona_id)
     if pack_id:
         await require_pack_owner(db, principal, pack_id)
+    if body.story_id:
+        await require_story_owner(db, principal, body.story_id)
+    if body.scene_id:
+        await require_scene_owner(db, principal, body.scene_id)
 
     speaker_character_id = body.speaker_character_id or body.character_id
     controlled = body.controlled_character_ids or ([body.character_id] if body.character_id else [])
@@ -788,9 +802,13 @@ async def wrap_up_session(session_id: str, principal: Principal = Depends(get_cu
 
 @router.post("/{session_id}/greet", response_model=Message)
 async def greet_character(
-    session_id: str, character_id: str, principal: Principal = Depends(get_current_user)
+    session_id: str,
+    character_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> Message:
     await require_chat_session_owner(principal, session_id)
+    await require_playable_character(db, principal, character_id)
     """
     Bootstrap a session with a character greeting.
     Creates a 'character' role message using the character's first_message.
@@ -902,8 +920,15 @@ async def begin_story(session_id: str, principal: Principal = Depends(get_curren
 
 
 @router.post("/{session_id}/send", response_model=Message)
-async def send_message(session_id: str, body: MessageSend, principal: Principal = Depends(get_current_user)) -> Message:
+async def send_message(
+    session_id: str,
+    body: MessageSend,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> Message:
     await require_chat_session_owner(principal, session_id)
+    if body.character_id:
+        await require_playable_character(db, principal, body.character_id)
     _ensure_sessions_loaded()
     if session_id not in _SESSIONS:
         from fastapi import HTTPException
@@ -1110,8 +1135,17 @@ async def update_session(
     session_id: str,
     body: SessionPatch | None = None,
     principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> Session:
     await require_chat_session_owner(principal, session_id)
+    if body is not None:
+        selected = getattr(body, "selected_character_id", None)
+        if selected:
+            await require_playable_character(db, principal, selected)
+        if body.scene_id:
+            await require_scene_owner(db, principal, body.scene_id)
+        if body.story_id:
+            await require_story_owner(db, principal, body.story_id)
     _ensure_sessions_loaded()
     session = _SESSIONS.get(session_id)
     if not session:

@@ -56,7 +56,10 @@ def _generic_stat():
 
 async def _resolve(resolver: rmod.Resolver, ctx: dict[str, Any] | None = None, **kw: Any) -> dict[str, Any]:
     result, _ = await resolver.resolve_turn(
-        "scene", kw.pop("text", "I sneak past the guard"), {"entities": [], **(ctx or {})}, **{"play_mode": "dice_standard", **kw}
+        "scene",
+        kw.pop("text", "I sneak past the guard"),
+        {"entities": [], **(ctx or {})},
+        **{"play_mode": "dice_standard", **kw},
     )
     return result
 
@@ -260,7 +263,12 @@ async def test_player_sees_the_pushback_prompt_and_can_roll() -> None:
         get_story_state=None,
     )
     state = so.SceneOrchestratorState(
-        session_id="s", user_content="I kill the dragon", session=session, callbacks=callbacks, story_id="t", scene_id="c"
+        session_id="s",
+        user_content="I kill the dragon",
+        session=session,
+        callbacks=callbacks,
+        story_id="t",
+        scene_id="c",
     )
     out = await so.run_core_scene_loop(state)
 
@@ -355,4 +363,3 @@ def test_dice_pool_does_not_double_stat_or_concatenate_pbta_bands():
     assert len(res["roll_detail"]["rolls"]) == 4
     assert res["roll_total"] == 3  # 8, 6, 9 are >= 6
     assert res["success"] is True
-

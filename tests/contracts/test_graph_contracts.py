@@ -44,13 +44,9 @@ class TestGraphRouterContract:
 
         routes = {r.path: r.methods for r in router.routes}
         universe_graph_routes = [
-            p
-            for p in routes
-            if "/universes/" in p and "/graph" in p and "/entity/" not in p
+            p for p in routes if "/universes/" in p and "/graph" in p and "/entity/" not in p
         ]
-        assert len(universe_graph_routes) >= 1, (
-            f"Expected universe graph route, got {routes}"
-        )
+        assert len(universe_graph_routes) >= 1, f"Expected universe graph route, got {routes}"
 
     def test_has_entity_ego_graph_route(self):
         """Router should have GET /universes/{id}/graph/entity/{eid}."""
@@ -150,18 +146,24 @@ class TestGraphResponseShape:
         client = TestClient(app, raise_server_exceptions=False)
 
         # Mock all Neo4j calls to avoid real DB - route is at monitor_ui.routers.graph
-        with patch("monitor_ui.routers.graph.neo4j_ensure_omniverse"), patch(
-            "monitor_ui.routers.graph.neo4j_list_multiverses",
-            return_value=MagicMock(multiverses=[]),
-        ), patch(
-            "monitor_ui.routers.graph.neo4j_list_universes",
-            return_value=MagicMock(entities=[]),
-        ), patch(
-            "monitor_ui.routers.graph.neo4j_list_entities",
-            return_value=MagicMock(entities=[]),
-        ), patch(
-            "monitor_ui.routers.graph.neo4j_list_relationships",
-            return_value=MagicMock(relationships=[]),
+        with (
+            patch("monitor_ui.routers.graph.neo4j_ensure_omniverse"),
+            patch(
+                "monitor_ui.routers.graph.neo4j_list_multiverses",
+                return_value=MagicMock(multiverses=[]),
+            ),
+            patch(
+                "monitor_ui.routers.graph.neo4j_list_universes",
+                return_value=MagicMock(entities=[]),
+            ),
+            patch(
+                "monitor_ui.routers.graph.neo4j_list_entities",
+                return_value=MagicMock(entities=[]),
+            ),
+            patch(
+                "monitor_ui.routers.graph.neo4j_list_relationships",
+                return_value=MagicMock(relationships=[]),
+            ),
         ):
             response = client.get("/api/graph/world")
 

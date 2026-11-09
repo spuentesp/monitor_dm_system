@@ -35,9 +35,7 @@ class TestPlotThreadUrgency:
 
 class TestExtractedPlotThread:
     def test_minimal(self):
-        t = ExtractedPlotThread(
-            title="Missing Sword", description="Where did the sword go?"
-        )
+        t = ExtractedPlotThread(title="Missing Sword", description="Where did the sword go?")
         assert t.category == PlotThreadCategory.MYSTERY
         assert t.urgency == PlotThreadUrgency.MEDIUM
         assert t.confidence == 0.7
@@ -68,9 +66,7 @@ class TestPlotThreadDetectionResult:
         assert r.total_detected == 0
 
     def test_with_threads(self):
-        t = ExtractedPlotThread(
-            title="T1", description="desc", urgency=PlotThreadUrgency.CRITICAL
-        )
+        t = ExtractedPlotThread(title="T1", description="desc", urgency=PlotThreadUrgency.CRITICAL)
         r = PlotThreadDetectionResult(threads=[t])
         r.compute_totals()
         assert r.total_detected == 1

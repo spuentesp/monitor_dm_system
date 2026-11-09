@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Any
 
 from monitor_data.tools.ingest_tools._models import (
     DEFAULT_MAX_TOKENS,
@@ -259,6 +260,11 @@ def _split_structured_blocks(text: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _chunk_scope(metadata: dict[str, Any]) -> str | None:
+    """Namespace for chunk point IDs: universe_id, else job id, else None."""
+    return str(metadata.get("universe_id") or metadata.get("job_id") or metadata.get("ingestion_job_id") or "") or None
+
+
 def chunk_text(
     text: str,
     source_name: str,
@@ -333,7 +339,7 @@ def chunk_text(
             "topic_tags": effective_tags,
             "semantic_category": _resolve_category(effective_section, chunk_text_str, effective_tags),
         }
-        chunk_id = IngestedChunk.stable_id(source_name, chunk_index, chunk_text_str)
+        chunk_id = IngestedChunk.stable_id(source_name, chunk_index, chunk_text_str, scope=_chunk_scope(base_metadata))
         chunks.append(
             IngestedChunk(
                 chunk_id=chunk_id,
@@ -374,7 +380,9 @@ def chunk_text(
                         effective_tags,
                     ),
                 }
-                chunk_id = IngestedChunk.stable_id(source_name, chunk_index, sub_text)
+                chunk_id = IngestedChunk.stable_id(
+                    source_name, chunk_index, sub_text, scope=_chunk_scope(base_metadata)
+                )
                 chunks.append(
                     IngestedChunk(
                         chunk_id=chunk_id,
@@ -485,7 +493,7 @@ def _chunk_section(
             return
         chunks.append(
             IngestedChunk(
-                chunk_id=IngestedChunk.stable_id(source_name, idx, text),
+                chunk_id=IngestedChunk.stable_id(source_name, idx, text, scope=_chunk_scope(base_metadata)),
                 source_name=source_name,
                 page_number=first_page,
                 chunk_index=idx,

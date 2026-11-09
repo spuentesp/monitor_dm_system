@@ -157,9 +157,7 @@ class Scene:
 
 
 class Story:
-    def __init__(
-        self, id: str, title: str, game_system_id: str, genre: str = "fantasy"
-    ):
+    def __init__(self, id: str, title: str, game_system_id: str, genre: str = "fantasy"):
         self.id = id
         self.title = title
         self.game_system_id = game_system_id
@@ -468,9 +466,7 @@ async def test_scenario1_single_scene_recap(
 
     # Execute: Step 6 - Analyze plot threads
     open_threads = await neo4j_agent.list_plot_threads(sample_scene.story_id, "open")
-    closed_threads = await neo4j_agent.list_plot_threads(
-        sample_scene.story_id, "resolved"
-    )
+    closed_threads = await neo4j_agent.list_plot_threads(sample_scene.story_id, "resolved")
     assert len(open_threads) == 1
     assert open_threads[0]["name"] == "Dragon Threat"
     assert len(closed_threads) == 0
@@ -645,9 +641,7 @@ async def test_scenario2_full_story_recap(
     assert "five scenes" in summary.lower() or "five" in summary.lower()
 
     # Compile comprehensive recap
-    turn_stats = TurnStats(
-        total=100, by_type={TurnType.ACTION: 100}, duration=timedelta(hours=10)
-    )
+    turn_stats = TurnStats(total=100, by_type={TurnType.ACTION: 100}, duration=timedelta(hours=10))
 
     proposal_stats = ProposalStats(total_accepted=0, by_type={}, by_scene={})
 
@@ -718,9 +712,7 @@ async def test_scenario3_most_recent_scene_recap(
 
     system_agent.get_turns = AsyncMock(
         return_value=[
-            Turn(
-                "turn-3-1", "scene-3", TurnType.ACTION, "Recent action", datetime.now()
-            ),
+            Turn("turn-3-1", "scene-3", TurnType.ACTION, "Recent action", datetime.now()),
             Turn(
                 "turn-3-2",
                 "scene-3",
@@ -757,9 +749,7 @@ async def test_scenario3_most_recent_scene_recap(
     neo4j_agent.list_plot_threads = AsyncMock(return_value=[])
 
     # Execute: Get most recent scene
-    recent_scenes = await system_agent.list_scenes(
-        sample_story.id, order="desc", limit=1
-    )
+    recent_scenes = await system_agent.list_scenes(sample_story.id, order="desc", limit=1)
     assert len(recent_scenes) == 1
     assert recent_scenes[0].id == "scene-3"
 
@@ -874,9 +864,7 @@ async def test_scenario4_custom_detail_level(
         "loot": [],
     }
 
-    brief_summary = await narrator_agent.generate_recap(
-        scene_history, "gm_only", "brief"
-    )
+    brief_summary = await narrator_agent.generate_recap(scene_history, "gm_only", "brief")
     assert len(brief_summary) < 200  # Brief should be short
 
     brief_recap = Recap(
@@ -898,9 +886,7 @@ async def test_scenario4_custom_detail_level(
     )
 
     # Execute: Generate detailed recap
-    detailed_summary = await narrator_agent.generate_recap(
-        scene_history, "gm_only", "detailed"
-    )
+    detailed_summary = await narrator_agent.generate_recap(scene_history, "gm_only", "detailed")
     assert len(detailed_summary) > 200  # Detailed should be longer
 
     detailed_recap = Recap(
@@ -1025,9 +1011,7 @@ async def test_error_scene_not_found(system_agent, fake_mongodb):
     Expected: Raise SceneNotFoundError with clear message
     """
     # Setup: Scene doesn't exist
-    system_agent.get_scene = AsyncMock(
-        side_effect=Exception("Scene not found: scene-999")
-    )
+    system_agent.get_scene = AsyncMock(side_effect=Exception("Scene not found: scene-999"))
 
     # Execute & Verify: Error raised
     with pytest.raises(Exception) as exc_info:
@@ -1160,9 +1144,7 @@ async def test_error_export_failure():
 
 
 @pytest.mark.unit
-async def test_success_criterion_summary_quality(
-    narrator_agent, fake_llm, sample_turns
-):
+async def test_success_criterion_summary_quality(narrator_agent, fake_llm, sample_turns):
     """
     Success Criterion 1: Narrative summary accurately captures session events (≥90% coverage).
 

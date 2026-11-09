@@ -123,9 +123,8 @@ services:
     ports:
       - "${GLINER_PORT:-8082}:8000"
     environment:
-      - MODEL_NAME=${GLINER_MODEL:-knowledgator/gliner-base-v0.1}
-      - MAX_LENGTH=${GLINER_MAX_LENGTH:-384}
-      - BATCH_SIZE=${GLINER_BATCH_SIZE:-8}
+      - GLINER_MODEL=${GLINER_MODEL:-knowledgator/gliner-base-v0.1}
+      - GLINER_MAX_LENGTH=${GLINER_MAX_LENGTH:-384}
     deploy:
       resources:
         limits:

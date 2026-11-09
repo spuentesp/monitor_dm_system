@@ -39,9 +39,7 @@ def _make_state(**overrides) -> Any:
     return CharacterCreationState(**base)
 
 
-def _mock_attribute_module(
-    attribute_assignments: str = "{}", resource_assignments: str = "{}"
-):
+def _mock_attribute_module(attribute_assignments: str = "{}", resource_assignments: str = "{}"):
     """Patch AttributeAssignmentModule at its source (character_creation_loop.py
     imports it lazily inside the function, so patch where it's defined)."""
     return patch(
@@ -63,9 +61,7 @@ def _mock_option_module(matched_option: str):
 def _mock_skill_module(skill_selections: str):
     return patch(
         "monitor_agents.character_creator.character_creation.SkillSelectionModule",
-        return_value=lambda **_kwargs: SimpleNamespace(
-            skill_selections=skill_selections
-        ),
+        return_value=lambda **_kwargs: SimpleNamespace(skill_selections=skill_selections),
     )
 
 
@@ -101,9 +97,7 @@ class TestExtractAttributeAndResourceAssignments:
 
         current = {"STR": 10}
         with _mock_attribute_module(attribute_assignments='{"XYZ": 99}'):
-            attrs, _ = await _extract_attribute_and_resource_assignments(
-                "XYZ=99", current, {}, {}
-            )
+            attrs, _ = await _extract_attribute_and_resource_assignments("XYZ=99", current, {}, {})
         assert attrs == current  # XYZ isn't a real attribute -> ignored
 
     @pytest.mark.asyncio
@@ -113,16 +107,12 @@ class TestExtractAttributeAndResourceAssignments:
         )
 
         current = {"STR": 14, "DEX": 12}
-        attrs, resources = await _extract_attribute_and_resource_assignments(
-            "", current, {}, {}
-        )
+        attrs, resources = await _extract_attribute_and_resource_assignments("", current, {}, {})
         assert attrs == current
         assert resources == {}
 
     @pytest.mark.asyncio
-    async def test_roll_keyword_falls_back_to_random_without_llm_call(
-        self, monkeypatch
-    ):
+    async def test_roll_keyword_falls_back_to_random_without_llm_call(self, monkeypatch):
         """ "roll"/"random" are fixed player commands, not free text needing
         interpretation -- handled directly, no LLM round-trip needed."""
         from monitor_agents.loops.character_creation_loop import (
@@ -142,9 +132,7 @@ class TestExtractAttributeAndResourceAssignments:
             "monitor_agents.character_creator.character_creation.AttributeAssignmentModule"
         ) as MockModule:
             current = {"STR": 10, "DEX": 10}
-            attrs, _ = await _extract_attribute_and_resource_assignments(
-                "roll", current, {}, {}
-            )
+            attrs, _ = await _extract_attribute_and_resource_assignments("roll", current, {}, {})
             MockModule.assert_not_called()
 
         assert attrs["STR"] == 18
@@ -200,9 +188,7 @@ class TestParseSkillChoices:
                 {"name": "Athletics"},
             ]
         }
-        with _mock_skill_module(
-            '{"Stealth": true, "Perception": true, "Athletics": true}'
-        ):
+        with _mock_skill_module('{"Stealth": true, "Perception": true, "Athletics": true}'):
             result = await _parse_skill_choices(
                 "I want to focus on Stealth, Perception, and Athletics", game_context
             )
@@ -243,9 +229,7 @@ class TestParseSkillChoices:
 
         game_context = {"skills": [{"name": "Stealth"}]}
         with _mock_skill_module('{"Stealth": true, "MadeUpSkill": true}'):
-            result = await _parse_skill_choices(
-                "stealth and something else", game_context
-            )
+            result = await _parse_skill_choices("stealth and something else", game_context)
         assert result == {"Stealth": True}
         assert "MadeUpSkill" not in result
 
@@ -735,9 +719,7 @@ class TestProcessInput:
         from monitor_agents.loops.character_creation_loop import process_input
 
         state = _make_state(
-            creation_steps=[
-                {"step_type": "custom", "title": "Opt", "is_optional": True}
-            ],
+            creation_steps=[{"step_type": "custom", "title": "Opt", "is_optional": True}],
             player_input="skip",
         )
         result = await process_input(state)

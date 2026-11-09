@@ -13,21 +13,15 @@ class TestM13DataLayerContracts:
 
     async def test_neo4j_list_archetypes(self, fake_mcp_client: FakeMCPClient):
         """Test neo4j_list_archetypes contract: returns list of archetype summaries."""
-        result = await fake_mcp_client.call(
-            "neo4j_list_archetypes", {"universe_id": "universe123"}
-        )
+        result = await fake_mcp_client.call("neo4j_list_archetypes", {"universe_id": "universe123"})
 
         assert isinstance(result, list), "Result must be a list"
         assert len(result) >= 1, "Result must contain at least one archetype"
         assert result[0]["id"] is not None, "Archetype ID must not be None"
         assert result[0]["name"] is not None, "Archetype name must not be None"
-        assert result[0]["entity_type"] == "archetype", (
-            "Entity type must be 'archetype'"
-        )
+        assert result[0]["entity_type"] == "archetype", "Entity type must be 'archetype'"
 
-    async def test_neo4j_list_archetypes_universe_not_found(
-        self, fake_mcp_client: FakeMCPClient
-    ):
+    async def test_neo4j_list_archetypes_universe_not_found(self, fake_mcp_client: FakeMCPClient):
         """Test neo4j_list_archetypes raises NotFoundError for invalid universe_id."""
         fake_mcp_client.add_error(
             "neo4j_list_archetypes",
@@ -35,9 +29,7 @@ class TestM13DataLayerContracts:
             Exception("Universe not found: invalid_universe"),
         )
         with pytest.raises(Exception, match="Universe not found"):
-            await fake_mcp_client.call(
-                "neo4j_list_archetypes", {"universe_id": "invalid_universe"}
-            )
+            await fake_mcp_client.call("neo4j_list_archetypes", {"universe_id": "invalid_universe"})
 
     async def test_neo4j_create_entity_character(self, fake_mcp_client: FakeMCPClient):
         """Test neo4j_create_entity contract: creates EntityInstance node for character."""
@@ -77,9 +69,7 @@ class TestM13DataLayerContracts:
                 },
             )
 
-    async def test_neo4j_create_entity_character_invalid_name(
-        self, fake_mcp_client: FakeMCPClient
-    ):
+    async def test_neo4j_create_entity_character_invalid_name(self, fake_mcp_client: FakeMCPClient):
         """Test neo4j_create_entity raises ValidationError for invalid name."""
         # Name too short
         fake_mcp_client.add_error(
@@ -112,9 +102,7 @@ class TestM13DataLayerContracts:
                 },
             )
 
-    async def test_neo4j_create_relationship_derives_from(
-        self, fake_mcp_client: FakeMCPClient
-    ):
+    async def test_neo4j_create_relationship_derives_from(self, fake_mcp_client: FakeMCPClient):
         """Test neo4j_create_relationship contract: creates DERIVES_FROM relationship."""
         result = await fake_mcp_client.call(
             "neo4j_create_relationship",
@@ -128,9 +116,7 @@ class TestM13DataLayerContracts:
 
         assert isinstance(result, str), "Result must be a string (relationship ID)"
 
-    async def test_neo4j_create_relationship_has_entity(
-        self, fake_mcp_client: FakeMCPClient
-    ):
+    async def test_neo4j_create_relationship_has_entity(self, fake_mcp_client: FakeMCPClient):
         """Test neo4j_create_relationship contract: creates HAS_ENTITY relationship."""
         result = await fake_mcp_client.call(
             "neo4j_create_relationship",
@@ -316,9 +302,7 @@ class TestM13AgentContracts:
         from monitor_agents.character_creator.agent import ValidationError
 
         with pytest.raises(ValidationError, match="Name must be 1-200 characters"):
-            character_creator.validate_character_params(
-                name="", role="PC", description="Test"
-            )
+            character_creator.validate_character_params(name="", role="PC", description="Test")
 
     def test_validate_character_params_invalid_name_too_long(self, character_creator):
         """Test validate_character_params raises ValidationError for name too long."""
@@ -338,9 +322,7 @@ class TestM13AgentContracts:
                 name="Test", role="PC", description="Test", stats="not_a_dict"
             )
 
-    def test_validate_character_params_invalid_stats_value_too_low(
-        self, character_creator
-    ):
+    def test_validate_character_params_invalid_stats_value_too_low(self, character_creator):
         """Test validate_character_params raises ValidationError for stat value too low."""
         from monitor_agents.character_creator.agent import ValidationError
 
@@ -352,9 +334,7 @@ class TestM13AgentContracts:
                 stats={"STR": 0, "DEX": 14, "CON": 14, "INT": 18, "WIS": 16, "CHA": 16},
             )
 
-    def test_validate_character_params_invalid_stats_value_too_high(
-        self, character_creator
-    ):
+    def test_validate_character_params_invalid_stats_value_too_high(self, character_creator):
         """Test validate_character_params raises ValidationError for stat value too high."""
         from monitor_agents.character_creator.agent import ValidationError
 
@@ -875,9 +855,7 @@ class TestM13ComplianceChecklist:
 
     async def test_lists_archetypes_for_selection(self, fake_mcp_client: FakeMCPClient):
         """Test: Lists archetypes for selection."""
-        result = await fake_mcp_client.call(
-            "neo4j_list_archetypes", {"universe_id": "universe123"}
-        )
+        result = await fake_mcp_client.call("neo4j_list_archetypes", {"universe_id": "universe123"})
         assert isinstance(result, list)
         assert len(result) >= 1
         assert result[0]["entity_type"] == "archetype"

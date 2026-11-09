@@ -307,8 +307,7 @@ class TestContradictionDetection:
         result = detect_contradictions(pack, canon_axioms=[], canon_facts=canon_facts)
         assert result.total_contradictions >= 1
         assert any(
-            m.contradiction_type == ContradictionType.SEMANTIC_OPPOSITE
-            for m in result.all_matches
+            m.contradiction_type == ContradictionType.SEMANTIC_OPPOSITE for m in result.all_matches
         )
 
     def test_opposite_terms_contradiction_detected(self):
@@ -349,9 +348,7 @@ class TestContradictionDetection:
                 ),
             ]
         )
-        canon_facts = [
-            {"statement": "The gods are real and intervene", "canon_level": "canon"}
-        ]
+        canon_facts = [{"statement": "The gods are real and intervene", "canon_level": "canon"}]
         result = detect_contradictions(pack, canon_axioms=[], canon_facts=canon_facts)
         assert result.total_contradictions == 0
 
@@ -403,9 +400,7 @@ class TestContradictionDetection:
     def test_multiverse_id_tracked(self):
         mv_id = uuid4()
         pack = _make_pack()
-        result = detect_contradictions(
-            pack, canon_axioms=[], canon_facts=[], multiverse_id=mv_id
-        )
+        result = detect_contradictions(pack, canon_axioms=[], canon_facts=[], multiverse_id=mv_id)
         assert result.checked_against_multiverse == mv_id
 
     def test_severity_high_for_canon_axiom(self):
@@ -415,13 +410,10 @@ class TestContradictionDetection:
                 ExtractedAxiom(statement="Magic does not exist", domain="magic"),
             ]
         )
-        canon_axioms = [
-            {"statement": "Magic exists and is real", "canon_level": "canon"}
-        ]
+        canon_axioms = [{"statement": "Magic exists and is real", "canon_level": "canon"}]
         result = detect_contradictions(pack, canon_axioms=canon_axioms, canon_facts=[])
         if result.total_contradictions > 0:
             assert all(
-                m.severity
-                in (ContradictionSeverity.HIGH, ContradictionSeverity.CRITICAL)
+                m.severity in (ContradictionSeverity.HIGH, ContradictionSeverity.CRITICAL)
                 for m in result.axiom_contradictions
             )

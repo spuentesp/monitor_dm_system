@@ -79,11 +79,7 @@ def test_tiny_pdf_ingests_to_ready_pack() -> None:
     if job["status"] != "completed":
         # If the LLM provider is down, don't fail the suite — skip with the reason.
         err = (job.get("errors") or [""])[0]
-        if (
-            "timed out" in err.lower()
-            or "connection" in err.lower()
-            or "provider" in err.lower()
-        ):
+        if "timed out" in err.lower() or "connection" in err.lower() or "provider" in err.lower():
             pytest.skip(f"LLM provider unavailable: {err}")
         pytest.fail(f"job did not complete: status={job['status']} error={err}")
 

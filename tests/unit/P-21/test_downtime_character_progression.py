@@ -287,9 +287,7 @@ Available Upgrades:
 
         return prompt
 
-    def parse_selection(
-        self, input: str, upgrades: list[UpgradeOption]
-    ) -> list[UpgradeOption]:
+    def parse_selection(self, input: str, upgrades: list[UpgradeOption]) -> list[UpgradeOption]:
         """Parse user selection."""
         if input.lower() == "done":
             return []
@@ -329,18 +327,14 @@ Available Upgrades:
                 max_value = rules.max_attributes.get(upgrade.attribute or "", 20)
                 if current_value >= max_value:
                     validation.valid = False
-                    validation.errors.append(
-                        f"{upgrade.attribute} already at max ({max_value})"
-                    )
+                    validation.errors.append(f"{upgrade.attribute} already at max ({max_value})")
 
             if upgrade.type == UpgradeType.SKILL:
                 current_level = progression.skills.get(upgrade.skill or "", 0)
                 max_level = rules.max_skills.get(upgrade.skill or "", 5)
                 if current_level >= max_level:
                     validation.valid = False
-                    validation.errors.append(
-                        f"{upgrade.skill} already at max ({max_level})"
-                    )
+                    validation.errors.append(f"{upgrade.skill} already at max ({max_level})")
 
         return validation
 
@@ -358,9 +352,7 @@ Available Upgrades:
                         change_type="level_up",
                         changes={"level": upgrade.new_level},
                         reason="Character progression during downtime",
-                        evidence_refs=[
-                            {"source": "progression", "upgrade_type": "level_up"}
-                        ],
+                        evidence_refs=[{"source": "progression", "upgrade_type": "level_up"}],
                     )
                 )
 
@@ -453,9 +445,7 @@ class CanonKeeper:
         self.mcp_client = mcp_client
         self.committed_changes = []
 
-    async def evaluate_and_commit(
-        self, proposed_changes: list[ProposedChange]
-    ) -> CanonResult:
+    async def evaluate_and_commit(self, proposed_changes: list[ProposedChange]) -> CanonResult:
         """Evaluate and commit changes."""
         # Mock: Always accept and commit
         for change in proposed_changes:
@@ -471,9 +461,7 @@ class NarratorAgent:
         self.llm_client = llm_client
         self.descriptions = []
 
-    def describe_progression(
-        self, upgrades: list[UpgradeOption], character_name: str
-    ) -> str:
+    def describe_progression(self, upgrades: list[UpgradeOption], character_name: str) -> str:
         """Generate narrative description of progression."""
         if not upgrades:
             return f"{character_name} rests and reflects on their journey."
@@ -559,9 +547,7 @@ def progression_loop(fake_mcp_client, canonkeeper, narrator):
 @pytest.fixture
 def story(story_id):
     """Story fixture."""
-    return Story(
-        story_id=story_id, arc_label="resolution", updated_at=datetime.utcnow()
-    )
+    return Story(story_id=story_id, arc_label="resolution", updated_at=datetime.utcnow())
 
 
 @pytest.fixture
@@ -623,26 +609,18 @@ async def test_p21_scenario_1_level_up(
     # Action 1: Detect Downtime Trigger
     downtime_detected = progression_loop.detect_downtime_trigger(story, scene)
     assert downtime_detected is True, "Should detect downtime trigger"
-    assert len(progression_loop.downtime_detections) >= 1, (
-        "Should log downtime detection"
-    )
+    assert len(progression_loop.downtime_detections) >= 1, "Should log downtime detection"
 
     # Action 2: Query Character Entity
     progression = progression_loop.query_character_progression(character_id)
-    assert progression.name == "Aragorn", (
-        f"Expected name 'Aragorn', got '{progression.name}'"
-    )
+    assert progression.name == "Aragorn", f"Expected name 'Aragorn', got '{progression.name}'"
     assert progression.level == 1, f"Expected level 1, got {progression.level}"
     assert progression.xp == 1000, f"Expected XP 1000, got {progression.xp}"
 
     # Action 3: Query Game System Rules
     rules = progression_loop.query_progression_rules(system_id, progression.level)
-    assert rules.system_name == "D&D 5e", (
-        f"Expected system 'D&D 5e', got '{rules.system_name}'"
-    )
-    assert rules.level_up_xp == 1000, (
-        f"Expected level_up_xp 1000, got {rules.level_up_xp}"
-    )
+    assert rules.system_name == "D&D 5e", f"Expected system 'D&D 5e', got '{rules.system_name}'"
+    assert rules.level_up_xp == 1000, f"Expected level_up_xp 1000, got {rules.level_up_xp}"
 
     # Action 4: Calculate Available Upgrades
     upgrades = progression_loop.calculate_upgrades(progression, rules)
@@ -650,16 +628,12 @@ async def test_p21_scenario_1_level_up(
 
     # Should have level up available
     level_up_upgrades = [u for u in upgrades if u.type == UpgradeType.LEVEL_UP]
-    assert len(level_up_upgrades) == 1, (
-        f"Expected 1 level up upgrade, got {len(level_up_upgrades)}"
-    )
+    assert len(level_up_upgrades) == 1, f"Expected 1 level up upgrade, got {len(level_up_upgrades)}"
 
     # Action 5: Present Progression UI
     prompt = progression_loop.present_progression_ui(progression, upgrades)
     assert "DOWNTIME & PROGRESSION" in prompt, "Prompt should mention downtime"
-    assert progression.name in prompt, (
-        f"Prompt should include character name '{progression.name}'"
-    )
+    assert progression.name in prompt, f"Prompt should include character name '{progression.name}'"
     assert "Level" in prompt, "Prompt should show level"
     assert "XP" in prompt, "Prompt should show XP"
     assert "Available Upgrades" in prompt, "Prompt should show upgrades"
@@ -667,34 +641,20 @@ async def test_p21_scenario_1_level_up(
     # Action 6: Parse User Selection
     user_selection = "1"
     selected_upgrades = progression_loop.parse_selection(user_selection, upgrades)
-    assert len(selected_upgrades) == 1, (
-        f"Expected 1 selected upgrade, got {len(selected_upgrades)}"
-    )
-    assert selected_upgrades[0].type == UpgradeType.LEVEL_UP, (
-        "Selected upgrade should be level up"
-    )
+    assert len(selected_upgrades) == 1, f"Expected 1 selected upgrade, got {len(selected_upgrades)}"
+    assert selected_upgrades[0].type == UpgradeType.LEVEL_UP, "Selected upgrade should be level up"
 
     # Action 7: Validate Selection
-    validation = progression_loop.validate_selection(
-        selected_upgrades, rules, progression
-    )
-    assert validation.valid is True, (
-        f"Validation should pass, errors: {validation.errors}"
-    )
+    validation = progression_loop.validate_selection(selected_upgrades, rules, progression)
+    assert validation.valid is True, f"Validation should pass, errors: {validation.errors}"
     assert len(validation.errors) == 0, (
         f"Should have no validation errors, got: {validation.errors}"
     )
 
     # Action 8: Create ProposedChanges
-    proposed_changes = progression_loop.create_proposed_changes(
-        character_id, selected_upgrades
-    )
-    assert len(proposed_changes) == 1, (
-        f"Expected 1 proposed change, got {len(proposed_changes)}"
-    )
-    assert proposed_changes[0].change_type == "level_up", (
-        "Change type should be level_up"
-    )
+    proposed_changes = progression_loop.create_proposed_changes(character_id, selected_upgrades)
+    assert len(proposed_changes) == 1, f"Expected 1 proposed change, got {len(proposed_changes)}"
+    assert proposed_changes[0].change_type == "level_up", "Change type should be level_up"
     assert proposed_changes[0].changes["level"] == 2, "New level should be 2"
     assert len(proposed_changes[0].evidence_refs) > 0, "Should have evidence refs"
 
@@ -734,9 +694,7 @@ async def test_p21_scenario_1_level_up(
     )
 
     gm_turn = turns[1]
-    assert gm_turn.turn_type == TurnType.NARRATION, (
-        f"Expected NARRATION, got {gm_turn.turn_type}"
-    )
+    assert gm_turn.turn_type == TurnType.NARRATION, f"Expected NARRATION, got {gm_turn.turn_type}"
     assert gm_turn.speaker_id == "system:progression", (
         f"Expected speaker 'system:progression', got {gm_turn.speaker_id}"
     )
@@ -826,27 +784,17 @@ async def test_p21_scenario_2_multiple_upgrades(
     )
 
     # Validate selection
-    validation = progression_loop.validate_selection(
-        selected_upgrades, rules, progression
-    )
-    assert validation.valid is True, (
-        f"Validation should pass, errors: {validation.errors}"
-    )
+    validation = progression_loop.validate_selection(selected_upgrades, rules, progression)
+    assert validation.valid is True, f"Validation should pass, errors: {validation.errors}"
 
     # Calculate total cost
     total_cost = sum(u.cost for u in selected_upgrades)
     assert total_cost == 100, f"Expected total cost 100, got {total_cost}"
-    assert total_cost <= progression.xp, (
-        f"Total cost {total_cost} should be ≤ XP {progression.xp}"
-    )
+    assert total_cost <= progression.xp, f"Total cost {total_cost} should be ≤ XP {progression.xp}"
 
     # Create proposed changes
-    proposed_changes = progression_loop.create_proposed_changes(
-        character_id, selected_upgrades
-    )
-    assert len(proposed_changes) == 2, (
-        f"Expected 2 proposed changes, got {len(proposed_changes)}"
-    )
+    proposed_changes = progression_loop.create_proposed_changes(character_id, selected_upgrades)
+    assert len(proposed_changes) == 2, f"Expected 2 proposed changes, got {len(proposed_changes)}"
 
     # Check that both attributes are in proposed changes
     change_types = [c.change_type for c in proposed_changes]
@@ -878,18 +826,14 @@ async def test_p21_scenario_2_multiple_upgrades(
 
     # Check GM turn metadata
     gm_turn = turns[1]
-    assert len(gm_turn.metadata.get("upgrades_applied", [])) == 2, (
-        "Should have 2 upgrades applied"
-    )
+    assert len(gm_turn.metadata.get("upgrades_applied", [])) == 2, "Should have 2 upgrades applied"
 
 
 # Scenario 3: No Upgrades Available
 
 
 @pytest.mark.unit
-async def test_p21_scenario_3_no_upgrades_available(
-    progression_loop, narrator, scene, user_id
-):
+async def test_p21_scenario_3_no_upgrades_available(progression_loop, narrator, scene, user_id):
     """
     Scenario 3: No Upgrades Available
 
@@ -947,9 +891,7 @@ async def test_p21_scenario_3_no_upgrades_available(
 
     # Present UI should show no upgrades available
     prompt = progression_loop.present_progression_ui(progression, upgrades)
-    assert "No upgrades available" in prompt, (
-        "Prompt should indicate no upgrades available"
-    )
+    assert "No upgrades available" in prompt, "Prompt should indicate no upgrades available"
     assert "XP" in prompt, "Prompt should mention XP"
 
     # User selects 'done'
@@ -976,9 +918,7 @@ async def test_p21_scenario_3_no_upgrades_available(
     )
 
     gm_turn = turns[1]
-    assert gm_turn.metadata.get("progression_applied") is False, (
-        "Progression should not be applied"
-    )
+    assert gm_turn.metadata.get("progression_applied") is False, "Progression should not be applied"
 
 
 # Scenario 4: Insufficient XP for Selection
@@ -1046,18 +986,14 @@ async def test_p21_scenario_4_insufficient_xp(progression_loop, scene, user_id):
 
     # User tries to select both
     user_selection_initial = "1,2"
-    selected_upgrades_initial = progression_loop.parse_selection(
-        user_selection_initial, upgrades
-    )
+    selected_upgrades_initial = progression_loop.parse_selection(user_selection_initial, upgrades)
     assert len(selected_upgrades_initial) == 2, "Should parse 2 upgrades initially"
 
     # Validate - should fail due to insufficient XP
     validation_initial = progression_loop.validate_selection(
         selected_upgrades_initial, rules, progression
     )
-    assert validation_initial.valid is False, (
-        "Validation should fail for insufficient XP"
-    )
+    assert validation_initial.valid is False, "Validation should fail for insufficient XP"
     assert len(validation_initial.errors) > 0, "Should have validation errors"
     assert any("exceeds" in error.lower() for error in validation_initial.errors), (
         "Error should mention exceeding XP"
@@ -1074,16 +1010,12 @@ async def test_p21_scenario_4_insufficient_xp(progression_loop, scene, user_id):
     validation_corrected = progression_loop.validate_selection(
         selected_upgrades_corrected, rules, progression
     )
-    assert validation_corrected.valid is True, (
-        "Validation should pass for corrected selection"
-    )
+    assert validation_corrected.valid is True, "Validation should pass for corrected selection"
 
     # Check total cost
     total_cost = sum(u.cost for u in selected_upgrades_corrected)
     assert total_cost == 50, f"Expected total cost 50, got {total_cost}"
-    assert total_cost <= progression.xp, (
-        f"Total cost {total_cost} should be ≤ XP {progression.xp}"
-    )
+    assert total_cost <= progression.xp, f"Total cost {total_cost} should be ≤ XP {progression.xp}"
 
     # Remaining XP
     remaining_xp = progression.xp - total_cost
@@ -1170,30 +1102,22 @@ async def test_p21_scenario_5_skill_training(
     )
 
     # Validate
-    validation = progression_loop.validate_selection(
-        selected_upgrades, rules, progression
-    )
-    assert validation.valid is True, (
-        f"Validation should pass, errors: {validation.errors}"
-    )
+    validation = progression_loop.validate_selection(selected_upgrades, rules, progression)
+    assert validation.valid is True, f"Validation should pass, errors: {validation.errors}"
 
     # Total cost should be 50 XP
     total_cost = sum(u.cost for u in selected_upgrades)
     assert total_cost == 50, f"Expected total cost 50, got {total_cost}"
 
     # Create proposed changes
-    proposed_changes = progression_loop.create_proposed_changes(
-        character_id, selected_upgrades
-    )
+    proposed_changes = progression_loop.create_proposed_changes(character_id, selected_upgrades)
     assert len(proposed_changes) >= 2, (
         f"Expected at least 2 proposed changes, got {len(proposed_changes)}"
     )
 
     # Check that skills are in proposed changes
     skill_changes = [c for c in proposed_changes if c.change_type == "skill_training"]
-    assert len(skill_changes) >= 2, (
-        f"Expected at least 2 skill changes, got {len(skill_changes)}"
-    )
+    assert len(skill_changes) >= 2, f"Expected at least 2 skill changes, got {len(skill_changes)}"
 
     # CanonKeeper commits
     canon_result = await canonkeeper.evaluate_and_commit(proposed_changes)
@@ -1362,9 +1286,7 @@ def test_p21_success_criteria_downtime_detection(progression_loop, story, scene)
     Success Criteria: Downtime detection 100% accuracy
     """
     # Test story arc trigger
-    story_arc = Story(
-        story_id=uuid.uuid4(), arc_label="resolution", updated_at=datetime.utcnow()
-    )
+    story_arc = Story(story_id=uuid.uuid4(), arc_label="resolution", updated_at=datetime.utcnow())
     scene_no_tags = Scene(
         scene_id=uuid.uuid4(),
         story_id=story_arc.story_id,
@@ -1377,9 +1299,7 @@ def test_p21_success_criteria_downtime_detection(progression_loop, story, scene)
     assert detected is True, "Should detect downtime from story arc"
 
     # Test scene tag trigger (rest)
-    story_no_arc = Story(
-        story_id=uuid.uuid4(), arc_label=None, updated_at=datetime.utcnow()
-    )
+    story_no_arc = Story(story_id=uuid.uuid4(), arc_label=None, updated_at=datetime.utcnow())
     scene_rest = Scene(
         scene_id=uuid.uuid4(),
         story_id=story_no_arc.story_id,
@@ -1404,9 +1324,7 @@ def test_p21_success_criteria_downtime_detection(progression_loop, story, scene)
     assert detected is True, "Should detect downtime from downtime tag"
 
     # Test no trigger
-    story_active = Story(
-        story_id=uuid.uuid4(), arc_label="active", updated_at=datetime.utcnow()
-    )
+    story_active = Story(story_id=uuid.uuid4(), arc_label="active", updated_at=datetime.utcnow())
     scene_active = Scene(
         scene_id=uuid.uuid4(),
         story_id=story_active.story_id,
@@ -1456,9 +1374,7 @@ def test_p21_success_criteria_upgrade_calculation(progression_loop):
     progression.xp = 500
     upgrades = progression_loop.calculate_upgrades(progression, rules)
     level_up_upgrades = [u for u in upgrades if u.type == UpgradeType.LEVEL_UP]
-    assert len(level_up_upgrades) == 0, (
-        "Should not calculate level up when XP insufficient"
-    )
+    assert len(level_up_upgrades) == 0, "Should not calculate level up when XP insufficient"
 
 
 @pytest.mark.unit
@@ -1592,18 +1508,12 @@ async def test_p21_postconditions_progression_applied(
     selected_upgrades = upgrades[:1]  # Select first upgrade
 
     # Create proposed changes
-    proposed_changes = progression_loop.create_proposed_changes(
-        character_id, selected_upgrades
-    )
+    proposed_changes = progression_loop.create_proposed_changes(character_id, selected_upgrades)
 
     # CanonKeeper commits (updates Neo4j)
     canon_result = await canonkeeper.evaluate_and_commit(proposed_changes)
-    assert canon_result.success is True, (
-        "Postcondition 1: CanonKeeper should commit changes"
-    )
-    assert len(canonkeeper.committed_changes) > 0, (
-        "Postcondition 1: Changes should be committed"
-    )
+    assert canon_result.success is True, "Postcondition 1: CanonKeeper should commit changes"
+    assert len(canonkeeper.committed_changes) > 0, "Postcondition 1: Changes should be committed"
 
     # Postcondition 2: XP deducted (tracked in turn metadata)
     xp_spent = sum(u.cost for u in selected_upgrades)
@@ -1611,9 +1521,7 @@ async def test_p21_postconditions_progression_applied(
 
     # Narrator describes
     description = narrator.describe_progression(selected_upgrades, progression.name)
-    assert description is not None, (
-        "Postcondition 4: Narrator should describe progression"
-    )
+    assert description is not None, "Postcondition 4: Narrator should describe progression"
 
     # Append turns (Postcondition 3: Progression logged)
     turns = await progression_loop.append_progression_turns(

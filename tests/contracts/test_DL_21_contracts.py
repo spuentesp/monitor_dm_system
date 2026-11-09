@@ -172,9 +172,7 @@ class TestRandomTableCreateContract:
             dice_formula="2d6",
             weighted=True,
             entries=[
-                RandomTableEntry(
-                    min_roll=2, max_roll=4, value="Clear skies", weight=0.3
-                ),
+                RandomTableEntry(min_roll=2, max_roll=4, value="Clear skies", weight=0.3),
                 RandomTableEntry(min_roll=5, max_roll=9, value="Cloudy", weight=0.4),
                 RandomTableEntry(min_roll=10, max_roll=12, value="Storm", weight=0.3),
             ],

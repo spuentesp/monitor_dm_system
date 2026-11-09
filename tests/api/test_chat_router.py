@@ -160,9 +160,7 @@ class TestMessageSend:
         )
         sid = create_resp.json()["id"]
 
-        response = ui_client.post(
-            f"/api/chat/{sid}/send", json={"content": "Hello world"}
-        )
+        response = ui_client.post(f"/api/chat/{sid}/send", json={"content": "Hello world"})
         assert response.status_code == 200
         msg = response.json()
         assert msg["role"] == "gm"
@@ -170,9 +168,7 @@ class TestMessageSend:
 
     def test_send_message_to_nonexistent_404(self, ui_client: TestClient) -> None:
         """POST /api/chat/{sid}/send returns 404 for unknown session."""
-        response = ui_client.post(
-            "/api/chat/nonexistent/send", json={"content": "Hello"}
-        )
+        response = ui_client.post("/api/chat/nonexistent/send", json={"content": "Hello"})
         assert response.status_code == 404
 
     def test_messages_accumulate(self, ui_client: TestClient) -> None:
@@ -243,9 +239,7 @@ class TestSessionEdgeCases:
         response = ui_client.post("/api/chat", content="not json")
         assert response.status_code == 422
 
-    def test_messages_endpoint_unknown_session_empty(
-        self, ui_client: TestClient
-    ) -> None:
+    def test_messages_endpoint_unknown_session_empty(self, ui_client: TestClient) -> None:
         """GET /api/chat/{sid}/messages: unknown sessions 404 (auth-era ownership rule)."""
         response = ui_client.get("/api/chat/nonexistent/messages")
         assert response.status_code == 404

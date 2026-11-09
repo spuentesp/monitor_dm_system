@@ -48,18 +48,14 @@ class TestP3TurnLoopAcceptsUserInput:
         """Test that user input is recorded as a turn."""
         scene_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo:
+        with patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo:
             mongo_client = MagicMock()
             mock_mongo.return_value = mongo_client
             mongo_client.get_collection.return_value.update_one = MagicMock()
 
             turn = mongodb_append_turn(
                 scene_id,
-                TurnCreate(
-                    speaker=Speaker.USER, text="I attack the goblin with my sword"
-                ),
+                TurnCreate(speaker=Speaker.USER, text="I attack the goblin with my sword"),
             )
 
             assert turn is not None
@@ -103,18 +99,14 @@ class TestP3TurnLoopAppendsGMResponse:
         """Test that GM response is appended as a turn."""
         scene_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo:
+        with patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo:
             mongo_client = MagicMock()
             mock_mongo.return_value = mongo_client
             mongo_client.get_collection.return_value.update_one = MagicMock()
 
             turn = mongodb_append_turn(
                 scene_id,
-                TurnCreate(
-                    speaker=Speaker.GM, text="You swing your sword at the goblin..."
-                ),
+                TurnCreate(speaker=Speaker.GM, text="You swing your sword at the goblin..."),
             )
 
             assert turn is not None
@@ -129,9 +121,7 @@ class TestP3TurnLoopTracksRecentContext:
         """Test that recent turns are returned."""
         scene_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo:
+        with patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo:
             mongo_client = MagicMock()
             mock_mongo.return_value = mongo_client
 
@@ -158,9 +148,7 @@ class TestP3TurnLoopChecksSceneEnd:
         """Test that scene status changes to COMPLETED."""
         scene_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo:
+        with patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo:
             with patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"):
                 mongo_client = MagicMock()
                 mock_mongo.return_value = mongo_client
@@ -185,9 +173,7 @@ class TestP3TurnLoopChecksSceneEnd:
 
                 # Update to completed
                 mock_collection.update_one = MagicMock()
-                mongodb_update_scene(
-                    scene_id, SceneUpdate(status=SceneStatus.COMPLETED)
-                )
+                mongodb_update_scene(scene_id, SceneUpdate(status=SceneStatus.COMPLETED))
 
                 mock_collection.find_one.return_value = {
                     "scene_id": str(scene_id),
@@ -219,9 +205,7 @@ class TestP3TurnLoopCreatesProposals:
         scene_id = uuid4()
         entity_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.proposals.get_mongodb_client"
-        ) as mock_mongo:
+        with patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client") as mock_mongo:
             mongo_client = MagicMock()
             mock_mongo.return_value = mongo_client
             mongo_client.get_collection.return_value.insert_one = MagicMock()
@@ -245,11 +229,10 @@ class TestP3EntitySpeakerTurns:
         scene_id = uuid4()
         npc_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -297,12 +280,8 @@ class TestP3ResolutionReferences:
         actor_id = uuid4()
         resolution_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.resolutions.get_mongodb_client"
-        ) as mock_mongo:
-            with patch(
-                "monitor_data.tools.mongodb_tools.resolutions.get_neo4j_client"
-            ) as mock_neo:
+        with patch("monitor_data.tools.mongodb_tools.resolutions.get_mongodb_client") as mock_mongo:
+            with patch("monitor_data.tools.mongodb_tools.resolutions.get_neo4j_client") as mock_neo:
                 mongo_client = MagicMock()
                 mock_mongo.return_value = mongo_client
 
@@ -351,9 +330,7 @@ class TestP3ResolutionReferences:
                 )
 
             # Now append turn with resolution ref
-            with patch(
-                "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-            ) as mock_mongo2:
+            with patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo2:
                 mongo_client2 = MagicMock()
                 mock_mongo2.return_value = mongo_client2
                 mongo_client2.get_collection.return_value.update_one = MagicMock()
@@ -378,9 +355,7 @@ class TestP3AcceptanceCriteria:
         """AC-1: User input is recorded as turn."""
         scene_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo:
+        with patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo:
             mongo_client = MagicMock()
             mock_mongo.return_value = mongo_client
             mongo_client.get_collection.return_value.update_one = MagicMock()
@@ -403,16 +378,12 @@ class TestP3AcceptanceCriteria:
         """AC-3: GM response is appended."""
         scene_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo:
+        with patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo:
             mongo_client = MagicMock()
             mock_mongo.return_value = mongo_client
             mongo_client.get_collection.return_value.update_one = MagicMock()
 
-            turn = mongodb_append_turn(
-                scene_id, TurnCreate(speaker=Speaker.GM, text="GM response")
-            )
+            turn = mongodb_append_turn(scene_id, TurnCreate(speaker=Speaker.GM, text="GM response"))
 
             assert turn is not None
             assert turn.speaker == Speaker.GM
@@ -422,11 +393,10 @@ class TestP3AcceptanceCriteria:
         scene_id = uuid4()
         entity_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -437,9 +407,7 @@ class TestP3AcceptanceCriteria:
 
             turn = mongodb_append_turn(
                 scene_id,
-                TurnCreate(
-                    speaker=Speaker.ENTITY, entity_id=entity_id, text="NPC speaks"
-                ),
+                TurnCreate(speaker=Speaker.ENTITY, entity_id=entity_id, text="NPC speaks"),
             )
 
             assert turn.entity_id == entity_id

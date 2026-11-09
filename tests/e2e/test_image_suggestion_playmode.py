@@ -129,9 +129,7 @@ class TestImageSuggestionPlayMode:
     @patch("monitor_ui.routers.chat._db_save_session")
     @patch("monitor_ui.routers.chat._SESSIONS", new_callable=dict)
     @patch("monitor_ui.routers.chat._MESSAGES", new_callable=dict)
-    def test_receive_dismiss_accept_render(
-        self, _msgs, _sessions, _save_ses, _save_msg, client
-    ):
+    def test_receive_dismiss_accept_render(self, _msgs, _sessions, _save_ses, _save_msg, client):
         """Receive a scene turn carrying two image suggestions on its
         metadata; the dismiss path leaves the adapter untouched; the
         accept path hits the image endpoint exactly once with provenance.
@@ -181,9 +179,7 @@ class TestImageSuggestionPlayMode:
                 "monitor_ui.routers.chat._run_scene_turn",
                 new=AsyncMock(side_effect=fake_scene_turn),
             ),
-            patch.object(
-                image_gen, "resolve_image_adapter", new=AsyncMock(return_value=adapter)
-            ),
+            patch.object(image_gen, "resolve_image_adapter", new=AsyncMock(return_value=adapter)),
         ):
             res = client.post(
                 f"/api/chat/{session_id}/send",
@@ -230,9 +226,7 @@ class TestImageSuggestionPlayMode:
         }
 
         with (
-            patch.object(
-                image_gen, "resolve_image_adapter", new=AsyncMock(return_value=adapter)
-            ),
+            patch.object(image_gen, "resolve_image_adapter", new=AsyncMock(return_value=adapter)),
             patch(
                 "monitor_ui.routers.image_gen.mongodb_get_image_generation_settings",
                 return_value=_patch_settings(),

@@ -693,6 +693,7 @@ class Analyzer(BaseAgent):
             include_axioms,
             include_entities,
             include_lore,
+            universe_id=universe_id,
         )
 
         (
@@ -1079,6 +1080,7 @@ class Analyzer(BaseAgent):
         include_axioms: bool,
         include_entities: bool,
         include_lore: bool,
+        universe_id: UUID | None = None,
     ) -> tuple[
         list[ExtractedAxiom],
         list[ExtractedEntityArchetype],
@@ -1117,7 +1119,7 @@ class Analyzer(BaseAgent):
         # Entity evidence enrichment
         if include_entities and entities:
             entity_names = [e.name for e in entities if e.name]
-            evidence = await self._retrieve_entity_evidence(source_name, entity_names)
+            evidence = await self._retrieve_entity_evidence(source_name, entity_names, universe_id=universe_id)
             entities = self._enrich_entities_from_evidence(entities, evidence)
             self._update_job(
                 job_id,
@@ -2968,6 +2970,7 @@ class Analyzer(BaseAgent):
         entity_names: list[str],
         collection: str = "snippets",
         snippets_per_entity: int = 4,
+        universe_id: UUID | None = None,
     ) -> dict[str, list[str]]:
         """
         For each extracted entity name, retrieve chunks from Qdrant that literally
@@ -2987,18 +2990,22 @@ class Analyzer(BaseAgent):
         async def _lookup(name: str) -> tuple[str, list[str]]:
             async with sem:
                 try:
-                    text_filter = Filter(
-                        must=[
-                            FieldCondition(
-                                key="source_name",
-                                match=MatchValue(value=source_name),
-                            ),
-                            FieldCondition(
-                                key="text",
-                                match=MatchText(text=name.strip()),
-                            ),
-                        ]
-                    )
+                    evidence_must = [
+                        FieldCondition(
+                            key="source_name",
+                            match=MatchValue(value=source_name),
+                        ),
+                        FieldCondition(
+                            key="text",
+                            match=MatchText(text=name.strip()),
+                        ),
+                    ]
+                    if universe_id is not None:
+                        # Tenant isolation: never pull another universe's chunks.
+                        evidence_must.append(
+                            FieldCondition(key="universe_id", match=MatchValue(value=str(universe_id)))
+                        )
+                    text_filter = Filter(must=evidence_must)
                     batch, _ = await qdrant.scroll(
                         collection_name=collection,
                         scroll_filter=text_filter,

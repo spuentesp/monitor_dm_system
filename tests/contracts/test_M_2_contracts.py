@@ -107,9 +107,7 @@ class TestNeo4jListMultiversesContract:
     async def test_returns_empty_list_if_no_multiverses(self, fake_mcp_client):
         """Contract: Returns empty list if no multiverses exist."""
         # Setup
-        fake_mcp_client.add_response(
-            "neo4j_list_multiverses", {"omniverse_id": "omni123"}, []
-        )
+        fake_mcp_client.add_response("neo4j_list_multiverses", {"omniverse_id": "omni123"}, [])
 
         # Execute
         result = await fake_mcp_client.call_tool(
@@ -349,9 +347,7 @@ class TestNeo4jCreateUniverseContract:
         fake_mcp_client.add_error(
             "neo4j_create_universe",
             {},
-            ValueError(
-                "Invalid genre. Must be one of: Fantasy, Sci-Fi, Cyberpunk, etc."
-            ),
+            ValueError("Invalid genre. Must be one of: Fantasy, Sci-Fi, Cyberpunk, etc."),
         )
 
         # Execute & Verify
@@ -403,9 +399,7 @@ class TestNeo4jCreateUniverseContract:
         fake_mcp_client.add_error(
             "neo4j_create_universe",
             {},
-            ValueError(
-                "Invalid tech level. Must be one of: Pre-Industrial, Modern, Future, etc."
-            ),
+            ValueError("Invalid tech level. Must be one of: Pre-Industrial, Modern, Future, etc."),
         )
 
         # Execute & Verify
@@ -584,9 +578,7 @@ class TestNeo4jListUniversesContract:
     async def test_returns_empty_list_if_no_universes(self, fake_mcp_client):
         """Contract: Returns empty list if no universes exist."""
         # Setup
-        fake_mcp_client.add_response(
-            "neo4j_list_universes", {"multiverse_id": "multi123"}, []
-        )
+        fake_mcp_client.add_response("neo4j_list_universes", {"multiverse_id": "multi123"}, [])
 
         # Execute
         result = await fake_mcp_client.call_tool(
@@ -609,9 +601,7 @@ class TestNeo4jListUniversesContract:
 
         # Execute & Verify
         with pytest.raises(FileNotFoundError, match="Multiverse not found"):
-            await fake_mcp_client.call_tool(
-                "neo4j_list_universes", {"multiverse_id": "invalid123"}
-            )
+            await fake_mcp_client.call_tool("neo4j_list_universes", {"multiverse_id": "invalid123"})
 
 
 # =============================================================================
@@ -857,9 +847,7 @@ class TestUniverseCreationIntegration:
         assert isinstance(universe_id, str)
 
     @pytest.mark.asyncio
-    async def test_full_universe_creation_workflow_with_branching(
-        self, fake_mcp_client
-    ):
+    async def test_full_universe_creation_workflow_with_branching(self, fake_mcp_client):
         """Contract: Full workflow: list universes → create universe (branch) → return ID."""
         # Setup
         fake_mcp_client.add_response(

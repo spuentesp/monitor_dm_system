@@ -29,12 +29,8 @@ class TestNormalizeConversationChangeType:
             _normalize_conversation_change_type,
         )
 
-        assert (
-            _normalize_conversation_change_type("npc_emotional_state") == "state_change"
-        )
-        assert (
-            _normalize_conversation_change_type("relationship_delta") == "relationship"
-        )
+        assert _normalize_conversation_change_type("npc_emotional_state") == "state_change"
+        assert _normalize_conversation_change_type("relationship_delta") == "relationship"
         assert _normalize_conversation_change_type("npc_profile_update") == "entity"
         assert _normalize_conversation_change_type("fact_proposal") == "fact"
 
@@ -44,10 +40,7 @@ class TestNormalizeConversationChangeType:
         )
 
         assert _normalize_conversation_change_type("custom_thing") == "custom_thing"
-        assert (
-            _normalize_conversation_change_type("ALREADY_CANONICAL")
-            == "already_canonical"
-        )
+        assert _normalize_conversation_change_type("ALREADY_CANONICAL") == "already_canonical"
 
     def test_empty_string_defaults_to_fact(self):
         from monitor_agents.loops.conversation_loop import (
@@ -70,10 +63,7 @@ class TestNormalizeConversationChangeType:
             _normalize_conversation_change_type,
         )
 
-        assert (
-            _normalize_conversation_change_type("  NPC_EMOTIONAL_STATE  ")
-            == "state_change"
-        )
+        assert _normalize_conversation_change_type("  NPC_EMOTIONAL_STATE  ") == "state_change"
 
     def test_already_normalized_passes_through(self):
         from monitor_agents.loops.conversation_loop import (

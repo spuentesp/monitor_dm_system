@@ -218,9 +218,7 @@ class TestCharacterSheetResponse:
     def test_with_history(self):
         ts = datetime.now(UTC)
         entry = SheetHistoryEntry(timestamp=ts, change="created")
-        resp = CharacterSheetResponse(
-            **self._response_kwargs(history_log=[entry], updated_at=ts)
-        )
+        resp = CharacterSheetResponse(**self._response_kwargs(history_log=[entry], updated_at=ts))
         assert len(resp.history_log) == 1
         assert resp.history_log[0].change == "created"
 

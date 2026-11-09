@@ -165,15 +165,11 @@ class TestMetricsCounters:
         self.m.incr("llm.calls", 1, tags={"model": "claude", "result": "failure"})
 
         assert (
-            self.m.get_tagged_counter(
-                "llm.calls", tags={"model": "claude", "result": "success"}
-            )
+            self.m.get_tagged_counter("llm.calls", tags={"model": "claude", "result": "success"})
             == 2.0
         )
         assert (
-            self.m.get_tagged_counter(
-                "llm.calls", tags={"model": "claude", "result": "failure"}
-            )
+            self.m.get_tagged_counter("llm.calls", tags={"model": "claude", "result": "failure"})
             == 1.0
         )
 

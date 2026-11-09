@@ -215,9 +215,7 @@ class TestWorkingStateUpdate:
 
 class TestAddStatModification:
     def test_valid(self):
-        a = AddStatModification(
-            state_id=uuid4(), stat_or_resource="HP", change=-5, source="Sword"
-        )
+        a = AddStatModification(state_id=uuid4(), stat_or_resource="HP", change=-5, source="Sword")
         assert a.stat_or_resource == "HP"
 
 

@@ -156,4 +156,3 @@ async def test_call_tool_raises_on_authorization_and_validation_errors(stub_agen
     monkeypatch.setattr(srv, "call_tool", fake_val_err, raising=False)
     with pytest.raises(ValueError, match="Validation error:"):
         await stub_agent.call_tool("neo4j_create_entity", {"name": "BadPayload"})
-

@@ -38,9 +38,7 @@ class TestMongodbGetActiveSceneContract:
         }
 
         # Call tool (simulated)
-        result = await fake_mcp_client.call_tool(
-            "mongodb_get_active_scene", {"user_id": "user456"}
-        )
+        result = await fake_mcp_client.call_tool("mongodb_get_active_scene", {"user_id": "user456"})
 
         # Verify contract: returns dict
         assert isinstance(result, dict)
@@ -61,9 +59,7 @@ class TestMongodbGetActiveSceneContract:
         fake_mcp_client.call_tool.return_value = None
 
         # Call tool (simulated)
-        result = await fake_mcp_client.call_tool(
-            "mongodb_get_active_scene", {"user_id": "user123"}
-        )
+        result = await fake_mcp_client.call_tool("mongodb_get_active_scene", {"user_id": "user123"})
 
         # Verify contract: returns None
         assert result is None
@@ -78,9 +74,7 @@ class TestMongodbGetActiveSceneContract:
 
         # Verify contract: raises error
         with pytest.raises(Exception) as exc_info:
-            await fake_mcp_client.call_tool(
-                "mongodb_get_active_scene", {"user_id": "user123"}
-            )
+            await fake_mcp_client.call_tool("mongodb_get_active_scene", {"user_id": "user123"})
 
         assert "ConnectionError" in str(exc_info.value)
 
@@ -236,9 +230,7 @@ class TestApplicationExitHandlerCheckActiveSceneContract:
     """Contract tests for ApplicationExitHandler.check_active_scene method."""
 
     @pytest.mark.unit
-    async def test_returns_scene_when_active_scene_exists(
-        self, fake_mcp_client, fake_llm_client
-    ):
+    async def test_returns_scene_when_active_scene_exists(self, fake_mcp_client, fake_llm_client):
         """Contract: Returns scene dict when active scene exists."""
         # Mock MCP response
         fake_mcp_client.call_tool.return_value = {
@@ -250,9 +242,7 @@ class TestApplicationExitHandlerCheckActiveSceneContract:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method
         result = await handler.check_active_scene("user456")
@@ -262,9 +252,7 @@ class TestApplicationExitHandlerCheckActiveSceneContract:
         assert result["status"] == "active"
 
     @pytest.mark.unit
-    async def test_returns_none_when_no_active_scene(
-        self, fake_mcp_client, fake_llm_client
-    ):
+    async def test_returns_none_when_no_active_scene(self, fake_mcp_client, fake_llm_client):
         """Contract: Returns None when no active scene exists."""
         # Mock MCP response
         fake_mcp_client.call_tool.return_value = None
@@ -272,9 +260,7 @@ class TestApplicationExitHandlerCheckActiveSceneContract:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method
         result = await handler.check_active_scene("user123")
@@ -299,9 +285,7 @@ class TestApplicationExitHandlerPromptSaveSceneContract:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method
         result = await handler.prompt_save_scene({"_id": "scene789"})
@@ -321,9 +305,7 @@ class TestApplicationExitHandlerPromptSaveSceneContract:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method
         result = await handler.prompt_save_scene({"_id": "scene789"})
@@ -351,9 +333,7 @@ class TestApplicationExitHandlerAutoSaveSceneContract:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method
         result = await handler.auto_save_scene({"_id": "scene789", "status": "active"})
@@ -373,9 +353,7 @@ class TestApplicationExitHandlerAutoSaveSceneContract:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method
         result = await handler.auto_save_scene({"_id": "scene789", "status": "active"})
@@ -401,9 +379,7 @@ class TestApplicationExitHandlerSaveSceneContract:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method
         result = await handler.save_scene({"_id": "scene789", "status": "active"})
@@ -418,9 +394,7 @@ class TestApplicationExitHandlerCloseAllConnectionsContract:
     """Contract tests for ApplicationExitHandler.close_all_connections method."""
 
     @pytest.mark.unit
-    async def test_closes_all_database_connections(
-        self, fake_mcp_client, fake_llm_client
-    ):
+    async def test_closes_all_database_connections(self, fake_mcp_client, fake_llm_client):
         """Contract: Closes Neo4j, MongoDB, Qdrant, and MinIO connections."""
         # Mock all close operations
         fake_mcp_client.call_tool.return_value = None
@@ -428,9 +402,7 @@ class TestApplicationExitHandlerCloseAllConnectionsContract:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method
         await handler.close_all_connections()
@@ -447,9 +419,7 @@ class TestApplicationExitHandlerCloseAllConnectionsContract:
         assert "minio_close_connection" in tool_names
 
     @pytest.mark.unit
-    async def test_continues_when_one_connection_fails(
-        self, fake_mcp_client, fake_llm_client
-    ):
+    async def test_continues_when_one_connection_fails(self, fake_mcp_client, fake_llm_client):
         """Contract: Continues cleanup when one connection fails (best effort)."""
         # Mock one close operation to fail
         call_count = 0
@@ -466,9 +436,7 @@ class TestApplicationExitHandlerCloseAllConnectionsContract:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method (should not raise exception)
         await handler.close_all_connections()
@@ -493,9 +461,7 @@ class TestApplicationExitHandlerExitApplicationContract:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method
         await handler.exit_application("user123")
@@ -529,9 +495,7 @@ class TestApplicationExitHandlerExitApplicationContract:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Call method
         await handler.exit_application("user456")
@@ -581,9 +545,7 @@ class TestSYS3Integration:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Execute: Exit application
         await handler.exit_application("user123")
@@ -618,9 +580,7 @@ class TestSYS3Integration:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Execute: Exit application
         await handler.exit_application("user456")
@@ -664,9 +624,7 @@ class TestSYS3Integration:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Execute: Exit application
         await handler.exit_application("user789")
@@ -708,9 +666,7 @@ class TestSYS3Integration:
         # Create handler
         from monitor_agents.application_exit_handler import ApplicationExitHandler
 
-        handler = ApplicationExitHandler(
-            mcp_client=fake_mcp_client, llm_client=fake_llm_client
-        )
+        handler = ApplicationExitHandler(mcp_client=fake_mcp_client, llm_client=fake_llm_client)
 
         # Execute: Exit application
         await handler.exit_application("user999")

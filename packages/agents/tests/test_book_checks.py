@@ -52,8 +52,7 @@ def test_number_must_be_in_the_source_even_if_the_section_has_it():
 def test_restoring_a_short_condition_is_not_overstuffed():
     assert not is_overstuffed(
         "Players may add as many props to a scene as they like.",
-        "Players may add as many props to a scene as they like, but the referee can refuse "
-        "any that seem out of place.",
+        "Players may add as many props to a scene as they like, but the referee can refuse any that seem out of place.",
     )
 
 
@@ -80,7 +79,9 @@ def test_quote_is_found_regardless_of_case_and_spacing():
 def test_merging_wordings_is_not_combining_but_listing_rules_is():
     member = "The Momentum pool holds at most 6 points."
     assert not combines_rules(member, "The Momentum pool holds at most 6 points in total.")
-    assert combines_rules(member, member + " Targeting, moving, creating and removing all need a test with Difficulty 2 too.")
+    assert combines_rules(
+        member, member + " Targeting, moving, creating and removing all need a test with Difficulty 2 too."
+    )
 
 
 @pytest.mark.unit

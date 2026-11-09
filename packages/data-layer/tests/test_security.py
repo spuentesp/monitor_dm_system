@@ -124,3 +124,41 @@ class TestNlpInputBounds:
             BatchEntityExtractionRequest(texts=["a"] * 10_000)
         with pytest.raises(ValueError):
             BatchEntityExtractionRequest(texts=["a"], labels=["l"] * 1000)
+
+
+class TestChunkIdScoping:
+    """Chunk point IDs are namespaced by universe/job so the same book in two
+    universes cannot overwrite each other's Qdrant points."""
+
+    def test_stable_id_differs_by_scope(self):
+        from monitor_data.tools.ingest_tools._models import IngestedChunk
+
+        a = IngestedChunk.stable_id("book.pdf", 0, "hello", scope="universe-A")
+        b = IngestedChunk.stable_id("book.pdf", 0, "hello", scope="universe-B")
+        same = IngestedChunk.stable_id("book.pdf", 0, "hello")
+        assert a != b != same
+        assert IngestedChunk.stable_id("book.pdf", 0, "hello", scope="universe-A") == a  # deterministic
+
+
+class TestNlpWindowSplitting:
+    """Oversized NLP inputs are split into windows, not rejected."""
+
+    def test_split_text_windows_cover_input(self):
+        from monitor_data.tools.nlp_tools import _split_text, _enumerate_windows
+
+        text = ("word " * 400) + "\n\n" + ("more " * 400)
+        windows = _split_text(text, max_chars=1000)
+        assert len(windows) > 1
+        assert "".join(windows) == text
+        enumerated = _enumerate_windows(text, 1000)
+        assert enumerated[0][0] == 0
+        assert sum(len(w) for _, w in enumerated) == len(text)
+
+    def test_analyzer_retrieval_scopes_by_universe(self):
+        import inspect
+
+        from monitor_agents.analyzer import _core
+
+        src = inspect.getsource(_core)
+        # evidence lookup, category scroll, reference scroll, fallback queries
+        assert src.count('key="universe_id"') >= 4

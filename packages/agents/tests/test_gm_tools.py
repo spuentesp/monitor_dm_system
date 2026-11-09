@@ -240,6 +240,7 @@ class TestContestedCheckTool:
 
     def test_contested_check_in_registry(self):
         from monitor_agents.gm_tools import GM_TOOLS
+
         names = {t.name for t in GM_TOOLS()}
         assert "contested_check" in names
         # The old VtM-specific names must NOT be in the registry.
@@ -250,6 +251,7 @@ class TestContestedCheckTool:
     def test_contested_check_tool_contract(self):
         import json
         from monitor_agents.gm_tools.dice import gm_tool_contested_check
+
         tool = gm_tool_contested_check()
         result_json = tool.func(pool_size=5, difficulty=6)
         result = json.loads(result_json)
@@ -280,8 +282,7 @@ class TestContestedCheckTool:
         # calls reach the repo root (tests → agents → packages).
         repo_root = Path(__file__).resolve().parents[3]
         seed_path = (
-            repo_root / "packages" / "data-layer" / "src"
-            / "monitor_data" / "defaults" / "systems" / "vampire.json"
+            repo_root / "packages" / "data-layer" / "src" / "monitor_data" / "defaults" / "systems" / "vampire.json"
         )
         with open(seed_path) as f:
             seed = json.load(f)
@@ -293,6 +294,7 @@ class TestContestedCheckTool:
         # 8s at DC 6 = 5 successes.
         rolls_iter = iter([8, 8, 8, 8, 8])
         import random as _r
+
         original_randint = _r.randint
         _r.randint = lambda a, b: next(rolls_iter)
         try:

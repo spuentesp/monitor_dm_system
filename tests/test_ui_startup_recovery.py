@@ -26,9 +26,7 @@ def _assert_stale_jobs_query(query: dict) -> None:
     started_cutoff = fallback_clause["started_at"]["$lt"]
     assert progress_cutoff == started_cutoff
 
-    expected_cutoff = datetime.now(UTC) - timedelta(
-        seconds=_DEFAULT_STALE_AFTER_SECONDS
-    )
+    expected_cutoff = datetime.now(UTC) - timedelta(seconds=_DEFAULT_STALE_AFTER_SECONDS)
     assert abs((expected_cutoff - progress_cutoff).total_seconds()) < 5
 
 
@@ -95,8 +93,7 @@ def test_shutdown_ingest_runtime_marks_jobs_interrupted_and_stops_executor(monke
     assert fake_mongo.collection.query == {"status": {"$in": ["pending", "running"]}}
     assert fake_mongo.collection.update["$set"]["status"] == "failed"
     assert (
-        "Server shutdown requested"
-        in fake_mongo.collection.update["$push"]["errors"]["$each"][0]
+        "Server shutdown requested" in fake_mongo.collection.update["$push"]["errors"]["$each"][0]
     )
     assert fake_executor.calls == [{"wait": False, "cancel_futures": True}]
     assert not ingest._ingest_active_requests
@@ -191,9 +188,7 @@ def test_shutdown_runtime_cleans_executor(monkeypatch, caplog):
     main._shutdown_runtime()
 
     assert fake_executor.calls == [{"wait": False, "cancel_futures": True}]
-    assert any(
-        "Runtime shutdown cleanup finished" in rec.message for rec in caplog.records
-    )
+    assert any("Runtime shutdown cleanup finished" in rec.message for rec in caplog.records)
 
 
 def test_load_tokens_env_when_file_exists(monkeypatch, tmp_path):

@@ -61,9 +61,7 @@ class FakeDSPyLM:
 
     def __init__(
         self,
-        responses: list[FakeDSPyPrediction]
-        | dict[str, FakeDSPyPrediction]
-        | None = None,
+        responses: list[FakeDSPyPrediction] | dict[str, FakeDSPyPrediction] | None = None,
     ) -> None:
         self.model = "fake/model"
         self.kwargs: dict[str, Any] = {}
