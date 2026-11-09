@@ -6,7 +6,17 @@ from fastapi.testclient import TestClient
 from monitor_data.schemas.base import KnowledgeTreeType
 from monitor_data.schemas.universe import MultiverseResponse, UniverseResponse
 
+import pytest
+from unittest.mock import AsyncMock
+
+
+def _async_return(value):
+    return AsyncMock(return_value=value)
+
+
 from monitor_ui.main import app
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 client = TestClient(app)
 
@@ -136,7 +146,20 @@ def test_fork_universe_endpoint():
                 "relationships_cloned": 5,
             },
         ) as mock_fork,
+        # Phase 4: the fork endpoint also clones Mongo/Qdrant/MinIO data — stub it.
+        patch(
+            "monitor_ui.routers.universes.mongodb_fork_universe_data",
+            return_value={"total_copied": 0},
+        ),
+        patch(
+            "monitor_ui.routers.universes.qdrant_clone_collection",
+            return_value={"points_copied": 0},
+        ),
+        patch(
+            "monitor_ui.routers.universes.get_minio_client",
+        ) as mock_minio,
     ):
+        mock_minio.return_value.copy_prefix = _async_return({"copied": 0})
         response = client.post(
             f"/api/universes/universes/{_UNIVERSE_ID}/fork",
             json={"name": "Forked Vale"},
