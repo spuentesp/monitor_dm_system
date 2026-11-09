@@ -32,6 +32,7 @@ def client(monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres) -> TestClient
     httpx refuses to send Secure cookies over http://testserver.
     """
     monkeypatch.setattr(auth_module, "_login_limiter", None)
+    monkeypatch.setattr(auth_module, "_signup_limiter", None)
     monkeypatch.setenv("AUTH_COOKIE_SECURE", "false")
     get_settings.cache_clear()
 
@@ -42,6 +43,7 @@ def client(monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres) -> TestClient
     # No `with` block: entering the context would run the app lifespan, which
     # touches Mongo/Neo4j. Existing backend tests use the bare client too.
     c = TestClient(app)
+    c.get("/api/auth/config")  # safe GET issues the CSRF cookie
     yield c
     app.dependency_overrides.pop(get_postgres, None)
     get_settings.cache_clear()
@@ -50,9 +52,12 @@ def client(monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres) -> TestClient
 def _signup(
     c: TestClient, email: str = "alice@example.com", username: str = "alice", password: str = "correct horse battery"
 ) -> dict:
+    if not c.cookies.get("monitor_csrf"):
+        c.get("/api/auth/config")  # safe GET issues the CSRF cookie
     r = c.post(
         "/api/auth/signup",
         json={"email": email, "username": username, "password": password},
+        headers={"X-CSRF-Token": c.cookies.get("monitor_csrf", "")},
     )
     assert r.status_code == 201, r.text
     return r.json()
@@ -95,11 +100,13 @@ class TestSignup:
         r = client.post(
             "/api/auth/signup",
             json={"email": "alice@example.com", "username": "alice2", "password": "another password 1"},
+            headers=_csrf_headers(client),
         )
         assert r.status_code == 409
         r2 = client.post(
             "/api/auth/signup",
             json={"email": "other@example.com", "username": "alice", "password": "another password 1"},
+            headers=_csrf_headers(client),
         )
         assert r2.status_code == 409
 
@@ -134,8 +141,16 @@ class TestLoginAndMe:
     def test_login_generic_failure_for_unknown_user_and_wrong_password(self, client):
         _signup(client)
         client.cookies.clear()
-        r_unknown = client.post("/api/auth/login", json={"login": "nobody@example.com", "password": "whatever123"})
-        r_wrong = client.post("/api/auth/login", json={"login": "alice@example.com", "password": "wrong password!!"})
+        r_unknown = client.post(
+            "/api/auth/login",
+            headers={"X-CSRF-Token": client.cookies.get("monitor_csrf", "")},
+            json={"login": "nobody@example.com", "password": "whatever123"},
+        )
+        r_wrong = client.post(
+            "/api/auth/login",
+            headers={"X-CSRF-Token": client.cookies.get("monitor_csrf", "")},
+            json={"login": "alice@example.com", "password": "wrong password!!"},
+        )
         assert r_unknown.status_code == 401
         assert r_wrong.status_code == 401
         assert r_unknown.json()["detail"] == r_wrong.json()["detail"] == "Invalid login or password."
@@ -143,7 +158,11 @@ class TestLoginAndMe:
     def test_login_by_username_and_session_rotation(self, client, fake_db):
         _signup(client)
         old_session = client.cookies.get("monitor_session")
-        r = client.post("/api/auth/login", json={"login": "ALICE", "password": "correct horse battery"})
+        r = client.post(
+            "/api/auth/login",
+            headers={"X-CSRF-Token": client.cookies.get("monitor_csrf", "")},
+            json={"login": "ALICE", "password": "correct horse battery"},
+        )
         assert r.status_code == 200
         assert r.json()["username"] == "alice"
         new_session = client.cookies.get("monitor_session")
@@ -317,3 +336,96 @@ def test_object_without_via_is_rejected():
         is_local_mode(object())  # type: ignore[arg-type]
     with pytest.raises(AttributeError):
         ownership_mod._is_local_mode(object())  # type: ignore[arg-type]
+
+
+class TestPasswordAndSessions:
+    def test_change_password_requires_current_and_revokes_other_sessions(self, client, fake_db):
+        _signup(client)
+        # second session for the same user
+        c2 = TestClient(app)
+        c2.get("/api/auth/config")
+        c2.post(
+            "/api/auth/login",
+            json={"login": "alice", "password": "correct horse battery"},
+            headers={"X-CSRF-Token": c2.cookies.get("monitor_csrf", "")},
+        )
+        assert c2.get("/api/auth/me").status_code == 200
+        r = client.post(
+            "/api/auth/password",
+            json={"current_password": "wrong current!!", "new_password": "brand new password 1"},
+            headers=_csrf_headers(client),
+        )
+        assert r.status_code == 401
+        r = client.post(
+            "/api/auth/password",
+            json={"current_password": "correct horse battery", "new_password": "brand new password 1"},
+            headers=_csrf_headers(client),
+        )
+        assert r.status_code == 200 and r.json()["other_sessions_revoked"] == 1
+        # old session is dead, old password no longer works
+        assert c2.get("/api/auth/me").status_code == 401
+        c3 = TestClient(app)
+        c3.get("/api/auth/config")
+        r = c3.post(
+            "/api/auth/login",
+            json={"login": "alice", "password": "correct horse battery"},
+            headers={"X-CSRF-Token": c3.cookies.get("monitor_csrf", "")},
+        )
+        assert r.status_code == 401
+
+    def test_sessions_list_and_revoke_all(self, client):
+        _signup(client)
+        r = client.get("/api/auth/sessions")
+        assert r.status_code == 200
+        sessions = r.json()["sessions"]
+        assert len(sessions) == 1 and sessions[0]["current"] is True
+        assert "token" not in str(sessions[0]).lower() or "token_hash_prefix" in sessions[0]
+        r = client.request("DELETE", "/api/auth/sessions", headers=_csrf_headers(client))
+        assert r.status_code == 204
+        assert client.get("/api/auth/me").status_code == 401
+
+    def test_api_token_expiry_is_clamped(self, client):
+        _signup(client)
+        far = "2999-01-01T00:00:00Z"
+        r = client.post(
+            "/api/auth/tokens",
+            json={"name": "forever", "expires_at": far},
+            headers=_csrf_headers(client),
+        )
+        assert r.status_code == 201
+        exp = r.json()["expires_at"]
+        assert exp < far  # clamped to server-side max TTL
+
+    def test_signup_rate_limited_per_ip(self, client, monkeypatch):
+        import monitor_ui.auth as auth_module
+
+        monkeypatch.setattr(auth_module, "_signup_limiter", None)
+        monkeypatch.setenv("AUTH_SIGNUP_RATE_LIMIT", "3")
+        from monitor_ui.config import get_settings
+
+        get_settings.cache_clear()
+        for i in range(3):
+            r = client.post(
+                "/api/auth/signup",
+                json={"email": f"u{i}@example.com", "username": f"user{i}", "password": "correct horse battery"},
+                headers=_csrf_headers(client),
+            )
+            assert r.status_code == 201, r.text
+        r = client.post(
+            "/api/auth/signup",
+            json={"email": "u9@example.com", "username": "user9", "password": "correct horse battery"},
+            headers=_csrf_headers(client),
+        )
+        assert r.status_code == 429
+        get_settings.cache_clear()
+
+    def test_login_from_foreign_origin_rejected(self, client):
+        _signup(client)
+        c = TestClient(app)
+        c.get("/api/auth/config")
+        r = c.post(
+            "/api/auth/login",
+            json={"login": "alice", "password": "correct horse battery"},
+            headers={"Origin": "https://evil.example"},
+        )
+        assert r.status_code == 403

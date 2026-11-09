@@ -79,6 +79,17 @@ class FakePostgres:
     async def session_delete(self, token_hash: str) -> bool:
         return self.sessions.pop(token_hash, None) is not None
 
+    async def sessions_list_for_user(self, user_id: UUID) -> list[dict]:
+        rows = [r for r in self.sessions.values() if r["user_id"] == user_id]
+        rows.sort(key=lambda r: r["created_at"], reverse=True)
+        return rows
+
+    async def session_delete_all_for_user(self, user_id: UUID, except_token_hash: str | None = None) -> int:
+        doomed = [h for h, r in self.sessions.items() if r["user_id"] == user_id and h != except_token_hash]
+        for h in doomed:
+            del self.sessions[h]
+        return len(doomed)
+
     async def session_touch(self, token_hash: str) -> None:
         if token_hash in self.sessions:
             self.sessions[token_hash]["last_seen_at"] = datetime.now(UTC)

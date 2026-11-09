@@ -94,6 +94,10 @@ def chars() -> FakeCharactersCollection:
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres, chars: FakeCharactersCollection):
     monkeypatch.setenv("AUTH_COOKIE_SECURE", "false")
+    import monitor_ui.auth as _auth_mod
+
+    monkeypatch.setattr(_auth_mod, "_signup_limiter", None)
+    monkeypatch.setattr(_auth_mod, "_login_limiter", None)
     get_settings.cache_clear()
 
     async def _fake_get_postgres() -> FakePostgres:
@@ -109,9 +113,12 @@ def client(monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres, chars: FakeCh
 
 
 def _signup(c: TestClient, email: str, username: str) -> dict:
+    if not c.cookies.get("monitor_csrf"):
+        c.get("/api/auth/config")  # safe GET issues the CSRF cookie
     r = c.post(
         "/api/auth/signup",
         json={"email": email, "username": username, "password": "correct horse battery"},
+        headers={"X-CSRF-Token": c.cookies.get("monitor_csrf", "")},
     )
     assert r.status_code == 201, r.text
     return r.json()

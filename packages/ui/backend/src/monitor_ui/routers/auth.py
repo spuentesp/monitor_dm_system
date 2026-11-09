@@ -13,7 +13,8 @@ creation.
 from __future__ import annotations
 
 import secrets
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 import asyncpg
@@ -27,6 +28,9 @@ from monitor_data.schemas.users import (
     ApiTokenMetadataResponse,
     AuthModeResponse,
     LoginRequest,
+    PasswordChangeRequest,
+    SessionListResponse,
+    SessionMetadataResponse,
     UserCreate,
     UserResponse,
     normalize_login,
@@ -44,6 +48,7 @@ from monitor_data.security import (
 from monitor_ui.auth import (
     Principal,
     client_ip,
+    get_signup_limiter,
     get_current_user,
     get_login_limiter,
     get_postgres,
@@ -109,6 +114,7 @@ async def _create_session(db: PostgresClient, user_id: UUID, settings: UISetting
 @router.post("/signup", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def signup(
     body: UserCreate,
+    request: Request,
     response: Response,
     settings: UISettings = Depends(get_settings),
     db: PostgresClient = Depends(get_postgres),
@@ -118,6 +124,11 @@ async def signup(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Signup is unavailable while MONITOR_AUTH_DISABLED=true (local development mode).",
+        )
+    if not await get_signup_limiter(settings).hit(f"signup:{client_ip(request, settings)}"):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many signup attempts. Try again later.",
         )
     email_normalized = normalize_login(body.email)
     username_normalized = normalize_login(body.username)
@@ -249,13 +260,20 @@ async def create_api_token(
     The raw token is returned exactly once here; only its hash is stored.
     """
     raw, prefix, token_hash = new_api_token()
+    # Client-supplied expiry is clamped to a server-side maximum.
+    expires_at = body.expires_at
+    if expires_at is not None:
+        max_expiry = datetime.now(UTC) + timedelta(days=settings.api_token_max_ttl_days)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        expires_at = min(expires_at, max_expiry)
     row = await db.api_token_create(
         {
             "user_id": principal.user_id,
             "name": body.name,
             "token_prefix": prefix,
             "token_hash": token_hash,
-            "expires_at": body.expires_at,
+            "expires_at": expires_at,
         }
     )
     return ApiTokenCreatedResponse(
@@ -300,6 +318,70 @@ async def revoke_api_token(
     revoked = await db.api_token_revoke(token_id, principal.user_id)
     if not revoked:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Password change + session management
+# ---------------------------------------------------------------------------
+
+
+@router.post("/password")
+async def change_password(
+    body: PasswordChangeRequest,
+    request: Request,
+    settings: UISettings = Depends(get_settings),
+    db: PostgresClient = Depends(get_postgres),
+    principal: Principal = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Change the caller's password. Requires the current password; revokes
+    every other session so a stolen cookie dies with the change."""
+    user = await db.user_get_by_id(principal.user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    if not verify_password(body.current_password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid current password.")
+    await db.user_update_password_hash(user["id"], hash_password(body.new_password))
+    current_hash = hash_token(request.cookies.get(settings.auth_session_cookie, ""))
+    revoked = await db.session_delete_all_for_user(user["id"], except_token_hash=current_hash)
+    return {"ok": True, "other_sessions_revoked": revoked}
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+async def list_sessions(
+    request: Request,
+    settings: UISettings = Depends(get_settings),
+    db: PostgresClient = Depends(get_postgres),
+    principal: Principal = Depends(get_current_user),
+) -> SessionListResponse:
+    """List the caller's browser sessions (hash prefix only, never the token)."""
+    current_hash = hash_token(request.cookies.get(settings.auth_session_cookie, ""))
+    rows = await db.sessions_list_for_user(principal.user_id)
+    return SessionListResponse(
+        sessions=[
+            SessionMetadataResponse(
+                token_hash_prefix=row["token_hash"][:12],
+                created_at=row["created_at"],
+                expires_at=row["expires_at"],
+                last_seen_at=row.get("last_seen_at"),
+                current=row["token_hash"] == current_hash,
+            )
+            for row in rows
+        ]
+    )
+
+
+@router.delete("/sessions", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_all_sessions(
+    response: Response,
+    settings: UISettings = Depends(get_settings),
+    db: PostgresClient = Depends(get_postgres),
+    principal: Principal = Depends(get_current_user),
+) -> Response:
+    """Revoke ALL of the caller's sessions (including the current one) and
+    clear the cookies — the "log me out everywhere" escape hatch."""
+    await db.session_delete_all_for_user(principal.user_id)
+    _clear_auth_cookies(response, settings)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

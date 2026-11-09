@@ -28,6 +28,10 @@ def fake_db() -> FakePostgres:
 @pytest.fixture
 def env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AUTH_COOKIE_SECURE", "false")
+    import monitor_ui.auth as _auth_mod
+
+    monkeypatch.setattr(_auth_mod, "_signup_limiter", None)
+    monkeypatch.setattr(_auth_mod, "_login_limiter", None)
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client-id")
     monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
     get_settings.cache_clear()
@@ -42,6 +46,7 @@ def client(monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres, env):
 
     app.dependency_overrides[get_postgres] = _fake_get_postgres
     c = TestClient(app)
+    c.get("/api/auth/config")  # safe GET issues the CSRF cookie
     yield c
     app.dependency_overrides.pop(get_postgres, None)
 
@@ -210,7 +215,11 @@ class TestBanning:
         user = _signup(client, "a@example.com", "alice")
         asyncio.run(fake_db.user_set_banned(user["id"], True, "spam"))
         client.cookies.clear()
-        r = client.post("/api/auth/login", json={"login": "alice", "password": "correct horse battery"})
+        r = client.post(
+            "/api/auth/login",
+            headers={"X-CSRF-Token": client.cookies.get("monitor_csrf", "")},
+            json={"login": "alice", "password": "correct horse battery"},
+        )
         assert r.status_code == 403
 
 

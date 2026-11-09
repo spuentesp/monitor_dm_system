@@ -49,8 +49,7 @@ async def require_multiverse_owner(
     """Return the registry row iff the principal owns the multiverse, else 404."""
     if _is_local_mode(principal):
         return {"id": str(multiverse_id), "owner_id": principal.user_id}
-    mv_uuid = UUID(str(multiverse_id))
-    row = await db.multiverse_get_for_owner(str(mv_uuid), principal.user_id)
+    row = await db.multiverse_get_for_owner(_uuid_or_404(multiverse_id), principal.user_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
     return row
