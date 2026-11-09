@@ -276,3 +276,26 @@ def neo4j_shortest_path(
         "hops": hops,
         "path": [{"entity_id": p["entity_id"], "name": p.get("name")} for p in path],
     }
+
+
+def neo4j_universe_quality_report(
+    universe_id: Any,
+    similarity_cutoff: float = 0.8,
+    min_component_size: int = 2,
+) -> dict[str, Any]:
+    """Base-world publish gate for a universe's graph.
+
+    Runs connected-components (orphans) and node-similarity (duplicate
+    candidates) and returns a pass/fail verdict: pass when there are no
+    orphans and no similar pairs above the cutoff.
+    """
+    components = neo4j_universe_connected_components(universe_id, min_component_size=min_component_size)
+    duplicates = neo4j_universe_node_similarity(universe_id, similarity_cutoff=similarity_cutoff, top_k=10)
+    gate = "pass" if components["orphan_count"] == 0 and not duplicates else "fail"
+    return {
+        "universe_id": components["universe_id"],
+        "gate": gate,
+        "orphan_count": components["orphan_count"],
+        "orphans": components["orphans"],
+        "duplicate_candidates": duplicates,
+    }

@@ -2,21 +2,19 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
+import pytest
+
 from fastapi.testclient import TestClient
 from monitor_data.schemas.base import KnowledgeTreeType
 from monitor_data.schemas.universe import MultiverseResponse, UniverseResponse
+from monitor_ui.main import app
 
-import pytest
-from unittest.mock import AsyncMock
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 
 def _async_return(value):
     return AsyncMock(return_value=value)
 
-
-from monitor_ui.main import app
-
-pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 client = TestClient(app)
 

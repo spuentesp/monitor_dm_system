@@ -249,6 +249,7 @@ AUTHORITY_MATRIX = {
     "neo4j_universe_centrality": ["*"],
     "neo4j_shortest_path": ["*"],
     "neo4j_graph_algorithms_available": ["*"],
+    "neo4j_universe_quality_report": ["*"],
     # =========================================================================
     # MONGODB OPERATIONS - Snippets
     # =========================================================================

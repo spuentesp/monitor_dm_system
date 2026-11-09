@@ -35,6 +35,9 @@ from monitor_data.tools.ingest_tools import (
 from monitor_data.tools.mongodb_tools import (
     mongodb_create_document,
     mongodb_fork_universe_data,
+    mongodb_pack_quality_report,
+    mongodb_publish_knowledge_pack,
+    mongodb_list_published_packs,
     mongodb_get_document,
     mongodb_record_verdict,
     mongodb_update_document,
@@ -138,4 +141,7 @@ __all__ = [
     "BatchEntityExtractionResponse",
     "NLPHealthCheckResponse",
     "mongodb_fork_universe_data",
+    "mongodb_pack_quality_report",
+    "mongodb_publish_knowledge_pack",
+    "mongodb_list_published_packs",
 ]

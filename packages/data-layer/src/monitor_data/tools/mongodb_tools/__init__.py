@@ -180,6 +180,9 @@ from monitor_data.tools.mongodb_tools.knowledge_packs import (
     mongodb_get_knowledge_pack,
     mongodb_list_knowledge_packs,
     mongodb_update_knowledge_pack,
+    mongodb_pack_quality_report,
+    mongodb_publish_knowledge_pack,
+    mongodb_list_published_packs,
 )
 
 # Lorebook operations
@@ -668,4 +671,7 @@ __all__ = [
     "mongodb_update_visual_identity_status",
     # World fork (multi-world)
     "mongodb_fork_universe_data",
+    "mongodb_pack_quality_report",
+    "mongodb_publish_knowledge_pack",
+    "mongodb_list_published_packs",
 ]

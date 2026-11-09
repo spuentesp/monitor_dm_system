@@ -109,6 +109,7 @@ class KnowledgePackStatus(StrEnum):
     READY = "ready"  # Fully extracted and ready to review/apply
     REVIEW_PENDING = "review_pending"  # Ready for user review
     APPLIED = "applied"  # Already used in at least one multiverse
+    PUBLISHED = "published"  # Shared in the public gallery as a reusable base world
     FAILED = "failed"  # Critical error during extraction
     ARCHIVED = "archived"  # Hidden from library but preserved
 

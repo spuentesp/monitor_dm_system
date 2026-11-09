@@ -856,3 +856,90 @@ def mongodb_apply_knowledge_pack(pack_id: UUID, params: ApplyKnowledgePackReques
             else None
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# Publish gate + public gallery (reusable base worlds)
+# ---------------------------------------------------------------------------
+
+#: Minimum completeness score for a pack to be publishable as a base world.
+PUBLISH_MIN_SCORE = 0.5
+
+
+def mongodb_pack_quality_report(
+    pack_id: UUID | str,
+    min_score: float = PUBLISH_MIN_SCORE,
+) -> dict[str, Any]:
+    """Quality report gating publication of a knowledge pack as a base world.
+
+    Combines the completeness score (pack_completeness) with the pack's
+    lifecycle status and its extraction provenance. A pack is publishable when
+    it is READY/APPLIED and its completeness score meets ``min_score``.
+    """
+    from monitor_data.tools.pack_completeness import compute_knowledge_pack_completeness
+
+    uid = UUID(str(pack_id))
+    pack = mongodb_get_knowledge_pack(uid)
+    if not pack:
+        raise ValueError(f"KnowledgePack {pack_id} not found")
+
+    completeness = compute_knowledge_pack_completeness(pack)
+    reasons: list[str] = []
+    if pack.status in (KnowledgePackStatus.PENDING, KnowledgePackStatus.FAILED):
+        reasons.append(f"pack status is {pack.status.value} (extraction not finished/failed)")
+    if pack.status == KnowledgePackStatus.ARCHIVED:
+        reasons.append("pack is archived")
+    if completeness.overall_score < min_score:
+        reasons.append(f"completeness {completeness.overall_score:.2f} below publish threshold {min_score:.2f}")
+
+    # Raw doc carries the extraction provenance written at creation time.
+    raw = get_mongodb_client().get_collection("knowledge_packs").find_one({"pack_id": str(uid)})
+    extraction = (raw or {}).get("extraction")
+
+    return {
+        "pack_id": str(uid),
+        "pack_name": pack.name,
+        "status": pack.status.value,
+        "overall_score": completeness.overall_score,
+        "overall_status": completeness.overall_status,
+        "categories": {k: v.model_dump(mode="json") for k, v in completeness.categories.model_dump().items()},
+        "recommendations": list(getattr(completeness, "recommendations", []) or []),
+        "extraction": extraction,
+        "publishable": not reasons,
+        "reasons": reasons,
+    }
+
+
+def mongodb_publish_knowledge_pack(
+    pack_id: UUID | str,
+    min_score: float = PUBLISH_MIN_SCORE,
+) -> dict[str, Any]:
+    """Publish a knowledge pack to the public gallery (reusable base world).
+
+    Runs the quality gate first; raises ValueError when the pack is not
+    publishable. Sets status=PUBLISHED and stamps published_at.
+    """
+    uid = UUID(str(pack_id))
+    report = mongodb_pack_quality_report(uid, min_score=min_score)
+    if not report["publishable"]:
+        raise ValueError("Pack not publishable: " + "; ".join(report["reasons"]))
+
+    now = datetime.now(UTC)
+    mongodb = get_mongodb_client()
+    coll = mongodb.get_collection("knowledge_packs")
+    coll.update_one(
+        {"pack_id": str(uid)},
+        {"$set": {"status": KnowledgePackStatus.PUBLISHED.value, "published_at": now, "updated_at": now}},
+    )
+    doc = coll.find_one({"pack_id": str(uid)})
+    assert doc is not None  # we just updated it
+    return {"report": report, "pack": _convert_knowledge_pack_doc(dict(doc))}
+
+
+def mongodb_list_published_packs(limit: int = 30) -> list[KnowledgePackResponse]:
+    """List packs published to the public gallery (status=PUBLISHED)."""
+    safe_limit = max(1, min(int(limit), 100))
+    result = mongodb_list_knowledge_packs(
+        KnowledgePackFilter(status=KnowledgePackStatus.PUBLISHED, tag=None, limit=safe_limit)
+    )
+    return list(result.packs)

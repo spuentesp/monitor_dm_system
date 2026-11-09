@@ -54,6 +54,8 @@ from monitor_data.tools.mongodb_tools import (
     mongodb_get_knowledge_pack,
     mongodb_list_knowledge_packs,
     mongodb_list_proposed_changes,
+    mongodb_list_published_packs,
+    mongodb_publish_knowledge_pack,
     mongodb_update_knowledge_pack,
     mongodb_update_proposed_change,
 )
@@ -110,6 +112,31 @@ async def list_packs(status: str | None = None, limit: int = 30) -> list[dict]: 
             KnowledgePackFilter(status=pack_status, tag=None, limit=limit),
         )
     return [_pack_to_dict(p) for p in result.packs]
+
+
+@router.get("/packs/public")
+async def list_public_packs(limit: int = 30) -> list[dict]:  # type: ignore[type-arg]
+    """Public gallery of published base-world packs (status=PUBLISHED)."""
+    with db_op("Database unavailable"):
+        packs = await asyncio.to_thread(mongodb_list_published_packs, limit)
+    return [_pack_to_dict(p) for p in packs]
+
+
+@router.post("/packs/{pack_id}/publish", status_code=200)
+async def publish_pack(pack_id: str, min_score: float = 0.5) -> dict:  # type: ignore[type-arg]
+    """Publish a knowledge pack to the public gallery as a reusable base world.
+
+    Runs the quality gate (completeness + lifecycle status + extraction
+    provenance); refuses with 422 when the pack is not publishable.
+    """
+    uid = validate_uuid(pack_id, "pack_id")
+    with db_op("Database unavailable"):
+        try:
+            result = await asyncio.to_thread(mongodb_publish_knowledge_pack, uid, min_score)
+        except ValueError as exc:
+            # gate rejection is a client error, not a DB failure
+            raise HTTPException(422, str(exc)) from exc
+    return {"report": result["report"], "pack": _pack_to_dict(result["pack"])}
 
 
 @router.get("/packs/{pack_id}")
