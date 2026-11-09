@@ -755,6 +755,15 @@ export interface ProposalItem {
   /** Extraction subtype + lineage (by-ingest surface, F1-4). */
   proposal_type?: string | null;
   source?: string | null;
+  /** CF-8 review disposition. Deferred proposals remain pending. */
+  deferred?: boolean;
+  defer_reason?: string | null;
+  edit_reason?: string | null;
+  decision_metadata?: {
+    decided_by: string;
+    decided_at: string;
+    reason: string;
+  } | null;
   /** G-9 Phase 2 — advisory review flag set by CanonKeeper's transition rules. */
   needs_review?: boolean;
   review_reason?: string | null;
@@ -766,7 +775,11 @@ export interface ProposalItem {
 export interface SceneReview {
   /** Null for the story-level lane: proposals with no scene attribution. */
   scene_id: string | null;
+  summary?: string | null;
+  participants?: string[];
+  locations?: string[];
   pending: ProposalItem[];
+  deferred?: ProposalItem[];
   accepted: ProposalItem[];
   rejected: ProposalItem[];
   by_change_type: Record<string, number>;
@@ -776,6 +789,7 @@ export interface CanonQueue {
   story_id: string;
   scenes: SceneReview[];
   total_pending: number;
+  total_deferred?: number;
 }
 
 /** Per-ingestion-job review payload (F1-4 by-ingest scope). */
@@ -1283,6 +1297,7 @@ export interface StoryThread {
   status: string;
   urgency?: string | null;
   priority?: string | null;
+  gm_notes?: string;
   source: "graph" | "checkpoint";
 }
 
@@ -1389,6 +1404,11 @@ export interface Contradiction {
   severity: "low" | "medium" | "high";
   explanation: string;
   suggestion: string;
+  conflict_type?: string;
+  scope?: string;
+  fact_a_id?: string | null;
+  fact_b_id?: string | null;
+  suggested_resolutions?: string[];
 }
 
 export interface CaptureInsight {
@@ -1396,6 +1416,9 @@ export interface CaptureInsight {
   locations: string[];
   candidate_facts: string[];
   advances_thread: string;
+  /** Pending CF-8 proposal IDs created from this entry's candidate facts. */
+  proposal_ids?: string[];
+  proposal_errors?: string[];
 }
 
 export interface SessionPrep {

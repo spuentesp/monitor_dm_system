@@ -246,6 +246,7 @@ class PlotThreadCreate(BaseModel):
         description="Tracked from player engagement",
     )
     gm_importance: float = Field(default=0.5, ge=0.0, le=1.0, description="Set by GM")
+    gm_notes: str = Field(default="", max_length=5000, description="GM notes about this thread")
 
 
 class PlotThreadUpdate(BaseModel):
@@ -259,6 +260,7 @@ class PlotThreadUpdate(BaseModel):
     payoff_status: PayoffStatus | None = None
     player_interest_level: float | None = Field(None, ge=0.0, le=1.0)
     gm_importance: float | None = Field(None, ge=0.0, le=1.0)
+    gm_notes: str | None = Field(None, max_length=5000)
     # Relationship operations (additive only - no removal to preserve history)
     add_scene_ids: list[UUID] | None = Field(None, description="Add scenes that advanced this thread")
     add_entity_ids: list[UUID] | None = Field(None, description="Add entities involved in this thread")
@@ -280,6 +282,7 @@ class PlotThreadResponse(BaseModel):
     payoff_status: PayoffStatus
     player_interest_level: float
     gm_importance: float
+    gm_notes: str = ""
     # Relationships (lists of UUIDs)
     scene_ids: list[UUID] = Field(default_factory=list)
     entity_ids: list[UUID] = Field(default_factory=list)

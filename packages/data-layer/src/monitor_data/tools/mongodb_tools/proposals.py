@@ -89,6 +89,9 @@ def _convert_proposed_change_doc_to_response(
         is_mechanically_bound=doc.get("is_mechanically_bound", False),
         source=doc.get("source"),
         proposal_type=doc.get("proposal_type"),
+        deferred=bool(doc.get("deferred", False)),
+        defer_reason=doc.get("defer_reason"),
+        edit_reason=doc.get("edit_reason"),
         needs_review=bool(doc.get("needs_review", False)),
         review_reason=doc.get("review_reason"),
         review_source=doc.get("review_source"),
@@ -147,6 +150,8 @@ def mongodb_create_proposed_change(
         "confidence": params.confidence,
         "authority": params.authority.value,
         "proposer": params.proposer,
+        "source": params.source,
+        "proposal_type": params.proposal_type,
         "status": ProposalStatus.PENDING.value,
         "decision_metadata": None,
         "promotion_intent": params.promotion_intent.value if params.promotion_intent else None,
@@ -185,6 +190,8 @@ def mongodb_create_proposed_change(
         confidence=params.confidence,
         authority=params.authority,
         proposer=params.proposer,
+        source=params.source,
+        proposal_type=params.proposal_type,
         status=ProposalStatus.PENDING,
         decision_metadata=None,
         promotion_intent=params.promotion_intent,
@@ -332,6 +339,97 @@ def mongodb_flag_proposal_review(
         "review_reason": reason,
         "review_source": source,
     }
+
+
+def mongodb_defer_proposed_change(
+    proposal_id: UUID,
+    reason: str,
+    deferred_by: str = "GM",
+) -> ProposedChangeResponse:
+    """Mark a pending proposal as deferred without deciding it.
+
+    Deferred proposals stay pending so they can still be edited, accepted, or
+    rejected later. The reason is kept separate from decision metadata because
+    no final verdict has been made.
+    """
+    mongo_client = get_mongodb_client()
+    coll = mongo_client.get_collection("proposed_changes")
+    doc = coll.find_one({"proposal_id": str(proposal_id)})
+    if not doc:
+        raise ValueError(f"Proposal {proposal_id} not found")
+    current_status = _coerce_proposal_status(doc.get("status", ProposalStatus.PENDING.value))
+    if current_status != ProposalStatus.PENDING:
+        raise ValueError(
+            f"Cannot defer proposal with status {current_status.value}. "
+            f"Only pending proposals can be deferred."
+        )
+
+    coll.update_one(
+        {"proposal_id": str(proposal_id)},
+        {
+            "$set": {
+                "deferred": True,
+                "defer_reason": reason,
+                "deferred_by": deferred_by,
+                "updated_at": datetime.now(UTC),
+            }
+        },
+    )
+    updated = mongodb_get_proposed_change(proposal_id)
+    if updated is None:
+        raise ValueError(f"Proposal {proposal_id} not found after defer")
+    return updated
+
+
+def mongodb_edit_proposed_change(
+    proposal_id: UUID,
+    content_patch: dict[str, Any],
+    reason: str | None = None,
+    edited_by: str = "GM",
+) -> ProposedChangeResponse:
+    """Edit a pending proposal's content before a final verdict.
+
+    The patch is merged shallowly into ``content`` and, when present, into the
+    extraction ``payload`` used by CanonKeeper's commit handlers. This keeps
+    "edit before accept" from silently changing only the display copy.
+    """
+    if not content_patch:
+        raise ValueError("content_patch must not be empty")
+
+    mongo_client = get_mongodb_client()
+    coll = mongo_client.get_collection("proposed_changes")
+    doc = coll.find_one({"proposal_id": str(proposal_id)})
+    if not doc:
+        raise ValueError(f"Proposal {proposal_id} not found")
+    current_status = _coerce_proposal_status(doc.get("status", ProposalStatus.PENDING.value))
+    if current_status != ProposalStatus.PENDING:
+        raise ValueError(
+            f"Cannot edit proposal with status {current_status.value}. "
+            f"Only pending proposals can be edited before a verdict."
+        )
+
+    current_content = doc.get("content") or {}
+    if not isinstance(current_content, dict):
+        raise ValueError("Proposal content is not editable")
+    new_content = {**current_content, **content_patch}
+    if "statement" in content_patch and not str(new_content.get("statement") or "").strip():
+        raise ValueError("statement must not be empty")
+
+    updates: dict[str, Any] = {
+        "content": new_content,
+        "edit_reason": reason,
+        "edited_by": edited_by,
+        "updated_at": datetime.now(UTC),
+    }
+    current_payload = doc.get("payload")
+    if isinstance(current_payload, dict):
+        updates["payload"] = {**current_payload, **content_patch}
+
+    coll.update_one({"proposal_id": str(proposal_id)}, {"$set": updates})
+    updated = mongodb_get_proposed_change(proposal_id)
+    if updated is None:
+        raise ValueError(f"Proposal {proposal_id} not found after edit")
+    return updated
 
 
 def mongodb_update_proposed_change(proposal_id: UUID, params: ProposedChangeUpdate) -> ProposedChangeResponse:

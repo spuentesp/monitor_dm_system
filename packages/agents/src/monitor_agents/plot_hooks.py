@@ -64,6 +64,21 @@ class Contradiction(BaseModel):
     )
     explanation: str = Field(description="Why these facts contradict")
     suggestion: str = Field(description="How to resolve the contradiction")
+    conflict_type: str = Field(
+        default="semantic",
+        description="semantic | timeline | location | relationship | rule",
+    )
+    scope: str = Field(default="universe", description="universe | story | scene")
+    fact_a_id: str | None = None
+    fact_b_id: str | None = None
+    suggested_resolutions: list[str] = Field(
+        default_factory=lambda: [
+            "retcon_older",
+            "retcon_newer",
+            "apparent_contradiction",
+            "explanation_fact",
+        ]
+    )
 
 
 class SessionPrep(BaseModel):
@@ -229,6 +244,10 @@ class PlotHookAgent(BaseAgent):
         self,
         universe_id: UUID,
         focus_entity_id: UUID | None = None,
+        *,
+        scope: str = "universe",
+        story_id: UUID | None = None,
+        scene_id: UUID | None = None,
     ) -> list[Contradiction]:
         """
         Detect contradictions in the canon for a given universe.
@@ -236,6 +255,9 @@ class PlotHookAgent(BaseAgent):
         Args:
             universe_id: The universe to check
             focus_entity_id: Optional entity to focus on
+            scope: universe, story, or scene
+            story_id: Story scope, when scope='story'
+            scene_id: Scene scope, when scope='scene'
 
         Returns:
             List of detected Contradictions
@@ -243,7 +265,7 @@ class PlotHookAgent(BaseAgent):
         # 1. Fetch facts for the universe
         facts_result = await self.call_tool(
             "neo4j_list_facts",
-            {"filters": {"universe_id": str(universe_id), "limit": 50}},
+            {"filters": {"universe_id": str(universe_id), "limit": 200}},
         )
         facts = self._parse_result(facts_result, "facts", [])
 
@@ -268,6 +290,18 @@ class PlotHookAgent(BaseAgent):
             for e in entities_list[:10]:
                 entity_summaries.append(f"- {e.get('name', 'Unknown')} ({e.get('entity_type', 'unknown')})")
 
+        # 2b. Events power deterministic timeline checks. This is best-effort
+        # and never blocks semantic detection when the tool is unavailable.
+        events: list[dict[str, Any]] = []
+        try:
+            events_result = await self.call_tool(
+                "neo4j_list_events",
+                {"filters": {"universe_id": str(universe_id), "limit": 100}},
+            )
+            events = self._parse_result(events_result, "events", [])
+        except Exception:  # noqa: BLE001  # reason: timeline checks are additive (in detect_contradictions)
+            events = []
+
         # 3. Build fact list for contradiction analysis
         fact_list = []
         for f in facts[:30]:
@@ -280,7 +314,8 @@ class PlotHookAgent(BaseAgent):
                 "content": (
                     "You are a canon consistency checker for a tabletop RPG. "
                     "Analyze the following facts and identify any contradictions "
-                    "(statements that cannot both be true). Rate severity as: "
+                    "(statements that cannot both be true). Classify each conflict as "
+                    "semantic, timeline, location, relationship, or rule. Rate severity as: "
                     "low (flavor inconsistency), medium (notable contradiction), "
                     "high (plot-breaking contradiction)."
                 ),
@@ -288,7 +323,8 @@ class PlotHookAgent(BaseAgent):
             {
                 "role": "user",
                 "content": (
-                    f"Facts in this universe:\n{chr(10).join(fact_list) or 'No facts found'}\n\n"
+                    f"Scope: {scope}\n"
+                    f"Facts in this scope:\n{chr(10).join(fact_list) or 'No facts found'}\n\n"
                     f"Entities:\n{chr(10).join(entity_summaries) or 'No entities found'}\n\n"
                     "Identify any contradictions."
                 ),
@@ -301,10 +337,19 @@ class PlotHookAgent(BaseAgent):
                 messages,
                 max_tokens=2048,
             )
-            return result.contradictions
+            return [
+                *self._timeline_contradictions(events, scope=scope),
+                *[
+                    contradiction.model_copy(update={"scope": scope})
+                    for contradiction in result.contradictions
+                ],
+            ]
         except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in detect_contradictions)
             logger.warning("LLM contradiction detection failed", exc_info=True)
-            return self._heuristic_contradictions(facts)
+            return [
+                *self._timeline_contradictions(events, scope=scope),
+                *self._heuristic_contradictions(facts, scope=scope),
+            ]
 
     # ------------------------------------------------------------------
     # CF-7: Session Prep
@@ -558,7 +603,55 @@ class PlotHookAgent(BaseAgent):
 
         return hooks[:max_hooks]
 
-    def _heuristic_contradictions(self, facts: list[dict[str, Any]]) -> list[Contradiction]:
+    def _timeline_contradictions(
+        self,
+        events: list[dict[str, Any]],
+        scope: str = "universe",
+    ) -> list[Contradiction]:
+        """Detect deterministic event-timeline impossibilities (CF-5)."""
+        contradictions: list[Contradiction] = []
+        by_id = {str(event.get("id")): event for event in events if event.get("id")}
+        for event in events:
+            event_id = str(event.get("id") or "")
+            start = event.get("start_time")
+            end = event.get("end_time")
+            if start and end and str(end) < str(start):
+                contradictions.append(
+                    Contradiction(
+                        fact_a=f"{event.get('title', event_id)} starts at {start}",
+                        fact_b=f"{event.get('title', event_id)} ends at {end}",
+                        severity="high",
+                        explanation="An event cannot end before it starts.",
+                        suggestion="Correct the event timing or retcon the event.",
+                        conflict_type="timeline",
+                        scope=scope,
+                        fact_a_id=event_id or None,
+                        fact_b_id=event_id or None,
+                    )
+                )
+            for later_id in event.get("timeline_before") or []:
+                later = by_id.get(str(later_id))
+                if later and event_id in {str(x) for x in (later.get("timeline_before") or [])}:
+                    contradictions.append(
+                        Contradiction(
+                            fact_a=f"{event.get('title', event_id)} is before {later.get('title', later_id)}",
+                            fact_b=f"{later.get('title', later_id)} is before {event.get('title', event_id)}",
+                            severity="high",
+                            explanation="The event timeline contains a before/after cycle.",
+                            suggestion="Remove one of the conflicting timeline edges.",
+                            conflict_type="timeline",
+                            scope=scope,
+                            fact_a_id=event_id or None,
+                            fact_b_id=str(later_id),
+                        )
+                    )
+        return contradictions[:10]
+
+    def _heuristic_contradictions(
+        self,
+        facts: list[dict[str, Any]],
+        scope: str = "universe",
+    ) -> list[Contradiction]:
         """Detect contradictions using simple heuristics.
 
         Patterns detected:
@@ -620,6 +713,8 @@ class PlotHookAgent(BaseAgent):
                                 severity="medium",
                                 explanation="Negation-based contradiction detected.",
                                 suggestion=("Review both facts and determine which is canonical."),
+                                conflict_type="semantic",
+                                scope=scope,
                             )
                         )
                         continue
@@ -634,6 +729,8 @@ class PlotHookAgent(BaseAgent):
                                     severity="high",
                                     explanation=(f"Status contradiction: '{word_a}' vs '{word_b}'."),
                                     suggestion=(f"Resolve the {word_a}/{word_b} conflict for this entity."),
+                                    conflict_type="semantic",
+                                    scope=scope,
                                 )
                             )
                             break
@@ -656,6 +753,8 @@ class PlotHookAgent(BaseAgent):
                                     severity="medium",
                                     explanation=(f"Location contradiction: {locs_a} vs {locs_b}."),
                                     suggestion=("Determine where this entity currently is."),
+                                    conflict_type="location",
+                                    scope=scope,
                                 )
                             )
 

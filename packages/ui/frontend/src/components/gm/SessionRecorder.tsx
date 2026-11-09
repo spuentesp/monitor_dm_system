@@ -164,12 +164,22 @@ export function SessionRecorder({
             });
         }
 
-        // P1.2 — per-entry capture insights. Same advisory contract: a
-        // failed analysis renders nothing and must never break logging.
+        // P1.2/CF-1 — per-entry capture insights and story-scoped draft
+        // proposals. Same advisory contract: a failed analysis renders nothing
+        // and must never break logging.
         gmApi
-          .captureInsights(universeId, text)
+          .captureInsights(universeId, text, {
+            session_id: activeId,
+            entry_id: optimistic.id,
+            story_id: active?.story_id ?? null,
+            scene_id: active?.scene_id ?? null,
+          })
           .then((insight) => {
             setEntryInsights((prev) => [...prev, { messageText: text, insight }]);
+            if ((insight.proposal_ids ?? []).length > 0) {
+              qc.invalidateQueries({ queryKey: ["canon-queue"] });
+              qc.invalidateQueries({ queryKey: ["canon-review"] });
+            }
           })
           .catch(() => {
             // advisory only — ignore
@@ -302,7 +312,8 @@ export function SessionRecorder({
                 (insight.participants.length > 0 ||
                   insight.locations.length > 0 ||
                   insight.candidate_facts.length > 0 ||
-                  insight.advances_thread !== "");
+                  insight.advances_thread !== "" ||
+                  (insight.proposal_ids ?? []).length > 0);
               return (
                 <div key={m.id} className="space-y-1.5">
                   <motion.div
@@ -388,6 +399,18 @@ export function SessionRecorder({
                             ))}
                           </ul>
                         </details>
+                      )}
+                      {(insight.proposal_ids ?? []).length > 0 && (
+                        <div className="text-[10px] text-emerald-300/80">
+                          {(insight.proposal_ids ?? []).length} draft proposal
+                          {(insight.proposal_ids ?? []).length === 1 ? "" : "s"} queued for canon review
+                        </div>
+                      )}
+                      {(insight.proposal_errors ?? []).length > 0 && (
+                        <div className="text-[10px] text-red-300/80">
+                          {(insight.proposal_errors ?? []).length} candidate fact
+                          {(insight.proposal_errors ?? []).length === 1 ? "" : "s"} could not be queued
+                        </div>
                       )}
                     </div>
                   )}

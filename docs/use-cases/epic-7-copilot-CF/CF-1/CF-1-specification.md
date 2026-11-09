@@ -42,8 +42,9 @@ mongodb_update_scene(scene_id, {"status": "review"})    # Ready for GM/CanonKeep
 **Layer 2 (Agents):**
 - `session_bootstrap.bootstrap_story_scene(...)` (`loops/session_bootstrap.py:121-139`) —
   initializes the `gm_assistant` capture session's story/scene shell
-- Capture-insights module (planned, GM_ASSISTANT_MODE_PLAN P1.2) — per-entry
-  participant/location/candidate-fact extraction
+- Capture-insights module (`monitor_agents.ingestion.capture_insights`) — per-entry
+  participant/location/candidate-fact extraction; with story/scene context the
+  candidate facts are queued as pending `ProposedChange` FACT items for CF-8
 - `RecapAgent.generate_recap` — post-session recap (CF-2)
 
 **Layer 3 (Surface):**

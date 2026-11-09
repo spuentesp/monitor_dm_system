@@ -154,6 +154,10 @@ AUTHORITY_MATRIX = {
     "mongodb_get_proposed_change": ["*"],
     "mongodb_list_proposed_changes": ["*"],
     "mongodb_update_proposed_change": ["CanonKeeper"],
+    # CF-8 — defer/edit are review-surface writes, still behind CanonKeeper
+    # authority when invoked through MCP.
+    "mongodb_defer_proposed_change": ["CanonKeeper"],
+    "mongodb_edit_proposed_change": ["CanonKeeper"],
     # G-9 Phase 2 — stamping the advisory review flag is a CanonKeeper write.
     "mongodb_flag_proposal_review": ["CanonKeeper"],
     # (Memory operations moved to DL-7 section below)

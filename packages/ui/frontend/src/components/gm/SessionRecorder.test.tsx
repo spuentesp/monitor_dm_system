@@ -154,7 +154,16 @@ describe("SessionRecorder per-entry capture insights (P1.2)", () => {
     expect(card).toHaveTextContent("Candidate facts");
     expect(card).toHaveTextContent("the key is now with Mira");
     expect(card).toHaveTextContent("Advances: The sealed door");
-    expect(gmApi.captureInsights).toHaveBeenCalledWith("u-1", text);
+    expect(gmApi.captureInsights).toHaveBeenCalledWith(
+      "u-1",
+      text,
+      expect.objectContaining({
+        session_id: RECORDING.id,
+        entry_id: expect.any(String),
+        story_id: null,
+        scene_id: null,
+      }),
+    );
   });
 
   it("renders insights alongside a contradiction alert for the same entry", async () => {
@@ -298,5 +307,42 @@ describe("SessionRecorder archive metadata (P3.3)", () => {
     await waitFor(() =>
       expect(chatApi.patchSession).toHaveBeenCalledWith("rec-1", { archived: true }),
     );
+  });
+});
+
+
+describe("SessionRecorder CF-1 proposal handoff", () => {
+  it("shows the number of draft proposals queued for canon review", async () => {
+    const text = "Mira pocketed the key beneath the chapel";
+    stubTranscript(text);
+    vi.mocked(gmApi.checkEntryContradiction).mockResolvedValue({ alert: null });
+    vi.mocked(gmApi.captureInsights).mockResolvedValue({
+      ...EMPTY_INSIGHT,
+      candidate_facts: ["the key is now with Mira"],
+      proposal_ids: ["p-1"],
+      proposal_errors: [],
+    });
+    renderRecorder();
+
+    await logEntry(text);
+
+    expect(await screen.findByText(/1 draft proposal queued for canon review/i)).toBeInTheDocument();
+  });
+
+  it("reports candidate facts that could not be queued", async () => {
+    const text = "Mira pocketed the key beneath the chapel";
+    stubTranscript(text);
+    vi.mocked(gmApi.checkEntryContradiction).mockResolvedValue({ alert: null });
+    vi.mocked(gmApi.captureInsights).mockResolvedValue({
+      ...EMPTY_INSIGHT,
+      candidate_facts: ["the key is now with Mira"],
+      proposal_ids: [],
+      proposal_errors: ["the key is now with Mira: scene missing"],
+    });
+    renderRecorder();
+
+    await logEntry(text);
+
+    expect(await screen.findByText(/1 candidate fact could not be queued/i)).toBeInTheDocument();
   });
 });

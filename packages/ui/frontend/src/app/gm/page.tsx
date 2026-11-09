@@ -3,7 +3,7 @@
 import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
   ChevronDown,
@@ -535,10 +535,51 @@ function PlotHooksPanel({ universeId }: { universeId: string | null }) {
 
 function ContradictionsPanel({ universeId }: { universeId: string | null }) {
   const [contradictions, setContradictions] = useState<Contradiction[]>([]);
+  const [scope, setScope] = useState<"universe" | "story" | "scene">("universe");
+  const [storyId, setStoryId] = useState("");
+  const [sceneId, setSceneId] = useState("");
+  const [resolution, setResolution] = useState<
+    "retcon_older" | "retcon_newer" | "apparent_contradiction" | "explanation_fact"
+  >("explanation_fact");
+
+  const { data: storiesData } = useQuery({
+    queryKey: ["universe-stories", universeId],
+    queryFn: () => storiesApi.listStories({ universe_id: universeId!, limit: 100 }),
+    enabled: !!universeId && scope !== "universe",
+    staleTime: 15_000,
+  });
+  const stories = storiesData?.stories ?? [];
+
+  const { data: scenes = [] } = useQuery({
+    queryKey: ["story-scenes", storyId],
+    queryFn: () => storiesApi.listScenes(storyId),
+    enabled: !!storyId && scope === "scene",
+    staleTime: 15_000,
+  });
 
   const mutation = useMutation({
-    mutationFn: () => gmApi.detectContradictions(universeId!),
+    mutationFn: () =>
+      gmApi.detectContradictions(universeId!, {
+        scope,
+        storyId: scope === "universe" ? undefined : storyId || undefined,
+        sceneId: scope === "scene" ? sceneId || undefined : undefined,
+      }),
     onSuccess: (data) => setContradictions(data.contradictions),
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: (c: Contradiction) =>
+      gmApi.resolveContradiction({
+        universe_id: universeId!,
+        story_id: scope === "universe" ? null : storyId || null,
+        scene_id: scope === "scene" ? sceneId || null : null,
+        fact_a: c.fact_a,
+        fact_b: c.fact_b,
+        conflict_type: c.conflict_type ?? "semantic",
+        resolution,
+        explanation: `${c.explanation} Resolution: ${resolution.replace(/_/g, " ")}.`,
+      }),
+    onSuccess: () => mutation.mutate(),
   });
 
   if (!universeId) {
@@ -555,9 +596,50 @@ function ContradictionsPanel({ universeId }: { universeId: string | null }) {
       <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 flex-shrink-0">
         <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
         <span className="text-xs font-semibold text-slate-300 flex-1">Contradictions</span>
+        <select
+          value={scope}
+          onChange={(e) => {
+            setScope(e.target.value as typeof scope);
+            setStoryId("");
+            setSceneId("");
+          }}
+          className="input-cyber py-1 text-xs"
+        >
+          <option value="universe">Universe</option>
+          <option value="story">Story</option>
+          <option value="scene">Scene</option>
+        </select>
+        {scope !== "universe" && (
+          <select
+            value={storyId}
+            onChange={(e) => {
+              setStoryId(e.target.value);
+              setSceneId("");
+            }}
+            className="input-cyber py-1 text-xs max-w-[150px]"
+          >
+            <option value="">Select story</option>
+            {stories.map((s) => (
+              <option key={s.id} value={s.id}>{s.title}</option>
+            ))}
+          </select>
+        )}
+        {scope === "scene" && (
+          <select
+            value={sceneId}
+            onChange={(e) => setSceneId(e.target.value)}
+            className="input-cyber py-1 text-xs max-w-[150px]"
+            disabled={!storyId}
+          >
+            <option value="">Select scene</option>
+            {scenes.map((s) => (
+              <option key={s.id} value={s.id}>{s.title || s.id}</option>
+            ))}
+          </select>
+        )}
         <button
           onClick={() => mutation.mutate()}
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || (scope !== "universe" && !storyId) || (scope === "scene" && !sceneId)}
           className="btn-cyber text-xs py-1 px-3"
         >
           {mutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
@@ -584,6 +666,7 @@ function ContradictionsPanel({ universeId }: { universeId: string | null }) {
               )}>
                 {c.severity} severity
               </span>
+              <span className="text-[10px] text-slate-500">{c.conflict_type ?? "semantic"}</span>
             </div>
             <div className="space-y-1">
               <div className="text-xs text-slate-300 bg-red-500/5 rounded px-2 py-1 border-l-2 border-red-500/30">
@@ -595,6 +678,26 @@ function ContradictionsPanel({ universeId }: { universeId: string | null }) {
             </div>
             <p className="text-xs text-slate-500">{c.explanation}</p>
             <p className="text-xs text-cyan-400/80">💡 {c.suggestion}</p>
+            <div className="flex items-center gap-1 pt-1">
+              <select
+                value={resolution}
+                onChange={(e) => setResolution(e.target.value as typeof resolution)}
+                className="input-cyber py-1 text-xs"
+              >
+                <option value="retcon_older">Retcon older fact</option>
+                <option value="retcon_newer">Retcon newer fact</option>
+                <option value="apparent_contradiction">Mark apparent contradiction</option>
+                <option value="explanation_fact">Create explanation fact</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => resolveMutation.mutate(c)}
+                disabled={resolveMutation.isPending}
+                className="text-[10px] px-2 py-1 rounded border border-cyan-500/25 text-cyan-300 hover:bg-cyan-500/10"
+              >
+                Resolve
+              </button>
+            </div>
           </div>
         ))}
         {!mutation.isPending && contradictions.length === 0 && (
@@ -775,6 +878,7 @@ const THREAD_URGENCY_TAG: Record<string, string> = {
 };
 
 function ThreadsPanel({ universeId }: { universeId: string | null }) {
+  const qc = useQueryClient();
   const [storyId, setStoryId] = useState("");
 
   const { data: storiesData } = useQuery({
@@ -798,6 +902,19 @@ function ThreadsPanel({ universeId }: { universeId: string | null }) {
     enabled: !!storyId,
     staleTime: 30_000,
     retry: 1,
+  });
+
+  const updateThread = useMutation({
+    mutationFn: ({
+      threadId,
+      action,
+      note,
+    }: {
+      threadId: string;
+      action: "resolve" | "dismiss" | "note";
+      note?: string;
+    }) => storiesApi.updateThread(storyId, threadId, action, note),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["story-threads", storyId] }),
   });
 
   if (!universeId) {
@@ -857,6 +974,35 @@ function ThreadsPanel({ universeId }: { universeId: string | null }) {
               <span className="capitalize">{t.status.replace(/_/g, " ")}</span>
               {t.source === "checkpoint" && <span className="italic">from story state</span>}
             </div>
+            {t.gm_notes && <p className="text-[10px] text-slate-500">{t.gm_notes}</p>}
+            {t.id && (
+              <div className="flex gap-1 pt-1">
+                <button
+                  type="button"
+                  onClick={() => updateThread.mutate({ threadId: t.id!, action: "resolve" })}
+                  className="text-[10px] px-2 py-0.5 rounded border border-emerald-500/25 text-emerald-300 hover:bg-emerald-500/10"
+                >
+                  Resolve
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateThread.mutate({ threadId: t.id!, action: "dismiss" })}
+                  className="text-[10px] px-2 py-0.5 rounded border border-red-500/25 text-red-300 hover:bg-red-500/10"
+                >
+                  Dismiss
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const note = window.prompt("GM note for this thread", t.gm_notes ?? "");
+                    if (note !== null) updateThread.mutate({ threadId: t.id!, action: "note", note });
+                  }}
+                  className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-slate-300 hover:bg-white/5"
+                >
+                  Note
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

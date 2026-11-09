@@ -50,15 +50,23 @@ function ProposalCard({
   proposal,
   onAccept,
   onReject,
+  onDefer,
+  onEdit,
   compact = false,
 }: {
   proposal: ProposalItem;
   onAccept?: (id: string, reason: string) => void;
   onReject?: (id: string, reason: string) => void;
+  onDefer?: (id: string, reason: string) => void;
+  onEdit?: (id: string, contentPatch: Record<string, unknown>, reason: string) => void;
   compact?: boolean;
 }) {
   const [reason, setReason] = useState("");
-  const [showReason, setShowReason] = useState<"accept" | "reject" | null>(null);
+  const [showReason, setShowReason] = useState<"accept" | "reject" | "defer" | null>(null);
+  const [showEdit, setShowEdit] = useState(false);
+  const initialStatement = String(proposal.content.statement ?? proposal.content.text ?? "");
+  const [editText, setEditText] = useState(initialStatement);
+  const [editReason, setEditReason] = useState("");
   const typeConfig = CHANGE_TYPE_CONFIG[proposal.change_type] ?? CHANGE_TYPE_CONFIG.fact;
   const statusConfig = STATUS_CONFIG[proposal.status] ?? STATUS_CONFIG.pending;
   const tier = getConfidenceTier(proposal.confidence);
@@ -69,9 +77,20 @@ function ProposalCard({
     const c = proposal.content;
     if (c.name) return String(c.name);
     if (c.label) return String(c.label);
+    if (c.statement) return String(c.statement).slice(0, 120);
     if (c.text) return String(c.text).slice(0, 120);
     return JSON.stringify(c).slice(0, 120);
   }, [proposal.content]);
+
+  const evidenceExcerpt = typeof proposal.content.source_excerpt === "string"
+    ? proposal.content.source_excerpt
+    : null;
+  const explanation =
+    proposal.decision_metadata?.reason ??
+    proposal.defer_reason ??
+    proposal.edit_reason ??
+    proposal.review_reason ??
+    null;
 
   if (compact && proposal.status !== "pending") return null;
 
@@ -90,6 +109,11 @@ function ProposalCard({
             <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium", tier.bg, tier.color)}>
               {tier.label} {Math.round(proposal.confidence * 100)}%
             </span>
+            {proposal.deferred && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-300 font-medium">
+                Deferred
+              </span>
+            )}
             {proposal.needs_review && (
               <span
                 data-testid="needs-review-badge"
@@ -108,6 +132,26 @@ function ProposalCard({
             )}
           </div>
           <p className="text-sm text-slate-300 mt-1 break-words">{contentPreview}</p>
+          {evidenceExcerpt && (
+            <div className="mt-1 rounded border border-white/8 bg-white/2 px-2 py-1">
+              <p className="text-[9px] uppercase tracking-wider text-slate-500">Evidence</p>
+              <p className="text-[11px] text-slate-400 break-words">{evidenceExcerpt}</p>
+            </div>
+          )}
+          {proposal.evidence.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {proposal.evidence.map((item, i) => (
+                <span key={`${item.ref_id}-${i}`} className="text-[9px] px-1.5 py-0.5 rounded border border-white/8 text-slate-500">
+                  {item.type}: {item.ref_id.slice(0, 8)}
+                </span>
+              ))}
+            </div>
+          )}
+          {explanation && (
+            <p className="text-[10px] text-slate-400 mt-1">
+              <span className="text-slate-500">Explanation:</span> {explanation}
+            </p>
+          )}
           {proposal.needs_review && (
             <p className="text-[10px] text-amber-300/80 mt-1">Advisory flag: it does not prevent acceptance or commit.</p>
           )}
@@ -120,7 +164,7 @@ function ProposalCard({
       {proposal.status === "pending" && onAccept && onReject && (
         <div className="space-y-2">
           <AnimatePresence>
-            {showReason && (
+            {showReason && !showEdit && (
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: "auto", opacity: 1 }}
@@ -131,9 +175,42 @@ function ProposalCard({
                   type="text"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder={`Reason for ${showReason}ing...`}
+                  placeholder={showReason === "defer" ? "Reason for deferring..." : `Reason for ${showReason}ing...`}
                   className="w-full px-2 py-1.5 text-xs rounded-lg bg-white/5 border border-white/10 text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/40"
                 />
+              </motion.div>
+            )}
+            {showEdit && onEdit && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden space-y-1.5"
+              >
+                <textarea
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  rows={2}
+                  className="w-full px-2 py-1.5 text-xs rounded-lg bg-white/5 border border-white/10 text-slate-300 focus:outline-none focus:border-cyan-500/40"
+                />
+                <input
+                  type="text"
+                  value={editReason}
+                  onChange={(e) => setEditReason(e.target.value)}
+                  placeholder="Why is this being edited?"
+                  className="w-full px-2 py-1.5 text-xs rounded-lg bg-white/5 border border-white/10 text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/40"
+                />
+                <button
+                  onClick={() => {
+                    const statement = editText.trim();
+                    if (!statement) return;
+                    onEdit(proposal.proposal_id, { statement }, editReason.trim());
+                    setShowEdit(false);
+                  }}
+                  className="px-2.5 py-1 text-xs font-medium rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
+                >
+                  Save edit
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -168,6 +245,34 @@ function ProposalCard({
               <XCircle className="w-3 h-3" />
               Reject
             </button>
+            {onEdit && (
+              <button
+                onClick={() => {
+                  setShowReason(null);
+                  setEditText(initialStatement);
+                  setShowEdit((v) => !v);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10 transition-all"
+              >
+                Edit
+              </button>
+            )}
+            {onDefer && !proposal.deferred && (
+              <button
+                onClick={() => {
+                  if (showReason === "defer") {
+                    onDefer(proposal.proposal_id, reason.trim());
+                    setShowReason(null);
+                    setReason("");
+                  } else {
+                    setShowReason("defer");
+                  }
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-sky-500/10 text-sky-300 border border-sky-500/25 hover:bg-sky-500/20 transition-all"
+              >
+                Defer
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -179,18 +284,24 @@ function SceneCard({
   scene,
   onAccept,
   onReject,
+  onDefer,
+  onEdit,
 }: {
   scene: SceneReview;
   onAccept: (proposalId: string, reason: string) => void;
   onReject: (proposalId: string, reason: string) => void;
+  onDefer: (proposalId: string, reason: string) => void;
+  onEdit: (proposalId: string, contentPatch: Record<string, unknown>, reason: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const [filter, setFilter] = useState<"all" | "pending" | "accepted" | "rejected">("pending");
+  const [filter, setFilter] = useState<"all" | "pending" | "deferred" | "accepted" | "rejected">("pending");
 
   const filtered = useMemo(() => {
-    const all = [...scene.pending, ...scene.accepted, ...scene.rejected];
+    const deferred = scene.deferred ?? [];
+    const all = [...scene.pending, ...deferred, ...scene.accepted, ...scene.rejected];
     if (filter === "all") return all;
-    return all.filter((p) => p.status === filter);
+    if (filter === "deferred") return deferred;
+    return all.filter((p) => p.status === filter && (filter !== "pending" || !p.deferred));
   }, [scene, filter]);
 
   // scene_id is null for the story-level lane (proposals with no scene).
@@ -224,6 +335,11 @@ function SceneCard({
               {scene.pending.length} pending
             </span>
           )}
+          {(scene.deferred ?? []).length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/20">
+              {(scene.deferred ?? []).length} deferred
+            </span>
+          )}
           {scene.accepted.length > 0 && (
             <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
               {scene.accepted.length} accepted
@@ -236,6 +352,28 @@ function SceneCard({
           )}
         </div>
       </button>
+
+      {(scene.summary || (scene.participants ?? []).length > 0 || (scene.locations ?? []).length > 0) && (
+        <div className="px-4 pb-2 space-y-1">
+          {scene.summary && (
+            <p className="text-xs text-slate-400">{scene.summary}</p>
+          )}
+          {((scene.participants ?? []).length > 0 || (scene.locations ?? []).length > 0) && (
+            <div className="flex flex-wrap gap-1">
+              {(scene.participants ?? []).map((name) => (
+                <span key={`participant-${name}`} className="text-[9px] px-1.5 py-0.5 rounded-full border border-emerald-500/20 text-emerald-300">
+                  {name}
+                </span>
+              ))}
+              {(scene.locations ?? []).map((name) => (
+                <span key={`location-${name}`} className="text-[9px] px-1.5 py-0.5 rounded-full border border-sky-500/20 text-sky-300">
+                  {name}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Body */}
       <AnimatePresence>
@@ -265,7 +403,7 @@ function SceneCard({
 
             {/* Filter tabs */}
             <div className="px-4 py-2 border-t border-white/5 flex gap-1">
-              {(["pending", "accepted", "rejected", "all"] as const).map((f) => (
+              {(["pending", "deferred", "accepted", "rejected", "all"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
@@ -292,6 +430,8 @@ function SceneCard({
                   proposal={p}
                   onAccept={onAccept}
                   onReject={onReject}
+                  onDefer={onDefer}
+                  onEdit={onEdit}
                 />
               ))}
             </div>
@@ -358,6 +498,25 @@ export function CanonReviewPanel({
     onSuccess: invalidate,
   });
 
+  const deferMutation = useMutation({
+    mutationFn: ({ proposalId, reason }: { proposalId: string; reason: string }) =>
+      canonApi.deferProposal(proposalId, reason || "Deferred by GM"),
+    onSuccess: invalidate,
+  });
+
+  const editMutation = useMutation({
+    mutationFn: ({
+      proposalId,
+      contentPatch,
+      reason,
+    }: {
+      proposalId: string;
+      contentPatch: Record<string, unknown>;
+      reason: string;
+    }) => canonApi.editProposal(proposalId, contentPatch, reason || undefined),
+    onSuccess: invalidate,
+  });
+
   const batchMutation = useMutation({
     mutationFn: (items: VerdictItem[]) => canonApi.batchVerdicts(items),
     onSuccess: (data) => {
@@ -382,6 +541,17 @@ export function CanonReviewPanel({
   const handleReject = useCallback(
     (proposalId: string, reason: string) => rejectMutation.mutate({ proposalId, reason }),
     [rejectMutation],
+  );
+
+  const handleDefer = useCallback(
+    (proposalId: string, reason: string) => deferMutation.mutate({ proposalId, reason }),
+    [deferMutation],
+  );
+
+  const handleEdit = useCallback(
+    (proposalId: string, contentPatch: Record<string, unknown>, reason: string) =>
+      editMutation.mutate({ proposalId, contentPatch, reason }),
+    [editMutation],
   );
 
   // ── Batch actions (current scope only) ────────────────────
@@ -460,7 +630,7 @@ export function CanonReviewPanel({
             {batchNotice}
           </p>
         )}
-        <SceneCard scene={scene} onAccept={handleAccept} onReject={handleReject} />
+        <SceneCard scene={scene} onAccept={handleAccept} onReject={handleReject} onDefer={handleDefer} onEdit={handleEdit} />
       </div>
     );
   }
@@ -501,7 +671,7 @@ export function CanonReviewPanel({
             <Gavel className="w-4 h-4 text-cyan-400" />
             Canon Queue
             <span className="text-[10px] font-normal text-slate-500">
-              {queue.total_pending} pending across {queue.scenes.length} lane{queue.scenes.length !== 1 ? "s" : ""}
+              {queue.total_pending} pending{queue.total_deferred ? `, ${queue.total_deferred} deferred` : ""} across {queue.scenes.length} lane{queue.scenes.length !== 1 ? "s" : ""}
             </span>
           </h3>
           {queue.total_pending > 0 && (
@@ -538,6 +708,8 @@ export function CanonReviewPanel({
               scene={scene}
               onAccept={handleAccept}
               onReject={handleReject}
+              onDefer={handleDefer}
+              onEdit={handleEdit}
             />
           ))}
         </div>

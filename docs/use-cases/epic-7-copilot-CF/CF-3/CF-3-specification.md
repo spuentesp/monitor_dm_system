@@ -26,6 +26,10 @@
 
 **Output:** Prioritized list of unresolved threads
 
+**Implementation (2026-11-09):** graph-backed threads can now be resolved,
+dismissed, or annotated from the GM panel. Resolve maps to `resolved`, dismiss
+maps to `abandoned`, and notes persist as `gm_notes` on the thread.
+
 ### Implementation
 
 **Layer 1 (Data Layer):**

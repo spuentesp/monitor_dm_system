@@ -12,8 +12,9 @@ This agent:
 2. Runs the CaptureEntryModule (DSPy, ModelRole.LIGHT) on a single entry
 3. Returns participants, locations, and candidate facts for inline display
 
-Candidate facts are visible, not proposed — promotion happens via the
-scene-end canon review (CF-8), never auto-created per entry.
+Candidate facts are returned for inline display and promoted by the caller
+into pending, story-scoped CF-8 review proposals when capture context is
+available. The agent itself remains read-only.
 """
 
 from __future__ import annotations

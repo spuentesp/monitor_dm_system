@@ -251,11 +251,10 @@ candidate facts** and shows them inline — CF-1 spec steps 3/5
    chips (existing chip styling at :287-295) and a collapsible "Candidate
    facts" list.
 
-**Deliberately out of scope (stated to avoid over-scoping):** auto-creating
-`ProposedChange`s per entry. Scene-end proposals already land in
-`CanonReviewPanel`; per-entry auto-proposals would flood the CF-8 queue.
-Candidate facts are *visible, not proposed*; the GM's close-session review is
-the promotion path.
+**Update (2026-11-09):** when the recorder supplies story/scene context, each
+candidate fact now becomes one pending `ProposedChange` FACT tagged
+`capture_entry:<entry_id>` and appears in the CF-8 review queue. Creation is
+idempotent per entry and best-effort, so capture analysis never blocks logging.
 
 **Tests.**
 - `packages/agents/tests/test_capture_insights.py`: `FakeMCPClient` supplies
@@ -273,7 +272,8 @@ the promotion path.
 (fail-open: LLM failure → empty insight, never blocks logging), `POST
 /api/gm/capture/insights`, participant/location chips + "Advances: thread" +
 collapsible candidate-facts under each entry (alongside P1.1 alerts).
-Auto-proposals deliberately not built. Tests: 20 targeted (agents + behavior +
+Candidate facts now queue as pending story-scoped proposals when capture
+context is present. Tests: 20 targeted (agents + behavior +
 backend + frontend) all green; layer-check clean.
 
 ### P1.3 · Guided end-of-session wrap-up digest (M)

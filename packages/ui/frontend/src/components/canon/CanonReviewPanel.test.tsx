@@ -198,3 +198,79 @@ describe("CanonReviewPanel — story-level lane (F2-3d)", () => {
     expect(screen.getByText("Proposal p-story")).toBeInTheDocument();
   });
 });
+
+
+describe("CanonReviewPanel — CF-8 evidence and disposition", () => {
+  it("renders the capture evidence excerpt and explanation", async () => {
+    vi.spyOn(api.canonApi, "storyQueue").mockResolvedValue(
+      queue(
+        [
+          sceneReview([
+            proposal("p1", "pending", {
+              content: {
+                statement: "the key is now with Mira",
+                source_excerpt: "Mira pocketed the key beneath the chapel",
+              },
+              evidence: [{ type: "snippet", ref_id: "33333333-3333-3333-3333-333333333333" }],
+              decision_metadata: {
+                decided_by: "GM",
+                decided_at: "2026-11-09T00:00:00Z",
+                reason: "Matches the recorded session",
+              },
+            }),
+          ]),
+        ],
+        1,
+      ),
+    );
+
+    renderPanel({ storyId: STORY_ID });
+
+    expect((await screen.findAllByText(/mira pocketed the key beneath the chapel/i)).length).toBeGreaterThan(0);
+    expect(screen.getByText(/snippet: 33333333/i)).toBeInTheDocument();
+    expect(screen.getByText(/matches the recorded session/i)).toBeInTheDocument();
+  });
+
+  it("defers a pending proposal with a reason", async () => {
+    vi.spyOn(api.canonApi, "storyQueue").mockResolvedValue(
+      queue([sceneReview([proposal("p1")])], 1),
+    );
+    const deferSpy = vi.spyOn(api.canonApi, "deferProposal").mockResolvedValue(
+      proposal("p1", "pending", { deferred: true, defer_reason: "Wait for next session" }),
+    );
+    const user = userEvent.setup();
+
+    renderPanel({ storyId: STORY_ID });
+
+    await user.click(await screen.findByRole("button", { name: /^defer$/i }));
+    await user.type(screen.getByPlaceholderText(/reason for deferring/i), "Wait for next session");
+    await user.click(screen.getByRole("button", { name: /^defer$/i }));
+
+    await waitFor(() =>
+      expect(deferSpy).toHaveBeenCalledWith("p1", "Wait for next session"),
+    );
+  });
+
+  it("edits the proposal statement before a verdict", async () => {
+    vi.spyOn(api.canonApi, "storyQueue").mockResolvedValue(
+      queue([sceneReview([proposal("p1", "pending", { content: { statement: "old statement" } })])], 1),
+    );
+    const editSpy = vi.spyOn(api.canonApi, "editProposal").mockResolvedValue(
+      proposal("p1", "pending", { content: { statement: "new statement" }, edit_reason: "Clarified" }),
+    );
+    const user = userEvent.setup();
+
+    renderPanel({ storyId: STORY_ID });
+
+    await user.click(await screen.findByRole("button", { name: /^edit$/i }));
+    const statementBox = screen.getByDisplayValue("old statement");
+    await user.clear(statementBox);
+    await user.type(statementBox, "new statement");
+    await user.type(screen.getByPlaceholderText(/why is this being edited/i), "Clarified");
+    await user.click(screen.getByRole("button", { name: /save edit/i }));
+
+    await waitFor(() =>
+      expect(editSpy).toHaveBeenCalledWith("p1", { statement: "new statement" }, "Clarified"),
+    );
+  });
+});

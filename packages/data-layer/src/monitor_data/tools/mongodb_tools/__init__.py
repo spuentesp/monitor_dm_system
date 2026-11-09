@@ -302,6 +302,8 @@ from monitor_data.tools.mongodb_tools.character_templates import (
 from monitor_data.tools.mongodb_tools.proposals import (
     _convert_proposed_change_doc_to_response,
     mongodb_create_proposed_change,
+    mongodb_defer_proposed_change,
+    mongodb_edit_proposed_change,
     mongodb_get_proposed_change,
     mongodb_list_proposed_changes,
     mongodb_flag_proposal_review,
@@ -441,6 +443,8 @@ __all__ = [
     # Proposals
     "_convert_proposed_change_doc_to_response",
     "mongodb_create_proposed_change",
+    "mongodb_defer_proposed_change",
+    "mongodb_edit_proposed_change",
     "mongodb_get_proposed_change",
     "mongodb_list_proposed_changes",
     "mongodb_flag_proposal_review",
