@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import hashlib
 import re
 
@@ -94,3 +96,31 @@ class TestMigrationBootstrap:
         from monitor_data.tools.neo4j_tools import core
 
         assert "if ids is not None:" in inspect.getsource(core.neo4j_list_multiverses)
+
+
+class TestNlpInputBounds:
+    """GLiNER/spaCy MCP tools must bound client input server-side."""
+
+    def test_threshold_out_of_range_rejected(self):
+        from monitor_data.tools.nlp_tools import EntityExtractionRequest
+
+        with pytest.raises(ValueError):
+            EntityExtractionRequest(text="hello", threshold=1.5)
+        with pytest.raises(ValueError):
+            EntityExtractionRequest(text="hello", threshold=-0.1)
+
+    def test_oversized_text_rejected(self):
+        from monitor_data.tools.nlp_tools import EntityExtractionRequest, _bounded_text
+
+        with pytest.raises(ValueError):
+            _bounded_text("x" * 10_000_000)
+        with pytest.raises(ValueError):
+            EntityExtractionRequest(text="x" * 10_000_000)
+
+    def test_batch_size_and_labels_bounded(self):
+        from monitor_data.tools.nlp_tools import BatchEntityExtractionRequest
+
+        with pytest.raises(ValueError):
+            BatchEntityExtractionRequest(texts=["a"] * 10_000)
+        with pytest.raises(ValueError):
+            BatchEntityExtractionRequest(texts=["a"], labels=["l"] * 1000)

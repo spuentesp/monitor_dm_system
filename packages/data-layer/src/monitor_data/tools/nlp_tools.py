@@ -30,8 +30,35 @@ log = structlog.get_logger()
 # =============================================================================
 
 
+_MAX_LABELS = 64
+_MAX_LABEL_LEN = 64
+
+
+def _bounded_labels(labels: list[str] | None) -> list[str]:
+    """Server-side label allowlist bounds: cap count and per-label length."""
+    labels = labels or _parse_entity_types()
+    if len(labels) > _MAX_LABELS:
+        raise ValueError(f"too many labels: {len(labels)} (max {_MAX_LABELS})")
+    cleaned = [lbl.strip()[:_MAX_LABEL_LEN] for lbl in labels if lbl.strip()]
+    return cleaned[:_MAX_LABELS]
+
+
+def _bounded_threshold(threshold: float) -> float:
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError(f"threshold must be within [0, 1], got {threshold}")
+    return threshold
+
+
+def _bounded_text(text: str) -> str:
+    # GLINER_MAX_LENGTH is a token budget; 4 chars/token is the usual estimate.
+    max_chars = max(1, settings.gliner_max_length) * 4
+    if len(text) > max_chars:
+        raise ValueError(f"text too long: {len(text)} chars (max {max_chars})")
+    return text
+
+
 class EntityExtractionRequest:
-    """Request for entity extraction from text."""
+    """Request for entity extraction from text (bounds enforced server-side)."""
 
     def __init__(
         self,
@@ -39,9 +66,9 @@ class EntityExtractionRequest:
         labels: list[str] | None = None,
         threshold: float = 0.5,
     ):
-        self.text = text
-        self.labels = labels or _parse_entity_types()
-        self.threshold = threshold
+        self.text = _bounded_text(text)
+        self.labels = _bounded_labels(labels)
+        self.threshold = _bounded_threshold(threshold)
 
 
 class EntityExtractionResponse:
@@ -76,7 +103,7 @@ class EntityExtractionResponse:
 
 
 class BatchEntityExtractionRequest:
-    """Request for batch entity extraction from multiple texts."""
+    """Request for batch entity extraction from multiple texts (bounded)."""
 
     def __init__(
         self,
@@ -84,9 +111,12 @@ class BatchEntityExtractionRequest:
         labels: list[str] | None = None,
         threshold: float = 0.5,
     ):
-        self.texts = texts
-        self.labels = labels or _parse_entity_types()
-        self.threshold = threshold
+        max_batch = max(1, settings.gliner_batch_size)
+        if len(texts) > max_batch:
+            raise ValueError(f"batch too large: {len(texts)} texts (max {max_batch})")
+        self.texts = [_bounded_text(t) for t in texts]
+        self.labels = _bounded_labels(labels)
+        self.threshold = _bounded_threshold(threshold)
 
 
 class BatchEntityExtractionResponse:
@@ -255,6 +285,10 @@ def nlp_extract_entities(
     if not text or not text.strip():
         return EntityExtractionResponse(entities=[], text=text).to_dict()
 
+    text = _bounded_text(text)
+    threshold = _bounded_threshold(threshold)
+    labels = _bounded_labels(labels)
+
     active, fell_back = _active_backend()
     if active == "spacy":
         backend = _get_spacy_backend()
@@ -297,6 +331,13 @@ def nlp_extract_entities_batch(
 
     if not texts:
         return BatchEntityExtractionResponse(results=[], texts=[]).to_dict()
+
+    max_batch = max(1, settings.gliner_batch_size)
+    if len(texts) > max_batch:
+        raise ValueError(f"batch too large: {len(texts)} texts (max {max_batch})")
+    texts = [_bounded_text(t) for t in texts]
+    threshold = _bounded_threshold(threshold)
+    labels = _bounded_labels(labels)
 
     active, fell_back = _active_backend()
     if active == "spacy":

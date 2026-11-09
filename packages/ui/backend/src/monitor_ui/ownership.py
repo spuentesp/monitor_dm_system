@@ -21,7 +21,7 @@ from typing import Any
 from uuid import UUID
 
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 
 from fastapi import Depends, HTTPException, Request, status
 
@@ -35,11 +35,10 @@ _NOT_FOUND = "Not found"
 def _is_local_mode(principal: Principal) -> bool:
     """Auth-disabled local development: the local admin retains full access.
 
-    Tolerates a raw Depends default (tests that call route functions directly
-    without injecting a principal) by treating anything without a ``via``
-    as local mode.
+    Fail closed: a principal without a ``via`` attribute raises
+    AttributeError rather than being treated as local mode.
     """
-    return getattr(principal, "via", "local") == "local"
+    return principal.via == "local"
 
 
 async def require_multiverse_owner(
@@ -432,6 +431,47 @@ _SCOPE_RESOLVERS: dict[str, Callable[..., Awaitable[Any]]] = {
     "asset_id": require_asset_id_owner,
     "collection_id": require_collection_owner,
 }
+
+
+def _uuid_or_404(value: str | UUID) -> str:
+    """Canonical UUID string, or the generic 404 for a malformed ID."""
+    try:
+        return str(UUID(str(value)))
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND) from None
+
+
+def _universes_of_entities(entity_ids: list[str]) -> dict[str, str | None]:
+    """Map Neo4j Entity ids to their universe_id (absent ids are omitted)."""
+    from monitor_data.db.neo4j import get_neo4j_client
+
+    rows = get_neo4j_client().execute_read(
+        "MATCH (e:Entity) WHERE e.id IN $ids RETURN e.id AS id, e.universe_id AS uid",
+        {"ids": entity_ids},
+    )
+    return {str(r["id"]): r["uid"] for r in rows}
+
+
+async def require_entities_owner(db: PostgresClient, principal: Principal, entity_ids: Iterable[str | UUID]) -> None:
+    """Every entity must exist and live in a universe the caller owns, else 404.
+
+    All-or-nothing, so a mixed batch cannot act on (or probe for) foreign IDs.
+    """
+    if _is_local_mode(principal):
+        return
+    ids = sorted({_uuid_or_404(entity_id) for entity_id in entity_ids})
+    if not ids:
+        return
+    universes = _universes_of_entities(ids)
+    if any(universes.get(entity_id) is None for entity_id in ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+    for universe_id in {str(uid) for uid in universes.values()}:
+        await require_universe_owner(db, principal, universe_id)
+
+
+async def require_entity_owner(db: PostgresClient, principal: Principal, entity_id: str | UUID) -> None:
+    """World entities inherit ownership through their universe (plan D3)."""
+    await require_entities_owner(db, principal, [entity_id])
 
 
 async def resource_route_guard(

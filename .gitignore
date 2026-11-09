@@ -91,3 +91,6 @@ tests/e2e/logs/
 
 # Superpowers skill scratch (brainstorm companion, SDD workspaces)
 .superpowers/
+
+# agent worktrees (never commit these)
+.claude/worktrees/

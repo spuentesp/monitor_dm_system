@@ -18,8 +18,6 @@ from fastapi.testclient import TestClient
 
 from monitor_ui.main import app
 
-pytestmark = pytest.mark.usefixtures("local_auth_mode")
-
 
 pytestmark = [pytest.mark.integration, pytest.mark.e2e]
 

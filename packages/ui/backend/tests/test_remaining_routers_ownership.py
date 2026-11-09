@@ -302,3 +302,78 @@ class TestCommonGuardDispatch:
         c2.cookies.update(client.cookies)
         r = c2.get(f"/api/templates/{template_id}")
         assert r.status_code == 500  # past the guard (404 would mean denied)
+
+
+class TestBodyReferenceChecks:
+    """Body-supplied IDs (characters, entities, packs) must be owner-checked."""
+
+    def test_chat_session_with_foreign_character_404(
+        self, client: TestClient, fake_db: FakePostgres, monkeypatch: pytest.MonkeyPatch
+    ):
+        alice = _signup(client, "alice10@example.com", "alice10")
+        _signup(client, "bob10@example.com", "bob10")
+        world_id = _seed_world(fake_db, UUID(alice["id"]))
+        alice_char = str(uuid4())
+
+        class _Chars:
+            def find_one(self, query):
+                if query.get("id") == alice_char and query.get("owner_id") == str(UUID(alice["id"])):
+                    return {"id": alice_char, "owner_id": str(UUID(alice["id"]))}
+                return None
+
+        monkeypatch.setattr(ownership_mod, "_characters_collection", lambda: _Chars())
+        r = client.post(
+            "/api/chat",
+            json={"universe_id": world_id, "character_id": alice_char},
+            headers=_csrf(client),
+        )
+        assert r.status_code == 404
+        assert r.json()["detail"] == "Not found"
+
+    def test_fact_with_foreign_entity_ref_404(
+        self, client: TestClient, fake_db: FakePostgres, monkeypatch: pytest.MonkeyPatch
+    ):
+        alice = _signup(client, "alice11@example.com", "alice11")
+        bob_world = _seed_world(fake_db, UUID(_signup(client, "bob11@example.com", "bob11")["id"]))
+        alice_world = _seed_world(fake_db, UUID(alice["id"]))
+        foreign_entity = uuid4()
+        monkeypatch.setattr(
+            ownership_mod,
+            "_universes_of_entities",
+            lambda ids: {str(foreign_entity): alice_world},
+        )
+        r = client.post(
+            f"/api/entities/entities/{bob_world}/facts",
+            json={"statement": "x", "entity_ids": [str(foreign_entity)]},
+            headers=_csrf(client),
+        )
+        assert r.status_code == 404
+
+    def test_party_with_foreign_member_404(
+        self, client: TestClient, fake_db: FakePostgres, monkeypatch: pytest.MonkeyPatch
+    ):
+        alice = _signup(client, "alice12@example.com", "alice12")
+        bob_world = _seed_world(fake_db, UUID(_signup(client, "bob12@example.com", "bob12")["id"]))
+        alice_world = _seed_world(fake_db, UUID(alice["id"]))
+        story_id = str(uuid4())
+        foreign_entity = uuid4()
+
+        async def _fake_universe_of_story(_sid):
+            return bob_world
+
+        monkeypatch.setattr(ownership_mod, "_universe_of_story", _fake_universe_of_story)
+        monkeypatch.setattr(ownership_mod, "_universes_of_entities", lambda ids: {str(foreign_entity): alice_world})
+        r = client.post(
+            "/api/parties",
+            json={"story_id": story_id, "name": "p", "initial_member_ids": [str(foreign_entity)]},
+            headers=_csrf(client),
+        )
+        assert r.status_code == 404
+
+    def test_publish_ignores_client_min_score(self, client: TestClient):
+        import inspect
+
+        import monitor_ui.routers.pack_library as pl_mod
+
+        sig = inspect.signature(pl_mod.publish_pack)
+        assert "min_score" not in sig.parameters

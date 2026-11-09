@@ -24,7 +24,12 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from monitor_data.db.postgres import PostgresClient, get_postgres_client
 from monitor_ui.auth import Principal, get_current_user, get_postgres, resolve_principal, is_local_mode
 from monitor_ui.config import get_settings
-from monitor_ui.ownership import require_chat_session_owner, require_universe_owner
+from monitor_ui.ownership import (
+    require_character_owner,
+    require_chat_session_owner,
+    require_pack_owner,
+    require_universe_owner,
+)
 from monitor_agents.dspy_runtime import stream_callback_var
 from monitor_agents.loops.preplay_finalize import finalize_preplay
 from monitor_agents.loops.preplay_orchestrator import (
@@ -393,6 +398,16 @@ async def create_session(
         system_source_id = str(system_id)
     if system_source_type == "pack_embedded" and not pack_id and system_source_id:
         pack_id = str(system_source_id)
+
+    # Body-referenced characters/persona/pack must belong to the caller
+    # (foreign → generic 404; the session would otherwise leak them).
+    char_ids = {body.character_id, body.speaker_character_id, *body.controlled_character_ids}
+    for cid in char_ids - {None}:
+        await require_character_owner(principal, cid)  # type: ignore[arg-type]
+    if body.persona_id:
+        await require_character_owner(principal, body.persona_id)
+    if pack_id:
+        await require_pack_owner(db, principal, pack_id)
 
     speaker_character_id = body.speaker_character_id or body.character_id
     controlled = body.controlled_character_ids or ([body.character_id] if body.character_id else [])

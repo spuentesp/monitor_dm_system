@@ -305,3 +305,15 @@ def test_is_expired_accepts_iso_string():
     assert _is_expired("2000-01-01T00:00:00+00:00") is True
     assert _is_expired("2999-01-01T00:00:00+00:00") is False
     assert _is_expired(None) is False
+
+
+def test_object_without_via_is_rejected():
+    """Fail closed: a principal-like object without ``via`` must raise, not
+    be silently treated as local mode."""
+    import monitor_ui.ownership as ownership_mod
+    from monitor_ui.auth import is_local_mode
+
+    with pytest.raises(AttributeError):
+        is_local_mode(object())  # type: ignore[arg-type]
+    with pytest.raises(AttributeError):
+        ownership_mod._is_local_mode(object())  # type: ignore[arg-type]

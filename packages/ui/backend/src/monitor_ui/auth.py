@@ -44,9 +44,13 @@ LOCAL_USER_USERNAME = "local"
 
 
 def is_local_mode(principal: "Principal") -> bool:
-    """True in auth-disabled local mode (or when a raw Depends default leaked
-    into a direct unit-test call)."""
-    return getattr(principal, "via", "local") == "local"
+    """True in auth-disabled local mode.
+
+    Fail closed: a principal without a ``via`` attribute (e.g. a raw Depends
+    default leaked into a direct call) raises AttributeError instead of being
+    silently treated as local mode.
+    """
+    return principal.via == "local"
 
 
 @dataclass(frozen=True)
