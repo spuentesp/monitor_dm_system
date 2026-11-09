@@ -55,9 +55,11 @@ async def require_multiverse_owner(
 async def require_universe_owner(
     db: PostgresClient,
     principal: Principal,
-    universe_id: str | UUID,
+    universe_id: str | UUID | None,
 ) -> dict[str, Any]:
     """Return the registry row iff the principal owns the universe, else 404."""
+    if universe_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
     if _is_local_mode(principal):
         return {"id": str(universe_id), "owner_id": principal.user_id}
     row = await db.world_get_for_owner(str(universe_id), principal.user_id)
@@ -275,7 +277,7 @@ async def require_party_owner(db: PostgresClient, principal: Principal, party_id
     await require_story_owner(db, principal, rows[0].story_id)
 
 
-async def require_proposal_owner(db: PostgresClient, principal: Principal, proposal_id: str) -> None:
+async def require_proposal_owner(db: PostgresClient, principal: Principal, proposal_id: str | UUID) -> None:
     """A proposal is owned through its scene/story, ingestion job, pack, or
     promoted character. Anything else fails closed (404)."""
     if _is_local_mode(principal):
@@ -326,7 +328,7 @@ async def require_lorebook_entry_owner(db: PostgresClient, principal: Principal,
     await require_character_scope(db, principal, entry.character_id)
 
 
-async def require_template_owner(db: PostgresClient, principal: Principal, template_id: str) -> Any:
+async def require_template_owner(db: PostgresClient, principal: Principal, template_id: str | UUID) -> Any:
     """Entity templates belong to their universe. Returns the template in
     enforced mode, None in local mode (caller falls back to a direct load)."""
     if _is_local_mode(principal):
@@ -353,7 +355,7 @@ async def require_asset_id_owner(db: PostgresClient, principal: Principal, asset
 
 
 async def require_collection_owner(
-    db: PostgresClient, principal: Principal, collection_id: str, *, write: bool = False
+    db: PostgresClient, principal: Principal, collection_id: str | UUID, *, write: bool = False
 ) -> Any:
     """Prompt collections: universe-bound -> universe owner; global/builtin
     -> readable by all, writable by admins only. Returns the collection in
@@ -410,7 +412,7 @@ async def require_tone_library_owner(
 # table for every path/query parameter present on the incoming request, so a
 # router opts into ownership enforcement simply by mounting with the guard —
 # no per-router guard code.
-_SCOPE_RESOLVERS: dict[str, Callable[[PostgresClient, Principal, str], Awaitable[None]]] = {
+_SCOPE_RESOLVERS: dict[str, Callable[..., Awaitable[Any]]] = {
     "universe_id": require_universe_owner,
     "multiverse_id": require_multiverse_owner,
     "scene_id": require_scene_owner,

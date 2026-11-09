@@ -12,6 +12,8 @@ IMPORTS FROM: data-layer only
 
 from __future__ import annotations
 
+from typing import cast
+
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -72,7 +74,7 @@ async def get_prompt_collection(
         collection = mongodb_get_prompt_collection(collection_id)
     if not collection:
         raise HTTPException(status_code=404, detail=f"Prompt collection {collection_id} not found")
-    return collection
+    return cast("PromptCollectionResponse", collection)
 
 
 @router.get("/prompt-collections", response_model=PromptCollectionListResponse)

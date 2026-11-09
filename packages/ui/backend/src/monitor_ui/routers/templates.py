@@ -12,7 +12,7 @@ IMPORTS FROM: data-layer only
 from __future__ import annotations
 
 import random
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -80,7 +80,7 @@ async def get_template(
         template = mongodb_get_entity_template(template_id)
     if not template:
         raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
-    return template
+    return cast("EntityTemplateResponse", template)
 
 
 @router.get("/templates", response_model=EntityTemplateListResponse)
