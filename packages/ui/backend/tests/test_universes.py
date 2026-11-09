@@ -2,14 +2,12 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
-import pytest
 
 from fastapi.testclient import TestClient
 from monitor_data.schemas.base import KnowledgeTreeType
 from monitor_data.schemas.universe import MultiverseResponse, UniverseResponse
 from monitor_ui.main import app
-
-pytestmark = pytest.mark.usefixtures("local_auth_mode")
+from monitor_ui.routers import universes
 
 
 def _async_return(value):
@@ -129,8 +127,34 @@ def test_seed_universe_endpoint():
         )
 
 
+class _StubDb:
+    """Minimal async Postgres stub for the fork endpoint at this ref."""
+
+    def __init__(self):
+        self.worlds = {}
+        self.bindings = {}
+
+    async def world_upsert(self, world):
+        self.worlds[world["id"]] = world
+
+    async def world_bindings_upsert(self, bindings):
+        self.bindings[bindings["world_id"]] = bindings
+
+    async def world_bindings_get(self, world_id):
+        return self.bindings.get(world_id)
+
+
 def test_fork_universe_endpoint():
     """Fork deep-clones canon into a new universe and returns a summary (M-35)."""
+    stub_db = _StubDb()
+    app.dependency_overrides[universes._get_db] = lambda: stub_db
+    try:
+        _run_fork_test()
+    finally:
+        app.dependency_overrides.pop(universes._get_db, None)
+
+
+def _run_fork_test():
     with (
         patch(
             "monitor_ui.routers.universes.neo4j_get_universe",

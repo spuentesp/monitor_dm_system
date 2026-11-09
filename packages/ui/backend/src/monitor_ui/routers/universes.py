@@ -15,7 +15,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from monitor_data.db.postgres import PostgresClient
+from monitor_data.db.postgres import PostgresClient, get_postgres_client
 from monitor_data.schemas.universe import (
     MultiverseCreate as DLMultiverseCreate,
 )
@@ -55,6 +55,13 @@ from .ingest_shared import db_op
 log = structlog.get_logger()
 
 router = APIRouter()
+
+
+def _get_db() -> PostgresClient:
+    """Request-scoped Postgres client (pre-auth local mode: single shared DB)."""
+    return get_postgres_client()
+
+
 
 
 def _default_world_bindings(world_id: str) -> dict[str, Any]:
@@ -329,7 +336,7 @@ async def get_universe_state(universe_id: str) -> dict:  # type: ignore
 
 @router.post("/universes", status_code=201)
 # reason: `-> dict` return is the bare generic missing type parameters; handler delegates to `_u_to_dict` which builds a heterogeneous universe response literal
-async def create_universe(body: UniverseCreate) -> dict:  # type: ignore
+async def create_universe(body: UniverseCreate, db: PostgresClient = Depends(_get_db)) -> dict:  # type: ignore
     try:
         params = DLUniverseCreate(
             multiverse_id=UUID(body.multiverse_id),
@@ -343,7 +350,6 @@ async def create_universe(body: UniverseCreate) -> dict:  # type: ignore
             await db.world_upsert(
                 {
                     "id": str(u.id),
-                    "owner_id": principal.user_id,
                     "multiverse_id": str(u.multiverse_id),
                     "label": u.name,
                     "active": True,
@@ -466,7 +472,7 @@ async def seed_universe(universe_id: str, body: SeedRequest) -> dict:  # type: i
 
 @router.post("/universes/{universe_id}/fork")
 # reason: `-> dict` return is the bare generic missing type parameters; handler builds a heterogeneous fork response literal (`source_universe_id`, `new_universe_id`, `name`, `entities_cloned`, `relationships_cloned`, `status`)
-async def fork_universe(universe_id: str, body: ForkRequest) -> dict:  # type: ignore
+async def fork_universe(universe_id: str, body: ForkRequest, db: PostgresClient = Depends(_get_db)) -> dict:  # type: ignore
     """
     Fork a universe: deep-clone all entities, facts, and relationships
     into a new universe.
@@ -490,7 +496,6 @@ async def fork_universe(universe_id: str, body: ForkRequest) -> dict:  # type: i
             await db.world_upsert(
                 {
                     "id": str(new_id),
-                    "owner_id": principal.user_id,
                     "multiverse_id": str(universe.multiverse_id),
                     "label": body.name,
                     "active": True,

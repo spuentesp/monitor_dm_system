@@ -32,18 +32,12 @@ async def test_fork_registers_bindings_and_clones_data():
     db.world_upsert = AsyncMock()
     db.world_bindings_upsert = AsyncMock()
 
-    principal = MagicMock(user_id=uuid4())
     universe = MagicMock(multiverse_id=uuid4(), name="Base")
 
     minio = MagicMock()
     minio.copy_prefix = AsyncMock(return_value={"copied": 3})
 
     with (
-        patch.object(
-            universes,
-            "require_universe_owner",
-            new=AsyncMock(return_value={"id": SRC, "multiverse_id": str(universe.multiverse_id)}),
-        ),
         patch.object(universes, "neo4j_get_universe", return_value=universe),
         patch(
             "monitor_data.tools.neo4j_tools.neo4j_fork_universe",
@@ -53,7 +47,7 @@ async def test_fork_registers_bindings_and_clones_data():
         patch.object(universes, "qdrant_clone_collection", return_value={"points_copied": 11}) as qdrant_clone,
         patch.object(universes, "get_minio_client", return_value=minio),
     ):
-        result = await universes.fork_universe(SRC, universes.ForkRequest(name="My Story"), principal=principal, db=db)
+        result = await universes.fork_universe(SRC, universes.ForkRequest(name="My Story"), db=db)
 
     assert result["status"] == "forked"
     assert result["new_universe_id"] == DST
@@ -80,19 +74,16 @@ async def test_create_universe_registers_default_bindings():
     db = MagicMock()
     db.world_upsert = AsyncMock()
     db.world_bindings_upsert = AsyncMock()
-    principal = MagicMock(user_id=uuid4())
-
     new_u = MagicMock(id=UUID(DST), multiverse_id=uuid4(), name="W")
     new_u.id = UUID(DST)
 
     # UniverseResponse-like object needs to work with _u_to_dict; patch it.
     with (
-        patch.object(universes, "require_multiverse_owner", new=AsyncMock(return_value={"id": "mv"})),
         patch.object(universes, "neo4j_create_universe", return_value=new_u),
         patch.object(universes, "_u_to_dict", return_value={"id": DST}),
     ):
         out = await universes.create_universe(
-            universes.UniverseCreate(name="W", multiverse_id=str(uuid4()), description="d"), principal=principal, db=db
+            universes.UniverseCreate(name="W", multiverse_id=str(uuid4()), description="d"), db=db
         )
 
     assert out == {"id": DST}
