@@ -90,6 +90,57 @@ class TestProposalTimeStamping:
         assert "pending_proposals" not in result
 
 
+class TestMemoryTimeRef:
+    """Per-turn memories carry the scene's in-world clock (join Task 1)."""
+
+    @pytest.mark.asyncio
+    async def test_the_per_turn_memory_carries_the_scenes_in_game_time(self):
+        state = _state(
+            time_ref=datetime(1012, 3, 1, 9, 0, tzinfo=UTC),
+            memories_to_persist=[
+                {
+                    "text": "I saw the door seal itself",
+                    "importance": 6,
+                    "emotional_valence": 0.0,
+                    "entity_id": str(uuid4()),
+                    "universe_id": str(uuid4()),
+                }
+            ],
+        )
+        from unittest.mock import MagicMock, patch
+
+        create_memory_mock = MagicMock(return_value=None)
+        with patch("monitor_data.tools.mongodb_tools.mongodb_create_memory", create_memory_mock):
+            result = await scene_loop.persist_memories_node(state)
+
+        assert result["memories_to_persist"] == []
+        params = create_memory_mock.call_args.args[0]
+        assert params.metadata["time_ref"].startswith("1012-03-01T09:00")
+
+    @pytest.mark.asyncio
+    async def test_a_memory_with_its_own_time_keeps_it(self):
+        entry_time = datetime(999, 1, 1, 0, 0, tzinfo=UTC)
+        state = _state(
+            time_ref=datetime(1012, 3, 1, 9, 0, tzinfo=UTC),
+            memories_to_persist=[
+                {
+                    "text": "an old memory",
+                    "entity_id": str(uuid4()),
+                    "universe_id": str(uuid4()),
+                    "time_ref": entry_time,
+                }
+            ],
+        )
+        from unittest.mock import MagicMock, patch
+
+        create_memory_mock = MagicMock(return_value=None)
+        with patch("monitor_data.tools.mongodb_tools.mongodb_create_memory", create_memory_mock):
+            await scene_loop.persist_memories_node(state)
+
+        params = create_memory_mock.call_args.args[0]
+        assert params.metadata["time_ref"] == "0999-01-01T00:00:00+00:00"
+
+
 class TestFlashbackValidation:
     @pytest.mark.asyncio
     async def test_a_flashback_is_checked_before_it_is_canonized(self, monkeypatch, canonkeeper):

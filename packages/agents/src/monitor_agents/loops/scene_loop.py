@@ -1377,6 +1377,11 @@ async def persist_memories_node(state: SceneState) -> dict[str, Any]:
     its ``universe_id``, and the ``witnesses`` cast list — so every present
     character is persisted under its own id (not only the speaker) and the
     who-knows-what filter can rely on the witness record.
+
+    Every memory also carries the scene's in-world ``time_ref`` (Phase 3
+    Task 6): the entry's own ``time_ref`` when it has one, else
+    ``state.time_ref`` — stored as ``metadata["time_ref"]``, the same shape
+    ``PersistenceService.persist_memories`` writes.
     """
     if not state.memories_to_persist:
         return {}
@@ -1428,6 +1433,20 @@ async def persist_memories_node(state: SceneState) -> dict[str, Any]:
                 valence = float(entry.get("emotional_valence", 0.0))
             except (TypeError, ValueError):
                 valence = 0.0
+            metadata: dict[str, Any] = {
+                "story_id": str(state.story_id),
+                # Witnesses also ride in metadata: today's
+                # mongodb_create_memory persists ``metadata`` verbatim
+                # while the typed ``witnesses`` column is not yet stored
+                # by the write tool (see Phase 4 report).
+                "witnesses": witness_ids,
+                "viewpoint_entity_id": str(owner_id),
+            }
+            # The memory records when it happened in the world's own clock
+            # (Phase 3 Task 6), so it can be placed on a timeline later.
+            time_raw = entry.get("time_ref") or state.time_ref
+            if time_raw is not None:
+                metadata["time_ref"] = time_raw.isoformat() if isinstance(time_raw, datetime) else str(time_raw)
             params = MemoryCreate(
                 universe_id=universe_id,
                 entity_id=owner_id,
@@ -1436,15 +1455,7 @@ async def persist_memories_node(state: SceneState) -> dict[str, Any]:
                 importance=min(1.0, max(0.0, importance_float)),
                 emotional_valence=max(-1.0, min(1.0, valence)),
                 witnesses=[u for u in (_to_uuid(w) for w in witness_ids) if u is not None],
-                metadata={
-                    "story_id": str(state.story_id),
-                    # Witnesses also ride in metadata: today's
-                    # mongodb_create_memory persists ``metadata`` verbatim
-                    # while the typed ``witnesses`` column is not yet stored
-                    # by the write tool (see Phase 4 report).
-                    "witnesses": witness_ids,
-                    "viewpoint_entity_id": str(owner_id),
-                },
+                metadata=metadata,
             )
             await anyio.to_thread.run_sync(mongodb_create_memory, params)
             persisted += 1
