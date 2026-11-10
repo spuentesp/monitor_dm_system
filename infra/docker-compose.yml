@@ -74,8 +74,15 @@ services:
     restart: unless-stopped
 
   # MinIO - Binary Storage (PDFs, images, etc.)
+  # Pinned release tag (reproducible), overridable via MINIO_IMAGE. NOTE: this
+  # image can no longer be pulled anonymously — quay.io/minio/minio returns 401
+  # without quay.io credentials (the anonymous token carries no pull actions)
+  # and the Docker Hub repo minio/minio no longer exists. Start this service
+  # only after `docker login quay.io`, from a mirror (MINIO_IMAGE=...), or from
+  # a local cache; otherwise use STORAGE_BACKEND=folder (see env.example), which
+  # is what the CI integration job does (.github/workflows/nightly-integration.yml).
   minio:
-    image: quay.io/minio/minio:latest
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z}
     container_name: monitor-minio
     ports:
       - "9000:9000"  # API
