@@ -229,6 +229,52 @@ async def require_chat_session_owner(principal: Principal, session_id: str) -> d
     return dict(doc)
 
 
+def _conversations_collection() -> Any:
+    """Mongo ``conversations`` collection (light-RP transcripts)."""
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    return get_mongodb_client().get_collection("conversations")
+
+
+async def require_conversation_owner(db: PostgresClient, principal: Principal, conversation_id: str) -> None:
+    """A conversation belongs to the character its transcript speaks with.
+
+    Resolved through ``client_session.character_id`` (OpenAI-compat flows),
+    then through a caller-owned standalone card whose incarnation is one of
+    the conversation's NPCs (covers pre-registry Conversatory hosts), then
+    through the NPC entities' universe chain. Foreign or missing ids get the
+    generic 404 — this is the check that keeps the in-process conversation
+    loop cache (``character_conversation._LOOPS``) unreachable with another
+    user's conversation id.
+    """
+    if _is_local_mode(principal):
+        return
+    try:
+        UUID(str(conversation_id))
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND) from None
+    doc = _conversations_collection().find_one(
+        {"conversation_id": str(conversation_id)},
+        {"client_session": 1, "npc_ids": 1},
+    )
+    if not isinstance(doc, dict):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+    cs = doc.get("client_session")
+    if isinstance(cs, dict) and cs.get("character_id"):
+        await require_character_owner(principal, str(cs["character_id"]))
+        return
+    npc_ids = {str(n) for n in (doc.get("npc_ids") or [])}
+    if npc_ids:
+        for card in _characters_collection().find(character_owner_predicate(principal)):
+            incarnations = {str(v.get("entity_id")) for v in (card.get("versions") or [])}
+            incarnations.add(str(card.get("entity_id") or ""))
+            if incarnations & npc_ids:
+                return
+        await require_entities_owner(db, principal, npc_ids)
+        return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+
+
 # ---------------------------------------------------------------------------
 # Common resource-ownership resolvers (single implementation, shared by all
 # routers — see ``resource_route_guard`` below). Each resolver maps one
@@ -603,6 +649,7 @@ _SCOPE_RESOLVERS: dict[str, Callable[..., Awaitable[Any]]] = {
     "asset_id": require_asset_id_owner,
     "collection_id": require_collection_owner,
     "mv_id": require_multiverse_owner,
+    "conversation_id": require_conversation_owner,
 }
 
 

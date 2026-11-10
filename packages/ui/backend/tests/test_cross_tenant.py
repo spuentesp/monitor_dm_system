@@ -174,19 +174,26 @@ def chat_sessions() -> FakeCollection:
 
 
 @pytest.fixture
+def conversations() -> FakeCollection:
+    return FakeCollection()
+
+
+@pytest.fixture
 def monkey_data(
     monkeypatch: pytest.MonkeyPatch,
     fake_db: FakePostgres,
     neo: FakeNeo4j,
     chars: FakeCollection,
     chat_sessions: FakeCollection,
+    conversations: FakeCollection,
 ) -> dict[str, Any]:
     """Patch every data-layer boundary the ownership resolvers read."""
     monkeypatch.setattr(ownership_mod, "_characters_collection", lambda: chars)
     monkeypatch.setattr(ownership_mod, "_chat_sessions_collection", lambda: chat_sessions)
+    monkeypatch.setattr(ownership_mod, "_conversations_collection", lambda: conversations)
     monkeypatch.setattr(cs_mod, "_coll", lambda: chars)
     monkeypatch.setattr("monitor_data.db.neo4j.get_neo4j_client", lambda: neo)
-    return {"chars": chars, "chat_sessions": chat_sessions, "neo": neo, "db": fake_db}
+    return {"chars": chars, "chat_sessions": chat_sessions, "conversations": conversations, "neo": neo, "db": fake_db}
 
 
 @pytest.fixture
@@ -239,7 +246,12 @@ def _csrf(c: TestClient) -> dict[str, str]:
 
 
 def _seed_all(
-    users, fake_db: FakePostgres, neo: FakeNeo4j, chars: FakeCollection, chat_sessions: FakeCollection
+    users,
+    fake_db: FakePostgres,
+    neo: FakeNeo4j,
+    chars: FakeCollection,
+    chat_sessions: FakeCollection,
+    conversations: FakeCollection,
 ) -> dict[str, str]:
     """Create A's resources for every kind; return kind -> id maps."""
     a_id = str(users.a_id)
@@ -313,6 +325,15 @@ def _seed_all(
     party_id = str(uuid4())
     collection_id = str(uuid4())
     proposal_id = str(uuid4())
+    conversation_id = str(uuid4())
+    conversations.docs.append(
+        {
+            "conversation_id": conversation_id,
+            "client_session": {"character_id": character_id},
+            "npc_ids": [entity_id],
+            "status": "active",
+        }
+    )
 
     return {
         "universe": universe_id,
@@ -336,6 +357,7 @@ def _seed_all(
         "party": party_id,
         "collection": collection_id,
         "proposal": proposal_id,
+        "conversation": conversation_id,
     }
 
 
@@ -347,8 +369,9 @@ def seeded(
     neo: FakeNeo4j,
     chars: FakeCollection,
     chat_sessions: FakeCollection,
+    conversations: FakeCollection,
 ):
-    ids = _seed_all(users, fake_db, neo, chars, chat_sessions)
+    ids = _seed_all(users, fake_db, neo, chars, chat_sessions, conversations)
     # A's chat session also lives in the in-process caches the chat router
     # reads after its ownership check — so a missing check is a visible leak,
     # not an accidental 404 on a cold cache.
@@ -360,6 +383,10 @@ def seeded(
         {"id": ids["session"], "title": "A's chat", "mode": "narrative", "owner_id": str(users.a_id)},
     )
     monkeypatch.setitem(chat_mod._MESSAGES, ids["session"], [])
+    # Same for the light-RP conversation loop cache.
+    import monitor_ui.routers.character_conversation as cc_mod
+
+    monkeypatch.setitem(cc_mod._LOOPS, ids["conversation"], object())
     return ids
 
 
@@ -453,6 +480,38 @@ class TestCrossTenantByKind:
             headers=_csrf(users.b),
         )
         assert r.status_code in (403, 404), r.status_code
+
+    def test_conversation_is_not_reachable_with_a_foreign_id(self, users, seeded, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        """B's own character cannot steer A's conversation (loop-cache reachability).
+
+        The path's character_id is B-owned, so only the conversation's own
+        ownership check stands between B and A's cached conversation loop.
+        """
+        monkeypatch.setattr(
+            "monitor_ui.routers.character_conversation.send_message",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not reach A's conversation loop")),
+        )
+        # B signs up a character of their own
+        created = users.b.post(
+            "/api/entities/characters",
+            json={"name": "B's rogue", "description": "d", "personality": "p", "first_message": "hi"},
+            headers=_csrf(users.b),
+        )
+        assert created.status_code == 201, created.text
+        b_char = created.json()["id"]
+        r = users.b.post(
+            f"/api/entities/characters/{b_char}/conversations/{seeded['conversation']}/send",
+            json={"text": "hello"},
+            headers=_csrf(users.b),
+        )
+        assert r.status_code in (403, 404), r.status_code
+        # end/redistill are equally unreachable
+        for suffix in ("end", "redistill"):
+            r = users.b.post(
+                f"/api/entities/characters/{b_char}/conversations/{seeded['conversation']}/{suffix}",
+                headers=_csrf(users.b),
+            )
+            assert r.status_code in (403, 404), (suffix, r.status_code)
 
     def test_pack_read_update_delete(self, users, seeded, monkeypatch: pytest.MonkeyPatch) -> None:
         pack = SimpleNamespace(id=seeded["pack"], owner_id=str(users.a_id))
@@ -590,6 +649,7 @@ PARAM_KIND = {
     "party_id": "party",
     "collection_id": "collection",
     "proposal_id": "proposal",
+    "conversation_id": "conversation",
 }
 
 # Routes the generated sweep skips, with the reason they are safe.
