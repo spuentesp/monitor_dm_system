@@ -1,49 +1,7 @@
-"""
-Death in Space — pure data ``GameSystemSpec``.
+"""An invented game system for tests: no real game is written into the platform.
 
-LAYER: 1 (data-layer)
-IMPORTS FROM: External libraries only + monitor_data.schemas.rpg_ontology.meta
-
-Source
-------
-*Death in Space Core Rules* (2022), MORK BORG Publishing.
-ISBN: 978-91-988176-0-1
-
-This module replaces the old Python-subclass approach (DISCharacterSheet,
-DISWeapon, etc.) with a single ``GameSystemSpec`` object that is entirely
-JSON-serialisable and requires **no Python code to add a new game system**.
-
-Usage
------
-::
-
-    from monitor_data.schemas.rpg_ontology.specs.death_in_space import DEATH_IN_SPACE
-
-    # Access via the registry
-    from monitor_data.schemas.rpg_ontology.meta import SystemRegistry
-    registry = SystemRegistry()
-    spec = registry.get("death_in_space")
-
-    # Generate a validated Pydantic class at runtime
-    from monitor_data.schemas.rpg_ontology.factory import make_entity_model
-    CharacterModel = make_entity_model(spec, "character")
-
-    sheet = CharacterModel(
-        character_name="Zyx",
-        body=1, dex=2, savvy=-1, tech=0,
-        hp=7,
-        cosmic_rot=0,
-        credits=10, debt=0,
-    )
-
-Validation rules encoded as data
----------------------------------
-- BODY, DEX, SAVVY, TECH: range -3 to +3
-- max_hp = max(1, body + 6)              (derived formula)
-- hp: 0 ≤ hp ≤ max_hp                   (range + validator)
-- cosmic_rot: 0 ≤ cosmic_rot ≤ 10       (range)
-- cosmic_powers: len ≤ floor(cosmic_rot / 3)  (count_gate)
-- Ship: hull_points ≤ max_hull_points    (range via validator)
+It has the shape of a rules-light d20 roll-under game, so the spec factory's ranges,
+derived formulas, gated lists, item subtypes and data edges all get exercised.
 """
 
 from monitor_data.schemas.rpg_ontology.meta import (
@@ -58,7 +16,6 @@ from monitor_data.schemas.rpg_ontology.meta import (
     RelationCardinality,
     RelationSpec,
     StorageBackend,
-    SystemRegistry,
     ValidatorSpec,
     ValidatorType,
 )
@@ -69,69 +26,17 @@ from monitor_data.schemas.rpg_ontology.meta import (
 
 _DAMAGE_DICE = ["d2", "d4", "d6", "d8", "d10", "d12"]
 
-_ORIGINS = [
-    "contractor",
-    "cultist",
-    "drifter",
-    "engineer",
-    "gladiator",
-    "gearhead",
-    "miner",
-    "medic",
-    "pirate",
-    "researcher",
-    "soldier",
-    "trader",
-]
+_ORIGINS = ["lamplighter", "ferryman", "archivist", "smuggler", "tinker", "pilgrim"]
 
-_SKILLS = [
-    "Sharp",
-    "Sneaky",
-    "Tough",
-    "Tinker",
-    "Command",
-    "Medic",
-    "Pilot",
-    "Trade",
-    "Muscle",
-    "Scavenge",
-]
+_SKILLS = ["Climb", "Haggle", "Mend", "Steer", "Hide", "Bargain", "Read", "Brawl"]
 
-_COSMIC_POWERS = [
-    "Void Sense",
-    "Drift Step",
-    "Radiation Skin",
-    "Psychic Scream",
-    "Mass Bending",
-    "Zero-G Master",
-    "Hive Mind",
-    "Void Step",
-    "Entropy Burst",
-    "Final Void",
-]
+_GIFTS = ["Glow Sight", "Quiet Step", "Warm Hands", "Far Call", "Still Mind"]
 
-_WEAPON_PROPERTIES = [
-    "energy",
-    "explosive",
-    "heavy",
-    "silent",
-    "slow",
-    "thrown",
-    "two_handed",
-]
+_WEAPON_PROPERTIES = ["loud", "hooked", "two_handed", "thrown", "fragile"]
 
-_SHIP_CLASSES = ["shuttle", "freighter", "warship", "station"]
-_DRIVE_TYPES = ["standard", "military", "experimental", "broken"]
-_SHIP_MODULES = [
-    "medical_bay",
-    "cargo_bay",
-    "weapons_turret",
-    "sensor_array",
-    "boarding_clamp",
-    "smuggling_hold",
-    "engineering_lab",
-    "passenger_quarters",
-]
+_SHIP_CLASSES = ["skiff", "barge", "lantern_boat", "houseboat"]
+_DRIVE_TYPES = ["standard", "oared", "steam", "broken"]
+_SHIP_MODULES = ["hold", "galley", "lamp_room", "bunks", "winch"]
 
 # ---------------------------------------------------------------------------
 # Character entity type
@@ -154,8 +59,8 @@ _CHARACTER_FIELDS: list[FieldSpec] = [
         description="True for PCs, False for NPCs",
     ),
     FieldSpec(
-        name="body",
-        display_name="BODY",
+        name="grit",
+        display_name="GRIT",
         field_type=FieldType.INT,
         min_value=-3,
         max_value=3,
@@ -163,8 +68,8 @@ _CHARACTER_FIELDS: list[FieldSpec] = [
         description="Physical power and durability",
     ),
     FieldSpec(
-        name="dex",
-        display_name="DEX",
+        name="nerve",
+        display_name="NERVE",
         field_type=FieldType.INT,
         min_value=-3,
         max_value=3,
@@ -172,8 +77,8 @@ _CHARACTER_FIELDS: list[FieldSpec] = [
         description="Agility and reflexes",
     ),
     FieldSpec(
-        name="savvy",
-        display_name="SAVVY",
+        name="wits",
+        display_name="WITS",
         field_type=FieldType.INT,
         min_value=-3,
         max_value=3,
@@ -181,23 +86,23 @@ _CHARACTER_FIELDS: list[FieldSpec] = [
         description="Intuition, wits, and persuasion",
     ),
     FieldSpec(
-        name="tech",
-        display_name="TECH",
+        name="craft",
+        display_name="CRAFT",
         field_type=FieldType.INT,
         min_value=-3,
         max_value=3,
         default_value=0,
         description="Technical skill and repair",
     ),
-    # Derived: max_hp = max(1, body + 6)
+    # Derived: max_hp = max(1, grit + 6)
     FieldSpec(
         name="max_hp",
         display_name="Max HP",
         field_type=FieldType.INT,
         min_value=1,
-        derived_formula="max(1, body + 6)",
+        derived_formula="max(1, grit + 6)",
         user_settable=False,
-        description="Maximum HP — derived from BODY: max(1, BODY + 6)",
+        description="Maximum HP — derived from GRIT: max(1, GRIT + 6)",
     ),
     FieldSpec(
         name="hp",
@@ -208,8 +113,8 @@ _CHARACTER_FIELDS: list[FieldSpec] = [
         description="Current HP (0 = incapacitated)",
     ),
     FieldSpec(
-        name="cosmic_rot",
-        display_name="Cosmic Rot",
+        name="strain",
+        display_name="Strain",
         field_type=FieldType.INT,
         min_value=0,
         max_value=10,
@@ -217,17 +122,17 @@ _CHARACTER_FIELDS: list[FieldSpec] = [
         description="Corruption level 0-10. Powers unlock at 3, 6, 9.",
     ),
     FieldSpec(
-        name="cosmic_powers",
-        display_name="Cosmic Powers",
+        name="gifts",
+        display_name="Gifts",
         field_type=FieldType.LIST_ENUM,
-        enum_values=_COSMIC_POWERS,
+        enum_values=_GIFTS,
         default_value=[],
         required=False,
-        description="Powers gained from Cosmic Rot",
+        description="Powers gained from Strain",
     ),
     FieldSpec(
-        name="cosmic_marks",
-        display_name="Cosmic Marks",
+        name="marks",
+        display_name="Marks",
         field_type=FieldType.LIST_STR,
         default_value=[],
         required=False,
@@ -300,20 +205,20 @@ _CHARACTER_FIELDS: list[FieldSpec] = [
 
 _CHARACTER_VALIDATORS: list[ValidatorSpec] = [
     ValidatorSpec(
-        rule_id="cosmic_powers_gated_by_rot",
+        rule_id="gifts_gated_by_strain",
         validator_type=ValidatorType.COUNT_GATE,
-        field="cosmic_powers",
-        other_field="cosmic_rot",
+        field="gifts",
+        other_field="strain",
         divisor=3,
-        description="# of cosmic powers ≤ floor(cosmic_rot / 3)",
-        error_message="Too many cosmic powers for current rot level",
+        description="# of gifts ≤ floor(strain / 3)",
+        error_message="Too many gifts for current strain",
     ),
 ]
 
 CHARACTER_TYPE = EntityTypeSpec(
     type_key="character",
     display_name="Character",
-    description="A player character or NPC in Death in Space",
+    description="A player character or NPC in Lantern Drift",
     fields=_CHARACTER_FIELDS,
     validators=_CHARACTER_VALIDATORS,
     storage_backends=[StorageBackend.POSTGRES, StorageBackend.MONGODB],
@@ -334,7 +239,7 @@ _ITEM_BASE_FIELDS: list[FieldSpec] = [
         name="item_type",
         display_name="Item Type",
         field_type=FieldType.ENUM,
-        enum_values=["weapon", "armor", "tool", "consumable", "vehicle", "misc", "ship"],
+        enum_values=["weapon", "armor", "tool", "consumable", "vehicle", "misc", "boat"],
         description="Ontological classification",
     ),
     FieldSpec(
@@ -433,34 +338,34 @@ _ARMOR_ITEM_TYPE = ItemTypeSpec(
             description="Damage reduction (0=none, 1=light, 2=medium, 3=heavy)",
         ),
         FieldSpec(
-            name="blocks_cosmic_rot",
-            display_name="Blocks Cosmic Rot",
+            name="blocks_strain",
+            display_name="Blocks Strain",
             field_type=FieldType.BOOL,
             default_value=False,
-            description="Some env suits also block Cosmic Rot exposure",
+            description="Some env suits also block Strain exposure",
         ),
     ],
 )
 
 _SHIP_ITEM_TYPE = ItemTypeSpec(
-    type_key="ship",
-    display_name="Ship",
+    type_key="boat",
+    display_name="Boat",
     extra_fields=[
         FieldSpec(
-            name="ship_class",
-            display_name="Ship Class",
+            name="boat_class",
+            display_name="Boat Class",
             field_type=FieldType.ENUM,
             enum_values=_SHIP_CLASSES,
         ),
         FieldSpec(
-            name="hull_points",
-            display_name="Hull Points",
+            name="plank_points",
+            display_name="Plank Points",
             field_type=FieldType.INT,
             min_value=0,
         ),
         FieldSpec(
-            name="max_hull_points",
-            display_name="Max Hull Points",
+            name="max_plank_points",
+            display_name="Max Plank Points",
             field_type=FieldType.INT,
             min_value=1,
         ),
@@ -514,13 +419,13 @@ _SHIP_ITEM_TYPE = ItemTypeSpec(
 ITEM_TYPE = EntityTypeSpec(
     type_key="item",
     display_name="Item",
-    description="Equipment, weapons, armor, ships, and other items",
+    description="Equipment, weapons, armor, boats, and other items",
     fields=_ITEM_BASE_FIELDS,
     validators=[],
     item_types={
         "weapon": _WEAPON_ITEM_TYPE,
         "armor": _ARMOR_ITEM_TYPE,
-        "ship": _SHIP_ITEM_TYPE,
+        "boat": _SHIP_ITEM_TYPE,
     },
     storage_backends=[StorageBackend.POSTGRES],
 )
@@ -531,12 +436,12 @@ ITEM_TYPE = EntityTypeSpec(
 
 _RELATIONS: list[RelationSpec] = [
     RelationSpec(
-        relation_id="character_crews_ship",
-        display_name="Crews Ship",
+        relation_id="character_crews_boat",
+        display_name="Crews Boat",
         from_type="character",
         to_type="item",
         cardinality=RelationCardinality.MANY_TO_MANY,
-        description="Characters can crew ships (via party_inventories join)",
+        description="Characters can crew boats (via party_inventories join)",
     ),
 ]
 
@@ -546,7 +451,7 @@ _RELATIONS: list[RelationSpec] = [
 
 _DATA_EDGES: list[DataEdgeSpec] = [
     DataEdgeSpec(
-        edge_id="dis_char_sheet_to_neo4j_entity",
+        edge_id="ld_char_sheet_to_neo4j_entity",
         description="Character sheet (PostgreSQL) links to canonical entity in Neo4j",
         from_backend=StorageBackend.POSTGRES,
         from_collection="character_sheet_index",
@@ -558,7 +463,7 @@ _DATA_EDGES: list[DataEdgeSpec] = [
         notes="Soft reference — no FK across backends",
     ),
     DataEdgeSpec(
-        edge_id="dis_char_working_state_to_sheet",
+        edge_id="ld_char_working_state_to_sheet",
         description="In-scene working state (MongoDB) references the character entity",
         from_backend=StorageBackend.MONGODB,
         from_collection="character_working_state",
@@ -570,7 +475,7 @@ _DATA_EDGES: list[DataEdgeSpec] = [
         notes="Ephemeral in-scene state; not canonical",
     ),
     DataEdgeSpec(
-        edge_id="dis_memory_to_entity",
+        edge_id="ld_memory_to_entity",
         description="Character memory (MongoDB) references entity in Neo4j",
         from_backend=StorageBackend.MONGODB,
         from_collection="memories",
@@ -581,7 +486,7 @@ _DATA_EDGES: list[DataEdgeSpec] = [
         is_enforced=False,
     ),
     DataEdgeSpec(
-        edge_id="dis_game_system_to_source_doc",
+        edge_id="ld_game_system_to_source_doc",
         description="Game system record in MongoDB points to the source PDF in MinIO",
         from_backend=StorageBackend.MONGODB,
         from_collection="game_systems",
@@ -590,7 +495,6 @@ _DATA_EDGES: list[DataEdgeSpec] = [
         to_collection="monitor/uploads",
         to_field="doc_id",
         is_enforced=False,
-        notes="Death in Space PDF stored at monitor/uploads/<doc_id>/",
     ),
 ]
 
@@ -599,15 +503,15 @@ _DATA_EDGES: list[DataEdgeSpec] = [
 # ---------------------------------------------------------------------------
 
 _CORE_MECHANIC = CoreMechanicSpec(
-    mechanic_type=OntologyMechanicType.D20_OVER,
+    mechanic_type=OntologyMechanicType.D20_UNDER,
     dice_notation="d20",
-    roll_vs="12 for an ability check; opponent defense rating for an attack",
-    success_condition="d20 + relevant ability ≥ target",
-    critical_rule="Natural 20 on an attack adds one damage die",
+    roll_vs="attribute score",
+    success_condition="roll ≤ attribute (lower roll = better outcome)",
+    critical_rule="1 = critical success; 20 = critical failure (fumble)",
     description=(
-        "Roll a d20 and add the relevant ability. An ability check succeeds on "
-        "12 or higher; an attack succeeds against the opponent's defense rating. "
-        "A natural 20 on an attack adds one damage die."
+        "Roll a d20. If the result is equal to or less than the relevant attribute "
+        "(-3 to +3), the action succeeds. A natural 1 is always critical success. "
+        "A natural 20 is always a fumble."
     ),
 )
 
@@ -615,17 +519,13 @@ _CORE_MECHANIC = CoreMechanicSpec(
 # The spec
 # ---------------------------------------------------------------------------
 
-DEATH_IN_SPACE: GameSystemSpec = GameSystemSpec(
-    system_id="death_in_space",
-    system_name="Death in Space",
+LANTERN_DRIFT: GameSystemSpec = GameSystemSpec(
+    system_id="lantern_drift",
+    system_name="Lantern Drift",
     version="1.0",
-    description=(
-        "Gritty sci-fi RPG set in a decaying space station (Ypsilon 14 Ring). "
-        "Characters are desperate drifters fighting for survival in a dying universe. "
-        "Core Rules, MORK BORG Publishing, 2022."
-    ),
-    publisher="MORK BORG Publishing",
-    tags=["sci-fi", "horror", "space", "OSR", "rules-light"],
+    description="An invented game for tests: lamp-boat crews on a flooded city's canals.",
+    publisher=None,
+    tags=["invented", "test-fixture"],
     core_mechanic=_CORE_MECHANIC,
     entity_types={
         "character": CHARACTER_TYPE,
@@ -634,6 +534,3 @@ DEATH_IN_SPACE: GameSystemSpec = GameSystemSpec(
     relations=_RELATIONS,
     data_edges=_DATA_EDGES,
 )
-
-# Auto-register at import time
-SystemRegistry().register(DEATH_IN_SPACE)

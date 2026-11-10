@@ -238,6 +238,8 @@ async def _run_play(
                 else:
                     turn_number = max(0, turn_number - 1)
                     console.print("[green]State restored. You can re-enter your action.[/green]")
+                    for item in (backtrack_result.get("undone") or {}).get("not_undone") or []:
+                        console.print(f"[yellow]Not undone:[/yellow] {item}")
                 continue
 
             if user_input.lower().startswith("/flashback "):
