@@ -178,7 +178,8 @@ async def compute_npc_intents(
     for entry in list(npcs)[:cap]:
         entity_id = str(entry.get("entity_id") or "")
         name = str(entry.get("name") or entity_id)
-        profile = entry.get("profile") if isinstance(entry.get("profile"), dict) else {}
+        raw_profile = entry.get("profile")
+        profile: dict[str, Any] = raw_profile if isinstance(raw_profile, dict) else {}
         desires_bits = [str(d) for d in (profile.get("desires") or []) if d]
         fears = [str(f) for f in (profile.get("fears") or []) if f]
         desires = "; ".join([*desires_bits, *(f"fears: {f}" for f in fears)])

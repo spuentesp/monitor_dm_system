@@ -272,10 +272,14 @@ def fact_visible_to(fact: dict[str, Any], npc_id: str | UUID) -> bool:
     if not npc_key:
         return True
 
-    props = fact.get("properties") if isinstance(fact.get("properties"), dict) else {}
-    meta = fact.get("metadata") if isinstance(fact.get("metadata"), dict) else {}
-    content = fact.get("content") if isinstance(fact.get("content"), dict) else {}
-    content_props = content.get("properties") if isinstance(content.get("properties"), dict) else {}
+    raw_props = fact.get("properties")
+    props: dict[str, Any] = raw_props if isinstance(raw_props, dict) else {}
+    raw_meta = fact.get("metadata")
+    meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
+    raw_content = fact.get("content")
+    content: dict[str, Any] = raw_content if isinstance(raw_content, dict) else {}
+    raw_content_props = content.get("properties")
+    content_props: dict[str, Any] = raw_content_props if isinstance(raw_content_props, dict) else {}
 
     # Explicitly marked common knowledge wins over any witness restriction.
     for surface in (props, meta, content_props, fact, content):

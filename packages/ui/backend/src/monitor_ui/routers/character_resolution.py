@@ -139,12 +139,16 @@ def resolve_actor_character(
     if not actor_id_str:
         return None
 
+    # Persona-to-incarnation link (Task 4) — declared once for both branches.
+    persona_id: str | None = None
+    persona_name: str | None = None
+
     # 1. Check MongoDB standalone characters
     try:
         standalone = mongodb_get_character(actor_id_str)
         if standalone:
             persona_id = standalone.get("source_persona_id") or None
-            persona_name: str | None = None
+            persona_name = None
             if persona_id:
                 persona_doc = mongodb_get_character(str(persona_id))
                 persona_name = persona_doc.get("name") if persona_doc else None
@@ -191,8 +195,8 @@ def resolve_actor_character(
                 return None
 
             # Persona-to-incarnation link (Task 4): on the active sheet.
-            persona_id: str | None = None
-            persona_name: str | None = None
+            persona_id = None
+            persona_name = None
             link = resolve_persona_link(str(eid), source="entity")
             if link:
                 persona_id = link.get("persona_id")
