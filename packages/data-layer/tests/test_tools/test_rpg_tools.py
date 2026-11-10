@@ -545,7 +545,7 @@ class TestRpgSchemaInspect:
         assert "success_condition" in cm
 
     @pytest.mark.asyncio
-    async def test_dis_core_mechanic_is_d20_under(self):
+    async def test_core_mechanic_is_d20_under(self):
         client = _make_client()
         result = await rpg_schema_inspect(client, SYSTEM_ID)
         assert result["core_mechanic"]["mechanic_type"] == "d20_under"
