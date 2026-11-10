@@ -15,6 +15,7 @@ from monitor_data.schemas.memories import (
     MemoryResponse,
     MemoryUpdate,
 )
+from monitor_data.tenancy import assert_memory_write, assert_universe_write
 
 log = structlog.get_logger()
 
@@ -86,6 +87,7 @@ def mongodb_create_memory(params: MemoryCreate) -> MemoryResponse:
     Raises:
         ValueError: If entity_id doesn't exist in Neo4j
     """
+    assert_universe_write(params.universe_id, resource="memory")
     mongo_client = get_mongodb_client()
     neo4j_client = get_neo4j_client()
 
@@ -334,6 +336,7 @@ def mongodb_update_memory(memory_id: UUID, params: MemoryUpdate) -> MemoryRespon
     Raises:
         ValueError: If memory not found
     """
+    assert_memory_write(memory_id, resource="memory")
     mongo_client = get_mongodb_client()
     memories_collection = mongo_client.get_collection("character_memories")
 
@@ -375,6 +378,7 @@ def mongodb_delete_memory(memory_id: UUID) -> bool:
     Returns:
         True if deleted, False if not found
     """
+    assert_memory_write(memory_id, resource="memory")
     mongo_client = get_mongodb_client()
     memories_collection = mongo_client.get_collection("character_memories")
 

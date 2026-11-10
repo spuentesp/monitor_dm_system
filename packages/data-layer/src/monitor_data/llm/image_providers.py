@@ -41,6 +41,7 @@ from typing import Any, Protocol, Sequence, runtime_checkable
 import httpx
 
 from monitor_data.schemas.llm_config import LLMProviderType, ModelRole
+from monitor_data.usage import enforce_owner_quota_async, record_model_usage_async
 
 _MINIMAX_DEFAULT_BASE = "https://api.minimaxi.com"
 _GEMINI_DEFAULT_BASE = "https://generativelanguage.googleapis.com"
@@ -305,7 +306,11 @@ async def generate_image_compat(
     routing through the adapter's structured form. New code should call
     :meth:`ImageProviderAdapter.generate_image_structured` directly.
     """
-    return await adapter.generate_image(prompt, aspect_ratio=aspect_ratio)
+    await enforce_owner_quota_async()
+    image = await adapter.generate_image(prompt, aspect_ratio=aspect_ratio)
+    # One image call = one counted call (no prompt/completion tokens).
+    await record_model_usage_async(tokens=0, calls=1)
+    return image
 
 
 def capabilities_for_adapter(adapter: ImageProviderAdapter) -> ImageCapabilities:
@@ -351,7 +356,11 @@ async def dispatch_image_generation(
     sees the input.
     """
     filtered = filter_references_for_adapter(adapter, input)
-    return await adapter.generate_image_structured(filtered)
+    await enforce_owner_quota_async()
+    image = await adapter.generate_image_structured(filtered)
+    # One image call = one counted call (no prompt/completion tokens).
+    await record_model_usage_async(tokens=0, calls=1)
+    return image
 
 
 # ---------------------------------------------------------------------------

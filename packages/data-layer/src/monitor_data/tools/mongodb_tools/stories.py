@@ -21,6 +21,7 @@ from monitor_data.schemas.story_outlines import (
     StoryOutlineResponse,
     StoryOutlineUpdate,
 )
+from monitor_data.tenancy import assert_story_write
 
 # The ledger is append-only: every finished scene adds one entry and nothing
 # is ever rewritten, so the campaign's memory cannot be lost by a later write.
@@ -160,6 +161,7 @@ def mongodb_create_story_outline(params: StoryOutlineCreate) -> StoryOutlineResp
     Raises:
         ValueError: If story doesn't exist in Neo4j
     """
+    assert_story_write(params.story_id, resource="story_outline")
     client = get_mongodb_client()
     neo4j_client = get_neo4j_client()
     outlines_collection = client.get_collection("story_outlines")
@@ -262,6 +264,7 @@ def mongodb_update_story_outline(story_id: UUID, params: StoryOutlineUpdate) -> 
     Raises:
         ValueError: If outline doesn't exist or beat operations invalid
     """
+    assert_story_write(story_id, resource="story_outline")
     client = get_mongodb_client()
     outlines_collection = client.get_collection("story_outlines")
 
@@ -410,6 +413,7 @@ def mongodb_append_story_ledger_entry(params: StoryLedgerEntryCreate) -> StoryLe
     Returns:
         The stored entry, including its 1-based position in the ledger.
     """
+    assert_story_write(params.story_id, universe_id=params.universe_id, resource="story_ledger_entry")
     client = get_mongodb_client()
     ledger = client.get_collection(STORY_LEDGER_COLLECTION)
 

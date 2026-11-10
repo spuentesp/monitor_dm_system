@@ -597,11 +597,9 @@ async def add_provider(body: LLMProviderCreate) -> LLMProvider:
     postgres = get_postgres_client()
     pid = str(uuid.uuid4())
     if body.is_default:
-        # Clear is_default on all existing rows first
-        existing = await postgres.providers_list()
-        for p in existing:
-            if p.get("is_default"):
-                await postgres.provider_upsert({**p, "is_default": False})
+        # One default per tier: clear the flag only on rows of the same role.
+        # Clearing every row left the other tiers with no default provider.
+        await postgres.unset_role_default(body.role)
     new_provider: dict[str, Any] = {
         "id": pid,
         "name": body.name,
@@ -631,11 +629,11 @@ async def update_provider(provider_id: str, body: LLMProviderUpdate) -> LLMProvi
     # merging "" used to silently destroy stored credentials (T-049).
     if not str(update.get("api_key") or "").strip():
         update.pop("api_key", None)
-    if update.get("is_default"):
-        await postgres.provider_set_default(provider_id)
-        existing["is_default"] = True
-        update.pop("is_default", None)
     merged = {**existing, **update}
+    if update.get("is_default"):
+        # One default per tier (see add_provider); the role may change in this
+        # same update, so clear within the role the row ends up in.
+        await postgres.unset_role_default(str(merged.get("role") or "standard"), except_id=provider_id)
     await postgres.provider_upsert(merged)
     _invalidate_llm_cache()
     return _to_response(merged)

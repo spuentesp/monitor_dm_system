@@ -1,7 +1,9 @@
 # Multi-Tenancy — Implemented State
 
 > **Status:** rewritten 2026-11-10 (Phase 6, multi-tenant hardening) to describe
-> what **is implemented**, what is **enforced where**, and what **remains**.
+> what **is implemented**, what is **enforced where**, and what **remains**;
+> updated the same day by the gap-closing pass (owner assertions below the
+> HTTP layer, per-model-call usage accounting and in-turn quota enforcement).
 > The original design narrative lives in
 > [MULTI_TENANCY_IMPLEMENTATION.md](MULTI_TENANCY_IMPLEMENTATION.md).
 >
@@ -55,6 +57,41 @@
   with a resource-id parameter loses its guard, and when the public allowlist
   grows stale or gains a destructive method.
 
+### Owner context and tool-boundary assertions (Phase 6 task 8)
+
+Ownership is no longer enforced at the HTTP layer only:
+
+- The acting owner travels in a `contextvars.ContextVar`
+  (`monitor_data.tenancy`), bound by the UI backend for the duration of
+  every authenticated HTTP request and every WebSocket turn
+  (`monitor_ui.auth.resolve_principal`), and explicitly unbound in
+  `MONITOR_AUTH_DISABLED` local mode. It survives `asyncio.to_thread` /
+  `anyio.to_thread` and the LangGraph nodes the loops run (nodes execute
+  under `copy_context()`); where the context cannot cross (background
+  `run_coroutine_threadsafe` loops), callers capture the owner first and
+  pass it explicitly. `SceneLoop`, `StoryLoop` and `ConversationLoop`
+  additionally take `owner_id` from the session doc (stored on the loop and
+  on `SceneState` / `StoryState` / `ConversationState`) and bind it around
+  every turn.
+- The most-used write tools assert at the tool boundary that the target
+  universe (or the resource's universe) belongs to that owner in the
+  Postgres registry, and refuse the write with `OwnerViolationError` when it
+  does not — a missed HTTP guard fails closed. Covered tools: story
+  (`mongodb_create_story_outline`, `mongodb_update_story_outline`,
+  `mongodb_append_story_ledger_entry`), scene/turn (`mongodb_create_scene`,
+  `mongodb_update_scene`, `mongodb_append_turn`,
+  `mongodb_update_turn_resolution`), character/entity
+  (`mongodb_create_character_sheet`, `mongodb_update_character_sheet`),
+  memory (`mongodb_create_memory`, `mongodb_update_memory`,
+  `mongodb_delete_memory`), NPC profile (`mongodb_create_npc_profile`,
+  `mongodb_update_npc_profile`), and proposed change
+  (`mongodb_create_proposed_change`, `mongodb_update_proposed_change`,
+  `mongodb_defer_proposed_change`, `mongodb_edit_proposed_change`,
+  `mongodb_flag_proposal_review`).
+- No owner in context (local mode, scripts, ingestion workers, tests) means
+  no assertion — existing behavior there is unchanged. The HTTP layer maps
+  `OwnerViolationError` to the same generic 404 the guards return (plan D4).
+
 ### Cross-tenant suite (Phase 6)
 
 `packages/ui/backend/tests/test_cross_tenant.py`: two users A and B; per-kind
@@ -87,17 +124,36 @@ only exclusions live in `SWEEP_EXEMPT` with a stated reason.
 
 ### Usage and quota
 
-- Usage is recorded per user per UTC day (`user_usage_daily`) via
-  `PostgresClient.usage_record(user_id, tokens=..., calls=...)`.
-- `monitor_ui.auth.usage_quota_guard` charges one call per model-spending
-  request and answers a readable `429` at the cap. Caps come from
-  `MONITOR_DAILY_TOKEN_CAP` / `MONITOR_DAILY_CALL_CAP` (unset = no cap); a
-  per-user override (`user_usage_limits`, admin-managed, `exempt` flag)
-  wins over the env defaults. Admins and the local account are never capped.
-  Mounted on the chat turn routes, image generation, and the LLM-backed
-  entity routes.
-- Admin view/change: `GET /api/admin/usage`, `GET/PUT
+- Spending is counted **per model call**, not per HTTP request: after every
+  model call the LLM runtime (and every other direct model-call site) adds
+  the prompt/completion tokens plus one call to the owner's daily usage
+  (`PostgresClient.usage_record`) via `monitor_data.usage`. A failed usage
+  write is logged and recorded (roleplay error), never raised into the turn.
+  Covered call sites: `monitor_agents.dspy_runtime` (one decorator on
+  `CachedDSPyLM.__call__`), `monitor_agents.llm_registry.LLMClient`
+  (`create` / `complete_text` / `stream_text`), `players/instructable_player`,
+  retrieval `pair_llm` / `embedder` / `embedding_health`, and the image
+  providers (one call per image, no tokens).
+- Enforcement is shared: `monitor_data.usage.enforce_usage_quota` raises the
+  typed `QuotaExceededError` at the cap, both **before every model call**
+  (in-turn enforcement: the next model call of an over-budget owner fails)
+  and from `monitor_ui.auth.usage_quota_guard`, the pre-request face of the
+  same check mounted on the model-spending routes (chat turns, image
+  generation, LLM-backed entity routes, and `/v1/chat/completions`).
+  Caps come from `MONITOR_DAILY_TOKEN_CAP` / `MONITOR_DAILY_CALL_CAP`
+  (unset = no cap); a per-user override (`user_usage_limits`, admin-managed,
+  `exempt` flag) wins over the env defaults. Admins and the local account
+  are never capped. Admin view/change: `GET /api/admin/usage`, `GET/PUT
   /api/admin/usage/{user_id}[/limits]`.
+- Error surfaces: the typed refusal maps to a readable `429` on HTTP (an
+  app-level handler in `monitor_ui.main`) and to a readable `error` event on
+  the chat WebSocket (`error_class: "quota_exceeded"`). The scene
+  orchestrator maps an in-turn refusal onto the existing
+  `llm_provider_error` event path, and the Narrator re-raises the typed
+  error instead of degrading to draft text.
+- WebSocket chat turns are charged through the same per-model-call
+  accounting (each turn's model calls record usage; there is no separate
+  per-turn fee), so WS spend can no longer bypass the cap.
 
 ### Provider keys
 
@@ -140,48 +196,49 @@ only exclusions live in `SWEEP_EXEMPT` with a stated reason.
 | HTTP routes | `resource_route_guard` + `_SCOPE_RESOLVERS` (router-level) | `monitor_ui/ownership.py`, every router |
 | HTTP routes | explicit owner checks before handlers (defense in depth) | each router |
 | WebSocket | `get_current_ws_principal` + `require_chat_session_owner` | `routers/chat.py` |
+| Agent/data layers | acting-owner context + per-loop `owner_id` | `monitor_data/tenancy.py`, `loops/*` |
+| Tool boundary | `assert_*_write` on the most-used write tools (fail closed) | `monitor_data/tenancy.py`, `tools/mongodb_tools/*` |
 | Search/graph | owned-ID predicates inside the storage queries | `routers/search.py`, `routers/graph.py` |
-| Quota | `usage_quota_guard` on model-spending routes | `monitor_ui/auth.py` |
+| Quota | per-model-call recording + pre-call `QuotaExceededError` | `monitor_data/usage.py`, `monitor_agents/dspy_runtime.py`, direct model-call sites |
+| Quota | pre-request `usage_quota_guard` on model-spending routes | `monitor_ui/auth.py`, `routers/openai_compat.py` (router line) |
+| Error mapping | `QuotaExceededError` → 429 / WS `error` event; `OwnerViolationError` → 404 | `monitor_ui/main.py`, `routers/chat.py`, `loops/scene_orchestrator.py` |
 | Registry | Postgres `owner_id` columns + `worlds.kind` | `monitor_data/db/postgres.py` |
 | Secrets | Fernet encryption in the provider read/write path | `monitor_data/db/postgres.py` |
-| Tests | route-coverage, cross-tenant sweep, structural guard check | `packages/ui/backend/tests/` |
+| Tests | route-coverage, cross-tenant sweep, tool guards, loop propagation, usage accounting | `packages/ui/backend/tests/`, `packages/data-layer/tests/`, `packages/agents/tests/` |
 
 ## 4. What remains
 
-### Defense in depth in the agent layer (Phase 6 task 8 — interface)
+### Defense in depth beyond the covered write tools (Phase 6 task 8 — done for the named surface)
 
-The HTTP layer is the only enforcement point today; agents and data-layer
-tools take IDs and do not re-check an owner. The agent layer must thread the
-owner through the most-used write tools (story, scene, character, memory) and
-assert it, so a missed guard fails closed. Required interface for the phase
-that owns `packages/agents` and the MCP tools:
+The interface sketched for the follow-up phase is implemented: write tools
+assert the acting owner against the Postgres registry (via
+`monitor_data.tenancy`, `expected_owner_id` supported for explicit
+forwarding), and the loops pass the session owner (constructor `owner_id`,
+stored on state). What remains is breadth, not mechanism:
 
-```python
-# packages/data-layer/src/monitor_data/tools/... write tools gain:
-async def mongodb_create_memory(..., expected_owner_id: str | None = None) -> ...
-    # assert the target story/scene/universe resolves to expected_owner_id
-    # (via monitor_data.db.postgres world_get_for_owner), else raise ValueError
-
-# packages/agents loops pass the session's owner from SceneState/session doc:
-SceneLoop(..., owner_id=<session owner UUID>)  # forwarded to tool calls
-```
-
-Invariant: every write tool that names a universe/story/scene/character
-accepts `expected_owner_id` and fails closed when it does not match the
-registry. (CanonKeeper's Neo4j writes stay inside CanonKeeper; the assertion
-belongs at the tool boundary it calls.)
+- Write tools outside the six named families (combat, resolutions,
+  lorebook, game systems, knowledge packs, play sessions, visual identities,
+  conversation turns, …) are still only covered by the HTTP guards. They
+  can adopt the same `assert_*_write` calls incrementally.
+- Standalone character-card writes live in the UI routers
+  (`character_storage.py`) and are owner-predicated there; no data-layer
+  write tool exists to guard yet.
+- `BaseAgent.call_tool` surfaces a tool refusal at the MCP boundary as an
+  error string (pre-existing behavior for all tool errors): the write fails
+  closed, but agent code that ignores the returned text will not see an
+  exception. Loops that call tools directly (SceneLoop, StoryLoop) get the
+  typed `OwnerViolationError` propagating.
 
 ### Known gaps and limits
 
-- **WebSocket turn quota.** The chat WebSocket charges one call at handshake;
-  individual WS messages are not charged and do not report tokens. The
-  HTTP `send` route covers the non-WS client; a WS message counter needs the
-  loop layer (other phase) to call `usage_record`.
-- **Token accounting.** `usage_record(user_id, tokens=N)` is the write path
-  for real token counts; wiring it to the LLM responses belongs to the LLM
-  runtime (`monitor_agents.dspy_runtime` / `llm_registry`), which is outside
-  this phase's file ownership. Until then only the call cap bites; the token
-  cap is enforced over whatever has been recorded.
+- **Mid-stream quota errors.** An in-turn `QuotaExceededError` maps to 429
+  on HTTP and to a readable error event on the chat WebSocket; inside an
+  already-open SSE stream (OpenAI-compat/light-RP streaming) the error
+  surfaces as an aborted stream rather than a 429 status.
+- **Blanket handler catches.** A few endpoints normalize all exceptions to
+  502; `routers/entities.py` (draft) re-raises the typed tenancy errors so
+  the 429/404 mappings hold, others may still wrap them (list: image-gen
+  handlers, gm_tools LLM routes).
 - **Providers are admin-owned and shared** (decision): non-admins get 403 on
   all `/api/llm` routes; admins manage keys for everyone.
 - **Not done (out of scope):** organizations and shared worlds, billing,

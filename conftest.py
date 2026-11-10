@@ -94,3 +94,18 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 def pytest_runtest_teardown(item: pytest.Item) -> None:
     # Leave the process usable for whatever runs after the suite.
     enable_socket()
+
+
+# ---------------------------------------------------------------------------
+# 3. Tenancy isolation. The acting owner is a ContextVar (monitor_data.tenancy)
+#    that the UI binds per request. A test that binds it on the main thread
+#    would otherwise leave it set for every later test in the same worker, and
+#    the write tools would start asserting ownership against a database.
+# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _reset_acting_owner():
+    from monitor_data.tenancy import set_owner_id
+
+    set_owner_id(None)
+    yield
+    set_owner_id(None)

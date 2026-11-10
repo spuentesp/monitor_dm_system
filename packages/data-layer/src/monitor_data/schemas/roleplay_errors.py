@@ -40,6 +40,7 @@ class RoleplayErrorSource(StrEnum):
     CANONKEEPER = "canonkeeper"
     PREPLAY = "preplay_support"
     CHARACTER_CONVERSATION = "character_conversation"
+    USAGE_ACCOUNTING = "usage_accounting"
 
 
 class RoleplayErrorCategory(StrEnum):
@@ -61,6 +62,7 @@ class RoleplayErrorCategory(StrEnum):
     RESOLVER_CHECK_FAILED = "resolver_check_failed"
     GM_DECISION_FAILED = "gm_decision_failed"
     LLM = "llm"
+    USAGE_WRITE_FAILED = "usage_write_failed"
     UNKNOWN = "unknown"
 
 

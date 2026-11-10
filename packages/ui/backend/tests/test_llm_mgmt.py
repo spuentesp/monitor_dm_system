@@ -640,3 +640,39 @@ def test_test_provider_ollama_model_missing_no_installed(mock_postgres):
             mock_get.return_value = mock_response
             response = client.post("/providers/test-id/test")
             assert response.status_code == 200
+
+
+# One default provider per tier (SYS-4)
+
+
+def test_add_default_provider_clears_only_its_own_tier(mock_postgres):
+    with patch("monitor_ui.routers.llm_mgmt.get_postgres_client", return_value=mock_postgres):
+        response = client.post(
+            "/providers",
+            json={"name": "Heavy", "provider": "custom", "model": "m", "is_default": True, "role": "heavy"},
+        )
+    assert response.status_code == 201
+    mock_postgres.unset_role_default.assert_awaited_once_with("heavy")
+    # Only the new row is written: rows of other tiers are never touched.
+    assert mock_postgres.provider_upsert.await_count == 1
+    assert mock_postgres.provider_upsert.await_args.args[0]["role"] == "heavy"
+
+
+def test_add_non_default_provider_clears_nothing(mock_postgres):
+    with patch("monitor_ui.routers.llm_mgmt.get_postgres_client", return_value=mock_postgres):
+        response = client.post(
+            "/providers",
+            json={"name": "Spare", "provider": "custom", "model": "m", "is_default": False, "role": "heavy"},
+        )
+    assert response.status_code == 201
+    mock_postgres.unset_role_default.assert_not_awaited()
+
+
+def test_update_to_default_clears_only_its_own_tier(mock_postgres):
+    mock_postgres.provider_get.return_value = {**_mock_provider_get("openai"), "role": "light", "is_default": False}
+    with patch("monitor_ui.routers.llm_mgmt.get_postgres_client", return_value=mock_postgres):
+        response = client.put("/providers/provider-1", json={"is_default": True})
+    assert response.status_code == 200
+    mock_postgres.unset_role_default.assert_awaited_once_with("light", except_id="provider-1")
+    mock_postgres.provider_set_default.assert_not_called()
+    assert mock_postgres.provider_upsert.await_args.args[0]["is_default"] is True

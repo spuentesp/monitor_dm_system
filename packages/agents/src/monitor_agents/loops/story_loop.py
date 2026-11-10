@@ -25,6 +25,7 @@ from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.graph import END, StateGraph
 from monitor_data.config import settings
 from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+from monitor_data.tenancy import owner_scoped
 from pydantic import BaseModel, Field
 
 from monitor_agents.agent_factory import get_agent_factory
@@ -57,6 +58,9 @@ class StoryState(BaseModel):
 
     story_id: UUID
     universe_id: UUID
+    # Acting owner (multi-tenancy), carried on state so nested loops and
+    # tool calls can forward it explicitly (monitor_data.tenancy).
+    owner_id: str | None = None
 
     # Temporal tracking
     in_game_time: datetime = Field(
@@ -493,11 +497,15 @@ async def _judge_scene_xp(ledger_entry: dict[str, Any]) -> tuple[int, str]:
 class StoryLoop:
     """Manages the campaign-level state machine for a story arc."""
 
-    def __init__(self, story_id: UUID, universe_id: UUID) -> None:
+    def __init__(self, story_id: UUID, universe_id: UUID, owner_id: str | UUID | None = None) -> None:
         self.story_id = story_id
         self.universe_id = universe_id
+        # Acting owner (multi-tenancy): bound around every state-changing call
+        # so write-tool ownership assertions see it (see monitor_data.tenancy).
+        self.owner_id = str(owner_id) if owner_id is not None else None
         self._graph = build_story_graph()
 
+    @owner_scoped
     async def start_or_resume(self) -> dict[str, Any]:
         """Start a new story or resume from checkpoint."""
         with MongoDBSaver.from_conn_string(settings.mongodb_uri) as checkpointer:
@@ -514,6 +522,7 @@ class StoryLoop:
             initial = StoryState(
                 story_id=self.story_id,
                 universe_id=self.universe_id,
+                owner_id=self.owner_id,
             )
             initial = await self._seed_in_game_time(initial)
             result = await compiled.ainvoke(initial.model_dump(), config=config)
@@ -550,6 +559,7 @@ class StoryLoop:
         """Thin wrapper for external callers to plan the next scene beat."""
         return await _plan_next_scene(state)
 
+    @owner_scoped
     async def advance(self, story_complete: bool = False) -> dict[str, Any]:
         """Advance the story state after a scene completes."""
         state = StoryState(
@@ -581,6 +591,7 @@ class StoryLoop:
             **transition_update,
         }
 
+    @owner_scoped
     async def complete_current_scene(
         self,
         scene_id: UUID,
@@ -794,6 +805,7 @@ class StoryLoop:
             end_time=end_time,
         )
 
+    @owner_scoped
     async def create_flashback(
         self,
         purpose: str,
@@ -836,6 +848,7 @@ class StoryLoop:
             new_state = await compiled.aget_state(config)  # type: ignore[arg-type]
             return new_state.values
 
+    @owner_scoped
     async def finalize(self) -> dict[str, Any]:
         """Finalize the story — mark complete in Neo4j via CanonKeeper."""
         result = await self.advance(story_complete=True)
@@ -845,6 +858,7 @@ class StoryLoop:
     # P-6: Story completion (active -> completed -> archived)
     # ------------------------------------------------------------------
 
+    @owner_scoped
     async def complete_story(
         self,
         current_status: str = "active",
@@ -914,6 +928,7 @@ class StoryLoop:
 
         return result
 
+    @owner_scoped
     async def archive_story(self, current_status: str = "completed") -> dict[str, Any]:
         """Archive a completed (or abandoned) story.
 
@@ -954,6 +969,7 @@ class StoryLoop:
             "new_status": StoryStatus.ARCHIVED.value,
         }
 
+    @owner_scoped
     async def abandon_story(self, current_status: str = "active") -> dict[str, Any]:
         """Abandon a story that's still active (or planned).
 

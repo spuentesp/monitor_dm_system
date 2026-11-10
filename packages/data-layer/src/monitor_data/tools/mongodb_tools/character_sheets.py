@@ -14,6 +14,7 @@ from monitor_data.schemas.character_sheets import (
     CharacterSheetUpdate,
     SheetHistoryEntry,
 )
+from monitor_data.tenancy import assert_entity_write
 
 # =============================================================================
 # CHARACTER SHEET OPERATIONS
@@ -53,6 +54,7 @@ def _character_sheet_doc_to_response(doc: dict[str, Any]) -> CharacterSheetRespo
 
 def mongodb_create_character_sheet(params: CharacterSheetCreate) -> CharacterSheetResponse:
     """Create a durable character sheet for an existing entity instance."""
+    assert_entity_write(params.entity_id, resource="character_sheet")
     mongo_client = get_mongodb_client()
     neo4j_client = get_neo4j_client()
     sheets = mongo_client["character_sheets"]
@@ -135,6 +137,7 @@ def mongodb_update_character_sheet(
     existing = sheets.find_one({"sheet_id": str(sheet_id)})
     if not existing:
         raise ValueError(f"Character sheet {sheet_id} not found")
+    assert_entity_write(existing.get("entity_id"), resource="character_sheet")
 
     update_fields: dict[str, Any] = {"updated_at": datetime.now(UTC)}
     for field_name in (

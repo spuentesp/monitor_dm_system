@@ -53,10 +53,25 @@ from monitor_data.schemas.llm_config import (
     LLMProviderType,
     ModelRole,
 )
+from monitor_data.usage import (
+    enforce_owner_quota_async,
+    record_completion_usage,
+)
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
+
+
+async def _record_call_usage(response: Any, messages: list[dict[str, Any]], output_text: str) -> None:
+    """Record one model call against the acting owner's daily usage.
+
+    Real provider usage when the response carries it, offline estimates
+    otherwise. Never raises — an accounting failure is logged and recorded
+    by ``monitor_data.usage.record_usage``.
+    """
+    await record_completion_usage(messages=messages, response=response, output_text=output_text)
+
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -93,8 +108,9 @@ class LLMClient:
     ) -> T:
         """Call the underlying LLM and return a validated Pydantic instance."""
         params = {**self.params, **override_params}
+        await enforce_owner_quota_async()
         if self.provider in (LLMProviderType.ANTHROPIC, LLMProviderType.MINIMAX):
-            return cast(
+            result = cast(
                 T,
                 await self._instructor_client.messages.create(
                     model=self.model,
@@ -103,15 +119,20 @@ class LLMClient:
                     **params,
                 ),
             )
-        return cast(
-            T,
-            await self._instructor_client.chat.completions.create(
-                model=self.model,
-                response_model=response_model,
-                messages=messages,
-                **params,
-            ),
+        else:
+            result = cast(
+                T,
+                await self._instructor_client.chat.completions.create(
+                    model=self.model,
+                    response_model=response_model,
+                    messages=messages,
+                    **params,
+                ),
+            )
+        await _record_call_usage(
+            None, messages, result.model_dump_json() if hasattr(result, "model_dump_json") else str(result)
         )
+        return result
 
     async def complete_text(
         self,
@@ -120,6 +141,7 @@ class LLMClient:
     ) -> str:
         """Run a plain text completion using the configured provider."""
         params = {**self.params, **override_params}
+        await enforce_owner_quota_async()
         if self.provider in (LLMProviderType.ANTHROPIC, LLMProviderType.MINIMAX):
             response = await self._raw_client.messages.create(
                 model=self.model,
@@ -128,18 +150,21 @@ class LLMClient:
             )
             content = getattr(response, "content", []) or []
             text_parts = [getattr(part, "text", "") for part in content if getattr(part, "text", "")]
-            return "\n".join(text_parts).strip()
-
-        response = await self._raw_client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            **params,
-        )
-        message = response.choices[0].message if response.choices else None
-        content = getattr(message, "content", "") if message else ""
-        if isinstance(content, list):
-            return "\n".join(str(part) for part in content).strip()
-        return str(content or "").strip()
+            text = "\n".join(text_parts).strip()
+        else:
+            response = await self._raw_client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                **params,
+            )
+            message = response.choices[0].message if response.choices else None
+            content = getattr(message, "content", "") if message else ""
+            if isinstance(content, list):
+                text = "\n".join(str(part) for part in content).strip()
+            else:
+                text = str(content or "").strip()
+        await _record_call_usage(response, messages, text)
+        return text
 
     async def stream_text(
         self,
@@ -158,9 +183,11 @@ class LLMClient:
         events) are ignored — this is a plain-text stream surface.
         """
         params = {**self.params, **override_params}
+        await enforce_owner_quota_async()
         if self.provider in (LLMProviderType.ANTHROPIC, LLMProviderType.MINIMAX):
 
             async def _anthropic_stream() -> AsyncIterator[str]:
+                collected: list[str] = []
                 async with self._raw_client.messages.stream(
                     model=self.model,
                     messages=messages,
@@ -169,11 +196,14 @@ class LLMClient:
                     async for event in event_stream:
                         text = getattr(event, "text", None)
                         if text:
+                            collected.append(text)
                             yield text
+                await _record_call_usage(None, messages, "".join(collected))
 
             return _anthropic_stream()
 
         async def _openai_stream() -> AsyncIterator[str]:
+            collected: list[str] = []
             response = await self._raw_client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -186,7 +216,9 @@ class LLMClient:
                 delta = chunk.choices[0].delta
                 piece = getattr(delta, "content", None)
                 if piece:
+                    collected.append(piece)
                     yield piece
+            await _record_call_usage(None, messages, "".join(collected))
 
         return _openai_stream()
 
