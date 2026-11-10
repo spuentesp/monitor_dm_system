@@ -154,8 +154,12 @@ def test_extract_survivors_ignores_incompetent_and_pending(tmp_path: Path) -> No
 
 
 def test_filter_in_diff_splits_by_hunk_lines() -> None:
-    inside = md.Survivor("packages/agents/src/monitor_agents/narrator/agent.py", "core/Number", 0, 11, "f")
-    outside = md.Survivor("packages/agents/src/monitor_agents/narrator/agent.py", "core/String", 1, 90, "f")
+    inside = md.Survivor(
+        "packages/agents/src/monitor_agents/narrator/agent.py", "core/Number", 0, 11, "f"
+    )
+    outside = md.Survivor(
+        "packages/agents/src/monitor_agents/narrator/agent.py", "core/String", 1, 90, "f"
+    )
     hunks = {"packages/agents/src/monitor_agents/narrator/agent.py": {11, 12}}
     in_diff, out = md.filter_in_diff([inside, outside], hunks)
     assert in_diff == [inside]
@@ -180,31 +184,36 @@ def test_gate_fails_on_unallowlisted_in_diff_survivor() -> None:
 def test_gate_allowlist_entry_passes() -> None:
     survivor = md.Survivor("packages/agents/src/x.py", "core/Number", 0, 10, "f")
     key = ("packages/agents/src/x.py", "core/Number", 0, 10)
-    assert md.evaluate_gate([survivor], [], allowlist={key: "equivalent mutant: flip has no effect"}) == 0
+    assert (
+        md.evaluate_gate([survivor], [], allowlist={key: "equivalent mutant: flip has no effect"})
+        == 0
+    )
 
 
 def test_load_allowlist_roundtrip(tmp_path: Path) -> None:
     allow = tmp_path / "allow.toml"
     allow.write_text(
-        '[[survivors]]\n'
+        "[[survivors]]\n"
         'module_path = "packages/agents/src/x.py"\n'
         'operator_name = "core/Number"\n'
-        'occurrence = 0\n'
-        'line = 12\n'
+        "occurrence = 0\n"
+        "line = 12\n"
         'justification = "equivalent mutant: constant is unused"\n'
     )
     loaded = md.load_allowlist(allow)
-    assert loaded == {("packages/agents/src/x.py", "core/Number", 0, 12): "equivalent mutant: constant is unused"}
+    assert loaded == {
+        ("packages/agents/src/x.py", "core/Number", 0, 12): "equivalent mutant: constant is unused"
+    }
 
 
 def test_allowlist_entry_without_justification_is_error(tmp_path: Path) -> None:
     allow = tmp_path / "allow.toml"
     allow.write_text(
-        '[[survivors]]\n'
+        "[[survivors]]\n"
         'module_path = "packages/agents/src/x.py"\n'
         'operator_name = "core/Number"\n'
-        'occurrence = 0\n'
-        'line = 12\n'
+        "occurrence = 0\n"
+        "line = 12\n"
     )
     with pytest.raises(md.AllowlistError, match="justification"):
         md.load_allowlist(allow)
@@ -227,7 +236,9 @@ def test_changed_production_files_excludes_deletions(tmp_path: Path) -> None:
         sp.run(cmd, cwd=repo, check=True, capture_output=True)
     sp.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
     sp.run(["git", "commit", "-qm", "seed"], cwd=repo, check=True, capture_output=True)
-    sp.run(["git", "rm", "-q", "packages/pkg/src/gone.py"], cwd=repo, check=True, capture_output=True)
+    sp.run(
+        ["git", "rm", "-q", "packages/pkg/src/gone.py"], cwd=repo, check=True, capture_output=True
+    )
     sp.run(["git", "commit", "-qm", "delete"], cwd=repo, check=True, capture_output=True)
 
     changed = md.changed_production_files("HEAD~1", repo)
@@ -239,7 +250,14 @@ def test_no_production_changes_short_circuits(monkeypatch) -> None:
     Cosmic Ray (zero mutation minutes)."""
     calls = []
     monkeypatch.setattr(md, "changed_production_files", lambda base, root: [])
-    monkeypatch.setattr(md, "run_session", lambda *a, **k: calls.append(a) or (_ for _ in ()).throw(AssertionError("run_session must not be called")))
+    monkeypatch.setattr(
+        md,
+        "run_session",
+        lambda *a, **k: (
+            calls.append(a)
+            or (_ for _ in ()).throw(AssertionError("run_session must not be called"))
+        ),
+    )
     code = md.main(["--base", "HEAD"])
     assert code == 0
     assert calls == []
@@ -260,12 +278,12 @@ def test_load_allowlist_bad_toml_is_config_error(tmp_path: Path) -> None:
 def test_load_allowlist_non_string_justification_is_rejected(tmp_path: Path) -> None:
     allow = tmp_path / "allow.toml"
     allow.write_text(
-        '[[survivors]]\n'
+        "[[survivors]]\n"
         'module_path = "m.py"\n'
         'operator_name = "core/Number"\n'
-        'occurrence = 0\n'
-        'line = 3\n'
-        'justification = 5\n'
+        "occurrence = 0\n"
+        "line = 3\n"
+        "justification = 5\n"
     )
     with pytest.raises(md.AllowlistError, match="justification"):
         md.load_allowlist(allow)
@@ -354,9 +372,7 @@ def test_run_session_requires_green_baseline(tmp_path: Path, monkeypatch) -> Non
     """I1 pin: the unmutated test-command must pass before any mutant runs —
     a broken test-command must never mark every mutant 'killed'."""
     config = tmp_path / "cfg.toml"
-    config.write_text(
-        '[cosmic-ray]\nmodule-path = "m.py"\ntest-command = "false"\n'
-    )
+    config.write_text('[cosmic-ray]\nmodule-path = "m.py"\ntest-command = "false"\n')
     calls = []
 
     def fake_run(cmd, *args, **kwargs):
@@ -377,11 +393,11 @@ def test_allowlist_entries_are_line_anchored(tmp_path: Path) -> None:
     occurrence renumbering must not whitelist an unrelated survivor."""
     allow = tmp_path / "allow.toml"
     allow.write_text(
-        '[[survivors]]\n'
+        "[[survivors]]\n"
         'module_path = "m.py"\n'
         'operator_name = "core/Number"\n'
-        'occurrence = 0\n'
-        'line = 10\n'
+        "occurrence = 0\n"
+        "line = 10\n"
         'justification = "equivalent mutant: constant unused"\n'
     )
     loaded = md.load_allowlist(allow)
@@ -398,8 +414,11 @@ def test_allowlist_is_validated_before_mutation_runs(monkeypatch, tmp_path: Path
     monkeypatch.setattr(md, "git_diff_u0", lambda *a, **k: "")
     monkeypatch.setattr(md, "parse_hunk_ranges", lambda *a, **k: {})
     monkeypatch.setattr(
-        md, "run_session",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no mutation run before allowlist validation")),
+        md,
+        "run_session",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("no mutation run before allowlist validation")
+        ),
     )
     monkeypatch.setattr(md, "load_known_configs", lambda root: {})
     monkeypatch.setattr(md, "write_generated_config", lambda *a, **k: Path("x.toml"))

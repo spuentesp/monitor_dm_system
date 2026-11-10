@@ -85,29 +85,19 @@ class TestMemoryCreate:
 
     def test_emotional_valence_out_of_range(self):
         with pytest.raises(ValidationError):
-            MemoryCreate(
-                universe_id=uuid4(), entity_id=uuid4(), text="x", emotional_valence=1.5
-            )
+            MemoryCreate(universe_id=uuid4(), entity_id=uuid4(), text="x", emotional_valence=1.5)
         with pytest.raises(ValidationError):
-            MemoryCreate(
-                universe_id=uuid4(), entity_id=uuid4(), text="x", emotional_valence=-1.5
-            )
+            MemoryCreate(universe_id=uuid4(), entity_id=uuid4(), text="x", emotional_valence=-1.5)
 
     def test_importance_out_of_range(self):
         with pytest.raises(ValidationError):
-            MemoryCreate(
-                universe_id=uuid4(), entity_id=uuid4(), text="x", importance=2.0
-            )
+            MemoryCreate(universe_id=uuid4(), entity_id=uuid4(), text="x", importance=2.0)
         with pytest.raises(ValidationError):
-            MemoryCreate(
-                universe_id=uuid4(), entity_id=uuid4(), text="x", importance=-0.1
-            )
+            MemoryCreate(universe_id=uuid4(), entity_id=uuid4(), text="x", importance=-0.1)
 
     def test_certainty_out_of_range(self):
         with pytest.raises(ValidationError):
-            MemoryCreate(
-                universe_id=uuid4(), entity_id=uuid4(), text="x", certainty=1.5
-            )
+            MemoryCreate(universe_id=uuid4(), entity_id=uuid4(), text="x", certainty=1.5)
 
 
 # =============================================================================
@@ -165,9 +155,7 @@ class TestMemoryFilter:
 
     def test_with_values(self):
         eid = uuid4()
-        f = MemoryFilter(
-            entity_id=eid, min_importance=0.5, max_importance=1.0, limit=50
-        )
+        f = MemoryFilter(entity_id=eid, min_importance=0.5, max_importance=1.0, limit=50)
         assert f.entity_id == eid
         assert f.min_importance == 0.5
         assert f.limit == 50
@@ -268,24 +256,18 @@ class TestMemoryListResponse:
 
 class TestMemoryEmbedRequest:
     def test_minimal(self):
-        r = MemoryEmbedRequest(
-            memory_id=uuid4(), universe_id=uuid4(), text="x", entity_id=uuid4()
-        )
+        r = MemoryEmbedRequest(memory_id=uuid4(), universe_id=uuid4(), text="x", entity_id=uuid4())
         assert r.importance == 0.5
         assert r.scene_id is None
         assert r.metadata == {}
 
     def test_text_required(self):
         with pytest.raises(ValidationError):
-            MemoryEmbedRequest(
-                memory_id=uuid4(), universe_id=uuid4(), entity_id=uuid4()
-            )  # type: ignore[call-arg]
+            MemoryEmbedRequest(memory_id=uuid4(), universe_id=uuid4(), entity_id=uuid4())  # type: ignore[call-arg]
 
     def test_text_too_short(self):
         with pytest.raises(ValidationError):
-            MemoryEmbedRequest(
-                memory_id=uuid4(), universe_id=uuid4(), entity_id=uuid4(), text=""
-            )
+            MemoryEmbedRequest(memory_id=uuid4(), universe_id=uuid4(), entity_id=uuid4(), text="")
 
     def test_text_too_long(self):
         with pytest.raises(ValidationError):
@@ -327,9 +309,7 @@ class TestMemoryEmbedResponse:
         assert r.success is True
 
     def test_with_collection(self):
-        r = MemoryEmbedResponse(
-            memory_id=uuid4(), point_id="x", collection="custom", success=False
-        )
+        r = MemoryEmbedResponse(memory_id=uuid4(), point_id="x", collection="custom", success=False)
         assert r.collection == "custom"
         assert r.success is False
 

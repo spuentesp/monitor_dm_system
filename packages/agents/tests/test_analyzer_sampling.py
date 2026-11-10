@@ -68,7 +68,11 @@ def test_sample_does_not_depend_on_input_order():
 
 @pytest.mark.unit
 def test_points_without_an_index_do_not_crash_and_stay_repeatable():
-    points = [SimpleNamespace(payload={"text": "b"}), SimpleNamespace(payload={"text": "a"}), SimpleNamespace(payload=None)]
+    points = [
+        SimpleNamespace(payload={"text": "b"}),
+        SimpleNamespace(payload={"text": "a"}),
+        SimpleNamespace(payload=None),
+    ]
     assert [(p.payload or {}).get("text") for p in select_spread(points, 3)] == [None, "a", "b"]
 
 

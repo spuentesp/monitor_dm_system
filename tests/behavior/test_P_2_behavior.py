@@ -19,13 +19,7 @@ from monitor_data.tools.mongodb_tools.scenes import (
 
 def _mock_execute_read_result(query: str, params: dict):
     """Helper to create mock result for entity lookups."""
-    return [
-        {
-            "id": params.get("entity_id")
-            or params.get("story_id")
-            or params.get("location_id")
-        }
-    ]
+    return [{"id": params.get("entity_id") or params.get("story_id") or params.get("location_id")}]
 
 
 class TestP2SceneCreationHappyPath:
@@ -37,11 +31,10 @@ class TestP2SceneCreationHappyPath:
         universe_id = uuid4()
         scene_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -53,9 +46,7 @@ class TestP2SceneCreationHappyPath:
                     return [{"id": i} for i in p["node_ids"]]
                 if "location_id" in p:
                     return [{"id": str(p["location_id"])}]
-                return [
-                    {"story_id": str(story_id), "universe_id": str(universe_id)}
-                ]
+                return [{"story_id": str(story_id), "universe_id": str(universe_id)}]
 
             neo4j_client.execute_read = neo4j_read_side_effect
 
@@ -83,11 +74,10 @@ class TestP2SceneCreationHappyPath:
         story_id = uuid4()
         universe_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -100,9 +90,7 @@ class TestP2SceneCreationHappyPath:
                 return_value=MagicMock(inserted_id=str(uuid4()))
             )
 
-            params = SceneCreate(
-                story_id=story_id, universe_id=universe_id, title="Test Scene"
-            )
+            params = SceneCreate(story_id=story_id, universe_id=universe_id, title="Test Scene")
             result = mongodb_create_scene(params)
 
             assert result.story_id == story_id
@@ -117,11 +105,10 @@ class TestP2SceneCreationFailsWithoutStory:
         story_id = uuid4()
         universe_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -130,9 +117,7 @@ class TestP2SceneCreationFailsWithoutStory:
             # Story not found
             neo4j_client.execute_read = lambda q, p: []
 
-            params = SceneCreate(
-                story_id=story_id, universe_id=universe_id, title="Orphaned Scene"
-            )
+            params = SceneCreate(story_id=story_id, universe_id=universe_id, title="Orphaned Scene")
             with pytest.raises(ValueError, match="Story"):
                 mongodb_create_scene(params)
 
@@ -145,11 +130,10 @@ class TestP2SceneCreationFailsWithoutUniverse:
         story_id = uuid4()
         universe_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -159,15 +143,11 @@ class TestP2SceneCreationFailsWithoutUniverse:
             def neo4j_read_side_effect(query, params):
                 if "universe_id" in params:
                     return []  # Universe not found
-                return [
-                    {"story_id": str(story_id), "universe_id": str(universe_id)}
-                ]
+                return [{"story_id": str(story_id), "universe_id": str(universe_id)}]
 
             neo4j_client.execute_read = neo4j_read_side_effect
 
-            params = SceneCreate(
-                story_id=story_id, universe_id=universe_id, title="Orphaned Scene"
-            )
+            params = SceneCreate(story_id=story_id, universe_id=universe_id, title="Orphaned Scene")
             with pytest.raises(ValueError, match="Universe"):
                 mongodb_create_scene(params)
 
@@ -182,11 +162,10 @@ class TestP2ParticipatingEntitiesValidation:
         entity_id_1 = uuid4()
         entity_id_2 = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -198,9 +177,7 @@ class TestP2ParticipatingEntitiesValidation:
                 call_count[0] += 1
                 if "node_ids" in params:
                     return [{"id": i} for i in params["node_ids"]]
-                return [
-                    {"story_id": str(story_id), "universe_id": str(universe_id)}
-                ]
+                return [{"story_id": str(story_id), "universe_id": str(universe_id)}]
 
             neo4j_client.execute_read = neo4j_read_side_effect
             mongo_client.get_collection.return_value.insert_one = MagicMock(
@@ -222,11 +199,10 @@ class TestP2ParticipatingEntitiesValidation:
         universe_id = uuid4()
         invalid_entity_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -235,9 +211,7 @@ class TestP2ParticipatingEntitiesValidation:
             def neo4j_read_side_effect(query, params):
                 if "node_ids" in params:
                     return []  # Entity not found
-                return [
-                    {"story_id": str(story_id), "universe_id": str(universe_id)}
-                ]
+                return [{"story_id": str(story_id), "universe_id": str(universe_id)}]
 
             neo4j_client.execute_read = neo4j_read_side_effect
 
@@ -260,11 +234,10 @@ class TestP2LocationRefValidation:
         universe_id = uuid4()
         location_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -273,9 +246,7 @@ class TestP2LocationRefValidation:
             def neo4j_read_side_effect(query, params):
                 if "location_id" in params:
                     return [{"id": str(location_id)}]
-                return [
-                    {"story_id": str(story_id), "universe_id": str(universe_id)}
-                ]
+                return [{"story_id": str(story_id), "universe_id": str(universe_id)}]
 
             neo4j_client.execute_read = neo4j_read_side_effect
             mongo_client.get_collection.return_value.insert_one = MagicMock(
@@ -297,11 +268,10 @@ class TestP2LocationRefValidation:
         universe_id = uuid4()
         invalid_location_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -310,9 +280,7 @@ class TestP2LocationRefValidation:
             def neo4j_read_side_effect(query, params):
                 if "location_id" in params:
                     return []  # Location not found
-                return [
-                    {"story_id": str(story_id), "universe_id": str(universe_id)}
-                ]
+                return [{"story_id": str(story_id), "universe_id": str(universe_id)}]
 
             neo4j_client.execute_read = neo4j_read_side_effect
 
@@ -344,11 +312,10 @@ class TestP2SceneStatusDefault:
         story_id = uuid4()
         universe_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -378,11 +345,10 @@ class TestP2TemporalContext:
         story_id = uuid4()
         universe_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -417,11 +383,10 @@ class TestP2ParticipatingEntitiesStored:
         universe_id = uuid4()
         entity_ids = [uuid4(), uuid4(), uuid4()]
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client
@@ -430,9 +395,7 @@ class TestP2ParticipatingEntitiesStored:
             def neo4j_read_side_effect(query, params):
                 if "node_ids" in params:
                     return [{"id": i} for i in params["node_ids"]]
-                return [
-                    {"story_id": str(story_id), "universe_id": str(universe_id)}
-                ]
+                return [{"story_id": str(story_id), "universe_id": str(universe_id)}]
 
             neo4j_client.execute_read = neo4j_read_side_effect
             mongo_client.get_collection.return_value.insert_one = MagicMock(
@@ -458,9 +421,7 @@ class TestP2OpeningTurn:
         """Test that opening narration turn can be appended to scene."""
         scene_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo:
+        with patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo:
             mongo_client = MagicMock()
             mock_mongo.return_value = mongo_client
 
@@ -481,9 +442,7 @@ class TestP2AcceptanceCriteria:
 
     def test_ac1_story_must_exist(self):
         """AC-1: Story must exist before scene creation."""
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo:
             neo4j_client = MagicMock()
             mock_neo.return_value = neo4j_client
             neo4j_client.execute_read = lambda q, p: []
@@ -496,17 +455,14 @@ class TestP2AcceptanceCriteria:
     def test_ac5_title_required(self):
         """AC-5: Title is required."""
         with pytest.raises(Exception, match="title"):
-            mongodb_create_scene(
-                SceneCreate(story_id=uuid4(), universe_id=uuid4(), title="")
-            )
+            mongodb_create_scene(SceneCreate(story_id=uuid4(), universe_id=uuid4(), title=""))
 
     def test_ac6_status_defaults_to_active(self):
         """AC-6: Status defaults to ACTIVE."""
-        with patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.scenes.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.scenes.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.scenes.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             neo4j_client = MagicMock()
             mock_mongo.return_value = mongo_client

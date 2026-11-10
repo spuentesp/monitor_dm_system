@@ -25,9 +25,7 @@ try:
     from monitor_ui.routers import chat as chat_router
     from monitor_ui.routers import modes as modes_router
 except ModuleNotFoundError:
-    backend_src = (
-        Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-    )
+    backend_src = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
     sys.path.append(str(backend_src))
     from monitor_ui.main import app
     from monitor_ui.routers import chat as chat_router
@@ -65,9 +63,7 @@ def ui_client():
 class TestGMModesAPI:
     """Validate mode switching and per-session GM chat behavior."""
 
-    def test_modes_catalog_contains_all_three_modes(
-        self, ui_client: TestClient
-    ) -> None:
+    def test_modes_catalog_contains_all_three_modes(self, ui_client: TestClient) -> None:
         """SYS-1: The backend advertises World Architect, Autonomous GM, and GM Assistant."""
         response = ui_client.get("/api/modes")
         assert response.status_code == 200
@@ -94,9 +90,7 @@ class TestGMModesAPI:
         assert get_response.status_code == 200
         assert get_response.json() == payload
 
-    def test_session_state_endpoint_returns_latest_gm_metadata(
-        self, ui_client: TestClient
-    ) -> None:
+    def test_session_state_endpoint_returns_latest_gm_metadata(self, ui_client: TestClient) -> None:
         """SYS-1 / P-3: Session-state API exposes the latest GM metadata for debugging and UI audit."""
         create_response = ui_client.post(
             "/api/chat",
@@ -162,9 +156,7 @@ class TestGMModesAPI:
 
         with ui_client.websocket_connect(f"/api/chat/ws/{session_id}") as primary:
             with ui_client.websocket_connect(f"/api/chat/ws/{session_id}") as mirror:
-                primary.send_text(
-                    json.dumps({"type": "message", "content": "Hello there"})
-                )
+                primary.send_text(json.dumps({"type": "message", "content": "Hello there"}))
 
                 primary_tokens: list[str] = []
                 mirror_tokens: list[str] = []
@@ -305,9 +297,7 @@ class TestGMModesAPI:
 
         intro = ui_client.post(
             f"/api/chat/{session_id}/send",
-            json={
-                "content": "I am Kara Voss, a scavenger pilot with more nerve than luck."
-            },
+            json={"content": "I am Kara Voss, a scavenger pilot with more nerve than luck."},
         )
         assert intro.status_code == 200
         assert intro.json()["metadata"]["phase"] == "char_creation"
@@ -322,9 +312,7 @@ class TestGMModesAPI:
 
         session_state = chat_router._SESSIONS[session_id]
         assert session_state["character_id"] == session_state["speaker_character_id"]
-        assert session_state["controlled_character_ids"] == [
-            session_state["character_id"]
-        ]
+        assert session_state["controlled_character_ids"] == [session_state["character_id"]]
 
     def test_social_state_persists_across_scene_turns(
         self,
@@ -424,9 +412,7 @@ class TestGMModesAPI:
         assert payload["latest_relationship_snapshot"]["trust"] == 0.45
         assert payload["recent_npc_stances"][-2:] == ["guarded", "warm"]
 
-    @pytest.mark.parametrize(
-        "mode_id", ["world_architect", "autonomous_gm", "gm_assistant"]
-    )
+    @pytest.mark.parametrize("mode_id", ["world_architect", "autonomous_gm", "gm_assistant"])
     def test_chat_session_creation_and_reply_work_in_each_mode(
         self,
         ui_client: TestClient,
@@ -466,6 +452,4 @@ class TestGMModesAPI:
         assert roles[0] in {"system", "gm"}
         assert "player" in roles
         assert "gm" in roles
-        assert any(
-            message["content"].strip() for message in history if message["role"] == "gm"
-        )
+        assert any(message["content"].strip() for message in history if message["role"] == "gm")

@@ -38,9 +38,7 @@ from pydantic import ValidationError
 
 class TestCondition:
     def test_minimal(self):
-        c = Condition(
-            name="Stunned", source="Monk's Stunning Strike", duration_type="rounds"
-        )
+        c = Condition(name="Stunned", source="Monk's Stunning Strike", duration_type="rounds")
         assert c.name == "Stunned"
         assert c.source == "Monk's Stunning Strike"
         assert c.duration_remaining is None
@@ -135,9 +133,7 @@ class TestCombatEnvironment:
         assert env.hazards == []
 
     def test_custom(self):
-        env = CombatEnvironment(
-            terrain="swamp", lighting="dim", hazards=[{"type": "quicksand"}]
-        )
+        env = CombatEnvironment(terrain="swamp", lighting="dim", hazards=[{"type": "quicksand"}])
         assert env.terrain == "swamp"
         assert len(env.hazards) == 1
 

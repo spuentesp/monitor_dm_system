@@ -127,9 +127,7 @@ class TestProposalReviewWorkflow:
                 )
             )
             assert proposals.total == 3
-            assert all(
-                p.status == ProposalStatus.PENDING for p in proposals.proposed_changes
-            )
+            assert all(p.status == ProposalStatus.PENDING for p in proposals.proposed_changes)
 
         finally:
             # Cleanup

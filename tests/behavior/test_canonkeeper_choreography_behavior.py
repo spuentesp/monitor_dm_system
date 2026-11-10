@@ -73,17 +73,13 @@ class TestNormaliseStateTagUpdate:
         (canonical_state_tags) is responsible for evaluating track thresholds."""
         from monitor_agents.canonkeeper.agent import _normalise_state_tag_update
 
-        result = _normalise_state_tag_update(
-            {"entity_id": "E1", "condition_tags": ["wounded"]}
-        )
+        result = _normalise_state_tag_update({"entity_id": "E1", "condition_tags": ["wounded"]})
         assert "wounded" in result["add_tags"]
 
     def test_remove_tags_preserved(self):
         from monitor_agents.canonkeeper.agent import _normalise_state_tag_update
 
-        result = _normalise_state_tag_update(
-            {"entity_id": "E1", "remove_tags": ["wounded"]}
-        )
+        result = _normalise_state_tag_update({"entity_id": "E1", "remove_tags": ["wounded"]})
         assert "wounded" in result["remove_tags"]
 
     def test_dedupes_tags(self):
@@ -183,8 +179,7 @@ class TestNormaliseEntityType:
 
     def test_skip(self):
         pytest.skip(
-            "_normalise_entity_type has signature (payload, verdict); "
-            "covered by integration tests"
+            "_normalise_entity_type has signature (payload, verdict); covered by integration tests"
         )
 
 
@@ -299,9 +294,7 @@ class TestExtractPackIdFromSource:
         from monitor_agents.canonkeeper.agent import CanonKeeper
 
         ck = CanonKeeper.__new__(CanonKeeper)
-        result = ck._extract_pack_id_from_source(
-            {"source": f"knowledge_pack:{uuid4()}"}
-        )
+        result = ck._extract_pack_id_from_source({"source": f"knowledge_pack:{uuid4()}"})
         assert result is not None
 
     def test_nested_under_source_dict(self):
@@ -325,9 +318,7 @@ class TestExtractPackIdFromSource:
         from monitor_agents.canonkeeper.agent import CanonKeeper
 
         ck = CanonKeeper.__new__(CanonKeeper)
-        result = ck._extract_pack_id_from_source(
-            {"source": "knowledge_pack:not-a-uuid"}
-        )
+        result = ck._extract_pack_id_from_source({"source": "knowledge_pack:not-a-uuid"})
         assert result is None
 
 

@@ -12,9 +12,7 @@ FROM python:3.11-slim
 
 ENV PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
-    HF_HOME=/model \
-    HF_HUB_OFFLINE=1 \
-    TRANSFORMERS_OFFLINE=1
+    HF_HOME=/model
 
 # CPU-only torch keeps the image small; install it first so its index is not
 # mixed with PyPI for the remaining deps.
@@ -22,9 +20,14 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 
 RUN pip install --no-cache-dir "gliner==0.2.21" "fastapi>=0.108" "uvicorn[standard]>=0.27"
 
-# Bake the model into the image.
+# Bake the model into the image (build-time download must be ONLINE — the
+# offline flags below only apply at runtime).
 ARG MODEL_NAME=knowledgator/gliner-base-v0.1
 RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('${MODEL_NAME}')"
+
+# Runtime is hermetic: no Hugging Face calls after build.
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
 
 COPY server.py /app/server.py
 WORKDIR /app

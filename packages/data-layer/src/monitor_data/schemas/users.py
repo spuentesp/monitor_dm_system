@@ -115,3 +115,22 @@ class BanRequest(BaseModel):
 
 class AdminRoleRequest(BaseModel):
     is_admin: bool
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=12, max_length=1024)
+
+
+class SessionMetadataResponse(BaseModel):
+    """One browser session of the caller. Never includes the raw token."""
+
+    token_hash_prefix: str
+    created_at: datetime
+    expires_at: datetime
+    last_seen_at: datetime | None = None
+    current: bool = False
+
+
+class SessionListResponse(BaseModel):
+    sessions: list[SessionMetadataResponse]

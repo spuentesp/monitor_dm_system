@@ -6,12 +6,10 @@ from fastapi.testclient import TestClient
 from monitor_ui.main import app
 from monitor_data.schemas.base import ProposalType, Authority
 
-pytestmark = pytest.mark.usefixtures("local_auth_mode")
-
 
 client = TestClient(app)
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.usefixtures("local_auth_mode")]
 
 
 @patch("monitor_data.tools.mongodb_tools.proposals.mongodb_create_proposed_change")

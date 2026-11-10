@@ -71,9 +71,7 @@ class Scene:
 
 
 class Story:
-    def __init__(
-        self, id: str, title: str, game_system_id: str, genre: str = "fantasy"
-    ):
+    def __init__(self, id: str, title: str, game_system_id: str, genre: str = "fantasy"):
         self.id = id
         self.title = title
         self.game_system_id = game_system_id
@@ -445,9 +443,7 @@ async def test_scenario1_open_questions_detection(
         )
     ]
 
-    system_agent.get_turns = AsyncMock(
-        side_effect=[scene1_turns, scene2_turns, scene3_turns]
-    )
+    system_agent.get_turns = AsyncMock(side_effect=[scene1_turns, scene2_turns, scene3_turns])
 
     # Setup: Mock CanonKeeper analysis
     canonkeeper_agent.analyze_open_questions = AsyncMock(
@@ -629,8 +625,7 @@ async def test_scenario2_unfulfilled_promise_detection(
 
     # Scan for fulfillment evidence
     fulfillment_found = any(
-        "map" in turn.content.lower() and "give" in turn.content.lower()
-        for turn in scene2_turns
+        "map" in turn.content.lower() and "give" in turn.content.lower() for turn in scene2_turns
     )
 
     # Verify: No fulfillment evidence found
@@ -909,12 +904,8 @@ async def test_scenario5_filtered_thread_list(canonkeeper_agent, fake_llm):
         Importance.CRITICAL: len(
             [t for t in filtered_threads if t.importance == Importance.CRITICAL]
         ),
-        Importance.MAJOR: len(
-            [t for t in filtered_threads if t.importance == Importance.MAJOR]
-        ),
-        Importance.MINOR: len(
-            [t for t in filtered_threads if t.importance == Importance.MINOR]
-        ),
+        Importance.MAJOR: len([t for t in filtered_threads if t.importance == Importance.MAJOR]),
+        Importance.MINOR: len([t for t in filtered_threads if t.importance == Importance.MINOR]),
     }
 
     # Verify: Statistics reflect filter
@@ -936,9 +927,7 @@ async def test_error_story_not_found(system_agent, fake_mongodb):
     Expected: Raise StoryNotFoundError with clear message
     """
     # Setup: Story doesn't exist
-    system_agent.get_story = AsyncMock(
-        side_effect=Exception("Story not found: story-999")
-    )
+    system_agent.get_story = AsyncMock(side_effect=Exception("Story not found: story-999"))
 
     # Execute & Verify: Error raised
     with pytest.raises(Exception) as exc_info:
@@ -976,9 +965,7 @@ async def test_error_mongodb_connection_failure(system_agent, fake_mongodb):
     Expected: Log error, return partial results (threads from Neo4j only)
     """
     # Setup: MongoDB connection fails
-    system_agent.get_story = AsyncMock(
-        side_effect=Exception("MongoDB connection failed")
-    )
+    system_agent.get_story = AsyncMock(side_effect=Exception("MongoDB connection failed"))
 
     # Execute & Verify: Error raised
     with pytest.raises(Exception) as exc_info:
@@ -1016,9 +1003,7 @@ async def test_error_llm_failure(canonkeeper_agent, fake_llm):
     Expected: Use rule-based analysis only, log error
     """
     # Setup: LLM fails
-    canonkeeper_agent.analyze_open_questions = AsyncMock(
-        side_effect=Exception("LLM timeout")
-    )
+    canonkeeper_agent.analyze_open_questions = AsyncMock(side_effect=Exception("LLM timeout"))
 
     # Execute & Verify: Error raised (in real implementation, would use rule-based fallback)
     with pytest.raises(Exception) as exc_info:
@@ -1226,9 +1211,7 @@ async def test_postcondition_threads_identified(
     )
     canonkeeper_agent.analyze_dangling_hooks = AsyncMock(
         return_value=[
-            DanglingHook(
-                "Hook", "GM", "Context", Importance.MINOR, "scene-001", "turn-002"
-            )
+            DanglingHook("Hook", "GM", "Context", Importance.MINOR, "scene-001", "turn-002")
         ]
     )
     canonkeeper_agent.analyze_missing_payoffs = AsyncMock(
@@ -1280,9 +1263,7 @@ async def test_postcondition_threads_ranked():
     urgency_score = 2.0  # SOON
     recency_score = min(3.0, 15.0 / 30.0)  # 0.5
 
-    calculated_priority = (
-        (importance_score * 3.0) + (urgency_score * 2.0) + recency_score
-    )
+    calculated_priority = (importance_score * 3.0) + (urgency_score * 2.0) + recency_score
 
     # Verify: Score matches formula
     assert calculated_priority == 6.0 + 4.0 + 0.5

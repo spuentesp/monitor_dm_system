@@ -166,12 +166,8 @@ class TestICChatWithCharacter:
         _msgs[session_id] = []
 
         with (
-            patch(
-                "monitor_ui.routers.chat_loops.run_ooc_turn", new=AsyncMock()
-            ) as mock_ooc,
-            patch(
-                "monitor_ui.routers.chat._run_scene_turn", new=AsyncMock()
-            ) as mock_scene,
+            patch("monitor_ui.routers.chat_loops.run_ooc_turn", new=AsyncMock()) as mock_ooc,
+            patch("monitor_ui.routers.chat._run_scene_turn", new=AsyncMock()) as mock_scene,
         ):
             mock_scene.return_value = (
                 "The knight nods solemnly.",

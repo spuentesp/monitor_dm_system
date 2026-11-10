@@ -88,9 +88,7 @@ class TestPlaySessionUpdate:
 
     def test_partial(self):
         now = datetime.now(UTC)
-        u = PlaySessionUpdate(
-            status=SessionStatus.COMPLETED, ended_at=now, xp_awarded=500
-        )
+        u = PlaySessionUpdate(status=SessionStatus.COMPLETED, ended_at=now, xp_awarded=500)
         assert u.status == SessionStatus.COMPLETED
         assert u.xp_awarded == 500
 

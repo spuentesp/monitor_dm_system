@@ -56,7 +56,13 @@ def _guard(clock: _Clock | None = None, **kwargs) -> RunGuard:
 
 def _windows(count: int) -> list[Window]:
     return [
-        Window(id=f"w{i}", division_id="d", heading_path=("C",), context="", units=(Unit(f"n{i}", "S1", BookNodeKind.SENTENCE, "Text.", 0),))
+        Window(
+            id=f"w{i}",
+            division_id="d",
+            heading_path=("C",),
+            context="",
+            units=(Unit(f"n{i}", "S1", BookNodeKind.SENTENCE, "Text.", 0),),
+        )
         for i in range(count)
     ]
 
@@ -291,10 +297,23 @@ async def test_review_stops_on_plan_limit_instead_of_marking_claims_for_a_person
 
     nodes = [
         BookNode(id="root", doc_id="d", kind=BookNodeKind.BOOK, seq=0, page_start=0, page_end=0),
-        BookNode(id="p", doc_id="d", kind=BookNodeKind.PARAGRAPH, parent_id="root", seq=1, text="T.", page_start=0, page_end=0),
-        BookNode(id="s", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id="p", seq=2, text="T.", page_start=0, page_end=0),
+        BookNode(
+            id="p",
+            doc_id="d",
+            kind=BookNodeKind.PARAGRAPH,
+            parent_id="root",
+            seq=1,
+            text="T.",
+            page_start=0,
+            page_end=0,
+        ),
+        BookNode(
+            id="s", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id="p", seq=2, text="T.", page_start=0, page_end=0
+        ),
     ]
-    tree = BookTree(doc_id="d", title="T", decomposer_version="1", content_hash="x", nodes=nodes, report=DecompositionReport())
+    tree = BookTree(
+        doc_id="d", title="T", decomposer_version="1", content_hash="x", nodes=nodes, report=DecompositionReport()
+    )
     atom = ExtractedAtom(kind=AtomKind.RULE, statement="A claim.", cites=["S1"])
     outcome = WindowOutcome(window_id="w", atoms=[ProvenancedAtom(atom=atom, source_node_ids=["s"], page=0)])
     model = DspyReviewModel(lm=object(), guard=_guard())

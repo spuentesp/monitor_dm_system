@@ -132,6 +132,9 @@ class EntityFilter(BaseModel):
     """Filter parameters for listing entities."""
 
     universe_id: UUID | None = None
+    # Ownership allowlist (caller's owned worlds); applied in Cypher BEFORE
+    # pagination. Empty list matches nothing — never an unscoped fallback.
+    universe_ids: list[UUID] | None = None
     entity_type: EntityType | None = None
     is_archetype: bool | None = None
     name: str | None = Field(

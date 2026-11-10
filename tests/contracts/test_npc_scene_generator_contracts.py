@@ -106,15 +106,11 @@ class TestGeneratedNPCProfile:
 
     def test_name_too_long(self):
         with pytest.raises(ValidationError):
-            GeneratedNPCProfile(
-                name="x" * 201, role="x", personality_summary="x", current_goal="x"
-            )
+            GeneratedNPCProfile(name="x" * 201, role="x", personality_summary="x", current_goal="x")
 
     def test_role_too_long(self):
         with pytest.raises(ValidationError):
-            GeneratedNPCProfile(
-                name="x", role="x" * 201, personality_summary="x", current_goal="x"
-            )
+            GeneratedNPCProfile(name="x", role="x" * 201, personality_summary="x", current_goal="x")
 
     def test_personality_too_long(self):
         with pytest.raises(ValidationError):
@@ -127,9 +123,7 @@ class TestGeneratedNPCProfile:
 
     def test_goal_too_long(self):
         with pytest.raises(ValidationError):
-            GeneratedNPCProfile(
-                name="x", role="x", personality_summary="x", current_goal="x" * 501
-            )
+            GeneratedNPCProfile(name="x", role="x", personality_summary="x", current_goal="x" * 501)
 
     def test_required_fields(self):
         with pytest.raises(ValidationError):
@@ -143,9 +137,7 @@ class TestGeneratedNPCProfile:
 
 class TestScenePrompt:
     def test_minimal(self):
-        s = ScenePrompt(
-            title="The Midnight Arrival", setup="A traveler arrives at midnight."
-        )
+        s = ScenePrompt(title="The Midnight Arrival", setup="A traveler arrives at midnight.")
         assert s.title == "The Midnight Arrival"
         assert s.npcs_involved == []
         assert s.random_table_rolls == []

@@ -44,9 +44,13 @@ LOCAL_USER_USERNAME = "local"
 
 
 def is_local_mode(principal: "Principal") -> bool:
-    """True in auth-disabled local mode (or when a raw Depends default leaked
-    into a direct unit-test call)."""
-    return getattr(principal, "via", "local") == "local"
+    """True in auth-disabled local mode.
+
+    Fail closed: a principal without a ``via`` attribute (e.g. a raw Depends
+    default leaked into a direct call) raises AttributeError instead of being
+    silently treated as local mode.
+    """
+    return principal.via == "local"
 
 
 @dataclass(frozen=True)
@@ -92,9 +96,14 @@ class RateLimiter:
         self._hits: dict[str, deque[float]] = {}
         self._lock = asyncio.Lock()
 
+    _MAX_KEYS = 10_000  # bound memory: spraying fake keys cannot grow this forever
+
     async def hit(self, key: str) -> bool:
         now = time.monotonic()
         async with self._lock:
+            if len(self._hits) >= self._MAX_KEYS and key not in self._hits:
+                # evict an arbitrary (oldest-inserted) key to stay bounded
+                self._hits.pop(next(iter(self._hits)))
             dq = self._hits.setdefault(key, deque())
             while dq and now - dq[0] >= self._window:
                 dq.popleft()
@@ -120,6 +129,21 @@ def get_login_limiter(settings: UISettings) -> RateLimiter:
     ):
         _login_limiter = RateLimiter(settings.auth_login_rate_limit, settings.auth_rate_window_seconds)
     return _login_limiter
+
+
+_signup_limiter: RateLimiter | None = None
+
+
+def get_signup_limiter(settings: UISettings) -> RateLimiter:
+    """Process-wide signup limiter (per client IP), configured from settings."""
+    global _signup_limiter
+    if (
+        _signup_limiter is None
+        or _signup_limiter._limit != settings.auth_signup_rate_limit
+        or _signup_limiter._window != settings.auth_rate_window_seconds
+    ):
+        _signup_limiter = RateLimiter(settings.auth_signup_rate_limit, settings.auth_rate_window_seconds)
+    return _signup_limiter
 
 
 def client_ip(request: Request, settings: UISettings) -> str:
@@ -289,6 +313,7 @@ __all__ = [
     "client_ip",
     "get_current_user",
     "get_login_limiter",
+    "get_signup_limiter",
     "get_optional_principal",
     "get_postgres",
     "public_user",

@@ -42,10 +42,34 @@ def _book(paragraphs: int = 20, sentences: int = 3) -> list[Window]:
     ]
     for p in range(paragraphs):
         text = " ".join(f"Sentence {p}x{s} here." for s in range(sentences))
-        nodes.append(BookNode(id=f"p{p}", doc_id="d", kind=BookNodeKind.PARAGRAPH, parent_id="root", seq=len(nodes), text=text, page_start=p, page_end=p))
+        nodes.append(
+            BookNode(
+                id=f"p{p}",
+                doc_id="d",
+                kind=BookNodeKind.PARAGRAPH,
+                parent_id="root",
+                seq=len(nodes),
+                text=text,
+                page_start=p,
+                page_end=p,
+            )
+        )
         for s in range(sentences):
-            nodes.append(BookNode(id=f"p{p}s{s}", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id=f"p{p}", seq=len(nodes), text=f"Sentence {p}x{s} here.", page_start=p, page_end=p))
-    tree = BookTree(doc_id="d", title="T", decomposer_version="2", content_hash="x", nodes=nodes, report=DecompositionReport())
+            nodes.append(
+                BookNode(
+                    id=f"p{p}s{s}",
+                    doc_id="d",
+                    kind=BookNodeKind.SENTENCE,
+                    parent_id=f"p{p}",
+                    seq=len(nodes),
+                    text=f"Sentence {p}x{s} here.",
+                    page_start=p,
+                    page_end=p,
+                )
+            )
+    tree = BookTree(
+        doc_id="d", title="T", decomposer_version="2", content_hash="x", nodes=nodes, report=DecompositionReport()
+    )
     return build_windows(tree, max_words=30)
 
 
@@ -54,7 +78,9 @@ def _unit_ids(windows: list[Window]) -> set[str]:
 
 
 def _answer(window: Window) -> ExtractorResult:
-    atoms = [ExtractedAtom(kind=AtomKind.RULE, statement=f"Claim about {u.node_id}.", cites=[u.label]) for u in window.units]
+    atoms = [
+        ExtractedAtom(kind=AtomKind.RULE, statement=f"Claim about {u.node_id}.", cites=[u.label]) for u in window.units
+    ]
     return ExtractorResult(WindowExtraction(atoms=atoms), 10, 10)
 
 
@@ -193,7 +219,9 @@ async def test_waiting_for_quota_recovers_by_itself_in_one_run(log):
         calls["n"] += 1
         return PLAN_LIMIT if calls["n"] in (2, 3) else None
 
-    result = await run_until_settled(windows, _Recorder(fail), log, _guard(), sleep=sleep, concurrency=1, wait_for_quota_seconds=7200)
+    result = await run_until_settled(
+        windows, _Recorder(fail), log, _guard(), sleep=sleep, concurrency=1, wait_for_quota_seconds=7200
+    )
     assert result.status == IngestStatus.COMPLETE
     assert slept[:2] == [300.0, 600.0]
 
@@ -201,7 +229,15 @@ async def test_waiting_for_quota_recovers_by_itself_in_one_run(log):
 @pytest.mark.unit
 async def test_quota_wait_gives_up_after_the_allowed_time(log):
     windows = _book()
-    result = await run_until_settled(windows, _Recorder(lambda _: PLAN_LIMIT), log, _guard(), sleep=_no_sleep, concurrency=1, wait_for_quota_seconds=600)
+    result = await run_until_settled(
+        windows,
+        _Recorder(lambda _: PLAN_LIMIT),
+        log,
+        _guard(),
+        sleep=_no_sleep,
+        concurrency=1,
+        wait_for_quota_seconds=600,
+    )
     assert result.status == IngestStatus.PAUSED
 
 
@@ -210,7 +246,9 @@ async def test_budget_stop_never_auto_resumes_even_when_waiting_for_quota_is_on(
     windows = _book()
     recorder = _Recorder()
     guard = _guard(max_output_tokens=10)
-    result = await run_until_settled(windows, recorder, log, guard, sleep=_no_sleep, concurrency=1, wait_for_quota_seconds=7200)
+    result = await run_until_settled(
+        windows, recorder, log, guard, sleep=_no_sleep, concurrency=1, wait_for_quota_seconds=7200
+    )
     assert result.status == IngestStatus.PAUSED
     assert guard.stop_kind == StopKind.BUDGET
     assert "budget" in result.pause_reason

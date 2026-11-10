@@ -71,9 +71,7 @@ class FakeLLMClient:
         self._call_count += 1
         if self._create_side_effect is not None:
             if callable(self._create_side_effect):
-                return self._create_side_effect(
-                    response_model, messages, **override_params
-                )
+                return self._create_side_effect(response_model, messages, **override_params)
             raise self._create_side_effect
         if self._create_responses:
             return self._create_responses.pop(0)
@@ -237,10 +235,7 @@ def make_mock_registry(
     """Return a FakeLLMRegistry with a default client pre-configured."""
     registry = FakeLLMRegistry()
     client = (
-        FakeLLMClientBuilder()
-        .with_model(default_model)
-        .with_provider(default_provider)
-        .build()
+        FakeLLMClientBuilder().with_model(default_model).with_provider(default_provider).build()
     )
     registry.set_default_client(client)
     return registry

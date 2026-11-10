@@ -130,7 +130,9 @@ async def _async_fallback_to_builtin_profiles(
                                 base += " Additional tone direction: " + ", ".join(unknown) + "."
                         return base
                 except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _async_fallback_to_builtin_profiles)
-                    log.debug("tone tag resolution failed; using safe fallback", exc_info=True)  # Fall through to safe fallback
+                    log.debug(
+                        "tone tag resolution failed; using safe fallback", exc_info=True
+                    )  # Fall through to safe fallback
 
     # Absolute last resort — use the emergency strings (should never reach here
     # in normal operation after first startup seeding)

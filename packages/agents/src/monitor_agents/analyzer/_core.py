@@ -653,6 +653,7 @@ class Analyzer(BaseAgent):
             include_content=include_content,
             include_game_system=include_game_system,
             include_rules=include_rules,
+            universe_id=universe_id,
         )
 
         # Phase 2: Classify & filter sections, synthesize profile + mindscape
@@ -692,6 +693,7 @@ class Analyzer(BaseAgent):
             include_axioms,
             include_entities,
             include_lore,
+            universe_id=universe_id,
         )
 
         (
@@ -776,6 +778,7 @@ class Analyzer(BaseAgent):
         include_content: bool,
         include_game_system: bool,
         include_rules: bool,
+        universe_id: UUID | None = None,
     ) -> _SectionBundle:
         """Phase 1: Retrieve source sections by semantic category (LLM-free)."""
         content_sections: list[_SectionDigest] = []
@@ -805,6 +808,7 @@ class Analyzer(BaseAgent):
                     categories,
                     "snippets",
                     fallback_queries=fallback,
+                    universe_id=universe_id,
                 )
                 for section in batch:
                     if section.section_path not in seen_paths:
@@ -864,6 +868,7 @@ class Analyzer(BaseAgent):
                 _CATEGORIES_GAME_DETECTION,
                 "snippets",
                 fallback_queries=_FALLBACK_QUERIES_GAME,
+                universe_id=universe_id,
             )
             game_chunks = [s.text for s in _game_sections]
         if include_rules:
@@ -872,6 +877,7 @@ class Analyzer(BaseAgent):
                 _CATEGORIES_RULES,
                 "snippets",
                 fallback_queries=_FALLBACK_QUERIES_GAME,
+                universe_id=universe_id,
             )
         if include_game_system:
             charsheet_sections = await self._retrieve_sections_by_category(
@@ -879,20 +885,25 @@ class Analyzer(BaseAgent):
                 _CATEGORIES_CHARACTER_SHEET,
                 "snippets",
                 fallback_queries=_FALLBACK_QUERIES_GAME,
+                universe_id=universe_id,
             )
-            reference_sections = await self._retrieve_reference_sections(source_name, "snippets")
+            reference_sections = await self._retrieve_reference_sections(
+                source_name, "snippets", universe_id=universe_id
+            )
         if include_game_system or include_rules:
             npc_sections = await self._retrieve_sections_by_category(
                 source_name,
                 _CATEGORIES_NPC,
                 "snippets",
                 fallback_queries=_FALLBACK_QUERIES_NPC,
+                universe_id=universe_id,
             )
             table_sections = await self._retrieve_sections_by_category(
                 source_name,
                 _CATEGORIES_TABLES,
                 "snippets",
                 fallback_queries=_FALLBACK_QUERIES_TABLES,
+                universe_id=universe_id,
             )
 
         self._update_job(
@@ -1069,6 +1080,7 @@ class Analyzer(BaseAgent):
         include_axioms: bool,
         include_entities: bool,
         include_lore: bool,
+        universe_id: UUID | None = None,
     ) -> tuple[
         list[ExtractedAxiom],
         list[ExtractedEntityArchetype],
@@ -1107,7 +1119,7 @@ class Analyzer(BaseAgent):
         # Entity evidence enrichment
         if include_entities and entities:
             entity_names = [e.name for e in entities if e.name]
-            evidence = await self._retrieve_entity_evidence(source_name, entity_names)
+            evidence = await self._retrieve_entity_evidence(source_name, entity_names, universe_id=universe_id)
             entities = self._enrich_entities_from_evidence(entities, evidence)
             self._update_job(
                 job_id,
@@ -1721,6 +1733,7 @@ class Analyzer(BaseAgent):
         categories: list[str],
         collection: str = "snippets",
         fallback_queries: list[str] | None = None,
+        universe_id: UUID | None = None,
     ) -> list[_SectionDigest]:
         """
         Retrieve Qdrant chunks grouped by section_path into coherent section digests.
@@ -1742,11 +1755,15 @@ class Analyzer(BaseAgent):
 
         # --- Primary: category filter scroll ---
         try:
+            cat_must = [
+                FieldCondition(key="source_name", match=MatchValue(value=source_name)),
+                FieldCondition(key="semantic_category", match=MatchAny(any=categories)),
+            ]
+            if universe_id is not None:
+                # Tenant isolation: never retrieve another universe's chunks.
+                cat_must.append(FieldCondition(key="universe_id", match=MatchValue(value=str(universe_id))))
             cat_filter = Filter(
-                must=[
-                    FieldCondition(key="source_name", match=MatchValue(value=source_name)),
-                    FieldCondition(key="semantic_category", match=MatchAny(any=categories)),
-                ],
+                must=cat_must,
                 must_not=[
                     FieldCondition(
                         key="artifact_type",
@@ -1792,8 +1809,11 @@ class Analyzer(BaseAgent):
                     from monitor_data.retrieval import default_retrieval_service
 
                     vector = await default_retrieval_service().embed_query(query)
+                    fb_must = [FieldCondition(key="source_name", match=MatchValue(value=source_name))]
+                    if universe_id is not None:
+                        fb_must.append(FieldCondition(key="universe_id", match=MatchValue(value=str(universe_id))))
                     src_filter = Filter(
-                        must=[FieldCondition(key="source_name", match=MatchValue(value=source_name))],
+                        must=fb_must,
                         must_not=[
                             FieldCondition(
                                 key="artifact_type",
@@ -1849,6 +1869,7 @@ class Analyzer(BaseAgent):
         self,
         source_name: str,
         collection: str = "snippets",
+        universe_id: UUID | None = None,
     ) -> list[_SectionDigest]:
         """Retrieve table-of-contents, glossary, index, and chapter-map sections.
 
@@ -1865,8 +1886,11 @@ class Analyzer(BaseAgent):
         sections: dict[str, dict[str, Any]] = {}
 
         try:
+            ref_must = [FieldCondition(key="source_name", match=MatchValue(value=source_name))]
+            if universe_id is not None:
+                ref_must.append(FieldCondition(key="universe_id", match=MatchValue(value=str(universe_id))))
             src_filter = Filter(
-                must=[FieldCondition(key="source_name", match=MatchValue(value=source_name))],
+                must=ref_must,
                 must_not=[
                     FieldCondition(
                         key="artifact_type",
@@ -2946,6 +2970,7 @@ class Analyzer(BaseAgent):
         entity_names: list[str],
         collection: str = "snippets",
         snippets_per_entity: int = 4,
+        universe_id: UUID | None = None,
     ) -> dict[str, list[str]]:
         """
         For each extracted entity name, retrieve chunks from Qdrant that literally
@@ -2965,18 +2990,22 @@ class Analyzer(BaseAgent):
         async def _lookup(name: str) -> tuple[str, list[str]]:
             async with sem:
                 try:
-                    text_filter = Filter(
-                        must=[
-                            FieldCondition(
-                                key="source_name",
-                                match=MatchValue(value=source_name),
-                            ),
-                            FieldCondition(
-                                key="text",
-                                match=MatchText(text=name.strip()),
-                            ),
-                        ]
-                    )
+                    evidence_must = [
+                        FieldCondition(
+                            key="source_name",
+                            match=MatchValue(value=source_name),
+                        ),
+                        FieldCondition(
+                            key="text",
+                            match=MatchText(text=name.strip()),
+                        ),
+                    ]
+                    if universe_id is not None:
+                        # Tenant isolation: never pull another universe's chunks.
+                        evidence_must.append(
+                            FieldCondition(key="universe_id", match=MatchValue(value=str(universe_id)))
+                        )
+                    text_filter = Filter(must=evidence_must)
                     batch, _ = await qdrant.scroll(
                         collection_name=collection,
                         scroll_filter=text_filter,

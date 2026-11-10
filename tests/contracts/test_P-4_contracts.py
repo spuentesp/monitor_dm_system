@@ -138,9 +138,7 @@ class TestResolverResolveTurnContract:
         resolver = Resolver(agent_id="resolver-test-1")
         with patch.object(resolver, "call_tool", new_callable=AsyncMock) as mock_tool:
             mock_tool.return_value = {"result": "success"}
-            with patch.object(
-                resolver, "call_llm_structured", new_callable=AsyncMock
-            ) as mock_llm:
+            with patch.object(resolver, "call_llm_structured", new_callable=AsyncMock) as mock_llm:
                 mock_llm.return_value = MagicMock(
                     action_type="action", outcome="success", narrative="You hit!"
                 )
@@ -185,9 +183,7 @@ class TestNarratorDescribeContract:
             patch.object(
                 narrator, "_generate_narrative_and_proposals", new_callable=AsyncMock
             ) as mock_gen,
-            patch.object(
-                narrator, "_persist_turn", new_callable=AsyncMock
-            ) as mock_persist,
+            patch.object(narrator, "_persist_turn", new_callable=AsyncMock) as mock_persist,
         ):
             mock_gen.return_value = ("The goblin falls!", [], 5, [], None)
             mock_persist.return_value = "turn-123"
@@ -229,9 +225,7 @@ class TestNeo4jGetEntityContract:
         }
 
         # Call tool (simulated)
-        result = await fake_mcp_client.call_tool(
-            "neo4j_get_entity", {"entity_id": "goblin-001"}
-        )
+        result = await fake_mcp_client.call_tool("neo4j_get_entity", {"entity_id": "goblin-001"})
 
         # Verify contract: returns Entity object
         assert isinstance(result, dict)
@@ -261,9 +255,7 @@ class TestNeo4jGetEntityContract:
 
         # Verify contract: raises error
         with pytest.raises(Exception) as exc_info:
-            await fake_mcp_client.call_tool(
-                "neo4j_get_entity", {"entity_id": "entity-999"}
-            )
+            await fake_mcp_client.call_tool("neo4j_get_entity", {"entity_id": "entity-999"})
 
         assert "EntityNotFoundError" in str(exc_info.value)
 
@@ -417,9 +409,7 @@ class TestMongodbCreateResolutionContract:
         assert "resolution_type" in params
 
     @pytest.mark.unit
-    async def test_accepts_dice_parameters_when_resolution_type_is_dice(
-        self, fake_mcp_client
-    ):
+    async def test_accepts_dice_parameters_when_resolution_type_is_dice(self, fake_mcp_client):
         """Contract: Accepts formula, rolls, total, dc when resolution_type is DICE."""
         fake_mcp_client.call_tool.return_value = "resolution-789"
 

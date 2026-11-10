@@ -355,9 +355,7 @@ class TestHandoutContract:
             "notice",
             "rumor",
         ]:
-            handout = Handout(
-                title=f"Test {h_type}", content="Content", handout_type=h_type
-            )
+            handout = Handout(title=f"Test {h_type}", content="Content", handout_type=h_type)
             assert handout.handout_type == h_type
 
     def test_handout_tones(self):

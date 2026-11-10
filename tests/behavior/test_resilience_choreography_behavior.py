@@ -336,9 +336,7 @@ class TestLLMFallbackChain:
         async def secondary(prompt):
             return f"secondary:{prompt}"
 
-        chain = LLMFallbackChain(
-            [("anthropic", "claude", primary), ("openai", "gpt", secondary)]
-        )
+        chain = LLMFallbackChain([("anthropic", "claude", primary), ("openai", "gpt", secondary)])
         result = asyncio.run(chain.invoke("hello"))
         assert result == "primary:hello"
 
@@ -351,9 +349,7 @@ class TestLLMFallbackChain:
         async def secondary(prompt):
             return f"openai:{prompt}"
 
-        chain = LLMFallbackChain(
-            [("anthropic", "claude", primary), ("openai", "gpt", secondary)]
-        )
+        chain = LLMFallbackChain([("anthropic", "claude", primary), ("openai", "gpt", secondary)])
         result = asyncio.run(chain.invoke("hi"))
         assert result == "openai:hi"
 

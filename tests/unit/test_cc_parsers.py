@@ -48,7 +48,5 @@ def test_field_keys_by_step_isolates_dot_assignments_line() -> None:
 
 def test_extract_field_returns_none_when_key_absent() -> None:
     extract_field, field_keys = _import_field_helpers()
-    out = extract_field(
-        "Name: Kael Thorne\nClass: Bruiser", *field_keys["choose_skills"]
-    )
+    out = extract_field("Name: Kael Thorne\nClass: Bruiser", *field_keys["choose_skills"])
     assert out is None

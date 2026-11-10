@@ -179,9 +179,7 @@ def _fallback_roll_necessity(intent_type: str) -> str:
 
 # The GM can choose these action types. Combat stays with the game-system router
 # because a "combat" value makes SceneLoop start a CombatLoop.
-_GM_ACTION_TYPES = frozenset(
-    {ActionType.DIALOGUE, ActionType.STEALTH, ActionType.EXPLORATION, ActionType.MOVEMENT}
-)
+_GM_ACTION_TYPES = frozenset({ActionType.DIALOGUE, ActionType.STEALTH, ActionType.EXPLORATION, ActionType.MOVEMENT})
 _MAX_GM_DC = 60
 
 

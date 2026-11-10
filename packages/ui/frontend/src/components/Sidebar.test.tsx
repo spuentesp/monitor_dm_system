@@ -1,11 +1,22 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // Mock next/navigation so we can drive usePathname per test.
 let mockPathname = "/";
 vi.mock("next/navigation", () => ({
   usePathname: () => mockPathname,
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
+// Auth query: default to a non-admin local-mode user; tests can override.
+let mockMe: unknown = { auth_disabled: true, user: { id: "u", email: "e", username: "local", display_name: "", is_admin: false, created_at: "", updated_at: "" } };
+vi.mock("@/lib/api", () => ({
+  authApi: {
+    me: () => Promise.resolve(mockMe),
+    logout: () => Promise.resolve({ ok: true }),
+  },
 }));
 
 vi.mock("@/components/ConnectionStatus", () => ({
@@ -16,7 +27,12 @@ import { Sidebar } from "./Sidebar";
 
 function renderSidebar(pathname = "/") {
   mockPathname = pathname;
-  return render(<Sidebar />);
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <Sidebar />
+    </QueryClientProvider>,
+  );
 }
 
 describe("Sidebar two-tier nav", () => {
@@ -67,5 +83,18 @@ describe("Sidebar two-tier nav", () => {
   it("highlights World Forge on nested forge routes", () => {
     renderSidebar("/forge/packs");
     expect(screen.getByRole("link", { name: /World Forge/ })).toHaveAttribute("aria-current", "page");
+  });
+});
+
+describe("Sidebar admin entry", () => {
+  it("shows the Admin nav item only for admins", async () => {
+    mockMe = { auth_disabled: false, user: { id: "u", email: "e", username: "boss", display_name: "", is_admin: true, created_at: "", updated_at: "" } };
+    const adminView = renderSidebar();
+    expect(await screen.findByRole("link", { name: /Admin/ })).toHaveAttribute("href", "/admin");
+    adminView.unmount();
+    mockMe = { auth_disabled: false, user: { id: "u", email: "e", username: "bob", display_name: "", is_admin: false, created_at: "", updated_at: "" } };
+    renderSidebar();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("link", { name: /^Admin/ })).not.toBeInTheDocument();
   });
 });

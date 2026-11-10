@@ -63,9 +63,7 @@ class TestNeo4jGetUniverseContract:
 
         # Verify contract: raises error
         with pytest.raises(Exception) as exc_info:
-            await fake_mcp_client.call_tool(
-                "neo4j_get_universe", {"universe_id": "universe-999"}
-            )
+            await fake_mcp_client.call_tool("neo4j_get_universe", {"universe_id": "universe-999"})
 
         assert "UniverseNotFoundError" in str(exc_info.value)
 
@@ -80,9 +78,7 @@ class TestNeo4jGetUniverseContract:
         }
 
         # Call with contract-specified parameter
-        await fake_mcp_client.call_tool(
-            "neo4j_get_universe", {"universe_id": "universe-123"}
-        )
+        await fake_mcp_client.call_tool("neo4j_get_universe", {"universe_id": "universe-123"})
 
         # Verify parameter was passed correctly
         fake_mcp_client.call_tool.assert_called_once()
@@ -168,10 +164,7 @@ class TestNeo4jCreateStoryContract:
         assert "premise" in params
         assert "status" in params
         assert params["theme"] == "Fantasy adventure"
-        assert (
-            params["premise"]
-            == "A group of adventurers must rescue a dwarf from goblins."
-        )
+        assert params["premise"] == "A group of adventurers must rescue a dwarf from goblins."
         assert params["status"] == "active"
 
     @pytest.mark.unit
@@ -479,9 +472,7 @@ class TestStoryLoopAdvanceContract:
         from uuid import uuid4
 
         story_loop = StoryLoop(story_id=uuid4(), universe_id=uuid4())
-        with patch(
-            "monitor_agents.loops.story_loop.finalize_story", new_callable=AsyncMock
-        ):
+        with patch("monitor_agents.loops.story_loop.finalize_story", new_callable=AsyncMock):
             result = await story_loop.advance(story_complete=True)
             assert result["story_complete"] is True
 

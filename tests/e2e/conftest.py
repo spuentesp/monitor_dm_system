@@ -928,11 +928,7 @@ def mock_canonkeeper_llm():
         ) as verdict_mock,
     ):
         # Each call to call_llm_structured returns a fresh verdict accepting the call
-        verdict_mock.side_effect = lambda schema, messages, **kw: (
-            make_canonkeeper_verdict(
-                uuid4()
-            )
-        )
+        verdict_mock.side_effect = lambda schema, messages, **kw: make_canonkeeper_verdict(uuid4())
         yield verdict_mock
 
 
@@ -1047,7 +1043,7 @@ def assert_cross_store_invariants(universe_id: UUID | str | None = None) -> None
         f"""
         MATCH (n)
         WHERE (n:Entity OR n:Fact OR n:Axiom)
-        {universe_filter.replace('WHERE', 'AND') if universe_filter else ''}
+        {universe_filter.replace("WHERE", "AND") if universe_filter else ""}
         AND n.universe_id IS NOT NULL
         OPTIONAL MATCH (u:Universe {{id: n.universe_id}})
         WITH n, u WHERE u IS NULL
@@ -1094,4 +1090,3 @@ def assert_cross_store_invariants(universe_id: UUID | str | None = None) -> None
 def cross_store_oracle():
     """Return the cross-store invariant assertion callable for E2E tests."""
     return assert_cross_store_invariants
-

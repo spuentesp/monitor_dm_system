@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { authApi } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity,
@@ -11,8 +13,10 @@ import {
   ClipboardList,
   FlaskConical,
   Home,
+  LogOut,
   MessagesSquare,
   Settings,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
@@ -22,7 +26,7 @@ import { ConnectionStatus } from "@/components/ConnectionStatus";
 // Configuration. World selection lives on universe cards; the old footer
 // WorldPicker/ModeSwitcher dropdowns are gone.
 
-const NAV_GROUPS = [
+const NAV_GROUPS_BASE = [
   {
     id: "lobby",
     label: "Lobby",
@@ -47,6 +51,19 @@ const NAV_GROUPS = [
     ],
   },
 ] as const;
+
+function navGroups(isAdmin: boolean) {
+  if (!isAdmin) return NAV_GROUPS_BASE;
+  const groups = NAV_GROUPS_BASE.map((g) => ({ ...g, items: [...g.items] as typeof g.items }));
+  (groups[groups.length - 1].items as unknown as Array<Record<string, unknown>>).push({
+    href: "/admin",
+    icon: ShieldCheck,
+    label: "Admin",
+    sub: "Users, bans & roles",
+    accent: "emerald",
+  });
+  return groups;
+}
 
 type Accent = "cyan" | "purple" | "emerald";
 
@@ -78,6 +95,15 @@ function isActive(pathname: string, href: string): boolean {
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const { data: me } = useQuery({ queryKey: ["auth-me"], queryFn: authApi.me, retry: false, staleTime: 60_000 });
+  const isAdmin = !!me?.user.is_admin;
+  const logout = async () => {
+    try { await authApi.logout(); } catch { /* already logged out */ }
+    queryClient.clear();
+    router.push("/login");
+  };
 
   return (
     <motion.nav
@@ -113,7 +139,7 @@ export function Sidebar() {
 
       {/* Navigation groups */}
       <div className="flex-1 py-2 px-2 overflow-y-auto overflow-x-hidden space-y-1">
-        {NAV_GROUPS.map((group, gi) => (
+        {navGroups(isAdmin).map((group, gi) => (
           <div key={group.id} className={cn(gi > 0 && "pt-1")}>
             {/* Section divider + label */}
             <div className={cn(
@@ -218,6 +244,15 @@ export function Sidebar() {
           )}
         </AnimatePresence>
         <ConnectionStatus />
+        {!collapsed && me && !me.auth_disabled && (
+          <button
+            onClick={logout}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-500 hover:text-red-300 hover:bg-red-500/10 transition-all duration-150 text-xs"
+            title="Log out"
+          >
+            <LogOut className="w-3.5 h-3.5" /> Log out ({me.user.username})
+          </button>
+        )}
         <button
           onClick={() => setCollapsed((c) => !c)}
           className="w-full flex items-center justify-center p-2 rounded-lg text-slate-600 hover:text-cyan-400 hover:bg-cyan-500/5 transition-all duration-150"

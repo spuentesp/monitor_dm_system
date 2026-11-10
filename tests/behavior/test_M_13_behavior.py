@@ -76,9 +76,7 @@ class TestM13ArchetypeSelection:
         universe_id = uuid4()
         invalid_archetype_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.neo4j_tools.entities.get_neo4j_client"
-        ) as mock_neo:
+        with patch("monitor_data.tools.neo4j_tools.entities.get_neo4j_client") as mock_neo:
             mock_client = MagicMock()
             mock_neo.return_value = mock_client
 
@@ -122,9 +120,7 @@ class TestM13EntityCreation:
         """Test creating a character entity."""
         universe_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.neo4j_tools.entities.get_neo4j_client"
-        ) as mock_neo:
+        with patch("monitor_data.tools.neo4j_tools.entities.get_neo4j_client") as mock_neo:
             mock_client = MagicMock()
             mock_neo.return_value = mock_client
 
@@ -167,9 +163,7 @@ class TestM13EntityCreation:
         """Test creating an archetype entity."""
         universe_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.neo4j_tools.entities.get_neo4j_client"
-        ) as mock_neo:
+        with patch("monitor_data.tools.neo4j_tools.entities.get_neo4j_client") as mock_neo:
             mock_client = MagicMock()
             mock_neo.return_value = mock_client
 
@@ -245,9 +239,7 @@ class TestM13AcceptanceCriteria:
         """AC-4: Entity is linked to universe."""
         universe_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.neo4j_tools.entities.get_neo4j_client"
-        ) as mock_neo:
+        with patch("monitor_data.tools.neo4j_tools.entities.get_neo4j_client") as mock_neo:
             mock_client = MagicMock()
             mock_neo.return_value = mock_client
 
@@ -290,9 +282,7 @@ class TestM13AcceptanceCriteria:
         universe_id = uuid4()
         entity_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.neo4j_tools.entities.get_neo4j_client"
-        ) as mock_neo:
+        with patch("monitor_data.tools.neo4j_tools.entities.get_neo4j_client") as mock_neo:
             mock_client = MagicMock()
             mock_neo.return_value = mock_client
 

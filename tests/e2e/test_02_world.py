@@ -73,9 +73,7 @@ class TestUniverseHierarchy:
         universe_ids = [u.id for u in universes]
         assert seeded_world["universe_id"] in universe_ids
 
-    def test_create_delete_alternate_universe(
-        self, seeded_world: dict[str, Any]
-    ) -> None:
+    def test_create_delete_alternate_universe(self, seeded_world: dict[str, Any]) -> None:
         """M-2: An alternate-history universe can be created and deleted."""
         from monitor_data.schemas.universe import UniverseCreate
         from monitor_data.tools.neo4j_tools import (
@@ -172,9 +170,7 @@ class TestEntities:
 
     # Q-1: Query entities by type ------------------------------------
 
-    def test_list_entities_by_type_character(
-        self, seeded_world: dict[str, Any]
-    ) -> None:
+    def test_list_entities_by_type_character(self, seeded_world: dict[str, Any]) -> None:
         """Q-1: List character entities returns Fighter, Mage, Rogue, NPCs, PC."""
         from monitor_data.schemas.base import EntityType
         from monitor_data.schemas.entities import EntityFilter
@@ -244,9 +240,7 @@ class TestEntities:
 
         neo4j_update_entity(
             seeded_world["npc_priestess_id"],
-            EntityUpdate(
-                description="High Priestess Mara, keeper of ancient rites and secrets."
-            ),
+            EntityUpdate(description="High Priestess Mara, keeper of ancient rites and secrets."),
         )
         updated = neo4j_get_entity(seeded_world["npc_priestess_id"])
         assert "secrets" in updated.description
@@ -266,9 +260,7 @@ class TestEntities:
         pc = neo4j_get_entity(seeded_world["pc_hero_id"])
         assert "in_dusk_market" in pc.state_tags
 
-    def test_create_and_delete_temporary_entity(
-        self, seeded_world: dict[str, Any]
-    ) -> None:
+    def test_create_and_delete_temporary_entity(self, seeded_world: dict[str, Any]) -> None:
         """M-4: Entities can be created and deleted."""
         from monitor_data.schemas.base import CanonLevel, EntityType
         from monitor_data.schemas.entities import EntityCreate
@@ -465,9 +457,7 @@ class TestFactsAxiomsEvents:
 class TestEntityRelationships:
     """DL-2 / M-8 / Q-5 — Typed relationships between entities."""
 
-    def test_create_allied_with_relationship(
-        self, seeded_world: dict[str, Any]
-    ) -> None:
+    def test_create_allied_with_relationship(self, seeded_world: dict[str, Any]) -> None:
         """M-8: ALLIED_WITH relationship can be established."""
         from monitor_data.schemas.relationships import (
             RelationshipCategory,
@@ -511,9 +501,7 @@ class TestEntityRelationships:
             )
         )
 
-        result = neo4j_list_relationships(
-            RelationshipFilter(entity_id=seeded_world["pc_hero_id"])
-        )
+        result = neo4j_list_relationships(RelationshipFilter(entity_id=seeded_world["pc_hero_id"]))
         # Returns RelationshipListResponse with .total and .relationships
         assert result.total >= 1
         types = [r.rel_type for r in result.relationships]

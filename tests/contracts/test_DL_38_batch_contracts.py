@@ -90,12 +90,8 @@ class TestEntityBatchCreateRequestContract:
         request = EntityBatchCreateRequest(
             universe_id=uid,
             entities=[
-                EntityCreate(
-                    universe_id=uid, name="Entity 1", entity_type=EntityType.CHARACTER
-                ),
-                EntityCreate(
-                    universe_id=uid, name="Entity 2", entity_type=EntityType.LOCATION
-                ),
+                EntityCreate(universe_id=uid, name="Entity 1", entity_type=EntityType.CHARACTER),
+                EntityCreate(universe_id=uid, name="Entity 2", entity_type=EntityType.LOCATION),
             ],
         )
         assert request.universe_id == uid
@@ -108,9 +104,7 @@ class TestEntityBatchCreateRequestContract:
         request = EntityBatchCreateRequest(
             universe_id=uid,
             entities=[
-                EntityCreate(
-                    universe_id=uid, name="Single Entity", entity_type=EntityType.OBJECT
-                ),
+                EntityCreate(universe_id=uid, name="Single Entity", entity_type=EntityType.OBJECT),
             ],
         )
         assert len(request.entities) == 1
@@ -121,12 +115,8 @@ class TestEntityBatchCreateRequestContract:
         request = EntityBatchCreateRequest(
             universe_id=uid,
             entities=[
-                EntityCreate(
-                    universe_id=uid, name="Entity 1", entity_type=EntityType.CHARACTER
-                ),
-                EntityCreate(
-                    universe_id=uid, name="Entity 2", entity_type=EntityType.CHARACTER
-                ),
+                EntityCreate(universe_id=uid, name="Entity 1", entity_type=EntityType.CHARACTER),
+                EntityCreate(universe_id=uid, name="Entity 2", entity_type=EntityType.CHARACTER),
             ],
             continue_on_error=True,
         )
@@ -142,9 +132,7 @@ class TestEntityBatchCreateRequestContract:
         """EntityBatchCreateRequest with more than 100 entities raises ValidationError."""
         uid = uuid4()
         entities = [
-            EntityCreate(
-                universe_id=uid, name=f"Entity {i}", entity_type=EntityType.CHARACTER
-            )
+            EntityCreate(universe_id=uid, name=f"Entity {i}", entity_type=EntityType.CHARACTER)
             for i in range(101)
         ]
         with pytest.raises(ValidationError):
@@ -414,9 +402,7 @@ class TestEntityBatchDeleteResponseContract:
 
     def test_batch_delete_response_with_errors(self):
         """EntityBatchDeleteResponse with error entries."""
-        err = BatchError(
-            index=0, entity_id=uuid4(), message="Delete failed", code="DELETE_FAILED"
-        )
+        err = BatchError(index=0, entity_id=uuid4(), message="Delete failed", code="DELETE_FAILED")
         response = EntityBatchDeleteResponse(
             deleted=[],
             total=1,

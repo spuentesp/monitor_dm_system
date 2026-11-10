@@ -4,7 +4,20 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, LogIn, UserPlus } from "lucide-react";
-import { authApi } from "@/lib/api";
+import { ApiError, authApi } from "@/lib/api";
+
+function authErrorMessage(error: unknown, mode: "login" | "signup"): string {
+  const status = error instanceof ApiError ? error.status : 0;
+  if (status === 429) return "Too many attempts. Please wait a minute and try again.";
+  if (status === 403) return "This account has been suspended.";
+  if (mode === "login") {
+    if (status === 401) return "Invalid login or password.";
+    return "Sign-in failed. Please try again.";
+  }
+  if (status === 409) return "An account with this email or username already exists.";
+  if (status === 422) return "Please check the form — some fields are invalid.";
+  return "Could not create the account. Please try again.";
+}
 
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_state: "Sign-in session expired. Please try again.",
@@ -59,9 +72,7 @@ function LoginForm() {
         )}
         {authMutation.isError && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-            {mode === "login"
-              ? "Invalid login or password."
-              : "Could not create the account (email/username taken or invalid)."}
+            {authErrorMessage(authMutation.error, mode)}
           </div>
         )}
 

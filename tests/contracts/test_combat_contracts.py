@@ -109,9 +109,7 @@ class TestCombatParticipant:
             name="Wizard",
             side=CombatSide.PC,
             conditions=[
-                Condition(
-                    name="Concentrating", source="Spell", duration_type="concentration"
-                ),
+                Condition(name="Concentrating", source="Spell", duration_type="concentration"),
             ],
         )
         assert len(p.conditions) == 1

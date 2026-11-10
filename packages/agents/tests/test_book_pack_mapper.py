@@ -18,15 +18,46 @@ from monitor_data.schemas.knowledge_packs import KnowledgePackStatus, KnowledgeP
 def _book() -> BookTree:
     nodes = [
         BookNode(id="root", doc_id="d", kind=BookNodeKind.BOOK, seq=0, page_start=0, page_end=0),
-        BookNode(id="ch", doc_id="d", kind=BookNodeKind.DIVISION, parent_id="root", seq=1, text="Chapter 6", page_start=4, page_end=4),
-        BookNode(id="p", doc_id="d", kind=BookNodeKind.PARAGRAPH, parent_id="ch", seq=2, text="Source text.", page_start=4, page_end=4),
-        BookNode(id="s", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id="p", seq=3, text="Source text.", page_start=4, page_end=4),
+        BookNode(
+            id="ch",
+            doc_id="d",
+            kind=BookNodeKind.DIVISION,
+            parent_id="root",
+            seq=1,
+            text="Chapter 6",
+            page_start=4,
+            page_end=4,
+        ),
+        BookNode(
+            id="p",
+            doc_id="d",
+            kind=BookNodeKind.PARAGRAPH,
+            parent_id="ch",
+            seq=2,
+            text="Source text.",
+            page_start=4,
+            page_end=4,
+        ),
+        BookNode(
+            id="s",
+            doc_id="d",
+            kind=BookNodeKind.SENTENCE,
+            parent_id="p",
+            seq=3,
+            text="Source text.",
+            page_start=4,
+            page_end=4,
+        ),
     ]
-    return BookTree(doc_id="doc", title="T", decomposer_version="4", content_hash="x", nodes=nodes, report=DecompositionReport())
+    return BookTree(
+        doc_id="doc", title="T", decomposer_version="4", content_hash="x", nodes=nodes, report=DecompositionReport()
+    )
 
 
 def _claim(kind: AtomKind, statement: str = "A statement.", **fields) -> ReviewedClaim:
-    return ReviewedClaim(id=str(uuid4()), kind=kind, statement=statement, source_node_ids=["s"], pages=[4], merged_from=[], **fields)
+    return ReviewedClaim(
+        id=str(uuid4()), kind=kind, statement=statement, source_node_ids=["s"], pages=[4], merged_from=[], **fields
+    )
 
 
 @pytest.mark.unit
@@ -110,7 +141,9 @@ def test_long_rule_gets_a_short_name_and_keeps_its_full_text():
 def test_pack_waits_for_review_and_holds_rules_in_the_game_system():
     mapped = map_claims([_claim(AtomKind.RULE), _claim(AtomKind.AXIOM)], _book())
     pack_id, doc, job = uuid4(), uuid4(), uuid4()
-    pack = build_pack(mapped, pack_id=pack_id, name="Dune", pack_type=KnowledgePackType.RULEBOOK, source_document_id=doc, job_id=job)
+    pack = build_pack(
+        mapped, pack_id=pack_id, name="Dune", pack_type=KnowledgePackType.RULEBOOK, source_document_id=doc, job_id=job
+    )
     assert pack.pack_id == pack_id and pack.status == KnowledgePackStatus.READY
     assert pack.game_system_data is not None and pack.game_system_data.needs_review
     assert len(pack.game_system_data.rules) == 1
@@ -120,5 +153,7 @@ def test_pack_waits_for_review_and_holds_rules_in_the_game_system():
 @pytest.mark.unit
 def test_pack_with_no_rules_has_no_game_system():
     mapped = map_claims([_claim(AtomKind.AXIOM)], _book())
-    pack = build_pack(mapped, pack_id=uuid4(), name="L", pack_type=KnowledgePackType.MISC, source_document_id=uuid4(), job_id=uuid4())
+    pack = build_pack(
+        mapped, pack_id=uuid4(), name="L", pack_type=KnowledgePackType.MISC, source_document_id=uuid4(), job_id=uuid4()
+    )
     assert pack.game_system_data is None

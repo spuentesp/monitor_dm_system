@@ -54,11 +54,7 @@ class FakeQdrantClient:
         for point in points:
             # Replace existing point with same ID
             existing = next(
-                (
-                    p
-                    for p in self._collections[collection_name]
-                    if p["id"] == point["id"]
-                ),
+                (p for p in self._collections[collection_name] if p["id"] == point["id"]),
                 None,
             )
             if existing:
@@ -120,14 +116,10 @@ class FakeQdrantClient:
                     return False
         return True
 
-    async def delete(
-        self, collection_name: str, points_selector: list[str], **kwargs: Any
-    ) -> None:
+    async def delete(self, collection_name: str, points_selector: list[str], **kwargs: Any) -> None:
         if collection_name in self._collections:
             self._collections[collection_name] = [
-                p
-                for p in self._collections[collection_name]
-                if p["id"] not in points_selector
+                p for p in self._collections[collection_name] if p["id"] not in points_selector
             ]
 
     async def scroll(
@@ -143,9 +135,7 @@ class FakeQdrantClient:
         points = self._collections[collection_name][:limit]
         return points, None
 
-    def seed_collection(
-        self, collection_name: str, points: list[dict[str, Any]]
-    ) -> None:
+    def seed_collection(self, collection_name: str, points: list[dict[str, Any]]) -> None:
         """Seed a collection with points directly."""
         self._collections[collection_name] = [dict(p) for p in points]
 

@@ -42,10 +42,7 @@ class TestCalculateModifierFromAttributes:
     def test_title_case_key(self):
         from monitor_agents.loops.combat_loop import _calculate_modifier_from_attributes
 
-        assert (
-            _calculate_modifier_from_attributes({"Intelligence": 8}, "intelligence")
-            == -1
-        )
+        assert _calculate_modifier_from_attributes({"Intelligence": 8}, "intelligence") == -1
 
     def test_missing_key_returns_default_modifier_for_zero(self):
         from monitor_agents.loops.combat_loop import _calculate_modifier_from_attributes
@@ -60,9 +57,7 @@ class TestCalculateModifierFromAttributes:
             def calc_modifier(self, stat, value):
                 return 99  # sentinel
 
-        assert (
-            _calculate_modifier_from_attributes({"DEX": 14}, "DEX", gsr=FakeGSR()) == 99
-        )
+        assert _calculate_modifier_from_attributes({"DEX": 14}, "DEX", gsr=FakeGSR()) == 99
 
     def test_gsr_failure_falls_back_to_default(self):
         from monitor_agents.loops.combat_loop import _calculate_modifier_from_attributes
@@ -72,10 +67,7 @@ class TestCalculateModifierFromAttributes:
                 raise ValueError("nope")
 
         # Falls back to (14-10)//2 = 2
-        assert (
-            _calculate_modifier_from_attributes({"DEX": 14}, "DEX", gsr=BrokenGSR())
-            == 2
-        )
+        assert _calculate_modifier_from_attributes({"DEX": 14}, "DEX", gsr=BrokenGSR()) == 2
 
 
 # =============================================================================

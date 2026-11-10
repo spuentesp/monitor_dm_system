@@ -39,9 +39,7 @@ class TestNeo4jGetEntityContract:
         }
 
         # Call tool (simulated)
-        result = await fake_mcp_client.call_tool(
-            "neo4j_get_entity", {"entity_id": "location-123"}
-        )
+        result = await fake_mcp_client.call_tool("neo4j_get_entity", {"entity_id": "location-123"})
 
         # Verify contract: returns Dict[str, Any]
         assert isinstance(result, dict)
@@ -67,9 +65,7 @@ class TestNeo4jGetEntityContract:
 
         # Verify contract: raises error
         with pytest.raises(Exception) as exc_info:
-            await fake_mcp_client.call_tool(
-                "neo4j_get_entity", {"entity_id": "location-999"}
-            )
+            await fake_mcp_client.call_tool("neo4j_get_entity", {"entity_id": "location-999"})
 
         assert "EntityNotFoundError" in str(exc_info.value)
 
@@ -85,9 +81,7 @@ class TestNeo4jGetEntityContract:
         }
 
         # Call with contract-specified parameter
-        await fake_mcp_client.call_tool(
-            "neo4j_get_entity", {"entity_id": "location-123"}
-        )
+        await fake_mcp_client.call_tool("neo4j_get_entity", {"entity_id": "location-123"})
 
         # Verify parameter was passed correctly
         fake_mcp_client.call_tool.assert_called_once()
@@ -602,9 +596,7 @@ class TestNarratorContract:
             patch.object(
                 narrator, "_generate_narrative_and_proposals", new_callable=AsyncMock
             ) as mock_gen,
-            patch.object(
-                narrator, "_persist_turn", new_callable=AsyncMock
-            ) as mock_persist,
+            patch.object(narrator, "_persist_turn", new_callable=AsyncMock) as mock_persist,
         ):
             mock_gen.return_value = (
                 "The goblins leap from the bushes.",
@@ -635,9 +627,7 @@ class TestNarratorContract:
             patch.object(
                 narrator, "_generate_narrative_and_proposals", new_callable=AsyncMock
             ) as mock_gen,
-            patch.object(
-                narrator, "_persist_turn", new_callable=AsyncMock
-            ) as mock_persist,
+            patch.object(narrator, "_persist_turn", new_callable=AsyncMock) as mock_persist,
         ):
             mock_gen.return_value = ("Narrative text.", [], 5, [], None)
             mock_persist.return_value = "turn-456"
@@ -659,9 +649,7 @@ class TestNarratorContract:
             patch.object(
                 narrator, "_generate_narrative_and_proposals", new_callable=AsyncMock
             ) as mock_gen,
-            patch.object(
-                narrator, "_persist_turn", new_callable=AsyncMock
-            ) as mock_persist,
+            patch.object(narrator, "_persist_turn", new_callable=AsyncMock) as mock_persist,
         ):
             mock_gen.return_value = ("Narrative text.", [], 5, [], None)
             mock_persist.return_value = "turn-789"
@@ -695,9 +683,7 @@ class TestSceneLoopConstructorContract:
         scene_id = uuid4()
         story_id = uuid4()
         universe_id = uuid4()
-        scene_loop = SceneLoop(
-            scene_id=scene_id, story_id=story_id, universe_id=universe_id
-        )
+        scene_loop = SceneLoop(scene_id=scene_id, story_id=story_id, universe_id=universe_id)
         assert scene_loop.universe_id == universe_id
 
     @pytest.mark.unit

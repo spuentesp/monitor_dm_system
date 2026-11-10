@@ -1,9 +1,36 @@
 "use client";
 
-import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { QueryCache, QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { NotificationProvider, useNotify } from "./NotificationProvider";
 import { WorldContextProvider } from "@/lib/world-context";
+import { ApiError, authApi } from "@/lib/api";
+
+/** Redirects to /login when the API says 401 (unless auth is disabled locally
+ *  or we are already on the login page). */
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const onLoginPage = pathname.startsWith("/login");
+  const { data, error, isLoading } = useQuery({
+    queryKey: ["auth-me"],
+    queryFn: authApi.me,
+    retry: false,
+    staleTime: 60_000,
+  });
+  useEffect(() => {
+    if (onLoginPage) return;
+    if (error instanceof ApiError && error.status === 401) {
+      router.push("/login");
+    }
+  }, [error, onLoginPage, router]);
+  if (onLoginPage) return <>{children}</>;
+  if (isLoading) return null;
+  // auth_disabled local mode still returns 200 with a user — fine.
+  if (error instanceof ApiError && error.status === 401) return null;
+  return <>{children}</>;
+}
 
 function QueryClientWithNotify({ children }: { children: React.ReactNode }) {
   const { notify } = useNotify();
@@ -52,7 +79,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   return (
     <NotificationProvider>
       <QueryClientWithNotify>
-        <WorldContextProvider>{children}</WorldContextProvider>
+        <WorldContextProvider>
+          <AuthGate>{children}</AuthGate>
+        </WorldContextProvider>
       </QueryClientWithNotify>
     </NotificationProvider>
   );

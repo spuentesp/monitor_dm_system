@@ -158,9 +158,7 @@ class Resolver:
         for pattern in declarative_patterns:
             if pattern in input_lower:
                 # Check if not preceded by attempt language
-                has_attempt = any(
-                    attempt in input_lower for attempt in attempt_patterns
-                )
+                has_attempt = any(attempt in input_lower for attempt in attempt_patterns)
                 if not has_attempt:
                     self.detected_forced_narratives.append((input, "declarative"))
                     return True
@@ -249,9 +247,7 @@ class Resolver:
             converted = "I pick the lock"
         elif "destroy" in action_lower:
             converted = "I cast a spell"
-        elif not any(
-            verb in converted.lower() for verb in ["attack", "attempt", "try"]
-        ):
+        elif not any(verb in converted.lower() for verb in ["attack", "attempt", "try"]):
             # Add attempt verb if not present
             converted = "I attempt to " + converted
             converted = converted.replace("I attempt to i ", "I ")  # Clean up duplicate
@@ -406,17 +402,13 @@ class NarratorAgent:
             description = "As you commanded, you execute the action as declared."
         elif pushback_used:
             if outcome == ResolutionOutcome.SUCCESS:
-                description = (
-                    f"After a tense roll, you succeed! {action} results in victory."
-                )
+                description = f"After a tense roll, you succeed! {action} results in victory."
             else:
                 description = f"After a tense roll, you fail! {action} goes awry."
         else:
             description = f"{action} proceeds as declared."
 
-        self.descriptions.append(
-            (action, outcome.value, pushback_used, overridden, description)
-        )
+        self.descriptions.append((action, outcome.value, pushback_used, overridden, description))
         return description
 
 
@@ -534,9 +526,7 @@ async def test_p20_scenario_1_combat_high_stakes_pushback(
     # Action 1: Parse User Input for Forced Narrative
     forced_narrative = resolver.detect_forced_narrative(user_action)
     assert forced_narrative is True, "Should detect forced narrative"
-    assert len(resolver.detected_forced_narratives) >= 1, (
-        "Should log forced narrative detection"
-    )
+    assert len(resolver.detected_forced_narratives) >= 1, "Should log forced narrative detection"
 
     # Action 2: Determine Current Stakes
     stakes = resolver.determine_stakes(user_action, context)
@@ -548,9 +538,7 @@ async def test_p20_scenario_1_combat_high_stakes_pushback(
 
     # Action 4: Generate Pushback Prompt
     pushback_prompt = scene_loop.generate_pushback_prompt(user_action, stakes)
-    assert "PUSHBACK REQUIRED" in pushback_prompt, (
-        "Prompt should mention PUSHBACK REQUIRED"
-    )
+    assert "PUSHBACK REQUIRED" in pushback_prompt, "Prompt should mention PUSHBACK REQUIRED"
     assert user_action in pushback_prompt, "Prompt should include original action"
     assert "dice roll" in pushback_prompt.lower(), "Prompt should mention dice roll"
     assert "/gm-mode" in pushback_prompt, "Prompt should mention override option"
@@ -558,9 +546,7 @@ async def test_p20_scenario_1_combat_high_stakes_pushback(
     # Action 5: Awaiting User Response
     user_response = "I attack the boss"
     pushback_response = scene_loop.await_pushback_response(user_response)
-    assert pushback_response == PushbackResponse.ACCEPT, (
-        f"Expected ACCEPT, got {pushback_response}"
-    )
+    assert pushback_response == PushbackResponse.ACCEPT, f"Expected ACCEPT, got {pushback_response}"
 
     # Action 6: Convert to Dice Roll
     converted_action = resolver.convert_to_dice_roll(user_action)
@@ -606,35 +592,25 @@ async def test_p20_scenario_1_combat_high_stakes_pushback(
     assert len(turns) == 2, f"Expected 2 turns, got {len(turns)}"
 
     user_turn = turns[0]
-    assert user_turn.turn_type == TurnType.ACTION, (
-        f"Expected ACTION, got {user_turn.turn_type}"
-    )
+    assert user_turn.turn_type == TurnType.ACTION, f"Expected ACTION, got {user_turn.turn_type}"
     assert user_turn.metadata.get("forced_narrative_detected") is True, (
         "Should have forced_narrative_detected metadata"
     )
     assert user_turn.metadata.get("pushback_triggered") is True, (
         "Should have pushback_triggered metadata"
     )
-    assert user_turn.metadata.get("overridden") is False, (
-        "Should have overridden=False metadata"
-    )
+    assert user_turn.metadata.get("overridden") is False, "Should have overridden=False metadata"
     assert user_turn.metadata.get("stakes_level") == "HIGH", (
         f"Expected stakes_level HIGH, got {user_turn.metadata.get('stakes_level')}"
     )
 
     gm_turn = turns[1]
-    assert gm_turn.turn_type == TurnType.NARRATION, (
-        f"Expected NARRATION, got {gm_turn.turn_type}"
-    )
+    assert gm_turn.turn_type == TurnType.NARRATION, f"Expected NARRATION, got {gm_turn.turn_type}"
     assert gm_turn.speaker_id == "system:pushback", (
         f"Expected speaker 'system:pushback', got {gm_turn.speaker_id}"
     )
-    assert gm_turn.metadata.get("pushback_used") is True, (
-        "Should have pushback_used metadata"
-    )
-    assert gm_turn.metadata.get("overridden") is False, (
-        "Should have overridden=False metadata"
-    )
+    assert gm_turn.metadata.get("pushback_used") is True, "Should have pushback_used metadata"
+    assert gm_turn.metadata.get("overridden") is False, "Should have overridden=False metadata"
     assert gm_turn.metadata.get("dice_roll_used") == 18, (
         f"Expected dice_roll_used 18, got {gm_turn.metadata.get('dice_roll_used')}"
     )
@@ -644,9 +620,7 @@ async def test_p20_scenario_1_combat_high_stakes_pushback(
 
 
 @pytest.mark.unit
-async def test_p20_scenario_2_override_with_gm_mode(
-    resolver, scene_loop, narrator, scene, user_id
-):
+async def test_p20_scenario_2_override_with_gm_mode(resolver, scene_loop, narrator, scene, user_id):
     """
     Scenario 2: Override with /gm-mode
 
@@ -710,9 +684,7 @@ async def test_p20_scenario_2_override_with_gm_mode(
     assert override_log.override_command == user_response, (
         "Override log should contain override command"
     )
-    assert override_log.stakes_level == "HIGH", (
-        "Override log should record stakes level"
-    )
+    assert override_log.stakes_level == "HIGH", "Override log should record stakes level"
 
     # Check override count
     updated_scene = scene_loop.scenes[scene_id]
@@ -806,9 +778,7 @@ async def test_p20_scenario_3_low_stakes_no_pushback(
 
     # Check pushback
     pushback_triggered = scene_loop.should_trigger_pushback(stakes)
-    assert pushback_triggered is False, (
-        "Pushback should NOT be triggered for LOW stakes"
-    )
+    assert pushback_triggered is False, "Pushback should NOT be triggered for LOW stakes"
 
     # Narrator describes outcome (no pushback)
     description = narrator.describe_outcome(
@@ -843,9 +813,7 @@ async def test_p20_scenario_3_low_stakes_no_pushback(
     assert gm_turn.speaker_id == "system:narrator", (
         f"Expected speaker 'system:narrator', got {gm_turn.speaker_id}"
     )
-    assert gm_turn.metadata.get("pushback_used") is False, (
-        "GM turn should have pushback_used=False"
-    )
+    assert gm_turn.metadata.get("pushback_used") is False, "GM turn should have pushback_used=False"
 
 
 # Scenario 4: Medium Stakes - Optional Pushback
@@ -893,9 +861,7 @@ async def test_p20_scenario_4_medium_stakes_optional_pushback(
 
     # Check pushback (optional for MEDIUM)
     pushback_triggered = scene_loop.should_trigger_pushback(stakes)
-    assert pushback_triggered is False, (
-        "Pushback should NOT be mandatory for MEDIUM stakes"
-    )
+    assert pushback_triggered is False, "Pushback should NOT be mandatory for MEDIUM stakes"
 
     # For medium stakes, pushback is optional - system may suggest but not require
     # Action proceeds as declared
@@ -916,9 +882,7 @@ async def test_p20_scenario_4_medium_stakes_optional_pushback(
     )
 
     assert len(turns) == 2, f"Expected 2 turns, got {len(turns)}"
-    assert turns[0].metadata.get("stakes_level") == "MEDIUM", (
-        "Should record MEDIUM stakes level"
-    )
+    assert turns[0].metadata.get("stakes_level") == "MEDIUM", "Should record MEDIUM stakes level"
 
 
 # --- Error Case Tests ---
@@ -1047,9 +1011,7 @@ def test_p20_success_criteria_stakes_evaluation(resolver):
 
     for action, context in high_stakes_actions:
         stakes = resolver.determine_stakes(action, context)
-        assert stakes == StakesLevel.HIGH, (
-            f"Action '{action}' should be HIGH stakes, got {stakes}"
-        )
+        assert stakes == StakesLevel.HIGH, f"Action '{action}' should be HIGH stakes, got {stakes}"
 
     # Test low stakes
     low_stakes_actions = [
@@ -1061,9 +1023,7 @@ def test_p20_success_criteria_stakes_evaluation(resolver):
 
     for action, context in low_stakes_actions:
         stakes = resolver.determine_stakes(action, context)
-        assert stakes == StakesLevel.LOW, (
-            f"Action '{action}' should be LOW stakes, got {stakes}"
-        )
+        assert stakes == StakesLevel.LOW, f"Action '{action}' should be LOW stakes, got {stakes}"
 
     # Test medium stakes
     medium_stakes_actions = [
@@ -1080,9 +1040,7 @@ def test_p20_success_criteria_stakes_evaluation(resolver):
 
 
 @pytest.mark.unit
-def test_p20_success_criteria_pushback_triggers_only_for_high_stakes(
-    resolver, scene_loop
-):
+def test_p20_success_criteria_pushback_triggers_only_for_high_stakes(resolver, scene_loop):
     """
     Success Criteria: Pushback only triggers for high-stakes 100% specificity
     """
@@ -1172,9 +1130,7 @@ def test_p20_success_criteria_conversion_to_dice_roll(resolver):
 
 
 @pytest.mark.unit
-async def test_p20_postconditions_accept(
-    resolver, scene_loop, narrator, scene, user_id
-):
+async def test_p20_postconditions_accept(resolver, scene_loop, narrator, scene, user_id):
     """
     Verify postconditions when pushback is accepted:
     1. Action resolved via dice roll, not forced narrative
@@ -1227,15 +1183,11 @@ async def test_p20_postconditions_accept(
 
     # Postcondition 2: Turn appended with correct metadata
     assert len(turns) == 2, "Should have 2 turns"
-    assert turns[1].metadata.get("dice_roll_used") == roll, (
-        "GM turn should have dice_roll metadata"
-    )
+    assert turns[1].metadata.get("dice_roll_used") == roll, "GM turn should have dice_roll metadata"
 
 
 @pytest.mark.unit
-async def test_p20_postconditions_override(
-    resolver, scene_loop, narrator, scene, user_id
-):
+async def test_p20_postconditions_override(resolver, scene_loop, narrator, scene, user_id):
     """
     Verify postconditions when pushback is overridden:
     1. Forced narrative allowed, override logged
@@ -1274,20 +1226,14 @@ async def test_p20_postconditions_override(
     )
 
     # Postcondition 1: Forced narrative allowed
-    assert turns[0].content == user_action, (
-        "User action should be original forced narrative"
-    )
+    assert turns[0].content == user_action, "User action should be original forced narrative"
 
     # Postcondition 2: Turn appended with correct metadata
-    assert turns[1].metadata.get("overridden") is True, (
-        "GM turn should have overridden=True"
-    )
+    assert turns[1].metadata.get("overridden") is True, "GM turn should have overridden=True"
     assert turns[1].metadata.get("dice_roll_used") is None, (
         "GM turn should not have dice_roll for override"
     )
 
     # Postcondition 3: Override logged
     assert len(scene_loop.override_logs) == 1, "Override should be logged"
-    assert scene_loop.scenes[scene_id].override_count == 1, (
-        "Override count should be incremented"
-    )
+    assert scene_loop.scenes[scene_id].override_count == 1, "Override count should be incremented"

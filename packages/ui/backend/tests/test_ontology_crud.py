@@ -31,6 +31,10 @@ from monitor_data.schemas.relationships import (
 )
 
 from monitor_ui.main import app
+import pytest
+
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 client = TestClient(app)
 

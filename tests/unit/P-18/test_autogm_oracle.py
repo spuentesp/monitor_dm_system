@@ -164,9 +164,7 @@ class OracleAgent:
         self.rolls.append(roll)
         return roll
 
-    def get_outcome_from_roll(
-        self, roll: int, likelihood: LikelihoodLevel
-    ) -> OracleOutcome:
+    def get_outcome_from_roll(self, roll: int, likelihood: LikelihoodLevel) -> OracleOutcome:
         """Determine oracle outcome from roll and likelihood."""
         if likelihood.value == "almost_certain":
             if roll <= 5:
@@ -274,9 +272,7 @@ class NarratorAgent:
 class SceneLoop:
     """Mock SceneLoop agent."""
 
-    def __init__(
-        self, mcp_client, context_assembly, oracle_agent, canon_keeper, narrator
-    ):
+    def __init__(self, mcp_client, context_assembly, oracle_agent, canon_keeper, narrator):
         self.mcp_client = mcp_client
         self.context_assembly = context_assembly
         self.oracle_agent = oracle_agent
@@ -405,9 +401,7 @@ def narrator(fake_llm_client):
 @pytest.fixture
 def scene_loop(fake_mcp_client, context_assembly, oracle_agent, canon_keeper, narrator):
     """SceneLoop agent fixture."""
-    return SceneLoop(
-        fake_mcp_client, context_assembly, oracle_agent, canon_keeper, narrator
-    )
+    return SceneLoop(fake_mcp_client, context_assembly, oracle_agent, canon_keeper, narrator)
 
 
 @pytest.fixture
@@ -485,9 +479,7 @@ async def test_p18_scenario_1_simple_yes_no(
     assert tension_score is not None, "Tension score should be set"
 
     likelihood = await oracle_agent.determine_likelihood(tension_score)
-    assert likelihood.value == "fifty_fifty", (
-        f"Expected fifty_fifty, got {likelihood.value}"
-    )
+    assert likelihood.value == "fifty_fifty", f"Expected fifty_fifty, got {likelihood.value}"
 
     # Action 3: Roll Percentile Die
     # Mock roll to be 60 for deterministic test
@@ -507,15 +499,11 @@ async def test_p18_scenario_1_simple_yes_no(
         random.randint = original_random
 
     # Action 4: Canonize Oracle Result
-    fact = await canon_keeper.canonize_oracle_result(
-        query, outcome, roll, tension_score
-    )
+    fact = await canon_keeper.canonize_oracle_result(query, outcome, roll, tension_score)
     assert fact.content == f"{query}: yes", (
         f"Expected 'Is the door locked?: yes', got {fact.content}"
     )
-    assert fact.canon_level == "cards", (
-        f"Expected canon_level 'cards', got {fact.canon_level}"
-    )
+    assert fact.canon_level == "cards", f"Expected canon_level 'cards', got {fact.canon_level}"
     assert f"oracle:{roll}:{tension_score}" in fact.evidence_refs, (
         "Evidence refs should contain oracle reference"
     )
@@ -602,9 +590,7 @@ async def test_p18_scenario_2_extreme_roll(
     assert tension_score is not None, "Tension score should be set"
 
     likelihood = await oracle_agent.determine_likelihood(tension_score)
-    assert likelihood.value == "impossible", (
-        f"Expected impossible, got {likelihood.value}"
-    )
+    assert likelihood.value == "impossible", f"Expected impossible, got {likelihood.value}"
 
     # Action 3: Roll Percentile Die
     # Mock roll to be 98 for deterministic test
@@ -624,9 +610,7 @@ async def test_p18_scenario_2_extreme_roll(
         random.randint = original_random
 
     # Action 4: Canonize Oracle Result
-    fact = await canon_keeper.canonize_oracle_result(
-        query, outcome, roll, tension_score
-    )
+    fact = await canon_keeper.canonize_oracle_result(query, outcome, roll, tension_score)
     assert fact.content == f"{query}: no_and", (
         f"Expected 'Can I pick the lock?: no_and', got {fact.content}"
     )
@@ -695,9 +679,7 @@ async def test_p18_error_case_scene_not_found(scene_loop, context_assembly):
 
 
 @pytest.mark.unit
-async def test_p18_error_case_tension_not_set(
-    scene_loop, context_assembly, oracle_agent
-):
+async def test_p18_error_case_tension_not_set(scene_loop, context_assembly, oracle_agent):
     """
     Error Case: Tension score not set
 
@@ -723,9 +705,7 @@ async def test_p18_error_case_tension_not_set(
 
     # Determine likelihood (should default to 50/50)
     likelihood = await oracle_agent.determine_likelihood(scene.tension_score)
-    assert likelihood.value == "fifty_fifty", (
-        f"Expected fifty_fifty, got {likelihood.value}"
-    )
+    assert likelihood.value == "fifty_fifty", f"Expected fifty_fifty, got {likelihood.value}"
 
 
 @pytest.mark.unit
@@ -788,9 +768,7 @@ async def test_p18_success_criteria_question_detection(context_assembly):
     correct_tests = total_tests  # All should pass
     accuracy = (correct_tests / total_tests) * 100
 
-    assert accuracy >= 95, (
-        f"Question detection accuracy {accuracy}% is below 95% threshold"
-    )
+    assert accuracy >= 95, f"Question detection accuracy {accuracy}% is below 95% threshold"
 
 
 @pytest.mark.unit
@@ -804,15 +782,11 @@ async def test_p18_success_criteria_tension_retrieval(scene_loop, scene_with_ten
     scene = await scene_loop.get_scene(scene_id)
     assert scene is not None, "Scene should be found"
     assert scene.tension_score is not None, "Tension score should be retrieved"
-    assert scene.tension_score == 5, (
-        f"Expected tension_score 5, got {scene.tension_score}"
-    )
+    assert scene.tension_score == 5, f"Expected tension_score 5, got {scene.tension_score}"
 
 
 @pytest.mark.unit
-async def test_p18_success_criteria_canonization(
-    canon_keeper, oracle_agent, context_assembly
-):
+async def test_p18_success_criteria_canonization(canon_keeper, oracle_agent, context_assembly):
     """
     Success Criteria: Oracle outcome canonization = 100%
     """
@@ -821,14 +795,10 @@ async def test_p18_success_criteria_canonization(
     roll = 60
     tension_score = 5
 
-    fact = await canon_keeper.canonize_oracle_result(
-        query, outcome, roll, tension_score
-    )
+    fact = await canon_keeper.canonize_oracle_result(query, outcome, roll, tension_score)
 
     assert fact is not None, "Fact should be canonized"
-    assert fact.content == f"{query}: yes", (
-        "Fact content should match query and outcome"
-    )
+    assert fact.content == f"{query}: yes", "Fact content should match query and outcome"
     assert fact.canon_level == "cards", "Fact should be canonized at cards level"
     assert len(fact.evidence_refs) > 0, "Fact should have evidence refs"
     assert f"oracle:{roll}:{tension_score}" in fact.evidence_refs[0], (
@@ -851,12 +821,8 @@ async def test_p18_success_criteria_evidence_tracking(canon_keeper, oracle_agent
     tension_score = 5
 
     for query, outcome, roll in queries:
-        fact = await canon_keeper.canonize_oracle_result(
-            query, outcome, roll, tension_score
-        )
-        assert len(fact.evidence_refs) > 0, (
-            f"Fact for '{query}' should have evidence refs"
-        )
+        fact = await canon_keeper.canonize_oracle_result(query, outcome, roll, tension_score)
+        assert len(fact.evidence_refs) > 0, f"Fact for '{query}' should have evidence refs"
         assert f"oracle:{roll}:{tension_score}" in fact.evidence_refs[0], (
             f"Evidence ref for '{query}' should reference oracle"
         )
@@ -867,9 +833,7 @@ async def test_p18_success_criteria_evidence_tracking(canon_keeper, oracle_agent
     )
 
     for fact in canon_keeper.canonized_facts:
-        assert len(fact.evidence_refs) > 0, (
-            f"Fact {fact.fact_id} is missing evidence refs"
-        )
+        assert len(fact.evidence_refs) > 0, f"Fact {fact.fact_id} is missing evidence refs"
 
 
 @pytest.mark.unit
@@ -997,12 +961,8 @@ async def test_p18_turn_metadata_completeness(
     try:
         roll = await oracle_agent.roll_percentile()
         outcome = oracle_agent.get_outcome_from_roll(roll, likelihood)
-        fact = await canon_keeper.canonize_oracle_result(
-            query, outcome, roll, tension_score
-        )
-        narrative = await narrator.describe_oracle_outcome(
-            query, outcome, {"location": "tavern"}
-        )
+        fact = await canon_keeper.canonize_oracle_result(query, outcome, roll, tension_score)
+        narrative = await narrator.describe_oracle_outcome(query, outcome, {"location": "tavern"})
         turns = await scene_loop.append_turns(
             scene_id, query, narrative, outcome, roll, likelihood, fact.fact_id
         )
@@ -1011,9 +971,7 @@ async def test_p18_turn_metadata_completeness(
 
     # Verify user turn metadata
     user_turn = turns[0]
-    assert "oracle_query" in user_turn.metadata, (
-        "User turn should have oracle_query metadata"
-    )
+    assert "oracle_query" in user_turn.metadata, "User turn should have oracle_query metadata"
     assert user_turn.metadata["oracle_query"] is True, "oracle_query should be True"
 
     # Verify GM turn metadata
@@ -1021,15 +979,11 @@ async def test_p18_turn_metadata_completeness(
     required_metadata = ["oracle_result", "roll", "likelihood", "fact_canonized"]
 
     for field in required_metadata:
-        assert field in gm_turn.metadata, (
-            f"GM turn should have metadata field '{field}'"
-        )
+        assert field in gm_turn.metadata, f"GM turn should have metadata field '{field}'"
 
     assert gm_turn.metadata["oracle_result"] == "yes", "oracle_result should be correct"
     assert gm_turn.metadata["roll"] == 60, "roll should be correct"
-    assert gm_turn.metadata["likelihood"] == "fifty_fifty", (
-        "likelihood should be correct"
-    )
+    assert gm_turn.metadata["likelihood"] == "fifty_fifty", "likelihood should be correct"
     assert fact.fact_id in gm_turn.metadata["fact_canonized"], (
         "fact_canonized should reference correct fact"
     )
@@ -1077,12 +1031,8 @@ async def test_p18_postconditions(
     try:
         roll = await oracle_agent.roll_percentile()
         outcome = oracle_agent.get_outcome_from_roll(roll, likelihood)
-        fact = await canon_keeper.canonize_oracle_result(
-            query, outcome, roll, tension_score
-        )
-        narrative = await narrator.describe_oracle_outcome(
-            query, outcome, {"location": "tavern"}
-        )
+        fact = await canon_keeper.canonize_oracle_result(query, outcome, roll, tension_score)
+        narrative = await narrator.describe_oracle_outcome(query, outcome, {"location": "tavern"})
         turns = await scene_loop.append_turns(
             scene_id, query, narrative, outcome, roll, likelihood, fact.fact_id
         )
@@ -1102,23 +1052,15 @@ async def test_p18_postconditions(
 
     # Postcondition 3: GM turn appended with oracle outcome and metadata
     gm_turn = turns[1]
-    assert gm_turn.turn_type == "oracle_response", (
-        "GM turn should be ORACLE_RESPONSE type"
-    )
-    assert gm_turn.metadata.get("oracle_result") == "yes", (
-        "GM turn should have oracle_result"
-    )
+    assert gm_turn.turn_type == "oracle_response", "GM turn should be ORACLE_RESPONSE type"
+    assert gm_turn.metadata.get("oracle_result") == "yes", "GM turn should have oracle_result"
     assert gm_turn.metadata.get("roll") == 60, "GM turn should have roll"
-    assert gm_turn.metadata.get("likelihood") == "fifty_fifty", (
-        "GM turn should have likelihood"
-    )
+    assert gm_turn.metadata.get("likelihood") == "fifty_fifty", "GM turn should have likelihood"
 
     # Postcondition 4: Scene state updated
     updated_scene = await scene_loop.get_scene(scene_id)
     assert updated_scene is not None, "Scene should still exist"
-    assert updated_scene.updated_at >= original_updated_at, (
-        "Scene updated_at should be updated"
-    )
+    assert updated_scene.updated_at >= original_updated_at, "Scene updated_at should be updated"
 
     # Postcondition 5: Player receives narrative
     assert narrative is not None, "Player should receive narrative"

@@ -132,9 +132,7 @@ class SceneLoop:
         self.created_turns = []
         self.tables = {}
 
-    async def detect_scene_transition(
-        self, input: str, scene_id: uuid.UUID
-    ) -> TransitionEvent:
+    async def detect_scene_transition(self, input: str, scene_id: uuid.UUID) -> TransitionEvent:
         """Detect scene transition from user input."""
         scene = self.scenes.get(scene_id)
         if not scene:
@@ -204,9 +202,7 @@ class SceneLoop:
 
         return True
 
-    async def retrieve_random_tables(
-        self, location: str, world_id: str
-    ) -> list[RandomTable]:
+    async def retrieve_random_tables(self, location: str, world_id: str) -> list[RandomTable]:
         """Retrieve random tables for location type."""
         tables = []
 
@@ -262,10 +258,7 @@ class SceneLoop:
             )
 
             # Handle subtable recursion
-            if (
-                selected_entry.subtable_ref
-                and selected_entry.subtable_ref in self.tables
-            ):
+            if selected_entry.subtable_ref and selected_entry.subtable_ref in self.tables:
                 subtable = self.tables[selected_entry.subtable_ref]
                 subtable_entries = await self.roll_on_table(subtable)
                 selected_entries.extend(subtable_entries)
@@ -284,9 +277,7 @@ class SceneLoop:
             if entry.entity_type:
                 # Extract name and properties from content
                 name = (
-                    entry.content.split(":")[0].strip()
-                    if ":" in entry.content
-                    else entry.content
+                    entry.content.split(":")[0].strip() if ":" in entry.content else entry.content
                 )
 
                 properties = {
@@ -338,9 +329,7 @@ class SceneLoop:
                 scene.entity_registry[entity.name] = entity.entity_id
             else:
                 # Stage temporary entities
-                scene.staged_entities.append(
-                    {"entity_id": entity.entity_id, "temporary": True}
-                )
+                scene.staged_entities.append({"entity_id": entity.entity_id, "temporary": True})
 
         # Update scene
         self.scenes[scene_id] = scene
@@ -401,9 +390,7 @@ class ContextAssembly:
         self.llm_client = llm_client
         self.prompts = []
 
-    async def generate_scene_opening_prompt(
-        self, scene: Scene, entities: list[Entity]
-    ) -> str:
+    async def generate_scene_opening_prompt(self, scene: Scene, entities: list[Entity]) -> str:
         """Generate narrator prompt for scene opening."""
 
         entity_descriptions = "\n".join(
@@ -651,17 +638,13 @@ async def test_p19_scenario_1_cave_exploration(
 
     # Action 4: Roll on Each Table
     table_entries = await scene_loop.roll_on_table(tables[0])
-    assert len(table_entries) >= 1, (
-        f"Expected at least 1 entry, got {len(table_entries)}"
-    )
+    assert len(table_entries) >= 1, f"Expected at least 1 entry, got {len(table_entries)}"
     assert table_entries[0].entity_type is not None, "Entry should have entity_type"
 
     # Action 5: Generate Entities
     entities = await scene_loop.generate_entities(table_entries, world_id)
     assert len(entities) >= 1, f"Expected at least 1 entity, got {len(entities)}"
-    assert entities[0].entity_type == table_entries[0].entity_type, (
-        "Entity type should match"
-    )
+    assert entities[0].entity_type == table_entries[0].entity_type, "Entity type should match"
 
     # Action 6: Stage Entities in Scene
     is_permanent = [True]  # Encounter NPCs are permanent
@@ -675,9 +658,7 @@ async def test_p19_scenario_1_cave_exploration(
     # Action 7: Generate Prompt for Narrator
     updated_scene.current_location = "cave"
     scene_loop.scenes[scene_id] = updated_scene
-    prompt = await context_assembly.generate_scene_opening_prompt(
-        updated_scene, entities
-    )
+    prompt = await context_assembly.generate_scene_opening_prompt(updated_scene, entities)
     assert "cave" in prompt, "Prompt should mention cave location"
     assert entities[0].name in prompt, "Prompt should include generated entities"
 
@@ -710,9 +691,7 @@ async def test_p19_scenario_1_cave_exploration(
     assert gm_turn.metadata.get("procedural_generation") is True, (
         "GM turn should have procedural_generation metadata"
     )
-    assert len(gm_turn.metadata.get("tables_used", [])) >= 1, (
-        "GM turn should list tables used"
-    )
+    assert len(gm_turn.metadata.get("tables_used", [])) >= 1, "GM turn should list tables used"
     assert len(gm_turn.metadata.get("entities_generated", [])) >= 1, (
         "GM turn should list entities generated"
     )
@@ -766,9 +745,7 @@ async def test_p19_scenario_2_forest_exploration(
 
     # Roll on Table
     table_entries = await scene_loop.roll_on_table(tables[0])
-    assert len(table_entries) >= 1, (
-        f"Expected at least 1 entry, got {len(table_entries)}"
-    )
+    assert len(table_entries) >= 1, f"Expected at least 1 entry, got {len(table_entries)}"
 
     # Generate Entities
     entities = await scene_loop.generate_entities(table_entries, world_id)
@@ -780,17 +757,13 @@ async def test_p19_scenario_2_forest_exploration(
     await scene_loop.stage_entities(scene_id, entities, is_permanent)
 
     updated_scene = scene_loop.scenes[scene_id]
-    assert entities[0].name in updated_scene.entity_registry, (
-        "Feature should be in entity registry"
-    )
+    assert entities[0].name in updated_scene.entity_registry, "Feature should be in entity registry"
 
     # Generate Prompt and Append Turns
     updated_scene.current_location = "forest"
     scene_loop.scenes[scene_id] = updated_scene
 
-    prompt = await context_assembly.generate_scene_opening_prompt(
-        updated_scene, entities
-    )
+    prompt = await context_assembly.generate_scene_opening_prompt(updated_scene, entities)
     description = await narrator.generate_scene_opening(prompt)
 
     turns = await scene_loop.append_procedural_turns(
@@ -806,10 +779,9 @@ async def test_p19_scenario_2_forest_exploration(
     assert len(turns) == 2, f"Expected 2 turns, got {len(turns)}"
 
     turns[1]
-    assert (
-        "forest" in description.lower()
-        or entities[0].name.lower() in description.lower()
-    ), "Description should mention forest or generated entities"
+    assert "forest" in description.lower() or entities[0].name.lower() in description.lower(), (
+        "Description should mention forest or generated entities"
+    )
 
 
 # --- Error Case Tests ---
@@ -973,9 +945,7 @@ async def test_p19_success_criteria_transition_detection(scene_loop, scene):
             pass
 
     accuracy = (detected_count / len(valid_transitions)) * 100
-    assert accuracy >= 95, (
-        f"Transition detection accuracy {accuracy}% is below 95% threshold"
-    )
+    assert accuracy >= 95, f"Transition detection accuracy {accuracy}% is below 95% threshold"
 
 
 @pytest.mark.unit
@@ -1010,9 +980,7 @@ async def test_p19_success_criteria_new_location_detection(scene_loop, scene):
 
 
 @pytest.mark.unit
-async def test_p19_success_criteria_table_retrieval(
-    scene_loop, cave_table, forest_table, world_id
-):
+async def test_p19_success_criteria_table_retrieval(scene_loop, cave_table, forest_table, world_id):
     """
     Success Criteria: Table retrieval 100% success, correct location filtering
     """
@@ -1022,9 +990,7 @@ async def test_p19_success_criteria_table_retrieval(
     # Test cave tables
     cave_tables = await scene_loop.retrieve_random_tables("cave", world_id)
     assert len(cave_tables) >= 1, "Should retrieve cave tables"
-    assert cave_tables[0].location_type == "dungeon", (
-        "Cave should map to dungeon location type"
-    )
+    assert cave_tables[0].location_type == "dungeon", "Cave should map to dungeon location type"
 
     # Test forest tables
     forest_tables = await scene_loop.retrieve_random_tables("forest", world_id)
@@ -1063,9 +1029,7 @@ async def test_p19_success_criteria_entity_creation(scene_loop, cave_table, worl
 
 
 @pytest.mark.unit
-async def test_p19_success_criteria_canonization_rules(
-    scene_loop, scene, cave_table, world_id
-):
+async def test_p19_success_criteria_canonization_rules(scene_loop, scene, cave_table, world_id):
     """
     Success Criteria: Canonization rules followed 100% (permanent vs temporary)
     """
@@ -1090,9 +1054,7 @@ async def test_p19_success_criteria_canonization_rules(
 
     # Check temporary entity in staged_entities
     staged_entity_ids = [e["entity_id"] for e in updated_scene.staged_entities]
-    assert entities[1].entity_id in staged_entity_ids, (
-        "Temporary entity should be staged"
-    )
+    assert entities[1].entity_id in staged_entity_ids, "Temporary entity should be staged"
 
 
 @pytest.mark.unit
@@ -1137,16 +1099,10 @@ async def test_p19_success_criteria_metadata_completeness(
     metadata = gm_turn.metadata
 
     # Check all required metadata fields
-    assert metadata.get("procedural_generation") is True, (
-        "Should have procedural_generation flag"
-    )
+    assert metadata.get("procedural_generation") is True, "Should have procedural_generation flag"
     assert len(metadata.get("tables_used", [])) >= 1, "Should have tables_used list"
-    assert len(metadata.get("entities_generated", [])) >= 1, (
-        "Should have entities_generated list"
-    )
-    assert len(metadata.get("entities_canonized", [])) >= 1, (
-        "Should have entities_canonized list"
-    )
+    assert len(metadata.get("entities_generated", [])) >= 1, "Should have entities_generated list"
+    assert len(metadata.get("entities_canonized", [])) >= 1, "Should have entities_canonized list"
 
 
 # --- Postconditions Tests ---
@@ -1201,12 +1157,8 @@ async def test_p19_postconditions(
     assert len(entities) >= 1, "Scene should be populated with entities"
 
     # Postcondition 2: Permanent entities canonized (in registry)
-    assert len(updated_scene.entity_registry) >= 1, (
-        "Permanent entities should be in registry"
-    )
-    assert entities[0].name in updated_scene.entity_registry, (
-        "Entity should be in registry"
-    )
+    assert len(updated_scene.entity_registry) >= 1, "Permanent entities should be in registry"
+    assert entities[0].name in updated_scene.entity_registry, "Entity should be in registry"
 
     # Postcondition 3: Temporary entities staged (not applicable here, all permanent)
     # If we had temporary entities, they'd be in staged_entities
@@ -1218,9 +1170,7 @@ async def test_p19_postconditions(
 
     # Postcondition 5: GM turn appended
     gm_turn = turns[1]
-    assert gm_turn.turn_type.value == "SCENE_START", (
-        "GM turn should be SCENE_START type"
-    )
+    assert gm_turn.turn_type.value == "SCENE_START", "GM turn should be SCENE_START type"
     assert gm_turn.metadata.get("procedural_generation") is True, (
         "GM turn should have procedural_generation flag"
     )
@@ -1361,9 +1311,7 @@ async def test_p19_multiple_tables_per_location(
     await scene_loop.stage_entities(scene_id, all_entities, is_permanent)
 
     updated_scene = scene_loop.scenes[scene_id]
-    assert len(updated_scene.entity_registry) >= 2, (
-        "All permanent entities should be in registry"
-    )
+    assert len(updated_scene.entity_registry) >= 2, "All permanent entities should be in registry"
 
 
 @pytest.mark.unit
@@ -1396,16 +1344,12 @@ async def test_p19_entity_properties_verification(scene_loop, cave_table, world_
     # Verify properties
     assert "properties" in entity.model_dump(), "Entity should have properties"
     assert "quantity" in entity.properties, "Entity properties should include quantity"
-    assert "generated_from" in entity.properties, (
-        "Entity properties should include generated_from"
-    )
+    assert "generated_from" in entity.properties, "Entity properties should include generated_from"
 
     # Verify entity_type matches
     matching_entry = next((e for e in table_entries if e.entity_type), None)
     if matching_entry:
-        assert entity.entity_type == matching_entry.entity_type, (
-            "Entity type should match entry"
-        )
+        assert entity.entity_type == matching_entry.entity_type, "Entity type should match entry"
 
     # Verify world_id
     assert entity.world_id == world_id, f"Entity world_id should be {world_id}"
@@ -1510,10 +1454,6 @@ async def test_p19_multiple_entities_mixed_permanence(
 
     # Verify staged entity has temporary flag
     staged_entity = next(
-        e
-        for e in updated_scene.staged_entities
-        if e["entity_id"] == entities[1].entity_id
+        e for e in updated_scene.staged_entities if e["entity_id"] == entities[1].entity_id
     )
-    assert staged_entity.get("temporary") is True, (
-        "Staged entity should have temporary=True flag"
-    )
+    assert staged_entity.get("temporary") is True, "Staged entity should have temporary=True flag"

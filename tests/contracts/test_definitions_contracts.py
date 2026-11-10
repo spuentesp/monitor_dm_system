@@ -129,9 +129,7 @@ class TestUniverseCreateContractPropertyBased:
         assert len(failures) == 0
 
     @given(
-        name=st.text(min_size=0, max_size=0).map(
-            lambda x: "   "
-        ),  # Empty or whitespace
+        name=st.text(min_size=0, max_size=0).map(lambda x: "   "),  # Empty or whitespace
     )
     @settings(max_examples=20)
     def test_whitespace_only_name_fails(self, name):

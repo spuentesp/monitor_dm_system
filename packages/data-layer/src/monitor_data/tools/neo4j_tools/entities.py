@@ -248,6 +248,10 @@ def neo4j_list_entities(filters: EntityFilter) -> EntityListResponse:
     if filters.universe_id:
         where_clauses.append("e.universe_id = $universe_id")
         params["universe_id"] = str(filters.universe_id)
+    if filters.universe_ids is not None:
+        # Empty allowlist matches nothing — never an unscoped fallback (D4).
+        where_clauses.append("e.universe_id IN $universe_ids")
+        params["universe_ids"] = [str(u) for u in filters.universe_ids]
 
     if filters.entity_type:
         where_clauses.append("e.entity_type = $entity_type")

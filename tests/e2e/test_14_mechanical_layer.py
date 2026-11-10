@@ -138,11 +138,7 @@ class TestWorkingStateBuildE2E:
             condition_tags=[],
         )
         assert working is not None
-        xp_value = (
-            working.get("xp")
-            if isinstance(working, dict)
-            else getattr(working, "xp", None)
-        )
+        xp_value = working.get("xp") if isinstance(working, dict) else getattr(working, "xp", None)
         expected_xp = _award_xp(resolution, game_context)
         if expected_xp > 0:
             assert xp_value is not None and xp_value > 0

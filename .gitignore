@@ -40,7 +40,6 @@ infra/neo4j/import
 infra/neo4j/plugins
 infra/qdrant/storage
 infra/minio/data
-infra/opensearch/data
 infra/postgres/data
 
 # Node / Next.js
@@ -91,3 +90,6 @@ tests/e2e/logs/
 
 # Superpowers skill scratch (brainstorm companion, SDD workspaces)
 .superpowers/
+
+# agent worktrees (never commit these)
+.claude/worktrees/

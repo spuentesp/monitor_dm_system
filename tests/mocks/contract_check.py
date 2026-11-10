@@ -104,16 +104,12 @@ class TestContractCompliance:
 
         real_methods = {
             name
-            for name, member in inspect.getmembers(
-                LLMClient, predicate=inspect.isfunction
-            )
+            for name, member in inspect.getmembers(LLMClient, predicate=inspect.isfunction)
             if not name.startswith("_")
         }
         fake_methods = {
             name
-            for name, member in inspect.getmembers(
-                FakeLLMClient, predicate=inspect.isfunction
-            )
+            for name, member in inspect.getmembers(FakeLLMClient, predicate=inspect.isfunction)
             if not name.startswith("_")
         }
         missing = real_methods - fake_methods
@@ -130,16 +126,12 @@ class TestContractCompliance:
 
         real_methods = {
             name
-            for name, member in inspect.getmembers(
-                LLMRegistry, predicate=inspect.isfunction
-            )
+            for name, member in inspect.getmembers(LLMRegistry, predicate=inspect.isfunction)
             if not name.startswith("_")
         }
         fake_methods = {
             name
-            for name, member in inspect.getmembers(
-                FakeLLMRegistry, predicate=inspect.isfunction
-            )
+            for name, member in inspect.getmembers(FakeLLMRegistry, predicate=inspect.isfunction)
             if not name.startswith("_")
         }
         missing = real_methods - fake_methods
@@ -155,16 +147,12 @@ class TestContractCompliance:
 
         real_methods = {
             name
-            for name, member in inspect.getmembers(
-                ConftestMCP, predicate=inspect.isfunction
-            )
+            for name, member in inspect.getmembers(ConftestMCP, predicate=inspect.isfunction)
             if not name.startswith("_")
         }
         fake_methods = {
             name
-            for name, member in inspect.getmembers(
-                MocksMCP, predicate=inspect.isfunction
-            )
+            for name, member in inspect.getmembers(MocksMCP, predicate=inspect.isfunction)
             if not name.startswith("_")
         }
         missing = real_methods - fake_methods
@@ -180,16 +168,12 @@ class TestContractCompliance:
 
         real_methods = {
             name
-            for name, member in inspect.getmembers(
-                ConftestPred, predicate=inspect.isfunction
-            )
+            for name, member in inspect.getmembers(ConftestPred, predicate=inspect.isfunction)
             if not name.startswith("_")
         }
         fake_methods = {
             name
-            for name, member in inspect.getmembers(
-                MocksPred, predicate=inspect.isfunction
-            )
+            for name, member in inspect.getmembers(MocksPred, predicate=inspect.isfunction)
             if not name.startswith("_")
         }
         missing = real_methods - fake_methods
@@ -205,16 +189,12 @@ class TestContractCompliance:
 
         real_methods = {
             name
-            for name, member in inspect.getmembers(
-                ConftestLM, predicate=inspect.isfunction
-            )
+            for name, member in inspect.getmembers(ConftestLM, predicate=inspect.isfunction)
             if not name.startswith("_")
         }
         fake_methods = {
             name
-            for name, member in inspect.getmembers(
-                MocksLM, predicate=inspect.isfunction
-            )
+            for name, member in inspect.getmembers(MocksLM, predicate=inspect.isfunction)
             if not name.startswith("_")
         }
         missing = real_methods - fake_methods
@@ -236,9 +216,7 @@ class TestContractCompliance:
             "node_assignment_get",
         ]
         for method in key_methods:
-            assert hasattr(FakePostgresClient, method), (
-                f"FakePostgresClient missing {method}"
-            )
+            assert hasattr(FakePostgresClient, method), f"FakePostgresClient missing {method}"
 
     @pytest.mark.asyncio
     async def test_mcp_client_wire_serializability(self):
@@ -262,4 +240,3 @@ class TestContractCompliance:
         assert not missing, (
             f"FakeMCPClient configured tools missing from monitor_data.server.TOOL_REGISTRY: {missing}"
         )
-

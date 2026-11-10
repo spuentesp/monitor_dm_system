@@ -137,16 +137,18 @@ async def list_public_packs(limit: int = 30) -> list[dict]:  # type: ignore[type
 
 
 @router.post("/packs/{pack_id}/publish", status_code=200)
-async def publish_pack(pack_id: str, min_score: float = 0.5) -> dict:  # type: ignore[type-arg]
+async def publish_pack(pack_id: str) -> dict:  # type: ignore[type-arg]
     """Publish a knowledge pack to the public gallery as a reusable base world.
 
     Runs the quality gate (completeness + lifecycle status + extraction
-    provenance); refuses with 422 when the pack is not publishable.
+    provenance); refuses with 422 when the pack is not publishable. The
+    publish threshold is server-side only (PUBLISH_MIN_SCORE) — a client-
+    supplied min_score would bypass the gate.
     """
     uid = validate_uuid(pack_id, "pack_id")
     with db_op("Database unavailable"):
         try:
-            result = await asyncio.to_thread(mongodb_publish_knowledge_pack, uid, min_score)
+            result = await asyncio.to_thread(mongodb_publish_knowledge_pack, uid)
         except ValueError as exc:
             # gate rejection is a client error, not a DB failure
             raise HTTPException(422, str(exc)) from exc

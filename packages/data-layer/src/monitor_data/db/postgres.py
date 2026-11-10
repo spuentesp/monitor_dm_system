@@ -1303,6 +1303,32 @@ class PostgresClient:
                 token_hash,
             )
 
+    async def sessions_list_for_user(self, user_id: UUID) -> list[dict[str, Any]]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM auth_sessions WHERE user_id = $1 ORDER BY created_at DESC",
+                user_id,
+            )
+            return [self._row_to_dict(r) for r in rows]
+
+    async def session_delete_all_for_user(self, user_id: UUID, except_token_hash: str | None = None) -> int:
+        """Revoke all of a user's sessions, optionally keeping one (the current)."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            if except_token_hash is not None:
+                result = await conn.execute(
+                    "DELETE FROM auth_sessions WHERE user_id = $1 AND token_hash <> $2",
+                    user_id,
+                    except_token_hash,
+                )
+            else:
+                result = await conn.execute("DELETE FROM auth_sessions WHERE user_id = $1", user_id)
+            try:
+                return int(str(result).split()[-1])
+            except (ValueError, IndexError):
+                return 0
+
     async def api_token_create(self, token: dict[str, Any]) -> dict[str, Any]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:

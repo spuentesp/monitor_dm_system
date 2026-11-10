@@ -10,6 +10,8 @@ import pytest
 from fastapi import HTTPException
 from monitor_ui.routers import pack_library
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 
 PACK_ID = str(uuid4())
 
@@ -23,7 +25,7 @@ async def test_publish_endpoint_returns_report_and_pack():
         ) as pub,
         patch.object(pack_library, "_pack_to_dict", return_value={"pack_id": PACK_ID, "status": "published"}),
     ):
-        out = await pack_library.publish_pack(PACK_ID, min_score=0.5)
+        out = await pack_library.publish_pack(PACK_ID)
     assert out["report"]["publishable"] is True
     assert out["pack"]["status"] == "published"
     pub.assert_called_once()

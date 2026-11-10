@@ -78,10 +78,7 @@ class _CallToolProxy:
 
     @property
     def call_args_list(self) -> list:
-        return [
-            ((tool_name, params),)
-            for tool_name, params in self._parent._call_tool_all_args
-        ]
+        return [((tool_name, params),) for tool_name, params in self._parent._call_tool_all_args]
 
     async def __call__(
         self, tool_name: str, params: dict[str, Any] | None = None, **kwargs: Any
@@ -157,9 +154,7 @@ class FakeMCPClient:
         """Pre-configure a successful response for a specific tool call."""
         self.responses[tool_name] = result
 
-    def add_error(
-        self, tool_name: str, params: dict[str, Any], exception: Exception
-    ) -> None:
+    def add_error(self, tool_name: str, params: dict[str, Any], exception: Exception) -> None:
         """Pre-configure an error response for a specific tool call."""
         self.responses[tool_name] = exception
 
@@ -235,12 +230,8 @@ def make_mock_mcp_client() -> FakeMCPClient:
             }
         ],
     )
-    client.add_response(
-        "neo4j_create_entity", {}, "550e8400-e29b-41d4-a716-446655440000"
-    )
-    client.add_response(
-        "neo4j_create_relationship", {}, "650e8400-e29b-41d4-a716-446655440001"
-    )
+    client.add_response("neo4j_create_entity", {}, "550e8400-e29b-41d4-a716-446655440000")
+    client.add_response("neo4j_create_relationship", {}, "650e8400-e29b-41d4-a716-446655440001")
     client.add_response("neo4j_create_story", {}, "story-123")
     client.add_response("mongodb_create_scene", {}, "scene-456")
     client.add_response("mongodb_create_character_sheet", {}, "sheet-789")

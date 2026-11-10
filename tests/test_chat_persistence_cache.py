@@ -43,9 +43,7 @@ def test_db_save_session_updates_shared_redis_cache(monkeypatch):
 
     fake_mongo = SimpleNamespace(get_collection=lambda _name: _FakeCollection())
 
-    monkeypatch.setattr(
-        "monitor_data.db.mongodb.get_mongodb_client", lambda: fake_mongo
-    )
+    monkeypatch.setattr("monitor_data.db.mongodb.get_mongodb_client", lambda: fake_mongo)
     monkeypatch.setattr(
         chat_persistence,
         "_redis_get_json",
@@ -59,9 +57,7 @@ def test_db_save_session_updates_shared_redis_cache(monkeypatch):
     monkeypatch.setattr(
         chat_persistence,
         "_publish_chat_event",
-        lambda session_id, event_type, payload: published.append(
-            (session_id, event_type, payload)
-        ),
+        lambda session_id, event_type, payload: published.append((session_id, event_type, payload)),
     )
 
     session = {
@@ -90,9 +86,7 @@ def test_purge_chat_runtime_cache_removes_deleted_session(monkeypatch):
         chat_persistence,
         "_redis_get_json",
         lambda key: (
-            [{"id": "keep"}, {"id": "gone"}]
-            if key == chat_persistence._SESSION_INDEX_KEY
-            else None
+            [{"id": "keep"}, {"id": "gone"}] if key == chat_persistence._SESSION_INDEX_KEY else None
         ),
     )
     monkeypatch.setattr(
@@ -140,9 +134,7 @@ def test_db_load_sessions_prefers_redis_cache(monkeypatch):
     monkeypatch.setattr(
         chat_persistence,
         "_redis_get_json",
-        lambda key: (
-            cached_sessions if key == chat_persistence._SESSION_INDEX_KEY else None
-        ),
+        lambda key: cached_sessions if key == chat_persistence._SESSION_INDEX_KEY else None,
     )
 
     def _fail_get_mongo():
@@ -203,9 +195,7 @@ def test_db_save_message_updates_mongodb(monkeypatch):
 
     fake_mongo = SimpleNamespace(get_collection=lambda _name: _FakeCollection())
 
-    monkeypatch.setattr(
-        "monitor_data.db.mongodb.get_mongodb_client", lambda: fake_mongo
-    )
+    monkeypatch.setattr("monitor_data.db.mongodb.get_mongodb_client", lambda: fake_mongo)
     monkeypatch.setattr(chat_persistence, "_redis_get_json", lambda key: None)
     monkeypatch.setattr(chat_persistence, "_redis_set_json", lambda key, value: None)
     monkeypatch.setattr(chat_persistence, "_publish_chat_event", lambda *args: None)
@@ -239,9 +229,7 @@ def test_db_save_message_upserts_existing_message(monkeypatch):
 
     fake_mongo = SimpleNamespace(get_collection=lambda _name: _FakeCollection())
 
-    monkeypatch.setattr(
-        "monitor_data.db.mongodb.get_mongodb_client", lambda: fake_mongo
-    )
+    monkeypatch.setattr("monitor_data.db.mongodb.get_mongodb_client", lambda: fake_mongo)
     monkeypatch.setattr(chat_persistence, "_redis_get_json", lambda key: None)
     monkeypatch.setattr(chat_persistence, "_redis_set_json", lambda key, value: None)
     monkeypatch.setattr(chat_persistence, "_publish_chat_event", lambda *args: None)
@@ -272,9 +260,7 @@ def test_db_save_message_handles_missing_session_id(monkeypatch):
 
     fake_mongo = SimpleNamespace(get_collection=lambda _name: _FakeCollection())
 
-    monkeypatch.setattr(
-        "monitor_data.db.mongodb.get_mongodb_client", lambda: fake_mongo
-    )
+    monkeypatch.setattr("monitor_data.db.mongodb.get_mongodb_client", lambda: fake_mongo)
     monkeypatch.setattr(
         chat_persistence,
         "_redis_get_json",

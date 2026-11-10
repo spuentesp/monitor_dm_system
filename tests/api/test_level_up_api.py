@@ -23,9 +23,7 @@ def _setup_path() -> None:
     import sys
     from pathlib import Path
 
-    backend_src = (
-        Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-    )
+    backend_src = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
     if str(backend_src) not in sys.path:
         sys.path.insert(0, str(backend_src))
 
@@ -58,18 +56,14 @@ class TestLevelUp:
         mock_system.advancement = MagicMock()
         mock_system.advancement.max_level = 20
         mock_system.advancement.progression_table = [
-            MagicMock(
-                level=1, xp_required=0, features_gained=[], resource_increases={}
-            ),
+            MagicMock(level=1, xp_required=0, features_gained=[], resource_increases={}),
             MagicMock(
                 level=2,
                 xp_required=100,
                 features_gained=["Extra Attack"],
                 resource_increases={"HP": 10},
             ),
-            MagicMock(
-                level=3, xp_required=300, features_gained=[], resource_increases={}
-            ),
+            MagicMock(level=3, xp_required=300, features_gained=[], resource_increases={}),
         ]
         monkeypatch.setattr(
             "monitor_agents.services.entity_service.mongodb_get_game_system",
@@ -245,9 +239,7 @@ class TestDowntimeOptions:
         mock_system.advancement = MagicMock()
         mock_system.advancement.max_level = 20
         mock_system.advancement.progression_table = [
-            MagicMock(
-                level=1, xp_required=0, features_gained=[], resource_increases={}
-            ),
+            MagicMock(level=1, xp_required=0, features_gained=[], resource_increases={}),
             MagicMock(
                 level=2,
                 xp_required=100,

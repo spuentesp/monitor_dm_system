@@ -267,9 +267,7 @@ class TestTemporalValidation:
             scene_id=uuid4(),
             universe_id=uuid4(),
             story_id=uuid4(),
-            scene_time_ref=datetime(
-                1000, 1, 1, 2, tzinfo=UTC
-            ),  # 2 hours later
+            scene_time_ref=datetime(1000, 1, 1, 2, tzinfo=UTC),  # 2 hours later
             scene_text="The castle is under siege.",
         )
 
@@ -277,9 +275,7 @@ class TestTemporalValidation:
 
         # Should detect expired fact reference
         expired_refs = [
-            v
-            for v in result.violations
-            if v.violation_type == TemporalViolationType.EXPIRED_FACT
+            v for v in result.violations if v.violation_type == TemporalViolationType.EXPIRED_FACT
         ]
         assert len(expired_refs) > 0
 
@@ -326,9 +322,7 @@ class TestPlotThreadDetection:
         result = detect_plot_threads_from_scene(scene_text, scene_id, universe_id)
 
         assert result.total_detected >= 1
-        promises = [
-            t for t in result.threads if t.category == PlotThreadCategory.PROMISE
-        ]
+        promises = [t for t in result.threads if t.category == PlotThreadCategory.PROMISE]
         assert len(promises) > 0
         assert "promise" in promises[0].title.lower()
 
@@ -357,9 +351,7 @@ class TestPlotThreadDetection:
         result = detect_plot_threads_from_scene(scene_text, scene_id, universe_id)
 
         assert result.total_detected >= 1
-        mysteries = [
-            t for t in result.threads if t.category == PlotThreadCategory.MYSTERY
-        ]
+        mysteries = [t for t in result.threads if t.category == PlotThreadCategory.MYSTERY]
         assert len(mysteries) > 0
 
     def test_detect_consequence_thread(self):
@@ -371,9 +363,7 @@ class TestPlotThreadDetection:
         result = detect_plot_threads_from_scene(scene_text, scene_id, universe_id)
 
         assert result.total_detected >= 1
-        consequences = [
-            t for t in result.threads if t.category == PlotThreadCategory.CONSEQUENCE
-        ]
+        consequences = [t for t in result.threads if t.category == PlotThreadCategory.CONSEQUENCE]
         assert len(consequences) > 0
 
     def test_detect_relationship_thread(self):
@@ -385,9 +375,7 @@ class TestPlotThreadDetection:
         result = detect_plot_threads_from_scene(scene_text, scene_id, universe_id)
 
         assert result.total_detected >= 1
-        relationships = [
-            t for t in result.threads if t.category == PlotThreadCategory.RELATIONSHIP
-        ]
+        relationships = [t for t in result.threads if t.category == PlotThreadCategory.RELATIONSHIP]
         assert len(relationships) > 0
 
     def test_detect_world_event_thread(self):
@@ -399,9 +387,7 @@ class TestPlotThreadDetection:
         result = detect_plot_threads_from_scene(scene_text, scene_id, universe_id)
 
         assert result.total_detected >= 1
-        events = [
-            t for t in result.threads if t.category == PlotThreadCategory.WORLD_EVENT
-        ]
+        events = [t for t in result.threads if t.category == PlotThreadCategory.WORLD_EVENT]
         assert len(events) > 0
 
     def test_high_urgency_threads_counted(self):
@@ -459,21 +445,11 @@ class TestPlotThreadDetection:
 
     def test_classify_thread_content(self):
         """Text is classified into correct thread category."""
+        assert classify_thread_content("I promise to help you") == PlotThreadCategory.PROMISE
+        assert classify_thread_content("The enemy threatens to attack") == PlotThreadCategory.THREAT
+        assert classify_thread_content("Who committed this crime?") == PlotThreadCategory.MYSTERY
         assert (
-            classify_thread_content("I promise to help you")
-            == PlotThreadCategory.PROMISE
-        )
-        assert (
-            classify_thread_content("The enemy threatens to attack")
-            == PlotThreadCategory.THREAT
-        )
-        assert (
-            classify_thread_content("Who committed this crime?")
-            == PlotThreadCategory.MYSTERY
-        )
-        assert (
-            classify_thread_content("As a result, the war began")
-            == PlotThreadCategory.CONSEQUENCE
+            classify_thread_content("As a result, the war began") == PlotThreadCategory.CONSEQUENCE
         )
 
 

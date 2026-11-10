@@ -109,9 +109,7 @@ class TestTwoTierHub:
                 assert res.status_code == 201, res.text
                 char_id = res.json()["id"]
 
-                res = client.post(
-                    f"/api/entities/characters/{char_id}/conversations", json={}
-                )
+                res = client.post(f"/api/entities/characters/{char_id}/conversations", json={})
                 assert res.status_code == 200, res.text
                 conv = res.json()
                 assert conv["opening"] == "Well met, traveller."
@@ -131,9 +129,7 @@ class TestTwoTierHub:
                 res = client.post("/api/image/portrait", json={"character_id": char_id})
                 assert res.status_code == 200, res.text
                 portrait = res.json()
-                assert portrait["key"].startswith(
-                    f"assets/portrait/character-{char_id}/"
-                )
+                assert portrait["key"].startswith(f"assets/portrait/character-{char_id}/")
                 assert portrait["avatar_url"]  # presigned (or file://) URL
                 # Task 8: generation always produces a PENDING asset and never
                 # mutates the avatar directly.
@@ -167,9 +163,7 @@ class TestTwoTierHub:
                 listing = res.json()
                 listed_ids = {asset["asset_id"] for asset in listing}
                 assert portrait["asset_id"] in listed_ids
-                listed_portrait = next(
-                    a for a in listing if a["asset_id"] == portrait["asset_id"]
-                )
+                listed_portrait = next(a for a in listing if a["asset_id"] == portrait["asset_id"])
                 assert listed_portrait["approval_status"] == "approved"
                 assert listed_portrait["character_id"] == char_id
                 # Approved portrait (use_as_avatar) — has its key recorded
@@ -186,6 +180,7 @@ class TestTwoTierHub:
                 # endpoint looks the conversation up in Mongo, so we seed a
                 # doc matching the schema ``_load_scene_source`` reads.
                 from monitor_data.db.mongodb import get_mongodb_client
+
                 mongo = get_mongodb_client()
                 mongo.get_collection("conversations").insert_one(
                     {
@@ -219,31 +214,23 @@ class TestTwoTierHub:
                 listed_ids = {asset["asset_id"] for asset in res.json()}
                 assert scene["asset_id"] in listed_ids
 
-                client.post(
-                    f"/api/entities/characters/{char_id}/conversations/{conv_id}/end"
-                )
+                client.post(f"/api/entities/characters/{char_id}/conversations/{conv_id}/end")
 
                 # Scene image with a missing conversation → 404 (no spend).
-                res = client.post(
-                    "/api/image/scene", json={"conversation_id": str(uuid4())}
-                )
+                res = client.post("/api/image/scene", json={"conversation_id": str(uuid4())})
                 assert res.status_code == 404
 
     async def test_image_portrait_400_without_provider(self, e2e_databases):
         import monitor_ui.routers.image_gen as image_gen
         from monitor_ui.main import create_app
 
-        with patch.object(
-            image_gen, "resolve_image_adapter", new=AsyncMock(return_value=None)
-        ):
+        with patch.object(image_gen, "resolve_image_adapter", new=AsyncMock(return_value=None)):
             with TestClient(create_app()) as client:
                 res = client.post(
                     "/api/entities/characters",
                     json={"name": "E2E NoPic", "description": "x"},
                 )
                 assert res.status_code == 201, res.text
-                res = client.post(
-                    "/api/image/portrait", json={"character_id": res.json()["id"]}
-                )
+                res = client.post("/api/image/portrait", json={"character_id": res.json()["id"]})
                 assert res.status_code == 400
                 assert "/config" in res.json()["detail"]

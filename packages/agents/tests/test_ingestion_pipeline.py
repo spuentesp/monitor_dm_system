@@ -86,9 +86,7 @@ async def test_ingest_failure_preserves_source_and_uploaded_object(monkeypatch):
 async def test_duplicate_ingest_reports_created_job(monkeypatch):
     pipeline = IngestionPipeline(agent_id="test-duplicate-callback")
     job_id = uuid4()
-    existing = SimpleNamespace(
-        source_id=uuid4(), doc_id=uuid4(), extraction_status=ExtractionStatus.COMPLETED
-    )
+    existing = SimpleNamespace(source_id=uuid4(), doc_id=uuid4(), extraction_status=ExtractionStatus.COMPLETED)
     monkeypatch.setattr(
         "monitor_agents.ingestion.agent.mongodb_find_document_by_filename",
         lambda *_args, **_kwargs: existing,

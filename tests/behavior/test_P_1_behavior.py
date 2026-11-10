@@ -103,9 +103,7 @@ class TestP1StoryCreationFails:
 
     def test_story_creation_fails_without_universe(self):
         """Test ValueError when universe doesn't exist."""
-        with patch(
-            "monitor_data.tools.neo4j_tools.stories.verify_node_exists"
-        ) as mock_verify:
+        with patch("monitor_data.tools.neo4j_tools.stories.verify_node_exists") as mock_verify:
             mock_verify.side_effect = ValueError("Universe not found")
 
             with pytest.raises(ValueError, match="Universe not found"):
@@ -131,9 +129,7 @@ class TestP1StoryTypeValidation:
             ) as mock_get_client:
                 client = MagicMock()
                 mock_get_client.return_value = client
-                client.execute_write = lambda q, p: _mock_execute_write_single_result(
-                    q, p
-                )
+                client.execute_write = lambda q, p: _mock_execute_write_single_result(q, p)
 
                 for valid_type in [
                     StoryType.CAMPAIGN,
@@ -197,9 +193,7 @@ class TestP1StoryStatusDefault:
             ) as mock_get_client:
                 client = MagicMock()
                 mock_get_client.return_value = client
-                client.execute_write = lambda q, p: _mock_execute_write_single_result(
-                    q, p
-                )
+                client.execute_write = lambda q, p: _mock_execute_write_single_result(q, p)
 
                 params = StoryCreate(
                     id=uuid4(),
@@ -223,9 +217,7 @@ class TestP1OptionalFieldsStorage:
             ) as mock_get_client:
                 client = MagicMock()
                 mock_get_client.return_value = client
-                client.execute_write = lambda q, p: _mock_execute_write_single_result(
-                    q, p
-                )
+                client.execute_write = lambda q, p: _mock_execute_write_single_result(q, p)
 
                 params = StoryCreate(
                     id=uuid4(),
@@ -284,11 +276,10 @@ class TestP1StoryOutlineCreation:
         # Full integration test would create actual story first
         story_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.stories.get_mongodb_client"
-        ) as mock_get_client, patch(
-            "monitor_data.tools.mongodb_tools.stories.get_neo4j_client"
-        ) as mock_neo4j:
+        with (
+            patch("monitor_data.tools.mongodb_tools.stories.get_mongodb_client") as mock_get_client,
+            patch("monitor_data.tools.mongodb_tools.stories.get_neo4j_client") as mock_neo4j,
+        ):
             client = MagicMock()
             mock_get_client.return_value = client
             mock_neo4j_client = MagicMock()
@@ -352,9 +343,7 @@ class TestP1PCIDValidation:
                 mock_get_client.return_value = client
                 # Return empty for PC ID lookup (meaning it doesn't exist)
                 client.execute_read = lambda q, p: []
-                client.execute_write = lambda q, p: _mock_execute_write_single_result(
-                    q, p
-                )
+                client.execute_write = lambda q, p: _mock_execute_write_single_result(q, p)
 
                 params = StoryCreate(
                     id=uuid4(),
@@ -379,9 +368,7 @@ class TestP1CLICommand:
         with patch("monitor_cli.commands.play.CanonKeeper") as mock_keeper:
             with patch("monitor_cli.commands.play.typer.prompt"):
                 mock_instance = AsyncMock()
-                mock_instance.create_story = AsyncMock(
-                    return_value={"id": str(uuid4())}
-                )
+                mock_instance.create_story = AsyncMock(return_value={"id": str(uuid4())})
                 mock_keeper.return_value = mock_instance
 
                 universe_id = uuid4()
@@ -398,9 +385,7 @@ class TestP1CLICommand:
         with patch("monitor_cli.commands.play.CanonKeeper") as mock_keeper:
             with patch("monitor_cli.commands.play.typer.prompt"):
                 mock_instance = AsyncMock()
-                mock_instance.create_story = AsyncMock(
-                    side_effect=Exception("DB error")
-                )
+                mock_instance.create_story = AsyncMock(side_effect=Exception("DB error"))
                 mock_keeper.return_value = mock_instance
 
                 universe_id = uuid4()
@@ -414,9 +399,7 @@ class TestP1AcceptanceCriteria:
 
     def test_ac1_universe_must_exist(self):
         """AC-1: Universe must exist before story creation."""
-        with patch(
-            "monitor_data.tools.neo4j_tools.stories.verify_node_exists"
-        ) as mock_verify:
+        with patch("monitor_data.tools.neo4j_tools.stories.verify_node_exists") as mock_verify:
             mock_verify.side_effect = ValueError("Universe not found")
             with pytest.raises(ValueError, match="Universe not found"):
                 neo4j_create_story(
@@ -450,9 +433,7 @@ class TestP1AcceptanceCriteria:
             ) as mock_get_client:
                 client = MagicMock()
                 mock_get_client.return_value = client
-                client.execute_write = lambda q, p: _mock_execute_write_single_result(
-                    q, p
-                )
+                client.execute_write = lambda q, p: _mock_execute_write_single_result(q, p)
 
                 for story_type in StoryType:
                     result = neo4j_create_story(
@@ -474,9 +455,7 @@ class TestP1AcceptanceCriteria:
             ) as mock_get_client:
                 client = MagicMock()
                 mock_get_client.return_value = client
-                client.execute_write = lambda q, p: _mock_execute_write_single_result(
-                    q, p
-                )
+                client.execute_write = lambda q, p: _mock_execute_write_single_result(q, p)
 
                 result = neo4j_create_story(
                     StoryCreate(

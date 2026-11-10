@@ -99,7 +99,9 @@ class _Review:
     async def verify(self, prompt):
         if self.stop:
             raise RunStopped("quota")
-        checks = [ClaimCheck(label=b.split("]")[0].strip("["), verdict=ClaimVerdict.SUPPORTED) for b in prompt.split("\n\n")]
+        checks = [
+            ClaimCheck(label=b.split("]")[0].strip("["), verdict=ClaimVerdict.SUPPORTED) for b in prompt.split("\n\n")
+        ]
         self.verified += len(checks)
         return VerificationBatch(checks=checks)
 
@@ -252,7 +254,9 @@ async def test_cancelled_job_stays_cancelled(mongo):
 
     class _Cancelling(_Extractor):
         async def __call__(self, window):
-            ingestion_jobs.mongodb_update_ingestion_job(job.job_id, IngestionJobUpdate(status=IngestionStatus.CANCELLED))
+            ingestion_jobs.mongodb_update_ingestion_job(
+                job.job_id, IngestionJobUpdate(status=IngestionStatus.CANCELLED)
+            )
             return await super().__call__(window)
 
     final = await _run_job(job, _pdf(), _Cancelling(), _Review())
@@ -269,7 +273,12 @@ async def test_unexpected_failure_marks_the_job_failed_with_the_reason(mongo):
 
 class _Graph:
     async def propose(self, claims):
-        return GraphBatch.model_validate({"claim_domains": {"C1": "rules"}, "relationships": [{"subject": "Momentum", "predicate": "used_in", "object": "Rule", "cites": ["C1"]}]})
+        return GraphBatch.model_validate(
+            {
+                "claim_domains": {"C1": "rules"},
+                "relationships": [{"subject": "Momentum", "predicate": "used_in", "object": "Rule", "cites": ["C1"]}],
+            }
+        )
 
     async def find_duplicates(self, names):
         return MergeAnswer()

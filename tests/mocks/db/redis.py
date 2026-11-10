@@ -69,9 +69,7 @@ class FakeRedisClient:
             return value.decode("utf-8")
         return value
 
-    async def set(
-        self, key: str, value: str | bytes, ex: int | None = None, **kwargs: Any
-    ) -> bool:
+    async def set(self, key: str, value: str | bytes, ex: int | None = None, **kwargs: Any) -> bool:
         """Set a key-value pair with optional expiry (seconds)."""
         expires_at = time.time() + ex if ex else None
         if isinstance(value, str):

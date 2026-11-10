@@ -63,9 +63,7 @@ class TestVectorBatchUpsertRequestSchema:
             VectorPoint(id=uuid4(), vector=[0.1] * 384, payload={"name": f"Entity {i}"})
             for i in range(3)
         ]
-        req = VectorBatchUpsertRequest(
-            collection=VectorCollection.ENTITIES, points=points
-        )
+        req = VectorBatchUpsertRequest(collection=VectorCollection.ENTITIES, points=points)
         assert len(req.points) == 3
 
 
@@ -161,9 +159,7 @@ class TestVectorFilterSchema:
 class TestVectorSearchResponseSchema:
     def test_empty_response(self):
         """VectorSearchResponse with no results."""
-        resp = VectorSearchResponse(
-            collection=VectorCollection.ENTITIES, results=[], count=0
-        )
+        resp = VectorSearchResponse(collection=VectorCollection.ENTITIES, results=[], count=0)
         assert resp.count == 0
         assert resp.results == []
 
@@ -208,9 +204,7 @@ class TestVectorDeleteByFilterRequestSchema:
         """VectorDeleteByFilterRequest deletes vectors matching a filter."""
         uid = uuid4()
         vf = VectorFilter(universe_id=uid)
-        req = VectorDeleteByFilterRequest(
-            collection=VectorCollection.ENTITIES, filter=vf
-        )
+        req = VectorDeleteByFilterRequest(collection=VectorCollection.ENTITIES, filter=vf)
         assert req.filter.universe_id == uid
 
 

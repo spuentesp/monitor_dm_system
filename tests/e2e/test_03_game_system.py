@@ -36,10 +36,7 @@ class TestGameSystemCRUD:
         """RS-1: seeded_game_system fixture creates a D20 game system."""
         assert seeded_game_system is not None
         assert seeded_game_system.id is not None
-        assert (
-            "D20" in seeded_game_system.name.upper()
-            or "d20" in seeded_game_system.name.lower()
-        )
+        assert "D20" in seeded_game_system.name.upper() or "d20" in seeded_game_system.name.lower()
 
     def test_get_game_system_by_id(self, seeded_game_system: Any) -> None:
         """RS-2: Retrieving the game system by ID returns correct data."""
@@ -69,19 +66,14 @@ class TestGameSystemCRUD:
         gs = seeded_game_system
         assert gs.core_mechanic is not None
         assert gs.core_mechanic.type.value == "d20"
-        assert (
-            "d20" in gs.core_mechanic.formula.lower()
-            or "D20" in gs.core_mechanic.formula
-        )
+        assert "d20" in gs.core_mechanic.formula.lower() or "D20" in gs.core_mechanic.formula
 
     def test_game_system_has_rules(self, seeded_game_system: Any) -> None:
         """RS-1: Game system includes combat and mechanic rules."""
         gs = seeded_game_system
         assert len(gs.rules) >= 1
         rule_names = [r.name for r in gs.rules]
-        assert any(
-            "Attack" in n or "Initiative" in n or "Armor" in n for n in rule_names
-        )
+        assert any("Attack" in n or "Initiative" in n or "Armor" in n for n in rule_names)
 
     def test_game_system_attributes_correct(self, seeded_game_system: Any) -> None:
         """RS-1: All 6 D&D-like attributes are present with correct names."""
@@ -97,9 +89,7 @@ class TestGameSystemCRUD:
         ):
             assert attr in attr_names, f"{attr} missing from attribute definitions"
 
-    def test_game_system_skills_linked_to_attributes(
-        self, seeded_game_system: Any
-    ) -> None:
+    def test_game_system_skills_linked_to_attributes(self, seeded_game_system: Any) -> None:
         """RS-1: Skills have linked_attribute set and point to valid attributes."""
         gs = seeded_game_system
         attr_names = {a.name for a in gs.attributes}

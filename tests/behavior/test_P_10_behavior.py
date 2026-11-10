@@ -54,9 +54,7 @@ class TestCombatParticipants:
     def test_create_participant(self):
         """Participants can be created for each side."""
         for side in CombatSide:
-            p = CombatParticipant(
-                entity_id=uuid4(), name=f"Unit-{side.value}", side=side
-            )
+            p = CombatParticipant(entity_id=uuid4(), name=f"Unit-{side.value}", side=side)
             assert p.side == side
             assert p.is_active is True
 
