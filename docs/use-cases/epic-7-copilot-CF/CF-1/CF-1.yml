@@ -6,13 +6,13 @@ title: "Record or Capture Assisted Session"
 category: "cf"
 epic: 7
 priority: "medium"
-status: "in-progress"
+status: "done"
 
 summary: |
-  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+  Capture a human-led session as text entries and turn candidate facts into story-scoped draft proposals with evidence.
 
 acceptance_criteria:
-  - "GM can create a recording and log text entries that produce story-scoped draft proposals (text input only; audio/hybrid explicitly out of scope)"
+  - "GM can create a recording, log text entries, and see candidate facts queued as story-scoped draft proposals with capture evidence."
 
 depends_on: []
 blocks: []

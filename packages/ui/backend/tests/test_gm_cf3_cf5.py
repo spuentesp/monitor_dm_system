@@ -177,3 +177,70 @@ class TestCF5Contradictions:
         assert all(c.scope == "story" for c in contradictions)
         assert any("ends at" in c.fact_b for c in contradictions)
         assert any("cycle" in c.explanation for c in contradictions)
+
+
+class TestCF4AndCF7:
+    @patch("monitor_ui.routers.gm_tools.neo4j_create_plot_thread")
+    @patch("monitor_ui.routers.gm_tools.require_universe_owner", new_callable=AsyncMock)
+    def test_save_hook_creates_a_plot_thread(self, _mock_owner: AsyncMock, mock_create: Mock) -> None:
+        thread_id = uuid4()
+        mock_create.return_value = SimpleNamespace(id=thread_id)
+        story_id = uuid4()
+
+        resp = client.post(
+            "/api/gm/hooks/save",
+            json={
+                "universe_id": str(uuid4()),
+                "story_id": str(story_id),
+                "title": "The sealed door",
+                "description": "A door waits beneath the chapel.",
+                "urgency": "high",
+                "potential_outcomes": ["The party opens it", "The party walks away"],
+                "connected_threads": ["The sealed door"],
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["thread_id"] == str(thread_id)
+        params = mock_create.call_args.args[0]
+        assert params.story_id == story_id
+        assert params.title == "The sealed door"
+        assert "Potential outcomes" in params.gm_notes
+
+    @patch("monitor_ui.routers.gm_tools.PlotHookAgent")
+    @patch("monitor_ui.routers.gm_tools.require_universe_owner", new_callable=AsyncMock)
+    def test_generate_prep_item_returns_content(
+        self,
+        _mock_owner: AsyncMock,
+        mock_agent_cls: Mock,
+    ) -> None:
+        mock_agent = mock_agent_cls.return_value
+        mock_agent.generate_prep_item = AsyncMock(return_value="Prep the chapel map.")
+        story_id = uuid4()
+
+        resp = client.post(
+            "/api/gm/session-prep/generate-item",
+            json={
+                "universe_id": str(uuid4()),
+                "story_id": str(story_id),
+                "category": "location",
+                "description": "Prepare the chapel map",
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["content"] == "Prep the chapel map."
+        mock_agent.generate_prep_item.assert_awaited_once()
+
+
+def test_prep_item_generation_degrades_to_a_placeholder() -> None:
+    from monitor_agents.plot_hooks import PlotHookAgent
+
+    agent = PlotHookAgent.__new__(PlotHookAgent)
+    agent.call_llm_structured = AsyncMock(side_effect=RuntimeError("provider unavailable"))
+
+    result = __import__("asyncio").run(
+        agent.generate_prep_item(uuid4(), uuid4(), "location", "Prepare the chapel map")
+    )
+
+    assert "Prepare the chapel map" in result

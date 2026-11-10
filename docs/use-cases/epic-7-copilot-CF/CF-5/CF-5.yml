@@ -6,13 +6,13 @@ title: "Detect Contradictions"
 category: "cf"
 epic: 7
 priority: "medium"
-status: "in-progress"
+status: "done"
 
 summary: |
-  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+  Detect scoped contradictions, classify their conflict type, and stage a resolution for canon review.
 
 acceptance_criteria:
-  - "TBD"
+  - "The GM can run universe/story/scene contradiction checks, see classified conflicts, and stage a resolution as a pending proposal."
 
 depends_on: []
 blocks: []

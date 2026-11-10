@@ -28,16 +28,24 @@ from monitor_agents.plot_hooks import (
     SessionPrep,
 )
 from monitor_data.db.postgres import PostgresClient
-from monitor_data.schemas.base import Authority, ProposalType
+from monitor_data.schemas.base import (
+    Authority,
+    PlotThreadType,
+    ProposalType,
+    ThreadPriority,
+    ThreadUrgency,
+)
 from monitor_data.schemas.proposed_changes import (
     Evidence,
     ProposedChangeCreate,
     ProposedChangeFilter,
 )
+from monitor_data.schemas.story_outlines import PlotThreadCreate
 from monitor_data.tools.mongodb_tools import (
     mongodb_create_proposed_change,
     mongodb_list_proposed_changes,
 )
+from monitor_data.tools.neo4j_tools import neo4j_create_plot_thread
 from monitor_data.utils.dice import roll_dice
 from monitor_ui.auth import Principal, get_current_user, get_postgres
 from monitor_ui.ownership import require_universe_owner
@@ -71,6 +79,39 @@ class SuggestHooksResponse(BaseModel):
     """Response with suggested plot hooks."""
 
     hooks: list[PlotHook]
+
+
+class SaveHookRequest(BaseModel):
+    """Save a selected hook as a plot thread (CF-4)."""
+
+    universe_id: UUID
+    story_id: UUID
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=4000)
+    urgency: str = Field(default="medium", max_length=20)
+    potential_outcomes: list[str] = Field(default_factory=list)
+    connected_threads: list[str] = Field(default_factory=list)
+
+
+class SaveHookResponse(BaseModel):
+    """Saved hook thread reference."""
+
+    thread_id: str
+
+
+class GeneratePrepItemRequest(BaseModel):
+    """Generate content for one session-prep checklist item (CF-7)."""
+
+    universe_id: UUID
+    story_id: UUID
+    category: str = Field(default="lore", max_length=50)
+    description: str = Field(min_length=1, max_length=1000)
+
+
+class GeneratePrepItemResponse(BaseModel):
+    """Generated content for a prep checklist item."""
+
+    content: str
 
 
 class DetectContradictionsRequest(BaseModel):
@@ -528,3 +569,58 @@ async def resolve_contradiction(
         )
         raise HTTPException(status_code=500, detail=f"Failed to record contradiction resolution: {exc}") from exc
     return ResolveContradictionResponse(proposal_id=str(proposal.proposal_id))
+
+
+@router.post("/gm/hooks/save", response_model=SaveHookResponse)
+async def save_hook(
+    req: SaveHookRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> SaveHookResponse:
+    """CF-4: save a selected hook as a story plot thread."""
+    await require_universe_owner(db, principal, req.universe_id)
+    try:
+        urgency = ThreadUrgency(req.urgency)
+    except ValueError:
+        urgency = ThreadUrgency.MEDIUM
+    try:
+        thread = await asyncio.to_thread(
+            neo4j_create_plot_thread,
+            PlotThreadCreate(
+                story_id=req.story_id,
+                title=req.title,
+                thread_type=PlotThreadType.SUBPLOT,
+                urgency=urgency,
+                priority=ThreadPriority.SECONDARY,
+                gm_notes=(
+                    f"{req.description}\n\nPotential outcomes: "
+                    f"{'; '.join(req.potential_outcomes) if req.potential_outcomes else 'unspecified'}"
+                ),
+            ),
+        )
+    except Exception as exc:
+        log.warning("hook_save_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to save hook: {exc}") from exc
+    return SaveHookResponse(thread_id=str(thread.id))
+
+
+@router.post("/gm/session-prep/generate-item", response_model=GeneratePrepItemResponse)
+async def generate_prep_item(
+    req: GeneratePrepItemRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> GeneratePrepItemResponse:
+    """CF-7: generate missing content for a prep checklist item."""
+    await require_universe_owner(db, principal, req.universe_id)
+    agent = PlotHookAgent()
+    try:
+        content = await agent.generate_prep_item(
+            universe_id=req.universe_id,
+            story_id=req.story_id,
+            category=req.category,
+            description=req.description,
+        )
+    except Exception as exc:
+        log.warning("prep_item_generation_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to generate prep item: {exc}") from exc
+    return GeneratePrepItemResponse(content=content)

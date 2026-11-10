@@ -1588,6 +1588,31 @@ export const gmApi = {
       body: JSON.stringify(body),
     }),
 
+  saveHook: (body: {
+    universe_id: string;
+    story_id: string;
+    title: string;
+    description: string;
+    urgency?: string;
+    potential_outcomes?: string[];
+    connected_threads?: string[];
+  }) =>
+    req<{ thread_id: string }>("/gm/hooks/save", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  generatePrepItem: (body: {
+    universe_id: string;
+    story_id: string;
+    category: string;
+    description: string;
+  }) =>
+    req<{ content: string }>("/gm/session-prep/generate-item", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   generateSessionPrep: (universeId: string, storyId: string, sessionNumber?: number) =>
     req<{ prep: SessionPrep }>("/gm/session-prep", {
       method: "POST",

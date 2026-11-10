@@ -6,13 +6,13 @@ title: "Detect Unresolved Threads"
 category: "cf"
 epic: 7
 priority: "medium"
-status: "in-progress"
+status: "done"
 
 summary: |
-  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+  Surface unresolved threads and let the GM resolve, dismiss, or annotate graph-backed threads.
 
 acceptance_criteria:
-  - "TBD"
+  - "The GM can list unresolved threads and resolve, dismiss, or add notes to graph-backed threads."
 
 depends_on: []
 blocks: []

@@ -1389,12 +1389,15 @@ export interface LorebookIngestRequest {
 // ─── GM Assistant Types (CF-4, CF-5, CF-6, CF-7) ─────────────
 
 export interface PlotHook {
+  hook_id?: string;
   thread_id?: string;
   title: string;
   description: string;
   urgency: "low" | "medium" | "high" | "critical";
   suggested_scene_type: string;
   connected_entities: string[];
+  potential_outcomes?: string[];
+  connected_threads?: string[];
 }
 
 export interface Contradiction {
@@ -1420,12 +1423,21 @@ export interface CaptureInsight {
   proposal_errors?: string[];
 }
 
+export interface PrepItem {
+  item_id: string;
+  category: string;
+  description: string;
+  status: "pending" | "ready" | "skipped";
+  generated_content?: string | null;
+}
+
 export interface SessionPrep {
   recap: string;
   open_threads: string[];
   hooks: PlotHook[];
   npc_reminders: string[];
   world_state_changes: string[];
+  checklist?: PrepItem[];
 }
 
 // P1.3 — guided end-of-session wrap-up digest (gm_assistant recordings).

@@ -26,6 +26,10 @@
 
 **Output:** Contextual plot hook suggestions
 
+**Implementation (2026-11-09):** hooks can be edited, dismissed, or saved as a
+story plot thread from the GM panel. Saved hooks carry their description and
+potential outcomes into the thread's GM notes.
+
 ### Implementation
 
 **Layer 1 (Data Layer):**

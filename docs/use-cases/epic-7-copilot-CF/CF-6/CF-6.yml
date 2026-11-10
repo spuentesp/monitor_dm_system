@@ -9,10 +9,10 @@ priority: "medium"
 status: "done"
 
 summary: |
-  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+  Generate player-facing handouts from world data with spoiler controls.
 
 acceptance_criteria:
-  - "TBD"
+  - "The GM can generate letters, map notes, prophecies, journal entries, notices, or rumors with tone and spoiler controls."
 
 depends_on: []
 blocks: []

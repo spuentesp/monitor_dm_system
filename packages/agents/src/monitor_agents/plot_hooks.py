@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 class PlotHook(BaseModel):
     """A suggested narrative hook for the GM."""
 
+    hook_id: str = Field(default_factory=lambda: str(uuid4()))
     thread_id: str | None = Field(None, description="Related plot thread ID, if any")
     title: str = Field(description="Short title for the hook")
     description: str = Field(description="What the hook involves")
@@ -50,6 +51,14 @@ class PlotHook(BaseModel):
     connected_entities: list[str] = Field(
         default_factory=list,
         description="Entity names connected to this hook",
+    )
+    potential_outcomes: list[str] = Field(
+        default_factory=list,
+        description="Plausible outcomes if the GM uses this hook",
+    )
+    connected_threads: list[str] = Field(
+        default_factory=list,
+        description="Existing thread titles this hook advances",
     )
 
 
@@ -81,6 +90,22 @@ class Contradiction(BaseModel):
     )
 
 
+class PrepItem(BaseModel):
+    """One actionable item in a session-prep checklist."""
+
+    item_id: str = Field(default_factory=lambda: str(uuid4()))
+    category: str = Field(default="lore", description="npc | location | combat | lore | hook")
+    description: str = Field(description="What the GM should prepare")
+    status: str = Field(default="pending", description="pending | ready | skipped")
+    generated_content: str | None = None
+
+
+class PrepItemGenerationResponse(BaseModel):
+    """LLM response wrapper for on-demand prep content."""
+
+    content: str = Field(description="Generated prep material for the item")
+
+
 class SessionPrep(BaseModel):
     """Session preparation materials for the GM."""
 
@@ -89,6 +114,7 @@ class SessionPrep(BaseModel):
     hooks: list[PlotHook] = Field(default_factory=list, description="Suggested narrative hooks")
     npc_reminders: list[str] = Field(default_factory=list, description="NPCs the GM should remember")
     world_state_changes: list[str] = Field(default_factory=list, description="Recent changes to the world state")
+    checklist: list[PrepItem] = Field(default_factory=list, description="Actionable prep checklist")
 
 
 class Handout(BaseModel):
@@ -209,7 +235,8 @@ class PlotHookAgent(BaseAgent):
                     "Given the current state of the story (open threads, recent scenes, "
                     "and entity states), suggest compelling plot hooks that the GM can use "
                     "to drive the narrative forward. Each hook should be specific, actionable, "
-                    "and connected to existing story elements."
+                    "and connected to existing story elements. Include potential outcomes and "
+                    "the existing thread titles each hook advances."
                 ),
             },
             {
@@ -415,13 +442,61 @@ class PlotHookAgent(BaseAgent):
             f.get("content", f.get("text", "")) for f in facts[:5] if f.get("canon_level") in ("canon", "established")
         ]
 
+        checklist = [
+            PrepItem(category="npc", description=f"Review NPC: {npc}")
+            for npc in list(set(npc_reminders))[:3]
+        ]
+        checklist.extend(PrepItem(category="hook", description=f"Prepare hook: {hook.title}") for hook in hooks[:3])
+        checklist.extend(
+            PrepItem(category="lore", description=f"Review change: {change}")
+            for change in world_changes[:3]
+        )
+
         return SessionPrep(
             recap=recap,
             open_threads=[t.get("title", "Untitled") for t in threads[:5]],
             hooks=hooks,
             npc_reminders=list(set(npc_reminders))[:5],
             world_state_changes=world_changes,
+            checklist=checklist,
         )
+
+    async def generate_prep_item(
+        self,
+        universe_id: UUID,
+        story_id: UUID,
+        category: str,
+        description: str,
+    ) -> str:
+        """Generate missing content for one session-prep checklist item."""
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a tabletop GM prep assistant. Generate concise, usable "
+                    "prep material for one checklist item. Keep it grounded in the "
+                    "requested category and description; do not invent canon facts."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Universe: {universe_id}\nStory: {story_id}\n"
+                    f"Category: {category}\nItem: {description}\n"
+                    "Return the generated content only."
+                ),
+            },
+        ]
+        try:
+            result: PrepItemGenerationResponse = await self.call_llm_structured(
+                PrepItemGenerationResponse,
+                messages,
+                max_tokens=800,
+            )
+            return result.content.strip()
+        except Exception:  # noqa: BLE001  # reason: prep generation degrades to a useful placeholder (in generate_prep_item)
+            logger.warning("Prep item generation failed", exc_info=True)
+            return f"{description} — prepare this item before the next session."
 
     # ------------------------------------------------------------------
     # CF-6: Player Handouts

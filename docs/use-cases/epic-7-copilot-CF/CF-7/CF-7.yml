@@ -9,10 +9,10 @@ priority: "medium"
 status: "done"
 
 summary: |
-  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+  Generate a session briefing with an actionable checklist and on-demand item generation.
 
 acceptance_criteria:
-  - "TBD"
+  - "The GM can generate prep materials, mark checklist items ready or skipped, and generate missing item content."
 
 depends_on: []
 blocks: []
