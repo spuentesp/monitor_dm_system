@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,10 @@ FALLBACK_MARKERS = (
     "gathering their thoughts",
     "couldn't generate",
     "unable to continue",
+    # A provider-level failure (auth, quota, misconfiguration) is a fallback
+    # as well: the GM never narrated. Without this marker the smoke reports
+    # success on a backend whose LLM never answered a single turn.
+    "the gm's ai provider",
 )
 DEFAULT_SCRIPTED_TURNS = [
     "I'm Kael Draven, a void-born engineer from Terminus-9. I survived the loss of my salvage crew when the Penitent Star split open in the black. Since then I take repair work, keep my head down, and try not to think about the sounds the hull made when the air left.",
@@ -169,6 +174,42 @@ def _extract_metrics(transcript: list[TranscriptEntry]) -> dict[str, Any]:
         "effects_seen": effects_seen,
         "phase_sequence": phase_sequence,
     }
+
+
+def live_readiness_problems(fetch: Callable[[str], Any]) -> list[str]:
+    """
+    Return why the live gameplay smoke cannot run against this backend.
+
+    An empty list means every precondition holds:
+
+    * a default STANDARD chat provider that holds credentials — this is the
+      provider the runtime resolves for a chat turn;
+    * an EMBEDDING provider — the retrieval layer needs one to assemble the
+      turn context;
+    * at least one universe to play in.
+
+    ``fetch`` maps an API path (relative to the API base URL) to the decoded
+    JSON body.
+    """
+    problems: list[str] = []
+
+    providers = fetch("/llm/providers")
+    chat_defaults = [
+        provider
+        for provider in providers
+        if provider.get("role") == "standard" and provider.get("is_default")
+    ]
+    if not chat_defaults:
+        problems.append("no default STANDARD LLM provider is configured")
+    elif not [provider for provider in chat_defaults if provider.get("api_key_masked")]:
+        problems.append("the default STANDARD LLM provider holds no credentials")
+    if not [provider for provider in providers if provider.get("role") == "embedding"]:
+        problems.append("no EMBEDDING LLM provider is configured")
+
+    if not fetch("/universes/universes"):
+        problems.append("no universe is seeded")
+
+    return problems
 
 
 def _llm_player_turn(
@@ -457,7 +498,30 @@ def main() -> int:
         "--log-file", default=None, help="Markdown log output path for a single run"
     )
     parser.add_argument("--title", default=DEFAULT_SESSION_TITLE, help="Session title")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "Only report whether the live-play preconditions hold, then exit: "
+            "0 = ready, 3 = not ready (with the reasons), 1 = the check failed"
+        ),
+    )
     args = parser.parse_args()
+
+    if args.check:
+        session = requests.Session()
+        try:
+            problems = live_readiness_problems(
+                lambda path: _api(session, "GET", args.api_url, path)
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: any failure here is a broken backend, not a missing precondition
+            print(f"E2E smoke preflight failed: {exc}")
+            return 1
+        if problems:
+            print("E2E smoke: not ready — " + "; ".join(problems))
+            return 3
+        print("E2E smoke: the live-play preconditions are met")
+        return 0
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
