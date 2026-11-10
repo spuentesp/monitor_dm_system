@@ -94,6 +94,10 @@ class QuestionCategory(StrEnum):
     # once, up front, by SessionZeroLoop directly --
     # see ask_campaign_intent -- not chosen by this
     # module's own question-selection LLM call)
+    START_CHOICE = "start_choice"  # How does the player want to begin? Presents the
+    # world-seed start options by name (see
+    # ask_start_options_question) and accepts a free
+    # answer or "surprise me".
 
 
 # ===========================================================================
@@ -140,6 +144,14 @@ class SessionZeroQuestion(BaseModel):
         default="",
         description=(
             "Free-form reasoning: why this question, given the tone and prior answers. For debugging and audit."
+        ),
+    )
+
+    suggested_answers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "2-3 short suggested answers the UI can show as chips (the same way "
+            "suggested actions work in play). Empty when nothing useful to suggest."
         ),
     )
 
@@ -270,6 +282,12 @@ if _DSPY_AVAILABLE:
         is_final: bool = dspy.OutputField(
             desc="True if this is the last question before summarizing (usually after 2-4 substantive answers). False otherwise.",
         )
+        suggested_answers: str = dspy.OutputField(
+            desc=(
+                "2-3 short suggested answers (comma-separated) the player could pick or edit. "
+                "Empty string when nothing useful to suggest."
+            ),
+        )
         reasoning: str = dspy.OutputField(
             desc="Why this question, given the tone and prior answers.",
         )
@@ -385,6 +403,50 @@ if _DSPY_AVAILABLE:
                 interview_transcript=interview_transcript,
             )
 
+    class StartQuestionSignature(dspy.Signature):  # type: ignore[misc]
+        """
+        You are the GM opening a guided start for a tabletop RPG session.
+
+        Write ONE short question that presents the concrete ways this story
+        could begin (the start options) by name. The question must:
+        - name each option (its title) so the player can simply pick one,
+        - make clear they may answer freely instead ("or describe your own
+          way in"), and
+        - offer "surprise me" (you choose for them).
+        Match the setting's tone. One question, no list formatting, no stats.
+        """
+
+        system_name: str = dspy.InputField(desc="Setting / system name. May be empty.")
+        tone: str = dspy.InputField(desc="Narrative tone. May be empty.")
+        option_titles: str = dspy.InputField(desc="Comma-separated start option titles to present by name.")
+        world_material: str = dspy.InputField(desc="Short grounding digest of the setting (may be empty).")
+
+        question_text: str = dspy.OutputField(
+            desc="The single question presenting the options by name, inviting a free answer or 'surprise me'."
+        )
+
+    class StartChoiceSignature(dspy.Signature):  # type: ignore[misc]
+        """
+        You are resolving a player's answer to "how do you want to begin?".
+
+        Decide which start option the player picked. Rules:
+        - If the answer names or clearly paraphrases one option, return its
+          1-based index.
+        - If the player asks you to choose ("surprise me", "you pick",
+          "dealer's choice"), set is_surprise and return the index you think
+          fits the answer's mood, or 0 if the answer gives no mood.
+        - If the player described their own opening instead of picking,
+          return index 0 and copy their intent into free_answer.
+        """
+
+        question_text: str = dspy.InputField(desc="The question that was asked.")
+        option_titles: str = dspy.InputField(desc="Comma-separated option titles, 1-based order.")
+        player_answer: str = dspy.InputField(desc="The player's answer.")
+
+        chosen_index: int = dspy.OutputField(desc="1-based index of the chosen option, or 0 for none.")
+        is_surprise: bool = dspy.OutputField(desc="True when the player asked the GM to choose.")
+        free_answer: str = dspy.OutputField(desc="The player's own way in, when they described one. Empty otherwise.")
+
 
 # ===========================================================================
 # DSPy ↔ Pydantic conversion
@@ -423,6 +485,10 @@ def _parse_category(value: str) -> QuestionCategory:
         "belief": "faith",
         "custom": "custom",
         "other": "custom",
+        "start_choice": "start_choice",
+        "start": "start_choice",
+        "how_to_start": "start_choice",
+        "opening": "start_choice",
     }
     normalized = aliases.get(normalized, normalized)
     try:
@@ -455,6 +521,7 @@ def prediction_to_question(pred: Any) -> SessionZeroQuestion:
         category=_parse_category(getattr(pred, "category", "")),
         is_final=_parse_bool(getattr(pred, "is_final", False)),
         reasoning=str(getattr(pred, "reasoning", "") or ""),
+        suggested_answers=_parse_string_list(getattr(pred, "suggested_answers", ""))[:3],
     )
 
 
@@ -866,3 +933,268 @@ async def _run_dspy_summary(
 
     pred = await asyncio.to_thread(_predict)
     return prediction_to_summary(pred)
+
+
+# ===========================================================================
+# Guided start — start options, start-choice resolution, question plan
+# (Phase 2: questions, world-grounded start suggestions, question series)
+# ===========================================================================
+
+
+class StartChoice(BaseModel):
+    """What the player's answer to the start question resolved to."""
+
+    option_id: str | None = Field(None, description="Chosen start option, if any.")
+    option_title: str | None = None
+    is_surprise: bool = Field(default=False, description="Player asked the GM to choose.")
+    free_answer: str = Field(default="", description="The player's own way in, when they described one.")
+
+
+GUIDED_IDENTITY_QUESTION = {
+    "question_text": "Who are you in this story — what are you called, where do you come from, and what do you look like?",
+    "category": QuestionCategory.NAME.value,
+    "is_final": False,
+    "answer_options": [],
+}
+
+GUIDED_DESIRE_QUESTION = {
+    "question_text": "What does your character want most — what drives them into this story?",
+    "category": QuestionCategory.MOTIVATION.value,
+    "is_final": False,
+    "answer_options": [],
+}
+
+
+def start_option_titles(start_options: list[dict[str, Any]]) -> list[str]:
+    """Chip labels for the seed's start options (title, else location)."""
+    titles: list[str] = []
+    for option in start_options or []:
+        if not isinstance(option, dict):
+            continue
+        title = str(option.get("title") or option.get("location") or "").strip()
+        if title:
+            titles.append(title)
+    return titles
+
+
+def fallback_start_question(start_options: list[dict[str, Any]]) -> str:
+    """Deterministic start question when the LLM is unavailable.
+
+    Still presents the seed's options by name and accepts a free answer or
+    "surprise me" — the fixed generic-genre question is gone.
+    """
+    titles = start_option_titles(start_options)
+    if not titles:
+        return "How would you like this story to begin?"
+    if len(titles) == 1:
+        listing = titles[0]
+    else:
+        listing = ", ".join(titles[:-1]) + f", or {titles[-1]}"
+    return (
+        f"How would you like to begin? We could start with {listing} — "
+        "pick one, describe your own way in, or say 'surprise me' and I'll choose."
+    )
+
+
+async def ask_start_options_question(
+    *,
+    system_name: str,
+    tone: str,
+    start_options: list[dict[str, Any]],
+    world_material: str = "",
+) -> SessionZeroQuestion:
+    """Model-written question presenting the seed's start options by name.
+
+    Replaces the fixed CAMPAIGN_INTENT_QUESTION: the question is grounded in
+    this world's options instead of listing the same generic genres for
+    every world. Falls back to a deterministic option-listing template.
+    """
+    titles = start_option_titles(start_options)
+    answers = [*titles, "Surprise me"][: max(3, len(titles) + 1)]
+    fallback = SessionZeroQuestion(
+        question_text=fallback_start_question(start_options),
+        category=QuestionCategory.START_CHOICE,
+        is_final=False,
+        reasoning="Fallback start question (LLM unavailable).",
+        suggested_answers=answers,
+    )
+    if not titles:
+        return fallback
+    if not _DSPY_AVAILABLE:
+        return fallback
+
+    from monitor_agents.dspy_runtime import dspy_context_for
+    from monitor_data.schemas.llm_config import ModelRole
+
+    try:
+
+        def _predict() -> Any:
+            with dspy_context_for("start_question", ModelRole.LIGHT):
+                return dspy.Predict(StartQuestionSignature)(
+                    system_name=system_name or "this world",
+                    tone=tone or "dramatic",
+                    option_titles=", ".join(titles),
+                    world_material=world_material[:1500] or "(none)",
+                )
+
+        prediction = await asyncio.to_thread(_predict)
+        text = str(getattr(prediction, "question_text", "") or "").strip()
+        if not text:
+            return fallback
+        return SessionZeroQuestion(
+            question_text=text,
+            category=QuestionCategory.START_CHOICE,
+            is_final=False,
+            reasoning="Model-written start question grounded in the world seed.",
+            suggested_answers=answers,
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: a failed draft degrades to the option-listing fallback, never a failed session (in ask_start_options_question)
+        logger.warning("Start question LLM call failed (%s); using fallback", exc)
+        await _record_interview_llm_error(exc)
+        return fallback
+
+
+async def resolve_start_choice(
+    *,
+    question_text: str,
+    options: list[dict[str, Any]],
+    answer: str,
+) -> StartChoice:
+    """Resolve the player's answer to the start question.
+
+    An exact option-name match resolves directly; everything else (free
+    answers, "surprise me") is judged by a typed model call, never a
+    keyword table. When the model is unavailable the free answer is kept
+    and the caller falls back to the first option.
+    """
+    cleaned = (answer or "").strip()
+    titles = start_option_titles(options)
+
+    def _by_index(index: int) -> StartChoice:
+        if 1 <= index <= len(options):
+            option = options[index - 1]
+            return StartChoice(
+                option_id=str(option.get("option_id") or "") or None,
+                option_title=titles[index - 1] if index - 1 < len(titles) else None,
+            )
+        return StartChoice(free_answer=cleaned)
+
+    lowered = cleaned.lower()
+    for idx, title in enumerate(titles):
+        if title and title.lower() in lowered:
+            return _by_index(idx + 1)
+
+    if not titles or not cleaned:
+        return StartChoice(free_answer=cleaned)
+
+    if not _DSPY_AVAILABLE:
+        return StartChoice(free_answer=cleaned)
+
+    from monitor_agents.dspy_runtime import dspy_context_for
+    from monitor_data.schemas.llm_config import ModelRole
+
+    try:
+
+        def _predict() -> Any:
+            with dspy_context_for("start_choice", ModelRole.LIGHT):
+                return dspy.Predict(StartChoiceSignature)(
+                    question_text=question_text[:500],
+                    option_titles=", ".join(titles),
+                    player_answer=cleaned[:1000],
+                )
+
+        prediction = await asyncio.to_thread(_predict)
+        raw_index = getattr(prediction, "chosen_index", 0)
+        try:
+            chosen_index = int(raw_index)
+        except (TypeError, ValueError):
+            chosen_index = 0
+        is_surprise = _parse_bool(getattr(prediction, "is_surprise", False))
+        free_answer = str(getattr(prediction, "free_answer", "") or "").strip()
+        if chosen_index <= 0:
+            return StartChoice(is_surprise=is_surprise, free_answer=free_answer or cleaned)
+        choice = _by_index(chosen_index)
+        return choice.model_copy(update={"is_surprise": is_surprise, "free_answer": free_answer})
+    except Exception as exc:  # noqa: BLE001  # reason: a failed judgment degrades to an unchosen free answer, never a failed session (in resolve_start_choice)
+        logger.warning("Start choice resolution failed (%s); keeping free answer", exc)
+        await _record_interview_llm_error(exc)
+        return StartChoice(free_answer=cleaned)
+
+
+async def _record_interview_llm_error(exc: Exception) -> None:
+    """Route a non-fatal interview LLM failure through the error recorder."""
+    try:
+        from monitor_agents.llm_errors import classify_llm_error
+        from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+        from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+        info = classify_llm_error(exc)
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.PREPLAY,
+            category=RoleplayErrorCategory.LLM,
+            message=info.message,
+            fatal=False,
+            llm_error_class=info.error_class.value,
+        )
+    except Exception:  # noqa: BLE001  # reason: the recorder itself must never break a turn (in _record_interview_llm_error)
+        logger.debug("roleplay error recording failed", exc_info=True)
+
+
+def build_question_plan(
+    *,
+    start_options: list[dict[str, Any]] | None = None,
+    start_question_text: str | None = None,
+    authored_questions: list[dict[str, Any]] | None = None,
+    has_persona: bool = False,
+    has_premise: bool = False,
+    max_questions: int = 4,
+) -> tuple[list[dict[str, Any]], int]:
+    """The guided-start question series.
+
+    Order: how to start, who you are, what you want, one adaptive follow-up.
+    The cap stays at 4. A persona (who you are is already known) or a rich
+    first message (what you want is already stated) shortens the series.
+    Pack-authored questions keep their curator order in the middle slots.
+
+    Returns ``(fixed_questions, total)``: the fixed questions as
+    authored-shaped dicts, and the total question count including the
+    trailing adaptive follow-up when there is room for it.
+    """
+    cap = min(max(1, max_questions), 4)
+    fixed: list[dict[str, Any]] = []
+
+    if start_options:
+        titles = start_option_titles(start_options)
+        fixed.append(
+            {
+                "question_text": (start_question_text or fallback_start_question(start_options)).strip(),
+                "category": QuestionCategory.START_CHOICE.value,
+                "is_final": False,
+                "answer_options": [*titles, "Surprise me"][: max(3, len(titles) + 1)],
+            }
+        )
+
+    if authored_questions:
+        for question in authored_questions:
+            if len(fixed) >= cap:
+                break
+            text = str(question.get("question_text") or "").strip()
+            if not text:
+                continue
+            fixed.append(
+                {
+                    "question_text": text,
+                    "category": _parse_category(str(question.get("category", "custom"))).value,
+                    "is_final": bool(question.get("is_final")),
+                    "answer_options": [str(o) for o in (question.get("answer_options") or [])][:3],
+                }
+            )
+    else:
+        if not has_persona and len(fixed) < cap:
+            fixed.append(dict(GUIDED_IDENTITY_QUESTION))
+        if not has_premise and len(fixed) < cap:
+            fixed.append(dict(GUIDED_DESIRE_QUESTION))
+
+    # One adaptive follow-up fills the last slot when there is room for it.
+    total = min(cap, len(fixed) + 1)
+    return fixed, max(total, len(fixed))

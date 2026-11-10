@@ -35,6 +35,7 @@ from monitor_agents.session_zero import (
     SessionZeroSummary,
     _parse_category,
     ask_session_zero_question,
+    ask_start_options_question,
     summarize_session_zero_answers,
 )
 
@@ -84,8 +85,14 @@ class SessionZeroState(BaseModel):
     question_number: int = 0
     current_question: str | None = None
     current_category: str = "custom"
+    current_answer_options: list[str] = Field(default_factory=list)
     answers: list[dict[str, str]] = Field(default_factory=list)
     categories_asked: list[str] = Field(default_factory=list)
+
+    # World-seed start options (Phase 2 guided start): 2-4 concrete ways to
+    # begin, carried here so a restored checkpoint re-asks the same question
+    # with the same chips after a backend restart.
+    start_options: list[dict[str, Any]] = Field(default_factory=list)
 
     # Player input
     player_input: str | None = None
@@ -132,6 +139,9 @@ async def ask_question(state: SessionZeroState) -> dict[str, Any]:
         question_text = str(aq.get("question_text", "")).strip()
         if question_text:
             category = _parse_category(str(aq.get("category", "custom"))).value
+            # The start question carries every option plus "Surprise me"
+            # (up to 5 chips); other questions stay at 2-3 suggestions.
+            answer_options = [str(o).strip() for o in (aq.get("answer_options") or []) if str(o).strip()][:6]
             # Always PRESENT an authored question; completion is decided by
             # process_answer once the count/budget is reached. Marking it
             # complete at ask-time (as the LLM path may) would skip showing
@@ -140,6 +150,7 @@ async def ask_question(state: SessionZeroState) -> dict[str, Any]:
                 "question_number": next_num,
                 "current_question": question_text,
                 "current_category": category,
+                "current_answer_options": answer_options,
                 "gm_message": question_text,
                 "awaiting_input": True,
                 "interview_complete": False,
@@ -160,6 +171,7 @@ async def ask_question(state: SessionZeroState) -> dict[str, Any]:
         "question_number": next_num,
         "current_question": question.question_text,
         "current_category": question.category.value,
+        "current_answer_options": list(question.suggested_answers[:3]),
         "gm_message": question.question_text,
         "awaiting_input": True,
         "interview_complete": question.is_final and next_num >= state.max_questions,
@@ -216,11 +228,18 @@ async def summarize_node(state: SessionZeroState) -> dict[str, Any]:
             "gm_message": "No answers to summarize — let's begin with your character as-is.",
         }
 
+    # The start-choice / campaign-intent answer steers the STORY, not the
+    # character — keep it out of the concept/backstory synthesis (it is
+    # surfaced separately for the story premise and the chosen start).
+    synthesis_answers = [
+        answer for answer in state.answers if answer.get("category") not in {"start_choice", "campaign_intent"}
+    ]
+
     summary: SessionZeroSummary = await summarize_session_zero_answers(
         tone=state.tone,
         system_name=state.system_name,
         world_lore=state.world_lore,
-        answers=state.answers,
+        answers=synthesis_answers,
     )
 
     # Build a GM message that presents the summary
@@ -349,6 +368,8 @@ class SessionZeroLoop:
         seed_answers: list[dict[str, str]] | None = None,
         ask_campaign_intent: bool = False,
         authored_questions: list[dict[str, Any]] | None = None,
+        start_options: list[dict[str, Any]] | None = None,
+        plan_total: int | None = None,
     ) -> None:
         self._tone = tone
         self._system_name = system_name
@@ -375,8 +396,13 @@ class SessionZeroLoop:
         # their count. If the authored set is shorter than the budget, the LLM
         # fills the remainder (hybrid authored → adaptive).
         authored = list(authored_questions or [])
-        if authored:
-            effective_max_questions = max(effective_max_questions, len(authored))
+        if plan_total is not None:
+            # The guided-start plan already priced in persona / rich-first-
+            # message shortening — honor its total exactly.
+            effective_max_questions = max(1, plan_total)
+        else:
+            if authored:
+                effective_max_questions = max(effective_max_questions, len(authored))
         self._max_questions = effective_max_questions
 
         self._state = SessionZeroState(
@@ -392,20 +418,39 @@ class SessionZeroLoop:
             categories_asked=[a.get("category", "custom") for a in seed],
             campaign_intent_pending=ask_campaign_intent,
             authored_questions=authored,
+            start_options=[dict(o) for o in (start_options or []) if isinstance(o, dict)],
         )
 
     async def start(self) -> dict[str, Any]:
         """Initialize the loop and return the first GM question."""
         if self._state.campaign_intent_pending:
-            # Fixed, deliberate question -- not LLM-chosen, doesn't consume
-            # a slot from the character-question budget. question_number
-            # stays 0 so the first *real* question (asked once this is
-            # answered) still reports as question 1.
+            # The start question -- a model-written question presenting the
+            # world-seed start options by name (Phase 2 replaced the fixed
+            # generic-genre CAMPAIGN_INTENT_QUESTION). It doesn't consume a
+            # slot from the character-question budget. question_number stays
+            # 0 so the first *real* question (asked once this is answered)
+            # still reports as question 1. The fixed text remains only as the
+            # fallback when there are no start options to present.
+            category = "campaign_intent"
+            answer_options: list[str] = []
+            if self._state.start_options:
+                start_question = await ask_start_options_question(
+                    system_name=self._system_name,
+                    tone=self._tone,
+                    start_options=self._state.start_options,
+                    world_material="\n".join(self._world_lore[:6]),
+                )
+                question_text = start_question.question_text
+                answer_options = list(start_question.suggested_answers)
+                category = "start_choice"
+            else:
+                question_text = CAMPAIGN_INTENT_QUESTION
             self._state = self._state.model_copy(
                 update={
-                    "current_question": CAMPAIGN_INTENT_QUESTION,
-                    "current_category": "campaign_intent",
-                    "gm_message": CAMPAIGN_INTENT_QUESTION,
+                    "current_question": question_text,
+                    "current_category": category,
+                    "current_answer_options": answer_options,
+                    "gm_message": question_text,
                     "awaiting_input": True,
                 }
             )
@@ -414,7 +459,9 @@ class SessionZeroLoop:
                 "gm_message": self._state.gm_message,
                 "question_number": 0,
                 "total_questions": self._max_questions,
-                "category": "campaign_intent",
+                "category": category,
+                "suggested_answers": answer_options,
+                "start_options": list(self._state.start_options),
             }
 
         result = await ask_question(self._state)
@@ -436,6 +483,8 @@ class SessionZeroLoop:
             "question_number": self._state.question_number,
             "total_questions": self._max_questions,
             "category": self._state.current_category,
+            "suggested_answers": list(self._state.current_answer_options),
+            "start_options": list(self._state.start_options),
         }
 
     async def _process_campaign_intent_answer(self, player_input: str) -> dict[str, Any]:
@@ -479,17 +528,35 @@ class SessionZeroLoop:
             "total_questions": self._max_questions,
             "category": self._state.current_category,
             "campaign_intent": campaign_intent_answer,
+            "suggested_answers": list(self._state.current_answer_options),
+            "start_options": list(self._state.start_options),
         }
 
     async def process_player_input(self, player_input: str) -> dict[str, Any]:
         """Process the player's answer and return the next question or summary."""
         if self._state.campaign_intent_pending:
-            return await self._process_campaign_intent_answer(player_input)
+            result = await self._process_campaign_intent_answer(player_input)
+            # The campaign-intent answer IS the start choice when the question
+            # presented the world-seed options (Phase 2).
+            if self._state.start_options or result.get("category") == "start_choice":
+                result.setdefault("answered_category", "start_choice")
+                result.setdefault("answered_text", (player_input or "").strip())
+            return result
+
+        answered_category = self._state.current_category
+        answered_text = (player_input or "").strip()
+        answered_options = list(self._state.current_answer_options)
 
         self._state = self._state.model_copy(update={"player_input": player_input})
 
         result = await process_answer(self._state)
         self._state = self._state.model_copy(update=result)
+
+        answered_meta = {
+            "answered_category": answered_category,
+            "answered_text": answered_text,
+            "answered_suggested_answers": answered_options,
+        }
 
         if self._state.interview_complete:
             # Generate the summary
@@ -500,6 +567,7 @@ class SessionZeroLoop:
                 "gm_message": self._state.gm_message,
                 "summary": self._state.summary,
                 "answers": self._state.answers,
+                **answered_meta,
             }
 
         # Ask the next question
@@ -514,6 +582,7 @@ class SessionZeroLoop:
                 "gm_message": self._state.gm_message,
                 "summary": self._state.summary,
                 "answers": self._state.answers,
+                **answered_meta,
             }
 
         return {
@@ -522,6 +591,9 @@ class SessionZeroLoop:
             "question_number": self._state.question_number,
             "total_questions": self._max_questions,
             "category": self._state.current_category,
+            "suggested_answers": list(self._state.current_answer_options),
+            "start_options": list(self._state.start_options),
+            **answered_meta,
         }
 
     @property

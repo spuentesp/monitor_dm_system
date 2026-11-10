@@ -136,7 +136,9 @@ async def build_gm_opening(
        "the story so far" via RecapAgent.
     3. **Cold open** (default) — generate an in-fiction scene-setting
        paragraph via the LLM; fall through to a non-LLM template if that
-       call fails.
+       call fails. When pre-play materialized a starting situation, the
+       cold open narrates it (where the PC is, who is there, what is
+       happening) instead of inventing a fresh scene.
     """
     # P&F S5 case 1: the ingested module's own authored intro, verbatim.
     # Fresh sessions only — resume keeps priority for its recap branch below.
@@ -175,11 +177,21 @@ async def build_gm_opening(
     locations = lore["locations"]
     story_premise = session.get("story_premise")
 
+    # Phase 2: when pre-play materialized a starting situation, the generated
+    # opening must narrate it — where the PC is, who is there, what is
+    # happening — instead of inventing a fresh scene.
+    try:
+        from monitor_agents.world_seed import situation_brief
+
+        start_brief = situation_brief(session)
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in build_gm_opening)
+        start_brief = ""
+
     # A stated premise alone is reason enough to run the LLM path -- the
     # non-LLM fallback below is a fixed lore-snippet template that can't
     # honor free-text steering, so a premise-only session (no lore yet)
     # must not silently discard it.
-    if axioms or facts or system_name or story_premise:
+    if axioms or facts or system_name or story_premise or start_brief:
         try:
             from monitor_data.tools.mongodb_tools import mongodb_get_gm_profile
 
@@ -195,6 +207,10 @@ async def build_gm_opening(
                     logger.debug("Failed to load GM profile for opening: %s", e)
 
             lore_context = []
+            if start_brief:
+                lore_context.append(
+                    "STARTING SITUATION (narrate this, invent nothing that contradicts it):\n" + start_brief
+                )
             if locations:
                 lore_context.append("Locations: " + "; ".join(locations[:2]))
             if facts:
@@ -205,7 +221,13 @@ async def build_gm_opening(
             narrator = Narrator()
             narrative = (
                 await narrator.generate_opening(
-                    user_input="(session opening — set the scene and ask who the player is)",
+                    user_input=(
+                        "(session opening — narrate the starting situation: where the "
+                        "player character is, who is present, what is happening, ending "
+                        "on a prompt to act)"
+                        if start_brief
+                        else "(session opening — set the scene and ask who the player is)"
+                    ),
                     context={
                         "entities": [{"context": "\n".join(lore_context)}] if lore_context else [],
                         "memories": [],
@@ -231,6 +253,8 @@ async def build_gm_opening(
     # in the latter case still surface the stated premise rather than a
     # fully generic question.
     parts: list[str] = []
+    if start_brief:
+        parts.append(start_brief.replace("\n", " ")[:400])
     if story_premise:
         parts.append(f"The story you want: {story_premise}.")
 

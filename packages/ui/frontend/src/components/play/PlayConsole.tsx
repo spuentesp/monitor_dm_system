@@ -456,13 +456,39 @@ export default function PlayConsole() {
       ),
     [lastGmMsg, settledSuggestionIds],
   );
-  const rawSuggestions = (lastGmMsg?.metadata as { suggested_actions?: unknown } | undefined)
-    ?.suggested_actions;
-  const suggestionChips: QuickAction[] = (
-    Array.isArray(rawSuggestions)
-      ? rawSuggestions.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+  const rawMeta = (lastGmMsg?.metadata ?? {}) as {
+    suggested_actions?: unknown;
+    suggested_answers?: unknown;
+    start_options?: unknown;
+  };
+  const rawSuggestions = rawMeta.suggested_actions;
+  // Pre-play chips (guided start): the world seed's start options and the
+  // current question's suggested answers, shown the same way suggested
+  // actions work in play — tap to place in the input, then send or edit.
+  const startOptionChips: QuickAction[] = (
+    Array.isArray(rawMeta.start_options)
+      ? rawMeta.start_options.filter(
+          (o): o is { title?: string; summary?: string; hook?: string } =>
+            typeof o === "object" && o !== null && typeof (o as { title?: unknown }).title === "string",
+        )
+      : []
+  ).map((option) => ({
+    label: option.title ?? "",
+    icon: Sparkles,
+    onClick: "fill" as const,
+    text: option.title ?? "",
+    className: "hover:border-purple-500/30 hover:bg-purple-500/10",
+    title: [option.summary, option.hook].filter(Boolean).join(" — ") || "A way to begin — tap to place in the input",
+  }));
+  const suggestedAnswerChips: QuickAction[] = (
+    Array.isArray(rawMeta.suggested_answers)
+      ? rawMeta.suggested_answers.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
       : []
   )
+    // The start question's suggestions repeat the option titles — the
+    // start-option chips already show those, so only the extra ones
+    // (e.g. "Surprise me") are rendered here.
+    .filter((text) => !startOptionChips.some((chip) => chip.label === text))
     .slice(0, 3)
     .map((text) => ({
       label: text,
@@ -470,8 +496,25 @@ export default function PlayConsole() {
       onClick: "fill" as const,
       text,
       className: "hover:border-cyan-500/30 hover:bg-cyan-500/10",
-      title: "Suggested next move — tap to place in the input",
+      title: "Suggested answer — tap to place in the input",
     }));
+  const suggestionChips: QuickAction[] = [
+    ...startOptionChips,
+    ...suggestedAnswerChips,
+    ...(Array.isArray(rawSuggestions)
+      ? rawSuggestions.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+      : []
+    )
+      .slice(0, 3)
+      .map((text) => ({
+        label: text,
+        icon: Sparkles,
+        onClick: "fill" as const,
+        text,
+        className: "hover:border-cyan-500/30 hover:bg-cyan-500/10",
+        title: "Suggested next move — tap to place in the input",
+      })),
+  ];
 
   const quickActions: QuickAction[] = [
     ...suggestionChips,

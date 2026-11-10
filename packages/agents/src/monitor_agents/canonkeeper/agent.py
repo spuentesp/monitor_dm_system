@@ -188,12 +188,19 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
     _COMMIT_ORDER = {
         "create_axiom": 0,
         "create_entity_archetype": 1,
+        "entity": 1,
+        "character": 1,
+        "location": 1,
         "create_lore_fact": 2,
         "create_random_table": 3,
         "create_tone_profile": 3,
         "create_character_profile": 4,
         "create_generation_template": 5,
+        "create_agenda": 5,
         "entity_relationship": 6,
+        "spatial_topology": 6,
+        # Pack plot threads resolve entity names and need a story — last.
+        "create_plot_thread": 8,
     }
 
     # ------------------------------------------------------------------
