@@ -146,9 +146,13 @@ def universe_of_scene(scene_id: str | UUID) -> str | None:
     """Resolve a scene's universe: the Mongo scene doc first, Neo4j as fallback."""
     from monitor_data.db.mongodb import get_mongodb_client
 
-    doc = get_mongodb_client().get_collection("scenes").find_one(
-        {"scene_id": str(scene_id)},
-        {"universe_id": 1},
+    doc = (
+        get_mongodb_client()
+        .get_collection("scenes")
+        .find_one(
+            {"scene_id": str(scene_id)},
+            {"universe_id": 1},
+        )
     )
     if isinstance(doc, dict) and doc.get("universe_id"):
         return str(doc["universe_id"])
@@ -165,9 +169,13 @@ def universe_of_memory(memory_id: str | UUID) -> str | None:
     """Resolve a memory document's universe (``None`` if missing)."""
     from monitor_data.db.mongodb import get_mongodb_client
 
-    doc = get_mongodb_client().get_collection("character_memories").find_one(
-        {"memory_id": str(memory_id)},
-        {"universe_id": 1},
+    doc = (
+        get_mongodb_client()
+        .get_collection("character_memories")
+        .find_one(
+            {"memory_id": str(memory_id)},
+            {"universe_id": 1},
+        )
     )
     return str(doc["universe_id"]) if isinstance(doc, dict) and doc.get("universe_id") else None
 
@@ -345,9 +353,13 @@ def assert_proposal_target_write(
     if proposer and proposer.startswith("character_promotion:"):
         from monitor_data.db.mongodb import get_mongodb_client
 
-        card = get_mongodb_client().get_collection("characters").find_one(
-            {"id": proposer.split(":", 1)[1]},
-            {"owner_id": 1},
+        card = (
+            get_mongodb_client()
+            .get_collection("characters")
+            .find_one(
+                {"id": proposer.split(":", 1)[1]},
+                {"owner_id": 1},
+            )
         )
         if not isinstance(card, dict) or not card.get("owner_id"):
             raise _refuse(resource, "promoted character not found")

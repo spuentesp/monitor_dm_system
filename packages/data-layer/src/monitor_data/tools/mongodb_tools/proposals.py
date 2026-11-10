@@ -371,8 +371,7 @@ def mongodb_defer_proposed_change(
     current_status = _coerce_proposal_status(doc.get("status", ProposalStatus.PENDING.value))
     if current_status != ProposalStatus.PENDING:
         raise ValueError(
-            f"Cannot defer proposal with status {current_status.value}. "
-            f"Only pending proposals can be deferred."
+            f"Cannot defer proposal with status {current_status.value}. Only pending proposals can be deferred."
         )
 
     coll.update_one(

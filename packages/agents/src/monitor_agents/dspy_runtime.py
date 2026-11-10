@@ -555,10 +555,10 @@ def _track_model_usage(fn):  # type: ignore[no-untyped-def]
     """Wrap ``CachedDSPyLM.__call__``: quota check before, usage record after."""
     import functools
 
-    from monitor_data.usage import enforce_owner_quota, record_model_usage
-
     @functools.wraps(fn)
     def wrapper(self: Any, prompt: Any = None, messages: Any = None, **call_kwargs: Any) -> Any:
+        from monitor_data.usage import enforce_owner_quota, record_model_usage
+
         enforce_owner_quota()
         result = fn(self, prompt=prompt, messages=messages, **call_kwargs)
         prompt_tokens, completion_tokens = _estimate_call_tokens(self.model, prompt, messages, result)

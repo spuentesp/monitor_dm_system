@@ -39,6 +39,7 @@ async def _account_embedding(resp: Any, inputs: list[str]) -> None:
     total = (tokens[0] + tokens[1]) if tokens else estimate_text_tokens("".join(inputs))
     await record_model_usage_async(tokens=total, calls=1)
 
+
 logger = logging.getLogger(__name__)
 
 

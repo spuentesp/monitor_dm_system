@@ -239,3 +239,7 @@ class TestHelpers:
 
     def test_estimate_text_tokens_is_positive(self) -> None:
         assert estimate_text_tokens("hello brave adventurer") > 0
+
+    def test_bad_owner_id_never_raises_from_recording(self) -> None:
+        with patch("monitor_data.db.postgres.get_postgres_client", MagicMock()):
+            record_model_usage(tokens=1, calls=1, expected_owner_id="not-a-uuid")  # must not raise

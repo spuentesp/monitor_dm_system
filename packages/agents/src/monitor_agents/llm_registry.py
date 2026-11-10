@@ -72,6 +72,7 @@ async def _record_call_usage(response: Any, messages: list[dict[str, Any]], outp
     """
     await record_completion_usage(messages=messages, response=response, output_text=output_text)
 
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -128,7 +129,9 @@ class LLMClient:
                     **params,
                 ),
             )
-        await _record_call_usage(None, messages, result.model_dump_json() if hasattr(result, "model_dump_json") else str(result))
+        await _record_call_usage(
+            None, messages, result.model_dump_json() if hasattr(result, "model_dump_json") else str(result)
+        )
         return result
 
     async def complete_text(

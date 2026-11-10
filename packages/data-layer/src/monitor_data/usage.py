@@ -172,14 +172,25 @@ def record_model_usage(
     calls: int = 1,
     expected_owner_id: str | UUID | None = None,
 ) -> None:
-    """Sync post-model-call usage write for the acting owner (no owner = no-op)."""
+    """Sync post-model-call usage write for the acting owner (no owner = no-op).
+
+    Never raises: any accounting failure is logged and recorded so it can
+    never break the turn it describes.
+    """
     from monitor_data.db._utils import run_sync
     from monitor_data.db.postgres import get_postgres_client
 
-    owner = _resolve_owner(expected_owner_id)
-    if owner is None:
-        return
-    run_sync(record_usage(get_postgres_client(), owner, tokens=int(tokens), calls=int(calls)))
+    try:
+        owner = _resolve_owner(expected_owner_id)
+        if owner is None:
+            return
+        run_sync(record_usage(get_postgres_client(), owner, tokens=int(tokens), calls=int(calls)))
+    except Exception as exc:  # noqa: BLE001  # reason: an accounting failure must never break the turn it describes
+        log.warning("usage_record_failed", tokens=tokens, calls=calls, error=str(exc))
+        try:
+            run_sync(_record_usage_failure(exc))
+        except Exception:  # noqa: BLE001, S110  # reason: recording an error must never itself raise
+            pass
 
 
 async def enforce_owner_quota_async(*, expected_owner_id: str | UUID | None = None) -> None:
@@ -198,13 +209,17 @@ async def record_model_usage_async(
     calls: int = 1,
     expected_owner_id: str | UUID | None = None,
 ) -> None:
-    """Async post-model-call usage write for the acting owner (no owner = no-op)."""
+    """Async post-model-call usage write (no owner = no-op). Never raises."""
     from monitor_data.db.postgres import get_postgres_client
 
-    owner = _resolve_owner(expected_owner_id)
-    if owner is None:
-        return
-    await record_usage(get_postgres_client(), owner, tokens=int(tokens), calls=int(calls))
+    try:
+        owner = _resolve_owner(expected_owner_id)
+        if owner is None:
+            return
+        await record_usage(get_postgres_client(), owner, tokens=int(tokens), calls=int(calls))
+    except Exception as exc:  # noqa: BLE001  # reason: an accounting failure must never break the turn it describes
+        log.warning("usage_record_failed", tokens=tokens, calls=calls, error=str(exc))
+        await _record_usage_failure(exc)
 
 
 def tokens_from_response(response: Any) -> tuple[int, int] | None:
