@@ -39,6 +39,11 @@ def story_deps(monkeypatch):
     monkeypatch.setattr(story_loop.MongoDBSaver, "from_conn_string", lambda _: _saver_context(saver))
     monkeypatch.setattr(story_loop, "simulate_world_advance", AsyncMock(return_value={}))
     monkeypatch.setattr(
+        story_loop.StoryLoop,
+        "_write_ledger_entry",
+        AsyncMock(return_value={}),
+    )
+    monkeypatch.setattr(
         story_loop,
         "evaluate_arc",
         AsyncMock(return_value={"arc_label": "rising_action", "story_complete": False}),
@@ -88,7 +93,9 @@ class TestAgendaTick:
 
         result = await loop.complete_current_scene(uuid4(), {"total_minutes_passed": 10})
 
-        assert calls == [
+        # The tick is the only agenda call, and it carries the universe.
+        agenda_calls = [call for call in calls if call[0] == "neo4j_tick_agendas"]
+        assert agenda_calls == [
             (
                 "neo4j_tick_agendas",
                 {"universe_id": str(universe_id), "agent_type": "StoryLoop"},
