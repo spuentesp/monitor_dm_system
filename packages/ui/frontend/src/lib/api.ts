@@ -1203,7 +1203,7 @@ export const entitiesApi = {
 
   startCharacterConversation: (
     id: string,
-    body: { universe_id?: string } = {}
+    body: { universe_id?: string; persona_character_id?: string | null } = {}
   ) =>
     req<ConversationStart>(`/entities/characters/${id}/conversations`, {
       method: "POST",

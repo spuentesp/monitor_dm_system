@@ -2,16 +2,18 @@
 
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Images, Palette, Sparkles, Upload } from "lucide-react";
+import { Images, MessageCircle, Palette, Sparkles, Upload } from "lucide-react";
 import { entitiesApi, imageApi } from "@/lib/api";
 import { CharacterChat } from "@/components/characters/CharacterChat";
 import { DialogShell } from "@/components/DialogShell";
 import { CharacterCardGrid } from "@/components/lightrp/CharacterCardGrid";
 import { RecentChatsRail } from "@/components/lightrp/RecentChatsRail";
+import { UniverseCharacterPicker } from "@/components/lightrp/UniverseCharacterPicker";
 import { AssetGallery, PendingAssetPreview } from "@/components/visual/AssetGallery";
 import { VisualIdentityEditor } from "@/components/visual/VisualIdentityEditor";
 import { useNotify } from "@/components/NotificationProvider";
 import { errorMessage } from "@/lib/errors";
+import type { ConversationStartResult } from "@/lib/lightRpApi";
 import type { PortraitResponse, StandaloneCharacter } from "@/lib/types";
 
 export default function LightRpPage() {
@@ -19,7 +21,12 @@ export default function LightRpPage() {
   const { notify } = useNotify();
   const fileRef = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState<StandaloneCharacter | null>(null);
+  const [activeStarted, setActiveStarted] = useState<ConversationStartResult | null>(null);
   const [importing, setImporting] = useState(false);
+  // The user's persona — bound by name + description into every chat started
+  // from this page (the cast rule keeps the character from speaking for it).
+  const [personaId, setPersonaId] = useState<string>("");
+  const [pickUniverseCharacter, setPickUniverseCharacter] = useState(false);
   // Freshly generated portrait awaiting approval — the card image only
   // changes when the user approves with "use as avatar".
   const [portraitPreview, setPortraitPreview] = useState<{
@@ -33,6 +40,8 @@ export default function LightRpPage() {
     queryKey: ["standalone-characters"],
     queryFn: () => entitiesApi.listStandaloneCharacters(),
   });
+
+  const personas = (charactersQ.data ?? []).filter((c) => c.is_ooc_persona);
 
   async function importCard(file: File) {
     setImporting(true);
@@ -75,7 +84,15 @@ export default function LightRpPage() {
   if (active) {
     return (
       <div className="h-full min-h-0 p-4">
-        <CharacterChat character={active} onBack={() => setActive(null)} />
+        <CharacterChat
+          character={active}
+          personaId={personaId || null}
+          initialConversation={activeStarted}
+          onBack={() => {
+            setActive(null);
+            setActiveStarted(null);
+          }}
+        />
       </div>
     );
   }
@@ -89,7 +106,30 @@ export default function LightRpPage() {
             Story-free chats with your characters. No canon, no dice — just talk.
           </p>
         </div>
-        <div>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-fg-muted">
+            You are
+            <select
+              className="input-cyber py-1.5 text-xs"
+              value={personaId}
+              onChange={(e) => setPersonaId(e.target.value)}
+              aria-label="Your persona"
+            >
+              <option value="">No persona</option>
+              {personas.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="btn-ghost flex items-center gap-2 px-4 py-2 text-sm"
+            onClick={() => setPickUniverseCharacter(true)}
+          >
+            <MessageCircle className="h-4 w-4" /> Chat with a universe character
+          </button>
           <input
             ref={fileRef}
             id="import-card"
@@ -190,6 +230,25 @@ export default function LightRpPage() {
               onChanged={() => void qc.invalidateQueries({ queryKey: ["standalone-characters"] })}
             />
           </div>
+        </DialogShell>
+      )}
+
+      {pickUniverseCharacter && (
+        <DialogShell
+          title="Chat with a universe character"
+          icon={MessageCircle}
+          onClose={() => setPickUniverseCharacter(false)}
+          maxWidthClassName="max-w-2xl"
+        >
+          <UniverseCharacterPicker
+            personaId={personaId || null}
+            onStarted={(card, started) => {
+              setPickUniverseCharacter(false);
+              setActiveStarted(started);
+              setActive(card);
+            }}
+            onClose={() => setPickUniverseCharacter(false)}
+          />
         </DialogShell>
       )}
     </div>
