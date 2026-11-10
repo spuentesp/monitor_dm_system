@@ -45,7 +45,7 @@ from monitor_data.db.minio import get_minio_client
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.db.postgres import PostgresClient
 from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin, is_local_mode
-from monitor_ui.ownership import require_multiverse_owner
+from monitor_ui.ownership import require_multiverse_owner, resource_route_guard
 from monitor_data.db.postgres import get_postgres_client
 from monitor_data.schemas.base import IngestionStatus
 from monitor_data.schemas.ingestion_jobs import IngestionJobFilter
@@ -75,7 +75,7 @@ log = structlog.get_logger()
 
 # Pack Library routes live in `pack_library.py`, which is included here to
 # preserve the existing `/api/ingest/*` surface while keeping this module lean.
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 class _MissingJob:

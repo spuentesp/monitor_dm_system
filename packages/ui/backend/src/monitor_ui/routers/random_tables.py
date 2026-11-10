@@ -33,13 +33,18 @@ from monitor_data.tools.mongodb_tools.random_tables import (
 )
 from monitor_data.db.postgres import PostgresClient
 from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin
-from monitor_ui.ownership import owned_world_ids, require_random_table_owner, require_universe_owner
+from monitor_ui.ownership import (
+    owned_world_ids,
+    require_random_table_owner,
+    require_universe_owner,
+    resource_route_guard,
+)
 from pydantic import BaseModel
 
 from .ingest_shared import db_op, validate_uuid
 
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 # ---------------------------------------------------------------------------

@@ -2,11 +2,25 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Send, Heart, ShieldAlert, Sparkles, ImagePlus, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Send,
+  Heart,
+  ShieldAlert,
+  Sparkles,
+  ImagePlus,
+  Loader2,
+  Brain,
+  GraduationCap,
+} from "lucide-react";
 import { entitiesApi, imageApi } from "@/lib/api";
+import { lightRpApi, type ConversationStartResult } from "@/lib/lightRpApi";
 import type { StandaloneCharacter } from "@/lib/types";
 import { useNotify } from "@/components/NotificationProvider";
+import { DialogShell } from "@/components/DialogShell";
 import { PendingAssetPreview } from "@/components/visual/AssetGallery";
+import { MemoryPanel } from "@/components/lightrp/MemoryPanel";
+import { GraduateDialog } from "@/components/lightrp/GraduateDialog";
 import { cn } from "@/lib/utils";
 import { errorMessage } from "@/lib/errors";
 
@@ -31,29 +45,45 @@ function num(snapshot: Record<string, unknown> | undefined, key: string): number
 export function CharacterChat({
   character,
   onBack,
+  personaId,
+  initialConversation,
 }: {
   character: StandaloneCharacter;
   onBack: () => void;
+  personaId?: string | null;
+  /** A conversation already opened elsewhere (one-click universe start). */
+  initialConversation?: ConversationStartResult | null;
 }) {
   const { notify } = useNotify();
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
-  const [starting, setStarting] = useState(true);
+  const [starting, setStarting] = useState(!initialConversation);
   const [sending, setSending] = useState(false);
   const [sceneBusy, setSceneBusy] = useState(false);
+  const [showMemories, setShowMemories] = useState(false);
+  const [showGraduate, setShowGraduate] = useState(false);
   // Character Versions: broaden memory recall to other universes of this
   // character when the user opts in (default off — strict universe scope).
   const [includeCrossIncarnation, setIncludeCrossIncarnation] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const convRef = useRef<string | null>(null);
 
-  // Open a session on mount; end it on unmount (best-effort).
+  // Adopt a pre-opened conversation (one-click start), or open one on mount.
   useEffect(() => {
+    if (initialConversation) {
+      convRef.current = initialConversation.conversation_id;
+      setConversationId(initialConversation.conversation_id);
+      setMessages([{ id: "opening", role: "char", text: initialConversation.opening }]);
+      return () => {
+        const cid = convRef.current;
+        if (cid) entitiesApi.endCharacterConversation(character.id, cid).catch(() => {});
+      };
+    }
     let active = true;
     setStarting(true);
     entitiesApi
-      .startCharacterConversation(character.id)
+      .startCharacterConversation(character.id, { persona_character_id: personaId ?? undefined })
       .then((res) => {
         if (!active) return;
         convRef.current = res.conversation_id;
@@ -80,25 +110,36 @@ export function CharacterChat({
     const text = draft.trim();
     if (!text || !conversationId || sending) return;
     setDraft("");
+    const replyId = `c-${Date.now()}`;
     setMessages((m) => [...m, { id: `u-${Date.now()}`, role: "user", text }]);
     setSending(true);
     try {
-      const reply = await entitiesApi.sendCharacterMessage(
-        character.id,
-        conversationId,
-        text,
-        { include_cross_incarnation: includeCrossIncarnation },
-      );
-      setMessages((m) => [
-        ...m,
-        {
-          id: `c-${Date.now()}`,
-          role: "char",
-          text: reply.text || "…",
-          emotional_state: reply.emotional_state,
-          snapshot: reply.relationship_snapshot,
-        },
-      ]);
+      // Streaming send: reply tokens render as they arrive; the backend
+      // writes this turn's NPC memories after the stream completes.
+      for await (const event of lightRpApi.sendStream(character.id, conversationId, text, {
+        include_cross_incarnation: includeCrossIncarnation,
+      })) {
+        if (event.type === "token") {
+          setMessages((m) =>
+            m.some((x) => x.id === replyId)
+              ? m.map((x) => (x.id === replyId ? { ...x, text: x.text + event.text } : x))
+              : [...m, { id: replyId, role: "char", text: event.text }],
+          );
+        } else if (event.type === "done") {
+          setMessages((m) => {
+            const done: ChatMessage = {
+              id: replyId,
+              role: "char",
+              text: event.text,
+              emotional_state: event.emotional_state,
+              snapshot: event.relationship_snapshot,
+            };
+            return m.some((x) => x.id === replyId)
+              ? m.map((x) => (x.id === replyId ? done : x))
+              : [...m, done];
+          });
+        }
+      }
     } catch (e) {
       notify("error", `Reply failed: ${errorMessage(e)}`);
     } finally {
@@ -149,6 +190,24 @@ export function CharacterChat({
             <div className="truncate text-sm font-semibold text-fg-primary">{character.name}</div>
             <div className="truncate text-xs text-fg-muted">{character.description || "Conversatory"}</div>
           </div>
+          <button
+            className="btn-ghost p-1.5"
+            onClick={() => setShowMemories(true)}
+            disabled={starting}
+            aria-label="What this character remembers about you"
+            title="🧠 What this character remembers about you"
+          >
+            <Brain className="h-4 w-4" />
+          </button>
+          <button
+            className="btn-ghost p-1.5"
+            onClick={() => setShowGraduate(true)}
+            disabled={starting}
+            aria-label="Start a campaign with this character"
+            title="🚀 Start a campaign with this character"
+          >
+            <GraduationCap className="h-4 w-4" />
+          </button>
           <button
             className="btn-ghost ml-auto p-1.5"
             onClick={() => void generateScene()}
@@ -293,6 +352,33 @@ export function CharacterChat({
           </p>
         )}
       </aside>
+
+      {showMemories && (
+        <DialogShell
+          title={`What ${character.name} remembers about you`}
+          icon={Brain}
+          onClose={() => setShowMemories(false)}
+          maxWidthClassName="max-w-2xl"
+        >
+          <MemoryPanel characterId={character.id} characterName={character.name} />
+        </DialogShell>
+      )}
+
+      {showGraduate && (
+        <DialogShell
+          title={`Start a campaign with ${character.name}`}
+          icon={GraduationCap}
+          onClose={() => setShowGraduate(false)}
+          maxWidthClassName="max-w-2xl"
+        >
+          <GraduateDialog
+            character={character}
+            personaId={personaId}
+            onGraduated={() => setShowGraduate(false)}
+            onClose={() => setShowGraduate(false)}
+          />
+        </DialogShell>
+      )}
     </div>
   );
 }

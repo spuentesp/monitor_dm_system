@@ -18,9 +18,9 @@ from monitor_data.schemas.change_log import (
     ChangeType,
 )
 from monitor_data.tools.mongodb_tools import mongodb_list_change_log
-from monitor_ui.auth import get_current_user
+from monitor_ui.ownership import resource_route_guard
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 @router.get("/change-log", response_model=ChangeLogListResponse)

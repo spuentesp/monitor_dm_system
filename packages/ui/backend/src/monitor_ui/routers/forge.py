@@ -19,14 +19,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from monitor_data.db.postgres import PostgresClient
 from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
-from monitor_ui.ownership import owned_world_ids
+from monitor_ui.ownership import owned_world_ids, resource_route_guard
 from pydantic import BaseModel, Field
 
 log = structlog.get_logger()
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 async def _register_world_ownership(

@@ -5,6 +5,10 @@
 > decision (Option A: the web `/gm` page is THE copilot surface — no CLI
 > `monitor copilot`) is adopted here as settled.
 >
+> **Updated 2026-11-10 (Phase 7 Part B):** see the status board below for what
+> is implemented and what is open. The "Current-state inventory" (§2) is kept
+> as the 2026-07-23 snapshot; the status board supersedes it where they differ.
+>
 > Conventions: DSPy modules are co-located with their respective agents;
 > MCP calls async; `structlog` (no print); pydantic v2; line-length 100; mypy
 > strict; layer rules (UI/CLI → agents → data-layer, only CanonKeeper writes
@@ -12,6 +16,40 @@
 > `tests/conftest.py:165,261`.
 
 ---
+
+## 0. Status board (2026-11-10)
+
+**Implemented (verified against code 2026-11-10):**
+
+| Item | Where | Since |
+|---|---|---|
+| P0 doc alignment | done | 2026-07-23 |
+| P1.1 live contradiction alerts | `POST /gm/capture/contradiction-check`, `CanonKeeper.check_live_entry` | 2026-07-23 |
+| P1.2 capture insights (+ story-scoped proposals) | `POST /gm/capture/insights`, `CaptureInsightAgent` | 2026-07-23 |
+| P1.3 + P1.4 wrap-up digest + persisted recap | `POST /chat/{id}/wrap-up`, `WrapUpModal` | 2026-07-23 |
+| P2.1 server-authoritative dice | `POST /gm/roll` (no `Math.random` left in `page.tsx`) | 2026-07-23 |
+| P2.2 universe-aware rules panel | `default_game_system_id` plumbing + `systemOverridden` | 2026-07-23 |
+| P2.3 scratchpad persistence | `routers/gm_notes.py`, `schemas/gm_notes.py`, `mongodb_tools/gm_notes.py` (PR #137) | 2026-11-10 |
+| P3.1 audio descope (decision) | §P3.1 below | 2026-11-06 |
+| P3.2 option (a) ingest hint | `data-testid="ingest-hint"` in `app/gm/page.tsx` | 2026-11-06 |
+| P3.3 recording archive metadata | `SessionPatch.archived`, recorder dropdown groups | 2026-11-06 |
+| Phase A live verification | `docs/testing/live_gm_assistant_phase_a_2026-11-06.md` (11/11) | 2026-11-06 |
+| **Phase 7 Part B task 2 — prep to table** | `POST /gm/prep/extract`, `POST /gm/prep/commit`, `GET /gm/prep/{universe}`, "Tonight" panel | 2026-11-10 |
+| **Phase 7 Part B task 3 — at-the-table lookups** | `POST /gm/lookup/npc\|party-knowledge\|last-session\|improvise\|rules`, "Lookups" panel | 2026-11-10 |
+| **Phase 7 Part B task 4 — after the session** | `POST /gm/session-log/propose` (proposals + direct & G-9 flags), "Session Log" panel | 2026-11-10 |
+
+**Open:**
+
+| Item | Why open | Where |
+|---|---|---|
+| Phase 7 Part B task 5 — table test | needs a human GM (one real ≥2 h session) | `docs/testing/GM_TABLE_TEST_PROTOCOL.md` |
+| Phase 7 Part B task 6 — fix the top five | input is the table test's ranked problems | same |
+| P3.2 option (b) — thread `story_id` from scratchpad ingest | deferred product call (`FORGE_EXPANSION.md` §17) | §P3.2 |
+| G-9 Phase 3 — hard rejection on transition violations | gated on implication-check recall, stays opt-in off | `GAP_REMEDIATION_PLAN.md` §G-9 |
+| Implication-check recall (25% on the synthetic measurement) | follow-up work per the G-9 measurement | `docs/testing/canonkeeper_depth_measurement_2026-11-07.md` |
+
+---
+
 
 ## 1. Product definition
 
@@ -79,11 +117,11 @@ require typed conversation with the system to be useful.
 
 | Surface | What exists | Status | File refs |
 |---|---|---|---|
-| `/gm` page | 9 panels, 3-column desktop layout + tabbed mobile | Works | `packages/ui/frontend/src/app/gm/page.tsx:1064-1074` (`GM_PANELS`), `:1153-1245` |
+| `/gm` page | 9 panels, 3-column desktop layout + tabbed mobile | Works — **13 panels as of 2026-11-10** (Phase 7 Part B added Tonight/Lookups/Session Log) | `packages/ui/frontend/src/app/gm/page.tsx:1064-1074` (`GM_PANELS`), `:1153-1245` |
 | Universe/system selector | Multiverse→universe cascade; manual system dropdown | Works, but system is manual-only | `page.tsx:990-1058` (`GMSelector`), system select `:1047-1055` |
 | Session Recorder (CF-1) | `gm_assistant` chat session per recording; entries via `chatApi.sendMessage`; auto story+scene bootstrap ("Human-led session capture and review"); close → `endScene`; proposals → `CanonReviewPanel`; RecapModal → RecapAgent | Works; insights are the generic Narrator response | `components/gm/SessionRecorder.tsx:92-153`; `loops/session_bootstrap.py:121-139`; `routers/chat.py:602-769` (send → `_run_scene_turn`, no mode branch); `chat_loops.py:1792-1893` (`run_end_scene`) |
 | Rules reference | Renders core mechanic/attributes/resources/rules for a `systemId` | Works, not universe-aware | `page.tsx:181-304` (`RulesPanel`) |
-| Dice roller | Quick dice, expression input, 20-roll history | Works, **client `Math.random`** — violates server-authoritative dice doctrine | `page.tsx:46-61` (`rollDie`/`parseDiceExpression`), `:73-175`; doctrine: `PLAY_AND_FORGE_DIRECTION.md` §2 (`:127-130`) |
+| Dice roller | Quick dice, expression input, 20-roll history | ~~client `Math.random`~~ **superseded by P2.1: server-authoritative** (`POST /gm/roll`) | `page.tsx:46-61` (`rollDie`/`parseDiceExpression`), `:73-175`; doctrine: `PLAY_AND_FORGE_DIRECTION.md` §2 (`:127-130`) |
 | Scratchpad | Notes textarea + Save + Ingest (full document pipeline) | Ephemeral (`localStorage` only); ingest proposals disconnected from recording | `page.tsx:310-414` (`SessionNotebook`; `STORAGE_KEY` `:320`, save `:332-340`, ingest `:342-356`) |
 | Plot hooks (CF-4) | `POST /gm/hooks` → `PlotHookAgent.suggest_hooks` | Works | `routers/gm_tools.py:103-117`; `agents/plot_hooks.py:136-230` |
 | Contradiction detection (CF-5) | `POST /gm/contradictions` → `PlotHookAgent.detect_contradictions` (whole-canon scan) | Works, **manual button only** | `gm_tools.py:120-135`; `plot_hooks.py:236-321`; button `page.tsx:524-531` |
@@ -487,6 +525,14 @@ per-universe scratch pad (one doc per universe), not a note-taking app.
 
 **Effort:** S–M. **Depends on:** none.
 
+**Status: SHIPPED (PR #137, merged 2026-11-10).** `schemas/gm_notes.py` +
+`mongodb_tools/gm_notes.py` (single `gm_notes` collection, upsert keyed on
+`universe_id`) + `routers/gm_notes.py` (GET 200-empty / PUT, data-layer-direct
+pattern of `canon_review.py`); `SessionNotebook` in `app/gm/page.tsx` is
+server-backed with debounced autosave. Tests:
+`packages/data-layer/tests/test_tools/test_gm_notes_tools.py`,
+`packages/ui/backend/tests/test_gm_notes.py`.
+
 ---
 
 ## 6. Phase 3 — Scope calls (decide, then implement or document)
@@ -650,3 +696,67 @@ CF-8 verdict flow.
      dropdown; scratchpad notes survive a hard refresh.
 - After each phase lands: tick the boxes here and update `docs/STATUS.md`
   (and `session-support.md`'s status table where applicable).
+
+---
+
+## 9. Phase 7 Part B — the GM assistant at a real table (2026-11-10)
+
+Brief: `conductor/roleplayable/phase-7-light-rp-and-gm-assistant.md` Part B,
+tasks 1–4 (tasks 5–6 need a human GM — see
+`docs/testing/GM_TABLE_TEST_PROTOCOL.md`). Implemented on branch
+`rp/p7b-gm-assistant`; the table-test protocol and lookup-log template are
+written, the test itself is open.
+
+### Task 1 — inventory: what the `/gm` page can do now
+
+Verified against code on 2026-11-10 (13 tool panels, 3-column desktop +
+tabbed mobile, user-modifiable panel order/visibility):
+
+| Panel | Capability | Backing |
+|---|---|---|
+| Rules | Renders the universe's bound system: core mechanic, attributes, resources, rules | `GET` game system; binding via `default_game_system_id` (P2.2) |
+| Recorder | CF-1 live capture: entries, per-entry insights + candidate-fact proposals, inline contradiction alerts, wrap-up, archive | `POST /gm/capture/insights`, `/gm/capture/contradiction-check`, `POST /chat/{id}/wrap-up` (P1.1–P1.4, P3.3) |
+| Scratchpad | Server-backed per-universe notes + full-pipeline Ingest (proposals land in Forge → Review) | `GET/PUT /gm/notes/{universe}` (P2.3), hint per P3.2(a) |
+| Dice | Server-authoritative rolls, expression input, history | `POST /gm/roll` (P2.1) |
+| **Tonight** *(new)* | Prep to table: extract NPCs/locations/threads from notes, review, save tonight's bundle | `POST /gm/prep/extract`, `POST /gm/prep/commit`, `GET /gm/prep/{universe}` |
+| **Lookups** *(new)* | NPC dossier (who is this, what do they want), party knowledge, last session, name/complication on demand, rules answer with source | `POST /gm/lookup/npc\|party-knowledge\|last-session\|improvise\|rules` |
+| **Session Log** *(new)* | After the session: paste what happened → staged canon proposals + contradiction flags (direct + G-9 implication depth) | `POST /gm/session-log/propose` |
+| Ask | Natural-language questions against the universe's canon (scoped semantic search) | `GET /search/universe/{id}` |
+| Hooks | CF-4 plot hook suggestions, save as thread | `POST /gm/hooks`, `POST /gm/hooks/save` |
+| Threads | CF-3 story thread list with resolve/dismiss/note | `storiesApi` thread endpoints |
+| Contradictions | CF-5 whole-canon scan + CF-5 resolution as pending proposals | `POST /gm/contradictions`, `POST /gm/contradictions/resolve` |
+| Prep | CF-7 generated session prep (recap/threads/hooks/NPC reminders) + checklist item generation | `POST /gm/session-prep`, `POST /gm/session-prep/generate-item` |
+| Handouts | CF-6 typed/tone/spoiler-level player handouts | `POST /gm/handouts` |
+
+### Still open in this plan
+
+- The table test and its top-five fixes (Phase 7 Part B tasks 5–6) — protocol
+  and lookup-log template ready in `docs/testing/GM_TABLE_TEST_PROTOCOL.md`.
+- P3.2 option (b) (thread `story_id` through scratchpad ingest) — deferred
+  product call.
+- G-9 Phase 3 hard rejection and implication-check recall — gated per
+  `GAP_REMEDIATION_PLAN.md` §G-9.
+
+### What Part B added (design notes)
+
+- **Layering.** Routers call data-layer read/write tools directly (the
+  `canon_review.py`/`gm_notes.py` precedent) and delegate all judgment to
+  `GmTableAgent` (`packages/agents/src/monitor_agents/gm_table.py`), whose
+  every method is one typed `call_llm_structured` call grounded by MCP
+  fetches. Nothing writes Neo4j outside CanonKeeper: accepted prep threads go
+  through `neo4j_create_plot_thread` (same as `POST /gm/hooks/save`), and new
+  prep NPCs/locations and session-log facts are `ProposedChange` documents for
+  the CF-8 queue.
+- **Prep bundle.** "Tonight's" reviewed NPCs/locations/threads persist in the
+  `gm_prep_bundles` MongoDB collection (one doc per universe+story) so the
+  page reopens with tonight's table ready.
+- **Party knowledge** = facts the party's characters witnessed plus common
+  knowledge (facts with no witnesses — the Phase 4 witness model). Topic
+  selection is one LIGHT LLM call over the candidate list, re-grounded on
+  indexes so prose cannot smuggle in non-candidate facts.
+- **Session-log flagging.** Contradiction checks run *before* anything is
+  staged (a failed check writes nothing), and flagged statements are created
+  with `needs_review`/`review_reason` set (G-9 Phase 2 machinery).
+- **Test surface.** `packages/agents/tests/test_gm_table.py` and
+  `packages/ui/backend/tests/test_gm_table_routes.py` assert every new
+  cross-component call is invoked with the expected arguments.

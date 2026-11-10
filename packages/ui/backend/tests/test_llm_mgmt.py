@@ -69,9 +69,13 @@ def mock_postgres():
 
 
 def test_mask_key():
+    """The API shows only the last 4 characters of a key (never the prefix)."""
     assert _mask_key(None) is None
     assert _mask_key("short") == "••••••••"
-    assert _mask_key("12345678901234567890") == "1234••••••••7890"
+    masked = _mask_key("12345678901234567890")
+    assert masked == "••••••••7890"
+    assert "1234" not in masked
+    assert "567890" not in masked
 
 
 def test_resolve_model():

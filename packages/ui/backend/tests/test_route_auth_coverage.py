@@ -153,6 +153,33 @@ def test_every_route_is_authenticated_or_public(app: FastAPI) -> None:
     assert not unguarded, "Routes with no auth dependency and no PUBLIC_ROUTES entry:\n" + "\n".join(sorted(unguarded))
 
 
+def test_resource_id_params_resolve_through_scope_resolvers(app: FastAPI) -> None:
+    """Every route carrying a table-known resource id runs the ownership guard.
+
+    ``resource_route_guard`` is what consults ``monitor_ui.ownership``'s
+    ``_SCOPE_RESOLVERS``; a resource-id param without it is authenticated but
+    not owner-checked. Admin-only routes are exempt (operator surface). A new
+    route with e.g. ``{universe_id}`` must therefore mount the guard — this
+    test fails until it does.
+    """
+    import re
+
+    resolver_keys = set(ownership_mod._SCOPE_RESOLVERS)
+    unguarded: list[str] = []
+    for route, path, methods in _routes(app):
+        if not isinstance(route, APIRoute):
+            continue
+        calls = _dependency_calls(route)
+        if auth_mod.require_admin in calls:
+            continue
+        names = set(re.findall(r"{([^}:]+)(?::[^}]*)?}", route.path))
+        names |= {getattr(f, "name", "") for f in getattr(route.dependant, "query_params", [])}
+        matched = names & resolver_keys
+        if matched and ownership_mod.resource_route_guard not in calls:
+            unguarded.append(f"{','.join(methods):<12} {path} <- {sorted(matched)}")
+    assert not unguarded, "Routes with resource-id params but no resource_route_guard:\n" + "\n".join(sorted(unguarded))
+
+
 def test_public_allowlist_has_no_stale_entries(app: FastAPI) -> None:
     """The allowlist must not keep entries for routes that no longer exist."""
     registered = {(path, method) for _, path, methods in _routes(app) for method in methods}

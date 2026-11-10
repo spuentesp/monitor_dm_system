@@ -11,10 +11,9 @@ Routing modes (chosen by the request body):
   is routed through the light-RP conversation loop, so the response benefits
   from MONITOR's persona binding, lorebook scanning, and NPC memory. Requests
   carrying only ``character_id`` continue the conversation their history
-  belongs to (see ``client_history_fingerprint``). The
-  reply is non-streaming in v2 — the conversation loop has no streaming
-  surface yet, and ``stream=true`` is rejected explicitly so the client
-  surfaces the limitation rather than getting a misleading single chunk.
+  belongs to (see ``client_history_fingerprint``). Both ``stream=true``
+  (SSE ``chat.completion.chunk`` events) and non-streaming replies are
+  supported; the loop's memory writes happen after the stream completes.
 
 LAYER: 3 (UI backend)
 """
@@ -34,12 +33,12 @@ from pydantic import BaseModel, Field
 from monitor_agents.llm_registry import LLMRegistry
 from monitor_data.db.postgres import get_postgres_client
 from monitor_ui.auth import Principal, get_current_user
-from monitor_ui.ownership import require_character_owner
+from monitor_ui.ownership import require_character_owner, resource_route_guard
 from monitor_data.schemas.llm_config import ModelRole
 
 logger = structlog.get_logger()
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 class OpenAIMessage(BaseModel):
@@ -208,14 +207,17 @@ async def _plain_stream(body: ChatCompletionRequest) -> StreamingResponse:
 # ---------------------------------------------------------------------------
 
 
-async def _session_non_stream(body: ChatCompletionRequest) -> ChatCompletionResponse:
-    if body.stream:
-        raise HTTPException(
-            status_code=400,
-            detail="stream=true is not supported in session mode yet. "
-            "Set stream=false or omit the session fields to use plain streaming.",
-        )
+async def _resolve_session_conversation(
+    body: ChatCompletionRequest,
+) -> tuple[str, list[tuple[str, str]], OpenAIMessage]:
+    """Resolve (or open) the conversation this request continues.
 
+    Returns ``(conversation_id, history_before_last_user, last_user_message)``.
+    OpenAI-shaped clients resend their history, so everything before the last
+    player line tells us where this request sits in the chat. System messages
+    are the client's prompt; in session mode the character card is the
+    authority.
+    """
     # Import the module rather than the names so tests can patch the
     # attributes on the source module and the lookup re-reads at call time.
     from . import character_conversation as cc
@@ -232,9 +234,6 @@ async def _session_non_stream(body: ChatCompletionRequest) -> ChatCompletionResp
             detail="session mode requires at least one user message in `messages`.",
         )
 
-    # OpenAI-shaped clients resend their history, so everything before the last
-    # player line tells us where this request sits in the chat. System messages are
-    # the client's prompt; in session mode the character card is the authority.
     last_user_index = max(i for i, m in enumerate(body.messages) if m.role == "user")
     history = [(m.role, m.content) for m in body.messages[:last_user_index] if m.role != "system"]
     position = cc.client_history_fingerprint(history)
@@ -264,6 +263,130 @@ async def _session_non_stream(body: ChatCompletionRequest) -> ChatCompletionResp
             raise HTTPException(status_code=502, detail=f"Could not open a conversation: {exc}") from exc
         conversation_id = str(opened["conversation_id"])
 
+    return str(conversation_id), history, last_user
+
+
+async def _session_remember_position(
+    body: ChatCompletionRequest,
+    conversation_id: str,
+    history: list[tuple[str, str]],
+    last_user: OpenAIMessage,
+    reply_text: str,
+) -> None:
+    """Record the client-history positions that lead back to this conversation."""
+    from . import character_conversation as cc
+
+    if not body.character_id:
+        return
+    try:
+        after = history + [("user", last_user.content), ("assistant", reply_text)]
+        await cc.remember_client_conversation(
+            conversation_id,
+            body.character_id,
+            body.persona_character_id,
+            [cc.client_history_fingerprint(history), cc.client_history_fingerprint(after)],
+        )
+    except Exception:  # noqa: BLE001  # reason: the reply exists; failing here would discard it over continuity bookkeeping
+        logger.warning("openai_session_remember_failed", exc_info=True)
+
+
+async def _session_stream(body: ChatCompletionRequest) -> StreamingResponse:
+    """Session mode with ``stream=true``: SSE chunks of the loop's reply.
+
+    The conversation loop's memory writes for this turn are deferred and
+    flushed after the stream completes (see ``send_message_stream``).
+    """
+    from . import character_conversation as cc
+
+    conversation_id, history, last_user = await _resolve_session_conversation(body)
+
+    try:
+        stream = await cc.send_message_stream(
+            conversation_id,
+            last_user.content,
+            False,
+            character_id=body.character_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Conversation {conversation_id} is no longer active.",
+        ) from exc
+    except Exception as exc:
+        logger.warning("openai_session_send_failed", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Send failed: {exc}") from exc
+
+    completion_id = _new_completion_id()
+    created = _now_epoch()
+    reply_parts: list[str] = []
+
+    async def _event_generator() -> AsyncIterator[str]:
+        first_chunk = {
+            "id": completion_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": body.model,
+            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+            "monitor_session_id": conversation_id,
+        }
+        yield f"data: {json.dumps(first_chunk)}\n\n"
+        done_event: dict[str, Any] | None = None
+        try:
+            async for event in stream:
+                if event.get("type") == "token":
+                    text = str(event.get("text") or "")
+                    reply_parts.append(text)
+                    chunk = {
+                        "id": completion_id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": body.model,
+                        "choices": [{"index": 0, "delta": {"content": text}, "finish_reason": None}],
+                    }
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                elif event.get("type") == "done":
+                    done_event = event
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _event_generator)
+            logger.warning("openai_session_stream_failed", exc_info=True)
+            err_chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": body.model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                "error": {"message": str(exc)},
+            }
+            yield f"data: {json.dumps(err_chunk)}\n\n"
+        if done_event is not None:
+            await _session_remember_position(body, conversation_id, history, last_user, "".join(reply_parts))
+        stop_chunk = {
+            "id": completion_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": body.model,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        }
+        yield f"data: {json.dumps(stop_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        _event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "X-Monitor-Session-Id": conversation_id,
+        },
+    )
+
+
+async def _session_non_stream(body: ChatCompletionRequest) -> ChatCompletionResponse:
+    # Import the module rather than the names so tests can patch the
+    # attributes on the source module and the lookup re-reads at call time.
+    from . import character_conversation as cc
+
+    conversation_id, history, last_user = await _resolve_session_conversation(body)
+
     try:
         reply = await cc.send_message(
             conversation_id,
@@ -281,18 +404,7 @@ async def _session_non_stream(body: ChatCompletionRequest) -> ChatCompletionResp
         raise HTTPException(status_code=502, detail=f"Send failed: {exc}") from exc
 
     text = str(reply.get("text") or "")
-
-    if body.character_id:
-        try:
-            after = history + [("user", last_user.content), ("assistant", text)]
-            await cc.remember_client_conversation(
-                conversation_id,
-                body.character_id,
-                body.persona_character_id,
-                [position, cc.client_history_fingerprint(after)],
-            )
-        except Exception:  # noqa: BLE001  # reason: the reply exists; failing here would discard it over continuity bookkeeping
-            logger.warning("openai_session_remember_failed", exc_info=True)
+    await _session_remember_position(body, conversation_id, history, last_user, text)
 
     return ChatCompletionResponse(
         id=_new_completion_id(),
@@ -372,6 +484,8 @@ async def chat_completions(
             # Resume path: the conversation must belong to an owned character,
             # even when character_id is also supplied.
             await _require_conversation_owner(principal, body.monitor_session_id)
+        if body.stream:
+            return await _session_stream(body)
         return await _session_non_stream(body)
 
     if body.stream:

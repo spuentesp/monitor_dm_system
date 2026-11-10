@@ -53,6 +53,7 @@ dependencies = [
     "tenacity>=8.2",           # retry logic for DB ops
     # Authentication (multi-tenancy)
     "argon2-cffi>=24",        # Argon2id password hashing for user accounts
+    "cryptography>=42",       # Fernet encryption for llm_providers.api_key at rest
     # Relational DB (app config, settings, LLM providers)
     "asyncpg>=0.29",           # async PostgreSQL driver
     # Runtime cache / pub-sub

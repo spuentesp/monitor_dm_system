@@ -24,6 +24,7 @@ per-route wiring.
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
 import time
 from collections import deque
@@ -334,6 +335,93 @@ async def require_admin(principal: Principal = Depends(get_current_user)) -> Pri
 
 
 # ---------------------------------------------------------------------------
+# Daily usage quota (multi-tenancy)
+# ---------------------------------------------------------------------------
+#
+# Daily caps come from ``MONITOR_DAILY_TOKEN_CAP`` / ``MONITOR_DAILY_CALL_CAP``
+# (unset = no cap); a per-user override row (``user_usage_limits``, admin-
+# managed) wins over the env defaults. Admins and the auth-disabled local
+# account are never capped. Every model-spending request charges one call
+# through ``usage_quota_guard``; real token counts are added by the LLM layer
+# via ``PostgresClient.usage_record`` (see MULTI_TENANCY_PLAN.md).
+
+QUOTA_TOKEN_CAP_ENV = "MONITOR_DAILY_TOKEN_CAP"
+QUOTA_CALL_CAP_ENV = "MONITOR_DAILY_CALL_CAP"
+
+_quota_env_warned: set[str] = set()
+
+
+def _env_cap(name: str) -> int | None:
+    """Parse a daily-cap env var. Unset or invalid = no cap (warn once)."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        if name not in _quota_env_warned:
+            _quota_env_warned.add(name)
+            log.warning("quota_env_invalid", env=name, detail="not an integer; treated as no cap")
+        return None
+    return value if value >= 0 else None
+
+
+async def effective_quota(principal: Principal, db: PostgresClient) -> tuple[int | None, int | None]:
+    """The (token_cap, call_cap) in force for the user; ``None`` = no cap."""
+    limits = await db.usage_limit_get(principal.user_id)
+    token_cap = (limits or {}).get("daily_token_cap")
+    if token_cap is None:
+        token_cap = _env_cap(QUOTA_TOKEN_CAP_ENV)
+    call_cap = (limits or {}).get("daily_call_cap")
+    if call_cap is None:
+        call_cap = _env_cap(QUOTA_CALL_CAP_ENV)
+    return token_cap, call_cap
+
+
+async def usage_quota_guard(
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> None:
+    """Charge one call against the user's daily model quota (429 at the cap).
+
+    Mounted on model-spending routes. Usage is recorded for every caller;
+    caps apply to non-admin, non-local, non-exempt users only. The error is
+    a readable 429 naming the cap and the UTC reset.
+    """
+    await db.usage_record(principal.user_id, calls=1)
+    if principal.is_admin or is_local_mode(principal):
+        return
+    limits = await db.usage_limit_get(principal.user_id)
+    if limits and limits.get("exempt"):
+        return
+    token_cap = (limits or {}).get("daily_token_cap")
+    if token_cap is None:
+        token_cap = _env_cap(QUOTA_TOKEN_CAP_ENV)
+    call_cap = (limits or {}).get("daily_call_cap")
+    if call_cap is None:
+        call_cap = _env_cap(QUOTA_CALL_CAP_ENV)
+    if call_cap is None and token_cap is None:
+        return
+    usage = await db.usage_get(principal.user_id)
+    if call_cap is not None and int(usage.get("calls", 0)) > call_cap:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Daily model-call limit reached ({call_cap} calls). "
+                "The limit resets at 00:00 UTC. Ask an admin to raise it if you need more."
+            ),
+        )
+    if token_cap is not None and int(usage.get("tokens", 0)) >= token_cap:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"Daily token limit reached ({token_cap} tokens). "
+                "The limit resets at 00:00 UTC. Ask an admin to raise it if you need more."
+            ),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Session-cookie helpers used by the auth router
 # ---------------------------------------------------------------------------
 
@@ -346,9 +434,12 @@ __all__ = [
     "LOCAL_USER_EMAIL",
     "LOCAL_USER_ID",
     "LOCAL_USER_USERNAME",
+    "QUOTA_CALL_CAP_ENV",
+    "QUOTA_TOKEN_CAP_ENV",
     "Principal",
     "RateLimiter",
     "client_ip",
+    "effective_quota",
     "get_current_user",
     "get_current_ws_principal",
     "get_login_limiter",
@@ -359,4 +450,5 @@ __all__ = [
     "require_admin",
     "resolve_principal",
     "session_expiry",
+    "usage_quota_guard",
 ]

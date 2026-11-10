@@ -185,6 +185,13 @@ from monitor_data.schemas.gm_notes import (
     GmNoteResponse,
     GmNoteUpsert,
 )
+from monitor_data.schemas.gm_prep import (
+    GmPrepBundleResponse,
+    GmPrepBundleUpsert,
+    GmPrepLocation,
+    GmPrepNpc,
+    GmPrepThread,
+)
 from monitor_data.schemas.ingestion_delta import (
     DeltaCategory,
     DeltaItem,
@@ -816,6 +823,11 @@ __all__ += [
     # GM Notes (P2.3)
     "GmNoteUpsert",
     "GmNoteResponse",
+    "GmPrepBundleResponse",
+    "GmPrepBundleUpsert",
+    "GmPrepLocation",
+    "GmPrepNpc",
+    "GmPrepThread",
 ]
 __all__ += [
     "RoleplayError",

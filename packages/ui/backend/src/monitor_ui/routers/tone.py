@@ -35,7 +35,12 @@ from monitor_data.schemas.tone_profiles import (
     ToneProfileUpdate,
 )
 from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin, is_local_mode
-from monitor_ui.ownership import owned_world_ids, require_tone_library_owner, require_universe_owner
+from monitor_ui.ownership import (
+    owned_world_ids,
+    require_tone_library_owner,
+    require_universe_owner,
+    resource_route_guard,
+)
 from monitor_data.tools.mongodb_tools.tag_registry import (
     mongodb_create_tag_definition,
     mongodb_delete_tag_definition,
@@ -61,7 +66,7 @@ from monitor_data.tools.mongodb_tools.tone_profiles import (
 )
 
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 # =============================================================================
