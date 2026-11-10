@@ -7,11 +7,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ingestApi } from "@/lib/api";
 import type { KnowledgePack } from "@/lib/types";
-import ApplyPackPage from "./page";
+import ApplyPackPage, { PrepareStartAction } from "./page";
 
 // ─── next/navigation mock ─────────────────────────────────────
 
@@ -88,5 +88,41 @@ describe("Apply wizard — ?pack= preselection (F1-6)", () => {
     expect(getPack).toHaveBeenCalledWith("p-1");
     // Target step renders for the preselected pack.
     expect(screen.getByText(/where do you want to apply this pack/i)).toBeInTheDocument();
+  });
+});
+
+// ─── Prepare a starting situation (MP-7 / join task 11) ─────────
+
+describe("Apply wizard — prepare a starting situation (MP-7)", () => {
+  function renderAction() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <PrepareStartAction packId="p-1" universeId="u-1" />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("calls POST /ingest/packs/{id}/prepare-start with the new universe", async () => {
+    const prepare = vi.spyOn(ingestApi, "prepareStartingSituation").mockResolvedValue({
+      pack_id: "p-1",
+      universe_id: "u-1",
+      materialized: { location: "the drowned road", npcs: [{ name: "Old Tomas" }] },
+    });
+
+    renderAction();
+    fireEvent.click(screen.getByRole("button", { name: /prepare a starting situation/i }));
+
+    expect(await screen.findByText(/starting situation ready — the drowned road with 1 NPC present/i)).toBeInTheDocument();
+    expect(prepare).toHaveBeenCalledWith("p-1", "u-1");
+  });
+
+  it("surfaces a failed prepare without breaking the page", async () => {
+    vi.spyOn(ingestApi, "prepareStartingSituation").mockRejectedValue(new Error("seed down"));
+
+    renderAction();
+    fireEvent.click(screen.getByRole("button", { name: /prepare a starting situation/i }));
+
+    expect(await screen.findByText(/seed down/i)).toBeInTheDocument();
   });
 });

@@ -234,7 +234,11 @@ function NewWorldStep({
   onDone,
 }: {
   packId: string;
-  onDone: (result: { world_name: string; universe_id: string }) => void;
+  onDone: (result: {
+    world_name: string;
+    universe_id: string;
+    can_prepare_starting_situation: boolean;
+  }) => void;
 }) {
   const [worldName, setWorldName]     = useState("");
   const [systemName, setSystemName]   = useState("");
@@ -246,7 +250,11 @@ function NewWorldStep({
         system_name: systemName || undefined,
       }),
     onSuccess: (res) => {
-      onDone({ world_name: worldName, universe_id: res.universe_id });
+      onDone({
+        world_name: worldName,
+        universe_id: res.universe_id,
+        can_prepare_starting_situation: Boolean(res.can_prepare_starting_situation),
+      });
     },
   });
 
@@ -546,6 +554,47 @@ function ConflictsStep({
   );
 }
 
+// ─── Prepare a starting situation (MP-7 / join task 11) ─────────
+
+export function PrepareStartAction({ packId, universeId }: { packId: string; universeId: string }) {
+  const [prepared, setPrepared] = useState<{ location?: string; npcCount: number } | null>(null);
+
+  const prepareMutation = useMutation({
+    mutationFn: () => ingestApi.prepareStartingSituation(packId, universeId),
+    onSuccess: (res) => {
+      setPrepared({
+        location: res.materialized?.location,
+        npcCount: (res.materialized?.npcs ?? []).length,
+      });
+    },
+  });
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <button
+        className="btn-cyber text-xs gap-1"
+        disabled={prepareMutation.isPending || prepared !== null}
+        onClick={() => prepareMutation.mutate()}
+      >
+        {prepareMutation.isPending
+          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          : <><Sparkles className="h-3.5 w-3.5" /> Prepare a starting situation</>}
+      </button>
+      {prepared && (
+        <p className="text-xs text-emerald-400">
+          Starting situation ready{prepared.location ? ` — ${prepared.location}` : ""}
+          {prepared.npcCount > 0
+            ? ` with ${prepared.npcCount} NPC${prepared.npcCount !== 1 ? "s" : ""} present`
+            : ""}.
+        </p>
+      )}
+      {prepareMutation.isError && (
+        <p className="text-xs text-red-400">{String(prepareMutation.error)}</p>
+      )}
+    </div>
+  );
+}
+
 // ─── Step labels ──────────────────────────────────────────────
 
 const STEP_LABELS: Record<Step, string> = {
@@ -568,7 +617,11 @@ function ApplyPackPageContent() {
   const [universeId, setUniverseId]   = useState("");
   const [conflicts, setConflicts]     = useState<PackConflict[]>([]);
   const [autoCommitLlm, setAutoCommitLlm] = useState(false);
-  const [doneInfo, setDoneInfo] = useState<{ message: string; universe_id?: string } | null>(null);
+  const [doneInfo, setDoneInfo] = useState<{
+    message: string;
+    universe_id?: string;
+    can_prepare_starting_situation?: boolean;
+  } | null>(null);
 
   const { data: pack } = useQuery({
     queryKey: ["pack", packId],
@@ -630,10 +683,11 @@ function ApplyPackPageContent() {
             <motion.div key="new-confirm" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
               <NewWorldStep
                 packId={packId}
-                onDone={({ world_name, universe_id }) => {
+                onDone={({ world_name, universe_id, can_prepare_starting_situation }) => {
                   setDoneInfo({
                     message: `"${world_name}" was created successfully.`,
                     universe_id,
+                    can_prepare_starting_situation,
                   });
                   setStep("done");
                 }}
@@ -683,6 +737,9 @@ function ApplyPackPageContent() {
             >
               <CheckCircle2 className="h-10 w-10 text-emerald-400" />
               <p className="text-sm text-fg-primary text-center">{doneInfo.message}</p>
+              {doneInfo.can_prepare_starting_situation && doneInfo.universe_id && (
+                <PrepareStartAction packId={packId} universeId={doneInfo.universe_id} />
+              )}
               <div className="flex gap-3">
                 <button className="btn-ghost" onClick={() => router.push("/forge/packs")}>
                   Back to Packs
