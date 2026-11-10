@@ -510,6 +510,60 @@ def _seed_answers_from_persona(persona: dict[str, Any]) -> list[dict[str, str]]:
 
 
 # ---------------------------------------------------------------------------
+# World-seed start options (Phase 2 guided start)
+# ---------------------------------------------------------------------------
+
+
+async def ensure_start_options(session: dict[str, Any]) -> list[dict[str, Any]]:
+    """Run WorldSeed once per session and cache the options on the session.
+
+    The cache lives on the persisted session dict, so a backend restart
+    re-asks the same question with the same options instead of regenerating
+    a different set. Failures record through ``RoleplayErrorRecorder`` and
+    degrade to no options (the legacy question path takes over).
+    """
+    existing = session.get("start_options")
+    if isinstance(existing, list) and existing:
+        return [option for option in existing if isinstance(option, dict)]
+
+    universe_id = session.get("universe_id") or session.get("world_id")
+    if not universe_id:
+        return []
+
+    pack_ids = [
+        str(value)
+        for value in (session.get("pack_id"), session.get("system_source_id"))
+        if value and str(value).strip()
+    ]
+    try:
+        from monitor_agents.world_seed import WorldSeed
+
+        result = await WorldSeed().generate_start_options(
+            universe_id=str(universe_id),
+            pack_ids=pack_ids,
+            system_name=session.get("system_label"),
+            tone=session.get("tone"),
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: a failed seed degrades to no options, never a failed session (in ensure_start_options)
+        log.warning("preplay.start_options_failed", error=str(exc))
+        info = classify_llm_error(exc)
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.PREPLAY,
+            category=RoleplayErrorCategory.LLM,
+            message=info.message,
+            fatal=False,
+            llm_error_class=info.error_class.value,
+            universe_id=_safe_universe_uuid(session),
+        )
+        return []
+
+    options = [option.model_dump(mode="json") for option in result.options]
+    session["start_options"] = options
+    session["start_options_source"] = result.source
+    return options
+
+
+# ---------------------------------------------------------------------------
 # OOC answer and Prologue generation
 # ---------------------------------------------------------------------------
 
