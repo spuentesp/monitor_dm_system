@@ -124,9 +124,7 @@ class TestParseProposals:
 
     def test_multiverse_proposal(self):
         arch = _make_architect()
-        items = [
-            {"type": "multiverse", "name": "Forgotten Realms", "system_name": "D&D 5e"}
-        ]
+        items = [{"type": "multiverse", "name": "Forgotten Realms", "system_name": "D&D 5e"}]
         result = arch._parse_proposals(json.dumps(items), universe_id=uuid4())
         assert len(result) == 1
         assert result[0]["proposal_type"] == "multiverse"

@@ -28,9 +28,7 @@ from monitor_data.schemas.random_tables import (
     RandomTableType,
 )
 
-_backend_src = (
-    Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-)
+_backend_src = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
 sys.path.insert(0, str(_backend_src))
 
 

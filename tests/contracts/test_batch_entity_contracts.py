@@ -175,9 +175,7 @@ class TestEntityBatchUpdateRequestContract:
         """continue_on_error defaults to False."""
         from monitor_data.schemas.entities import EntityBatchUpdateRequest
 
-        req = EntityBatchUpdateRequest(
-            updates=[{"entity_id": str(uuid4()), "update": {}}]
-        )
+        req = EntityBatchUpdateRequest(updates=[{"entity_id": str(uuid4()), "update": {}}])
         assert req.continue_on_error is False
 
 
@@ -251,9 +249,7 @@ class TestBatchEntityParameterValidation:
         response = client.post(
             "/api/entities/entities/batch",
             json={
-                "entities": [
-                    {"name": "Test", "entity_type": "character", "is_archetype": False}
-                ]
+                "entities": [{"name": "Test", "entity_type": "character", "is_archetype": False}]
             },
         )
         assert response.status_code == 422
@@ -373,11 +369,7 @@ class TestBatchEntityResponseShape:
             }
             response = client.patch(
                 "/api/entities/entities/batch",
-                json={
-                    "updates": [
-                        {"entity_id": str(uuid4()), "update": {"name": "Updated"}}
-                    ]
-                },
+                json={"updates": [{"entity_id": str(uuid4()), "update": {"name": "Updated"}}]},
             )
 
         if response.status_code == 200:

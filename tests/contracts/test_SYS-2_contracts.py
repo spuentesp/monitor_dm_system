@@ -178,17 +178,13 @@ class TestMainMenuProcessorHandleMenuChoiceContract:
 
     @pytest.mark.unit
     @patch("builtins.print")
-    async def test_displays_error_for_invalid_choice(
-        self, mock_print, main_menu_processor
-    ):
+    async def test_displays_error_for_invalid_choice(self, mock_print, main_menu_processor):
         """Contract: Displays error message for INVALID choice."""
         await main_menu_processor.handle_menu_choice(MenuChoice.INVALID)
 
         # Verify contract: error message displayed
         printed_strings = [str(call.args[0]) for call in mock_print.call_args_list]
-        assert any(
-            "Invalid choice" in s or "Please enter" in s for s in printed_strings
-        )
+        assert any("Invalid choice" in s or "Please enter" in s for s in printed_strings)
 
 
 @pytest.mark.unit
@@ -326,9 +322,7 @@ class TestMonitorManageCommandContract:
     @pytest.mark.unit
     def test_creates_universe_with_create_universe_option(self, cli_tester):
         """Contract: monitor manage --create-universe <name> creates universe."""
-        result = cli_tester.run_command(
-            ["monitor", "manage", "--create-universe", "Fantasy World"]
-        )
+        result = cli_tester.run_command(["monitor", "manage", "--create-universe", "Fantasy World"])
 
         # Verify contract: command executed with universe name
         assert result.exit_code != 1 or "created" in result.output.lower()
@@ -336,9 +330,7 @@ class TestMonitorManageCommandContract:
     @pytest.mark.unit
     def test_creates_character_with_create_character_option(self, cli_tester):
         """Contract: monitor manage --create-character <name> creates character."""
-        result = cli_tester.run_command(
-            ["monitor", "manage", "--create-character", "Aragorn"]
-        )
+        result = cli_tester.run_command(["monitor", "manage", "--create-character", "Aragorn"])
 
         # Verify contract: command executed with character name
         assert result.exit_code != 1 or "character" in result.output.lower()
@@ -358,9 +350,7 @@ class TestMonitorQueryCommandContract:
     @pytest.mark.unit
     def test_accepts_type_option(self, cli_tester):
         """Contract: monitor query --query <text> --type <type> filters by type."""
-        result = cli_tester.run_command(
-            ["monitor", "query", "--query", "swords", "--type", "item"]
-        )
+        result = cli_tester.run_command(["monitor", "query", "--query", "swords", "--type", "item"])
 
         # Verify contract: command executed with type filter
         assert result.exit_code != 1 or "item" in result.output.lower()
@@ -420,9 +410,7 @@ class TestMonitorSettingsCommandContract:
     @pytest.mark.unit
     def test_sets_setting_with_set_option(self, cli_tester):
         """Contract: monitor settings --set <key>=<value> updates configuration."""
-        result = cli_tester.run_command(
-            ["monitor", "settings", "--set", "LLM_MODEL=claude-opus-4"]
-        )
+        result = cli_tester.run_command(["monitor", "settings", "--set", "LLM_MODEL=claude-opus-4"])
 
         # Verify contract: command executed with key=value
         assert result.exit_code != 1 or "updated" in result.output.lower()
@@ -430,9 +418,7 @@ class TestMonitorSettingsCommandContract:
     @pytest.mark.unit
     def test_gets_setting_with_get_option(self, cli_tester):
         """Contract: monitor settings --get <key> displays setting value."""
-        result = cli_tester.run_command(
-            ["monitor", "settings", "--get", "LLM_TEMPERATURE"]
-        )
+        result = cli_tester.run_command(["monitor", "settings", "--get", "LLM_TEMPERATURE"])
 
         # Verify contract: command executed with key
         assert result.exit_code != 1 or "temperature" in result.output.lower()

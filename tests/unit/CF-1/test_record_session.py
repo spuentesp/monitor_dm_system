@@ -336,9 +336,7 @@ async def test_scenario1_live_notes_recording(
 
 
 @pytest.mark.unit
-async def test_scenario2_transcript_upload(
-    orchestrator, narrator, fake_mcp, sample_story
-):
+async def test_scenario2_transcript_upload(orchestrator, narrator, fake_mcp, sample_story):
     """
     Scenario 2: GM uploads full transcript after session.
 
@@ -396,9 +394,7 @@ async def test_scenario2_transcript_upload(
     )
 
     # Execute: Start recording
-    result = await orchestrator.start_recording_session(
-        sample_story.id, RecordingMode.TRANSCRIPT
-    )
+    result = await orchestrator.start_recording_session(sample_story.id, RecordingMode.TRANSCRIPT)
     assert result == session_id
 
     # Execute: Parse transcript
@@ -506,9 +502,7 @@ async def test_scenario3_audio_capture_with_annotations(
     fake_mcp.call_tool = AsyncMock(return_value={"turn_id": "turn-003"})
 
     # Execute: Start recording
-    result = await orchestrator.start_recording_session(
-        sample_story.id, RecordingMode.AUDIO
-    )
+    result = await orchestrator.start_recording_session(sample_story.id, RecordingMode.AUDIO)
     assert result == session_id
 
     # Execute: Process transcribed content with annotation
@@ -567,9 +561,7 @@ async def test_scenario3_audio_capture_with_annotations(
 
 
 @pytest.mark.unit
-async def test_scenario4_gm_annotations_exclusion(
-    orchestrator, narrator, fake_mcp, sample_story
-):
+async def test_scenario4_gm_annotations_exclusion(orchestrator, narrator, fake_mcp, sample_story):
     """
     Scenario 4: GM marks content for exclusion.
 
@@ -621,9 +613,7 @@ async def test_scenario4_gm_annotations_exclusion(
     )
 
     # Execute: Start recording
-    result = await orchestrator.start_recording_session(
-        sample_story.id, RecordingMode.LIVE_NOTES
-    )
+    result = await orchestrator.start_recording_session(sample_story.id, RecordingMode.LIVE_NOTES)
     assert result == session_id
 
     # Execute: Process turns (including excluded one)
@@ -770,9 +760,7 @@ async def test_scenario5_multiscene_entity_tracking(
     )
 
     # Execute: Start recording
-    result = await orchestrator.start_recording_session(
-        sample_story.id, RecordingMode.LIVE_NOTES
-    )
+    result = await orchestrator.start_recording_session(sample_story.id, RecordingMode.LIVE_NOTES)
     assert result == session_id
 
     # Execute: Process Scene 1
@@ -838,9 +826,7 @@ async def test_scenario5_multiscene_entity_tracking(
     assert len(review.proposals) == 3
 
     # Verify relationship proposals
-    relationship_props = [
-        p for p in review.proposals if p.change_type == "new_relationship"
-    ]
+    relationship_props = [p for p in review.proposals if p.change_type == "new_relationship"]
     assert len(relationship_props) == 2
     assert "asks for help" in relationship_props[0].description
     assert "hunting" in relationship_props[1].description
@@ -863,9 +849,7 @@ async def test_error_story_not_found(orchestrator, fake_mcp):
 
     # Execute & Verify: Error raised
     with pytest.raises(Exception) as exc_info:
-        await orchestrator.start_recording_session(
-            "story-999", RecordingMode.LIVE_NOTES
-        )
+        await orchestrator.start_recording_session("story-999", RecordingMode.LIVE_NOTES)
 
     assert "Story not found" in str(exc_info.value)
 
@@ -910,9 +894,7 @@ async def test_error_scene_segmentation_fails(narrator):
     Expected: System logs error, creates single scene from all turns
     """
     # Setup: Segmentation fails
-    narrator.segment_session_into_scenes = AsyncMock(
-        side_effect=Exception("LLM timeout")
-    )
+    narrator.segment_session_into_scenes = AsyncMock(side_effect=Exception("LLM timeout"))
 
     # Execute & Verify: Error raised
     with pytest.raises(Exception) as exc_info:
@@ -1039,21 +1021,16 @@ async def test_success_criterion_entity_detection(indexer):
 
     # Verify: All entities detected with correct types
     assert len(result["entities"]) == 4
+    assert any(e["name"] == "Sir Galahad" and e["type"] == "character" for e in result["entities"])
     assert any(
-        e["name"] == "Sir Galahad" and e["type"] == "character"
-        for e in result["entities"]
-    )
-    assert any(
-        e["name"] == "Round Table" and e["type"] == "organization"
-        for e in result["entities"]
+        e["name"] == "Round Table" and e["type"] == "organization" for e in result["entities"]
     )
     assert any(
         e["name"] == "ancient cathedral of Camelot" and e["type"] == "location"
         for e in result["entities"]
     )
     assert any(
-        e["name"] == "Archbishop Thomas" and e["type"] == "character"
-        for e in result["entities"]
+        e["name"] == "Archbishop Thomas" and e["type"] == "character" for e in result["entities"]
     )
 
 
@@ -1092,9 +1069,7 @@ async def test_success_criterion_relationship_detection(indexer):
 
 
 @pytest.mark.unit
-async def test_success_criterion_gm_annotations_respected(
-    orchestrator, narrator, fake_mcp
-):
+async def test_success_criterion_gm_annotations_respected(orchestrator, narrator, fake_mcp):
     """
     Success Criterion 4: GM annotations respected.
 

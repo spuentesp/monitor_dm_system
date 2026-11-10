@@ -24,9 +24,7 @@ from pydantic import ValidationError
 
 class TestUniverseCreateForPhase3:
     def test_minimal(self):
-        u = UniverseCreate(
-            multiverse_id=uuid4(), name="Test World", description="A test"
-        )
+        u = UniverseCreate(multiverse_id=uuid4(), name="Test World", description="A test")
         assert u.name == "Test World"
         assert u.alt_world_type == AltWorldType.MAIN
         assert u.is_template is False
@@ -67,13 +65,9 @@ class TestUniverseCreateForPhase3:
 
     def test_confidence_bounds(self):
         with pytest.raises(ValidationError):
-            UniverseCreate(
-                multiverse_id=uuid4(), name="Test", description="x", confidence=-0.1
-            )
+            UniverseCreate(multiverse_id=uuid4(), name="Test", description="x", confidence=-0.1)
         with pytest.raises(ValidationError):
-            UniverseCreate(
-                multiverse_id=uuid4(), name="Test", description="x", confidence=1.1
-            )
+            UniverseCreate(multiverse_id=uuid4(), name="Test", description="x", confidence=1.1)
 
 
 class TestWorldSnapshotForPhase3:

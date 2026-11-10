@@ -14,9 +14,7 @@ try:
     from monitor_ui.main import app
     from monitor_ui.routers import entities as entities_router
 except ModuleNotFoundError:
-    backend_src = (
-        Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-    )
+    backend_src = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
     sys.path.append(str(backend_src))
     from monitor_ui.main import app
     from monitor_ui.routers import entities as entities_router

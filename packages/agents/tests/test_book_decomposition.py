@@ -57,18 +57,47 @@ def tree() -> BookTree:
 def _synthetic_tree(paragraph_sentences: list[list[str]]) -> BookTree:
     nodes = [BookNode(id="root", doc_id="d", kind=BookNodeKind.BOOK, seq=0, page_start=0, page_end=0)]
     nodes.append(
-        BookNode(id="div", doc_id="d", kind=BookNodeKind.DIVISION, parent_id="root", seq=1, text="Chapter", page_start=0, page_end=0)
+        BookNode(
+            id="div",
+            doc_id="d",
+            kind=BookNodeKind.DIVISION,
+            parent_id="root",
+            seq=1,
+            text="Chapter",
+            page_start=0,
+            page_end=0,
+        )
     )
     for p_index, sentences in enumerate(paragraph_sentences):
         paragraph = f"p{p_index}"
         nodes.append(
-            BookNode(id=paragraph, doc_id="d", kind=BookNodeKind.PARAGRAPH, parent_id="div", seq=len(nodes), text=" ".join(sentences), page_start=0, page_end=0)
+            BookNode(
+                id=paragraph,
+                doc_id="d",
+                kind=BookNodeKind.PARAGRAPH,
+                parent_id="div",
+                seq=len(nodes),
+                text=" ".join(sentences),
+                page_start=0,
+                page_end=0,
+            )
         )
         for s_index, sentence in enumerate(sentences):
             nodes.append(
-                BookNode(id=f"{paragraph}s{s_index}", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id=paragraph, seq=len(nodes), text=sentence, page_start=0, page_end=0)
+                BookNode(
+                    id=f"{paragraph}s{s_index}",
+                    doc_id="d",
+                    kind=BookNodeKind.SENTENCE,
+                    parent_id=paragraph,
+                    seq=len(nodes),
+                    text=sentence,
+                    page_start=0,
+                    page_end=0,
+                )
             )
-    return BookTree(doc_id="d", title="T", decomposer_version="1", content_hash="x", nodes=nodes, report=DecompositionReport())
+    return BookTree(
+        doc_id="d", title="T", decomposer_version="1", content_hash="x", nodes=nodes, report=DecompositionReport()
+    )
 
 
 def _atom(*cites: str, kind: AtomKind = AtomKind.AXIOM, **fields: str) -> ExtractedAtom:
@@ -236,9 +265,7 @@ async def test_unparseable_output_splits_the_window_instead_of_repeating_the_req
     assert outcome.uncovered == []
     assert extractor.sizes[:3] == [8, 4, 4]
     assert max(extractor.sizes[3:]) <= 2
-    assert {n for atom in outcome.atoms for n in atom.source_node_ids} == {
-        unit.node_id for unit in window.units
-    }
+    assert {n for atom in outcome.atoms for n in atom.source_node_ids} == {unit.node_id for unit in window.units}
 
 
 @pytest.mark.unit
@@ -281,7 +308,16 @@ def test_letter_spaced_heading_repeating_its_division_is_left_out_of_the_path():
     tree = _synthetic_tree([["Some text."]])
     tree.nodes.insert(
         2,
-        BookNode(id="h", doc_id="d", kind=BookNodeKind.HEADING, parent_id="div", seq=2, text="C h a p t e r", page_start=0, page_end=0),
+        BookNode(
+            id="h",
+            doc_id="d",
+            kind=BookNodeKind.HEADING,
+            parent_id="div",
+            seq=2,
+            text="C h a p t e r",
+            page_start=0,
+            page_end=0,
+        ),
     )
     assert build_windows(tree)[0].heading_path == ("Chapter",)
 
@@ -368,7 +404,13 @@ def _answer(label="S1"):
     return f"[[ ## result ## ]]\n{extraction.model_dump_json()}\n\n[[ ## completed ## ]]"
 
 
-_ONE_UNIT = Window(id="w", division_id="d", heading_path=("C",), context="", units=(Unit("n", "S1", BookNodeKind.SENTENCE, "Text.", 0),))
+_ONE_UNIT = Window(
+    id="w",
+    division_id="d",
+    heading_path=("C",),
+    context="",
+    units=(Unit("n", "S1", BookNodeKind.SENTENCE, "Text.", 0),),
+)
 
 
 @pytest.mark.unit
@@ -445,5 +487,10 @@ def test_truncated_output_counts_toward_quarantine():
 @pytest.mark.parametrize("word", ["veto", "gamemaster", "traits"])
 def test_prompts_do_not_contain_the_cases_the_first_real_test_checks(word):
     """Dune Chapter 5's dropped veto is the test, so the prompts can't quote the answer."""
-    for signature in (WindowExtractionSignature, ClaimVerificationSignature, ClaimStackingSignature, SkipAuditSignature):
+    for signature in (
+        WindowExtractionSignature,
+        ClaimVerificationSignature,
+        ClaimStackingSignature,
+        SkipAuditSignature,
+    ):
         assert word not in signature.instructions.casefold()

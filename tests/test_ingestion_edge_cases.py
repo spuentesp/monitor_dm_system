@@ -188,9 +188,7 @@ class TestContradictionEdgeCases:
     def test_identical_statements_no_contradiction(self):
         """Identical statements should NOT be flagged (>0.92 similarity → dedup territory)."""
         pack = _make_response(
-            axioms=[
-                ExtractedAxiom(statement="Elves are immortal beings", domain="biology")
-            ],
+            axioms=[ExtractedAxiom(statement="Elves are immortal beings", domain="biology")],
         )
         canon = [{"statement": "Elves are immortal beings", "canon_level": "canon"}]
         result = detect_contradictions(pack, canon_axioms=canon, canon_facts=[])
@@ -318,9 +316,7 @@ class TestContradictionEdgeCases:
         # Use opposite terms which are more reliably detected
         pack = _make_response(
             axioms=[
-                ExtractedAxiom(
-                    statement="Elves are mortal creatures", domain="biology"
-                ),
+                ExtractedAxiom(statement="Elves are mortal creatures", domain="biology"),
             ],
             lore_facts=[
                 ExtractedLoreFact(
@@ -338,9 +334,7 @@ class TestContradictionEdgeCases:
                 "canon_level": "canon",
             },
         ]
-        result = detect_contradictions(
-            pack, canon_axioms=canon_axioms, canon_facts=canon_facts
-        )
+        result = detect_contradictions(pack, canon_axioms=canon_axioms, canon_facts=canon_facts)
         # Should detect mortal/immortal opposite in axioms
         assert result.total_contradictions >= 1
 
@@ -379,9 +373,7 @@ class TestContradictionEdgeCases:
             description="Elves are mortal beings that can die of old age",
         )
         pack = _make_response(entities=[entity])
-        canon = [
-            {"statement": "Elves are immortal and live forever", "canon_level": "canon"}
-        ]
+        canon = [{"statement": "Elves are immortal and live forever", "canon_level": "canon"}]
         result = detect_contradictions(pack, canon_axioms=[], canon_facts=canon)
         # Entity check uses different heuristics — may or may not detect
         assert isinstance(result.total_contradictions, int)
@@ -416,9 +408,7 @@ class TestCanonLevelKnowledgeScopeEdgeCases:
     def test_lore_fact_with_each_canon_level(self):
         """Each CanonLevel should be valid on a LoreFact."""
         for level in CanonLevel:
-            fact = ExtractedLoreFact(
-                statement=f"Fact at {level.value}", canon_level=level
-            )
+            fact = ExtractedLoreFact(statement=f"Fact at {level.value}", canon_level=level)
             assert fact.canon_level == level
 
     def test_lore_fact_with_each_knowledge_scope(self):

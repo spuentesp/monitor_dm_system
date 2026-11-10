@@ -36,9 +36,7 @@ def test_script_without_run_e2e_exits_zero(monkeypatch):
         timeout=15,
         env={k: v for k, v in os.environ.items() if k != "RUN_E2E"},
     )
-    assert result.returncode == 0, (
-        f"unexpected exit {result.returncode}: {result.stderr}"
-    )
+    assert result.returncode == 0, f"unexpected exit {result.returncode}: {result.stderr}"
     assert "RUN_E2E=1" in result.stdout
 
 
@@ -59,9 +57,7 @@ def test_script_with_run_e2e_invokes_correct_subprocess_chain(monkeypatch):
         completed = subprocess.CompletedProcess(
             args=cmd,
             returncode=0,
-            stdout=doctor_payload
-            if "monitor_cli.main" in cmd and "doctor" in cmd
-            else "",
+            stdout=doctor_payload if "monitor_cli.main" in cmd and "doctor" in cmd else "",
             stderr="",
         )
         return completed
@@ -70,9 +66,7 @@ def test_script_with_run_e2e_invokes_correct_subprocess_chain(monkeypatch):
     monkeypatch.setattr("subprocess.run", fake_run)
     monkeypatch.setattr("subprocess.CompletedProcess", subprocess.CompletedProcess)
     monkeypatch.setenv("RUN_E2E", "1")
-    monkeypatch.setattr(
-        "sys.argv", [str(SCRIPT), "--provider", "ollama", "--skip-test-suite"]
-    )
+    monkeypatch.setattr("sys.argv", [str(SCRIPT), "--provider", "ollama", "--skip-test-suite"])
 
     # Import after monkey-patching so the module captures our fake_run.
     if "scripts.e2e_init_wizard" in sys.modules:
@@ -87,10 +81,9 @@ def test_script_with_run_e2e_invokes_correct_subprocess_chain(monkeypatch):
     assert rc == 0, "script should exit 0 on a green chain"
 
     # 1. docker compose down -v
-    assert any(
-        c[:3] == ["docker", "compose", "-f"] and "down" in c and "-v" in c
-        for c in calls
-    ), f"missing 'docker compose down -v' call; got {calls}"
+    assert any(c[:3] == ["docker", "compose", "-f"] and "down" in c and "-v" in c for c in calls), (
+        f"missing 'docker compose down -v' call; got {calls}"
+    )
 
     # 2. make infra-up
     assert any(c[:2] == ["make", "infra-up"] for c in calls), "missing 'make infra-up'"
@@ -108,8 +101,7 @@ def test_script_with_run_e2e_invokes_correct_subprocess_chain(monkeypatch):
 
     # 4. monitor doctor --json (captured via the run path that returns doctor_payload)
     assert any(
-        "-m" in c and "monitor_cli.main" in c and "doctor" in c and "--json" in c
-        for c in calls
+        "-m" in c and "monitor_cli.main" in c and "doctor" in c and "--json" in c for c in calls
     ), "missing 'monitor doctor --json'"
 
 
@@ -127,9 +119,7 @@ def test_script_reports_nonzero_when_doctor_is_unhealthy(monkeypatch):
 
     monkeypatch.setattr("subprocess.run", fake_run)
     monkeypatch.setenv("RUN_E2E", "1")
-    monkeypatch.setattr(
-        "sys.argv", [str(SCRIPT), "--provider", "ollama", "--skip-test-suite"]
-    )
+    monkeypatch.setattr("sys.argv", [str(SCRIPT), "--provider", "ollama", "--skip-test-suite"])
 
     if "scripts.e2e_init_wizard" in sys.modules:
         del sys.modules["scripts.e2e_init_wizard"]

@@ -16,9 +16,7 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
-def _make_story_loop(
-    story_id: UUID | None = None, universe_id: UUID | None = None
-) -> Any:
+def _make_story_loop(story_id: UUID | None = None, universe_id: UUID | None = None) -> Any:
     """Build a StoryLoop without invoking __init__ (avoids LLM client)."""
     from monitor_agents.loops.story_loop import StoryLoop
 
@@ -53,51 +51,37 @@ class TestTransitionStoryStatus:
     def test_planned_to_completed_invalid(self):
         from monitor_data.schemas.base import StoryStatus, transition_story_status
 
-        assert (
-            transition_story_status(StoryStatus.PLANNED, StoryStatus.COMPLETED) is False
-        )
+        assert transition_story_status(StoryStatus.PLANNED, StoryStatus.COMPLETED) is False
 
     def test_active_to_completed(self):
         from monitor_data.schemas.base import StoryStatus, transition_story_status
 
-        assert (
-            transition_story_status(StoryStatus.ACTIVE, StoryStatus.COMPLETED) is True
-        )
+        assert transition_story_status(StoryStatus.ACTIVE, StoryStatus.COMPLETED) is True
 
     def test_active_to_archived_invalid(self):
         from monitor_data.schemas.base import StoryStatus, transition_story_status
 
-        assert (
-            transition_story_status(StoryStatus.ACTIVE, StoryStatus.ARCHIVED) is False
-        )
+        assert transition_story_status(StoryStatus.ACTIVE, StoryStatus.ARCHIVED) is False
 
     def test_completed_to_archived(self):
         from monitor_data.schemas.base import StoryStatus, transition_story_status
 
-        assert (
-            transition_story_status(StoryStatus.COMPLETED, StoryStatus.ARCHIVED) is True
-        )
+        assert transition_story_status(StoryStatus.COMPLETED, StoryStatus.ARCHIVED) is True
 
     def test_abandoned_to_archived(self):
         from monitor_data.schemas.base import StoryStatus, transition_story_status
 
-        assert (
-            transition_story_status(StoryStatus.ABANDONED, StoryStatus.ARCHIVED) is True
-        )
+        assert transition_story_status(StoryStatus.ABANDONED, StoryStatus.ARCHIVED) is True
 
     def test_planned_to_abandoned(self):
         from monitor_data.schemas.base import StoryStatus, transition_story_status
 
-        assert (
-            transition_story_status(StoryStatus.PLANNED, StoryStatus.ABANDONED) is True
-        )
+        assert transition_story_status(StoryStatus.PLANNED, StoryStatus.ABANDONED) is True
 
     def test_active_to_abandoned(self):
         from monitor_data.schemas.base import StoryStatus, transition_story_status
 
-        assert (
-            transition_story_status(StoryStatus.ACTIVE, StoryStatus.ABANDONED) is True
-        )
+        assert transition_story_status(StoryStatus.ACTIVE, StoryStatus.ABANDONED) is True
 
     def test_same_status_invalid(self):
         from monitor_data.schemas.base import StoryStatus, transition_story_status
@@ -268,10 +252,7 @@ class TestGenerateEncounter:
         from monitor_agents.loops.story_loop import generate_encounter
 
         result = generate_encounter(location_type="underwater_cave", seed=42)
-        assert all(
-            e in {"Goblin", "Bandit", "Wolf", "Cultist", "Mage"}
-            for e in result["enemies"]
-        )
+        assert all(e in {"Goblin", "Bandit", "Wolf", "Cultist", "Mage"} for e in result["enemies"])
 
     def test_deterministic_with_seed(self):
         from monitor_agents.loops.story_loop import generate_encounter
@@ -291,12 +272,8 @@ class TestGenerateEncounter:
     def test_difficulty_scales_enemy_count(self):
         from monitor_agents.loops.story_loop import generate_encounter
 
-        easy = generate_encounter(
-            difficulty="easy", party_size=4, party_level=4, seed=1
-        )
-        hard = generate_encounter(
-            difficulty="hard", party_size=4, party_level=4, seed=1
-        )
+        easy = generate_encounter(difficulty="easy", party_size=4, party_level=4, seed=1)
+        hard = generate_encounter(difficulty="hard", party_size=4, party_level=4, seed=1)
         # hard (1.5x) should have at least as many enemies as easy (0.5x)
         # Note: due to max(1, ...) floor, both may equal 1, so just check
         # hard is at least 1.
@@ -306,9 +283,7 @@ class TestGenerateEncounter:
     def test_deadly_multiplier(self):
         from monitor_agents.loops.story_loop import generate_encounter
 
-        result = generate_encounter(
-            difficulty="deadly", party_size=4, party_level=10, seed=1
-        )
+        result = generate_encounter(difficulty="deadly", party_size=4, party_level=10, seed=1)
         # deadly = 2.0 multiplier, party_size*level/4 = 10, so ~20 enemies
         assert len(result["enemies"]) >= 10
 
@@ -322,9 +297,7 @@ class TestGenerateEncounter:
     def test_invalid_difficulty_defaults_to_medium(self):
         from monitor_agents.loops.story_loop import generate_encounter
 
-        result = generate_encounter(
-            difficulty="impossible", seed=1, party_size=4, party_level=4
-        )
+        result = generate_encounter(difficulty="impossible", seed=1, party_size=4, party_level=4)
         # Should behave like medium (1.0x)
         assert "enemies" in result
 

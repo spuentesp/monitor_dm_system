@@ -30,7 +30,14 @@ from monitor_data.schemas.book_graph import (
 
 
 def _claim(claim_id: str, statement: str) -> ReviewedClaim:
-    return ReviewedClaim(id=claim_id, kind=AtomKind.RULE, statement=statement, source_node_ids=[f"s-{claim_id}"], pages=[0], merged_from=[])
+    return ReviewedClaim(
+        id=claim_id,
+        kind=AtomKind.RULE,
+        statement=statement,
+        source_node_ids=[f"s-{claim_id}"],
+        pages=[0],
+        merged_from=[],
+    )
 
 
 CLAIMS = [_claim("a", "Momentum is spent on skill tests."), _claim("b", "Threat opposes Momentum.")]
@@ -48,7 +55,9 @@ def _rel(subject="Momentum", predicate="used_in", target="skill test", cites=("C
 @pytest.mark.unit
 def test_relationship_keeps_its_claim_as_evidence():
     graph = _build([_rel()], [{"name": "Momentum", "type": "mechanic"}])
-    assert [(e.subject, e.predicate, e.object, e.claim_ids) for e in graph.edges] == [("momentum", "used_in", "skill test", ["a"])]
+    assert [(e.subject, e.predicate, e.object, e.claim_ids) for e in graph.edges] == [
+        ("momentum", "used_in", "skill test", ["a"])
+    ]
     momentum = next(n for n in graph.nodes if n.id == "momentum")
     assert momentum.type == "mechanic" and momentum.claim_ids == ["a"]
     assert graph.report.claims_cited == 1
@@ -77,7 +86,14 @@ def test_entity_with_no_relationship_does_not_become_a_node():
 @pytest.mark.unit
 def test_names_merge_across_case_articles_and_plurals():
     claims = [_claim("a", "The Assets are used in a conflict."), _claim("b", "An asset is used in a Conflict.")]
-    answer = GraphBatch.model_validate({"relationships": [_rel("The Assets", "used_in", "conflict", ("C1",)), _rel("asset", "Used In", "Conflict", ("C2",))]})
+    answer = GraphBatch.model_validate(
+        {
+            "relationships": [
+                _rel("The Assets", "used_in", "conflict", ("C1",)),
+                _rel("asset", "Used In", "Conflict", ("C2",)),
+            ]
+        }
+    )
     graph = assemble_graph([(claims, answer)], GraphReport())
     assert [n.id for n in graph.nodes] == ["asset", "conflict"]
     assert [(e.predicate, e.claim_ids) for e in graph.edges] == [("used_in", ["a", "b"])]
@@ -106,7 +122,10 @@ def _rels(*rels):
     return GraphBatch.model_validate({"relationships": list(rels)})
 
 
-LORE_CLAIMS = [_claim("a", "The Spacing Guild controls space travel."), _claim("b", "Momentum is used in a skill test.")]
+LORE_CLAIMS = [
+    _claim("a", "The Spacing Guild controls space travel."),
+    _claim("b", "Momentum is used in a skill test."),
+]
 MIXED = _rels(
     {"domain": "lore", "subject": "Spacing Guild", "predicate": "controls", "object": "space travel", "cites": ["C1"]},
     {"domain": "rules", "subject": "Momentum", "predicate": "used_in", "object": "skill test", "cites": ["C2"]},
@@ -156,11 +175,15 @@ def test_merge_keeps_old_names_and_all_citations_and_drops_the_self_link():
     assert [n.id for n in graph.nodes] == ["extended task", "zone"]
     assert graph.nodes[0].aliases == ["extended test"]
     assert set(graph.nodes[0].claim_ids) == {"a", "b", "c"}
-    assert [(e.subject, e.predicate, e.object, e.claim_ids) for e in graph.edges] == [("extended task", "used_in", "zone", ["a", "c"])]
+    assert [(e.subject, e.predicate, e.object, e.claim_ids) for e in graph.edges] == [
+        ("extended task", "used_in", "zone", ["a", "c"])
+    ]
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("group", [["extended task", "dragon"], ["zone"], ["extended task", "extended test", "a", "b", "c", "d", "e"]])
+@pytest.mark.parametrize(
+    "group", [["extended task", "dragon"], ["zone"], ["extended task", "extended test", "a", "b", "c", "d", "e"]]
+)
 def test_unsafe_merge_groups_are_refused(group):
     graph = apply_merges(_two_node_graph(), [group])
     assert len(graph.nodes) == 3
@@ -169,7 +192,9 @@ def test_unsafe_merge_groups_are_refused(group):
 
 @pytest.mark.unit
 def test_claim_with_no_valid_domain_label_goes_by_its_kind():
-    fact = ReviewedClaim(id="f", kind=AtomKind.FACT, statement="The Guild exists.", source_node_ids=["s"], pages=[0], merged_from=[])
+    fact = ReviewedClaim(
+        id="f", kind=AtomKind.FACT, statement="The Guild exists.", source_node_ids=["s"], pages=[0], merged_from=[]
+    )
     rule = _claim("r", "Roll two dice.")
     answer = GraphBatch(claim_domains={"C1": "lore", "C2": "nonsense"})
     rule.domain = "rules"
@@ -181,13 +206,40 @@ def test_claim_with_no_valid_domain_label_goes_by_its_kind():
 def test_each_domain_tree_nests_only_its_claims_under_the_books_headings():
     nodes = [
         BookNode(id="root", doc_id="d", kind=BookNodeKind.BOOK, seq=0, page_start=0, page_end=0),
-        BookNode(id="ch", doc_id="d", kind=BookNodeKind.DIVISION, parent_id="root", seq=1, text="Chapter 6: Conflict", page_start=0, page_end=0),
-        BookNode(id="h", doc_id="d", kind=BookNodeKind.HEADING, parent_id="ch", seq=2, text="ZONES", page_start=0, page_end=0),
-        BookNode(id="p", doc_id="d", kind=BookNodeKind.PARAGRAPH, parent_id="ch", seq=3, text="Text.", page_start=0, page_end=0),
-        BookNode(id="s", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id="p", seq=4, text="Text.", page_start=0, page_end=0),
+        BookNode(
+            id="ch",
+            doc_id="d",
+            kind=BookNodeKind.DIVISION,
+            parent_id="root",
+            seq=1,
+            text="Chapter 6: Conflict",
+            page_start=0,
+            page_end=0,
+        ),
+        BookNode(
+            id="h", doc_id="d", kind=BookNodeKind.HEADING, parent_id="ch", seq=2, text="ZONES", page_start=0, page_end=0
+        ),
+        BookNode(
+            id="p",
+            doc_id="d",
+            kind=BookNodeKind.PARAGRAPH,
+            parent_id="ch",
+            seq=3,
+            text="Text.",
+            page_start=0,
+            page_end=0,
+        ),
+        BookNode(
+            id="s", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id="p", seq=4, text="Text.", page_start=0, page_end=0
+        ),
     ]
-    book = BookTree(doc_id="d", title="T", decomposer_version="4", content_hash="x", nodes=nodes, report=DecompositionReport())
-    claims = [ReviewedClaim(id=i, kind=AtomKind.RULE, statement=i, source_node_ids=["s"], pages=[0], merged_from=[]) for i in ("r", "l")]
+    book = BookTree(
+        doc_id="d", title="T", decomposer_version="4", content_hash="x", nodes=nodes, report=DecompositionReport()
+    )
+    claims = [
+        ReviewedClaim(id=i, kind=AtomKind.RULE, statement=i, source_node_ids=["s"], pages=[0], merged_from=[])
+        for i in ("r", "l")
+    ]
     tree = build_domain_tree(book, claims, {"r": "rules", "l": "lore"}, "rules")
     assert tree.children[0].name == "Chapter 6: Conflict"
     assert tree.children[0].children[0].name == "ZONES"

@@ -38,9 +38,7 @@ class TestRandomTablesRouterImport:
         from monitor_ui.routers.random_tables import router
 
         routes = {r.path: r.methods for r in router.routes}
-        assert "/random-tables" in routes, (
-            f"Expected /random-tables route, got {routes}"
-        )
+        assert "/random-tables" in routes, f"Expected /random-tables route, got {routes}"
         assert "POST" in routes["/random-tables"]
 
     def test_has_roll_endpoint(self):
@@ -140,9 +138,7 @@ class TestRandomTableRollRequest:
         app = create_app()
         client = TestClient(app, raise_server_exceptions=False)
 
-        with patch(
-            "monitor_ui.routers.random_tables.mongodb_roll_on_table"
-        ) as mock_roll:
+        with patch("monitor_ui.routers.random_tables.mongodb_roll_on_table") as mock_roll:
             mock_roll.return_value = {"value": "Goblin patrol", "roll": 3}
             response = client.post(
                 f"/api/random-tables/{uuid4()}/roll?actor_id={uuid4()}",
@@ -170,9 +166,7 @@ class TestRandomTablesParameterValidation:
         app = create_app()
         client = TestClient(app, raise_server_exceptions=False)
 
-        with patch(
-            "monitor_ui.routers.random_tables.mongodb_list_random_tables"
-        ) as mock_list:
+        with patch("monitor_ui.routers.random_tables.mongodb_list_random_tables") as mock_list:
             mock_list.return_value = MagicMock(tables=[], total=0)
             response = client.get("/api/random-tables?table_type=encounter")
 
@@ -186,9 +180,7 @@ class TestRandomTablesParameterValidation:
         app = create_app()
         client = TestClient(app, raise_server_exceptions=False)
 
-        with patch(
-            "monitor_ui.routers.random_tables.mongodb_list_random_tables"
-        ) as mock_list:
+        with patch("monitor_ui.routers.random_tables.mongodb_list_random_tables") as mock_list:
             mock_list.return_value = MagicMock(tables=[], total=0)
             response = client.get(f"/api/random-tables?universe_id={uuid4()}")
 
@@ -213,9 +205,7 @@ class TestRandomTablesParameterValidation:
         app = create_app()
         client = TestClient(app, raise_server_exceptions=False)
 
-        with patch(
-            "monitor_ui.routers.random_tables.mongodb_roll_on_table"
-        ) as mock_roll:
+        with patch("monitor_ui.routers.random_tables.mongodb_roll_on_table") as mock_roll:
             mock_roll.return_value = {"value": "Goblin patrol", "roll": 3}
             response = client.post(f"/api/random-tables/{uuid4()}/roll", json={})
 
@@ -277,9 +267,7 @@ class TestRandomTablesRollResponse:
         app = create_app()
         client = TestClient(app, raise_server_exceptions=False)
 
-        with patch(
-            "monitor_ui.routers.random_tables.mongodb_roll_on_table"
-        ) as mock_roll:
+        with patch("monitor_ui.routers.random_tables.mongodb_roll_on_table") as mock_roll:
             mock_roll.return_value = {"value": "Goblin patrol", "roll": 3}
             response = client.post(f"/api/random-tables/{uuid4()}/roll", json={})
 
@@ -304,9 +292,7 @@ class TestRandomTablesGracefulDegradation:
         app = create_app()
         client = TestClient(app, raise_server_exceptions=False)
 
-        with patch(
-            "monitor_ui.routers.random_tables.mongodb_list_random_tables"
-        ) as mock_list:
+        with patch("monitor_ui.routers.random_tables.mongodb_list_random_tables") as mock_list:
             mock_list.side_effect = Exception("MongoDB unavailable")
             response = client.get("/api/random-tables")
 
@@ -321,9 +307,7 @@ class TestRandomTablesGracefulDegradation:
         app = create_app()
         client = TestClient(app, raise_server_exceptions=False)
 
-        with patch(
-            "monitor_ui.routers.random_tables.mongodb_roll_on_table"
-        ) as mock_roll:
+        with patch("monitor_ui.routers.random_tables.mongodb_roll_on_table") as mock_roll:
             mock_roll.side_effect = Exception("MongoDB unavailable")
             response = client.post(f"/api/random-tables/{uuid4()}/roll", json={})
 

@@ -76,6 +76,8 @@ class UISettings(BaseSettings):
     auth_trusted_proxies: str = Field(default="", alias="AUTH_TRUSTED_PROXIES")
     auth_login_rate_limit: int = Field(default=5, alias="AUTH_LOGIN_RATE_LIMIT")
     auth_rate_window_seconds: int = Field(default=60, alias="AUTH_RATE_WINDOW_SECONDS")
+    auth_signup_rate_limit: int = Field(default=20, alias="AUTH_SIGNUP_RATE_LIMIT")
+    api_token_max_ttl_days: int = Field(default=365, alias="API_TOKEN_MAX_TTL_DAYS")
 
     # Google OAuth (optional — unset client id disables the provider)
     google_client_id: str | None = Field(default=None, alias="GOOGLE_CLIENT_ID")

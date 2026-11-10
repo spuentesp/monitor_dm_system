@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from tests.conftest import LOCAL_PRINCIPAL
 
 
 @pytest.fixture(autouse=True)
@@ -21,9 +22,7 @@ def _mock_db_clients(monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
     from pathlib import Path
 
-    backend_src = (
-        Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-    )
+    backend_src = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
     if str(backend_src) not in sys.path:
         sys.path.insert(0, str(backend_src))
 
@@ -107,7 +106,8 @@ class TestQuickWorldPCBootstrap:
             forge.QuickWorldRequest(
                 seed="A dark city where shadows talk",
                 start_playing=True,
-            )
+            ),
+            principal=LOCAL_PRINCIPAL,
         )
 
         assert result.session_id == session_id
@@ -141,7 +141,8 @@ class TestQuickWorldPCBootstrap:
             forge.QuickWorldRequest(
                 seed="A bright meadow",
                 start_playing=False,
-            )
+            ),
+            principal=LOCAL_PRINCIPAL,
         )
 
         assert result.session_id is None
@@ -189,7 +190,8 @@ class TestQuickWorldPCBootstrap:
             forge.QuickWorldRequest(
                 seed="A stormy coast",
                 start_playing=True,
-            )
+            ),
+            principal=LOCAL_PRINCIPAL,
         )
 
         # World was still created

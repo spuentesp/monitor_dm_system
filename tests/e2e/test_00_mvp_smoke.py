@@ -64,12 +64,8 @@ class TestMVPSmoke:
 
         # --- 1. Build a SceneState from the seeded fixtures
         state = SceneState(
-            scene_id=e2e_scene["scene_id"]
-            if isinstance(e2e_scene, dict)
-            else e2e_scene.scene_id,
-            story_id=e2e_story["story_id"]
-            if isinstance(e2e_story, dict)
-            else e2e_story.id,
+            scene_id=e2e_scene["scene_id"] if isinstance(e2e_scene, dict) else e2e_scene.scene_id,
+            story_id=e2e_story["story_id"] if isinstance(e2e_story, dict) else e2e_story.id,
             universe_id=UUID(str(seeded_world["universe_id"])),
             entity_context=[],
             memory_context=[],

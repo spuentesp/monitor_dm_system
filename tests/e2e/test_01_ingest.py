@@ -81,9 +81,7 @@ class TestTextIngestion:
         # Overlap test: last words of chunk N should appear in chunk N+1
         prev_words = set(chunks[0].text.split()[-20:])
         next_words = set(chunks[1].text.split()[:30])
-        assert prev_words & next_words, (
-            "Expected overlapping tokens between consecutive chunks"
-        )
+        assert prev_words & next_words, "Expected overlapping tokens between consecutive chunks"
 
     def test_ingest_markdown_produces_chunks(self, rpg_book_text: str) -> None:
         """I-1 variant: markdown ingestion also works."""
@@ -97,9 +95,7 @@ class TestTextIngestion:
         chunks_b = ingest_text(rpg_book_text[:1000], "stable_test")
         ids_a = [c.chunk_id for c in chunks_a]
         ids_b = [c.chunk_id for c in chunks_b]
-        assert ids_a == ids_b, (
-            "Re-ingestion must produce identical chunk IDs (idempotency)"
-        )
+        assert ids_a == ids_b, "Re-ingestion must produce identical chunk IDs (idempotency)"
 
     def test_detect_format_txt(self) -> None:
         """I-1 format detection: .txt files → 'text'."""
@@ -128,9 +124,7 @@ class TestMinIOStorage:
     """
 
     @pytest.mark.asyncio
-    async def test_upload_and_download_rpg_book(
-        self, folder_minio, rpg_book_bytes: bytes
-    ) -> None:
+    async def test_upload_and_download_rpg_book(self, folder_minio, rpg_book_bytes: bytes) -> None:
         """DL-9 upload + download round-trip."""
         key = f"sources/{uuid4()}/realm_of_shadows.txt"
         await folder_minio.upload(key, rpg_book_bytes, content_type="text/plain")
@@ -138,9 +132,7 @@ class TestMinIOStorage:
         assert downloaded == rpg_book_bytes
 
     @pytest.mark.asyncio
-    async def test_presigned_url_is_file_uri(
-        self, folder_minio, rpg_book_bytes: bytes
-    ) -> None:
+    async def test_presigned_url_is_file_uri(self, folder_minio, rpg_book_bytes: bytes) -> None:
         """DL-9 presigned URL format (folder backend returns file:// URI)."""
         key = f"sources/{uuid4()}/url_test.txt"
         await folder_minio.upload(key, rpg_book_bytes, content_type="text/plain")
@@ -148,9 +140,7 @@ class TestMinIOStorage:
         assert url.startswith("file://"), f"Expected file:// URL, got: {url}"
 
     @pytest.mark.asyncio
-    async def test_delete_removes_object(
-        self, folder_minio, rpg_book_bytes: bytes
-    ) -> None:
+    async def test_delete_removes_object(self, folder_minio, rpg_book_bytes: bytes) -> None:
         """DL-9 delete removes the object; subsequent download raises FileNotFoundError."""
         key = f"sources/{uuid4()}/delete_me.txt"
         await folder_minio.upload(key, rpg_book_bytes, content_type="text/plain")
@@ -185,9 +175,7 @@ class TestQdrantVectorIndex:
             collection_name=col_name,
             vectors_config=VectorParams(size=4, distance=Distance.COSINE),
         )
-        collections = [
-            c.name for c in qdrant_memory_client.get_collections().collections
-        ]
+        collections = [c.name for c in qdrant_memory_client.get_collections().collections]
         assert col_name in collections
 
     def test_qdrant_upsert_and_search(self, qdrant_memory_client) -> None:
@@ -232,11 +220,7 @@ class TestQdrantVectorIndex:
         )
         qdrant_memory_client.upsert(
             collection_name=col_name,
-            points=[
-                PointStruct(
-                    id=99, vector=[0.1, 0.2, 0.3, 0.4], payload={"text": "to_delete"}
-                )
-            ],
+            points=[PointStruct(id=99, vector=[0.1, 0.2, 0.3, 0.4], payload={"text": "to_delete"})],
         )
         qdrant_memory_client.delete(
             collection_name=col_name,

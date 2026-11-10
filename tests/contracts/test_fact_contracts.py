@@ -194,39 +194,28 @@ class TestCanonKeeperExclusivity:
         """neo4j_create_fact is a CanonKeeper write tool."""
         from monitor_data.invariants.canon_keeper import CanonKeeperExclusivity
 
-        assert (
-            CanonKeeperExclusivity.is_canon_keeper_write_tool("neo4j_create_fact")
-            is True
-        )
+        assert CanonKeeperExclusivity.is_canon_keeper_write_tool("neo4j_create_fact") is True
 
     def test_authorized_writer_canon_keeper(self):
         """CanonKeeper is authorized to create facts."""
         from monitor_data.invariants.canon_keeper import CanonKeeperExclusivity
 
         assert (
-            CanonKeeperExclusivity.is_authorized_writer(
-                "neo4j_create_fact", "CanonKeeper"
-            )
-            is True
+            CanonKeeperExclusivity.is_authorized_writer("neo4j_create_fact", "CanonKeeper") is True
         )
 
     def test_unauthorized_writer_narrator(self):
         """Narrator is not authorized to create facts."""
         from monitor_data.invariants.canon_keeper import CanonKeeperExclusivity
 
-        assert (
-            CanonKeeperExclusivity.is_authorized_writer("neo4j_create_fact", "Narrator")
-            is False
-        )
+        assert CanonKeeperExclusivity.is_authorized_writer("neo4j_create_fact", "Narrator") is False
 
     def test_shared_tool_authorized(self):
         """neo4j_create_source is shared between CanonKeeper and IngestionPipeline."""
         from monitor_data.invariants.canon_keeper import CanonKeeperExclusivity
 
         assert (
-            CanonKeeperExclusivity.is_authorized_writer(
-                "neo4j_create_source", "IngestionPipeline"
-            )
+            CanonKeeperExclusivity.is_authorized_writer("neo4j_create_source", "IngestionPipeline")
             is True
         )
 

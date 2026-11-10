@@ -21,18 +21,13 @@ class TestLayerDetection:
         """monitor_data modules detected as Layer 1."""
         assert LayerDirection.get_layer("monitor_data") == Layer.DATA_LAYER
         assert LayerDirection.get_layer("monitor_data.db.neo4j") == Layer.DATA_LAYER
-        assert (
-            LayerDirection.get_layer("monitor_data.tools.mongodb_tools")
-            == Layer.DATA_LAYER
-        )
+        assert LayerDirection.get_layer("monitor_data.tools.mongodb_tools") == Layer.DATA_LAYER
 
     def test_agents_layer_detection(self):
         """monitor_agents modules detected as Layer 2."""
         assert LayerDirection.get_layer("monitor_agents") == Layer.AGENTS
         assert LayerDirection.get_layer("monitor_agents.narrator.agent") == Layer.AGENTS
-        assert (
-            LayerDirection.get_layer("monitor_agents.loops.scene_loop") == Layer.AGENTS
-        )
+        assert LayerDirection.get_layer("monitor_agents.loops.scene_loop") == Layer.AGENTS
 
     def test_cli_layer_detection(self):
         """monitor_cli modules detected as Layer 3."""

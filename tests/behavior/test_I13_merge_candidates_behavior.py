@@ -41,9 +41,7 @@ class TestMergeDetectionBehavior:
         assert _coerce_merge_confidence(0.50) == MergeConfidence.LOW
 
         # Just below boundaries
-        assert (
-            _coerce_merge_confidence(0.85) == MergeConfidence.MEDIUM
-        )  # 0.85 is NOT > 0.85
+        assert _coerce_merge_confidence(0.85) == MergeConfidence.MEDIUM  # 0.85 is NOT > 0.85
         assert _coerce_merge_confidence(0.69) == MergeConfidence.LOW
         assert _coerce_merge_confidence(0.49) == MergeConfidence.UNCERTAIN
 

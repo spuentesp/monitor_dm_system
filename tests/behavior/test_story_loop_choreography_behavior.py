@@ -244,9 +244,7 @@ class TestLoadStoryOutline:
             return None
 
         monkeypatch.setattr(story_loop, "run_sync_read", fake_run_sync_read)
-        monkeypatch.setattr(
-            story_loop, "mongodb_get_story_outline", lambda *a, **k: None
-        )
+        monkeypatch.setattr(story_loop, "mongodb_get_story_outline", lambda *a, **k: None)
 
         result = asyncio.run(story_loop._load_story_outline(uuid4()))
         assert result is None
@@ -260,9 +258,7 @@ class TestLoadStoryOutline:
             return expected
 
         monkeypatch.setattr(story_loop, "run_sync_read", fake_run_sync_read)
-        monkeypatch.setattr(
-            story_loop, "mongodb_get_story_outline", lambda *a, **k: None
-        )
+        monkeypatch.setattr(story_loop, "mongodb_get_story_outline", lambda *a, **k: None)
 
         result = asyncio.run(story_loop._load_story_outline(uuid4()))
         assert result == expected

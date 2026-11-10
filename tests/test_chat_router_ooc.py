@@ -20,7 +20,9 @@ from monitor_ui.routers import (
 
 def fake_db_save_session(s):
     import copy
+
     chat._SESSIONS[s["id"]] = copy.deepcopy(s)
+
 
 @pytest.fixture(autouse=True)
 def _speed_up_chat_router_timers(monkeypatch):
@@ -35,9 +37,7 @@ def _speed_up_chat_router_timers(monkeypatch):
     monkeypatch.setattr(chat_ws, "_WS_TOKEN_DELAY_SECONDS", 0)
     monkeypatch.setattr(chat_ws, "_WS_LISTENER_POLL_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(chat_ws, "_WS_LISTENER_IDLE_SLEEP_SECONDS", 0)
-    monkeypatch.setattr(
-        chat_ws, "publish_redis_event", lambda _session_id, _payload: None
-    )
+    monkeypatch.setattr(chat_ws, "publish_redis_event", lambda _session_id, _payload: None)
     monkeypatch.setattr(chat, "_db_save_message", lambda _message: None)
     monkeypatch.setattr(chat, "_db_save_session", fake_db_save_session)
     monkeypatch.setattr(chat.asyncio, "create_task", _record_task)
@@ -63,9 +63,7 @@ def test_get_game_system_doc_prefers_pack_embedded_binding(monkeypatch):
             return _FakeCollection()
 
     monkeypatch.setattr(chat_game_system, "_GSR_AVAILABLE", True)
-    monkeypatch.setattr(
-        "monitor_data.db.mongodb.get_mongodb_client", lambda: _FakeMongo()
-    )
+    monkeypatch.setattr("monitor_data.db.mongodb.get_mongodb_client", lambda: _FakeMongo())
     monkeypatch.setattr(
         "monitor_data.tools.mongodb_tools.mongodb_get_knowledge_pack",
         lambda _uid: SimpleNamespace(
@@ -109,9 +107,7 @@ def test_get_game_system_doc_infers_pack_embedded_from_pack_id(monkeypatch):
             return _FakeCollection()
 
     monkeypatch.setattr(chat_game_system, "_GSR_AVAILABLE", True)
-    monkeypatch.setattr(
-        "monitor_data.db.mongodb.get_mongodb_client", lambda: _FakeMongo()
-    )
+    monkeypatch.setattr("monitor_data.db.mongodb.get_mongodb_client", lambda: _FakeMongo())
     monkeypatch.setattr(
         "monitor_data.tools.mongodb_tools.mongodb_get_knowledge_pack",
         lambda _uid: SimpleNamespace(
@@ -165,9 +161,7 @@ async def test_build_gm_opening_uses_non_persisting_narrator_path(monkeypatch):
         )
 
         async def narrate_turn(self, *_args, **_kwargs):
-            raise AssertionError(
-                "narrate_turn should not be used for the session-opening preview"
-            )
+            raise AssertionError("narrate_turn should not be used for the session-opening preview")
 
     monkeypatch.setattr(chat_loops, "_AGENTS_AVAILABLE", True)
     monkeypatch.setattr(chat_opening, "fetch_opening_hook", fake_fetch_opening_hook)
@@ -309,22 +303,14 @@ async def test_scene_end_phase_transitions_in_run_end_scene(monkeypatch):
 
 
 def test_ooc_question_detector_distinguishes_meta_from_action():
+    assert chat_support.is_ooc_question("Out of character, how do rolls work here?") is True
     assert (
-        chat_support.is_ooc_question("Out of character, how do rolls work here?")
-        is True
-    )
-    assert (
-        chat_support.is_ooc_question(
-            "((what system do we use, and what would I roll to shoot?))"
-        )
+        chat_support.is_ooc_question("((what system do we use, and what would I roll to shoot?))")
         is True
     )
     assert chat_support.is_ooc_question("OOC: can I reroll that check?") is True
     assert chat_support.is_ooc_question("/ooc what is my current armor?") is True
-    assert (
-        chat_support.normalize_ooc_text("((what system do we use?))")
-        == "what system do we use?"
-    )
+    assert chat_support.normalize_ooc_text("((what system do we use?))") == "what system do we use?"
     # Unmarked in-character speech and in-world questions must reach SceneLoop / GMAgent.
     assert (
         chat_support.is_ooc_question(
@@ -332,14 +318,8 @@ def test_ooc_question_detector_distinguishes_meta_from_action():
         )
         is False
     )
-    assert (
-        chat_support.is_ooc_question("Is the corridor beyond the airlock pressurised?")
-        is False
-    )
-    assert (
-        chat_support.is_ooc_question("I listen at the airlock and draw my cutter.")
-        is False
-    )
+    assert chat_support.is_ooc_question("Is the corridor beyond the airlock pressurised?") is False
+    assert chat_support.is_ooc_question("I listen at the airlock and draw my cutter.") is False
 
 
 @pytest.mark.asyncio
@@ -362,6 +342,7 @@ async def test_pending_consequence_choice_is_acknowledged_and_cleared():
     }
 
     matched_option = "Succeed, but spend extra time or a limited resource."
+
     class _MockMatch:
         def __call__(self, **kwargs):
             return SimpleNamespace(matched_option=matched_option)
@@ -749,9 +730,7 @@ async def test_send_message_persists_social_state_from_scene_turn_metadata(monke
 
     monkeypatch.setattr(chat, "_run_scene_turn", fake_scene_turn)
 
-    result = await chat.send_message(
-        session_id, chat.MessageSend(content="I offer fair payment.")
-    )
+    result = await chat.send_message(session_id, chat.MessageSend(content="I offer fair payment."))
 
     assert result.metadata["social_read"]["stance_after"] == "warming"
     assert chat._SESSIONS[session_id]["latest_social_read"]["stance_after"] == "warming"
@@ -797,22 +776,12 @@ async def test_send_message_persists_working_state_from_scene_turn_metadata(
 
     monkeypatch.setattr(chat, "_run_scene_turn", fake_scene_turn)
 
-    result = await chat.send_message(
-        session_id, chat.MessageSend(content="I strike the creature.")
-    )
+    result = await chat.send_message(session_id, chat.MessageSend(content="I strike the creature."))
 
     assert result.metadata["working_state"]["resources"]["HP"]["current"] == 7
-    assert (
-        chat._SESSIONS[session_id]["latest_working_state"]["resources"]["HP"]["current"]
-        == 7
-    )
-    assert chat._SESSIONS[session_id]["latest_working_state"]["conditions"] == [
-        "pressured"
-    ]
-    assert (
-        chat._SESSIONS[session_id]["latest_scene_checkpoint"]["success_level"]
-        == "success"
-    )
+    assert chat._SESSIONS[session_id]["latest_working_state"]["resources"]["HP"]["current"] == 7
+    assert chat._SESSIONS[session_id]["latest_working_state"]["conditions"] == ["pressured"]
+    assert chat._SESSIONS[session_id]["latest_scene_checkpoint"]["success_level"] == "success"
 
 
 @pytest.mark.asyncio
@@ -843,9 +812,7 @@ async def test_send_message_schedules_websocket_fanout(monkeypatch):
     monkeypatch.setattr(chat, "_run_scene_turn", fake_scene_turn)
     monkeypatch.setattr(chat, "fanout_completed_gm_message", fake_fanout)
 
-    result = await chat.send_message(
-        session_id, chat.MessageSend(content="I check the corridor.")
-    )
+    result = await chat.send_message(session_id, chat.MessageSend(content="I check the corridor."))
     await asyncio.sleep(0)
 
     assert result.content == "The deck lights shiver awake."
@@ -914,9 +881,7 @@ async def test_websocket_blank_message_is_rejected_without_running_turn(monkeypa
 
     await chat.chat_websocket(websocket, session_id)  # type: ignore[arg-type]
 
-    assert websocket.sent == [
-        {"type": "error", "detail": "Message content cannot be empty."}
-    ]
+    assert websocket.sent == [{"type": "error", "detail": "Message content cannot be empty."}]
     assert chat._MESSAGES[session_id] == []
     assert saved_messages == []
     scene_turn.assert_not_awaited()
@@ -970,9 +935,7 @@ async def test_redis_ws_listener_rebroadcasts_remote_payload(monkeypatch):
     fake_socket = _FakeWebSocket()
     chat_ws._WS_SUBSCRIBERS[session_id] = {fake_socket}  # type: ignore[assignment]
 
-    monkeypatch.setattr(
-        "monitor_data.db.redis.get_redis_client", lambda: _FakeRedisClient()
-    )
+    monkeypatch.setattr("monitor_data.db.redis.get_redis_client", lambda: _FakeRedisClient())
 
     await chat_ws._listen_for_events(session_id)
 
@@ -1030,9 +993,7 @@ def test_get_game_system_doc_falls_back_to_mongodb_when_no_embedded_data(monkeyp
             return _FakeCollection()
 
     monkeypatch.setattr(chat_game_system, "_GSR_AVAILABLE", True)
-    monkeypatch.setattr(
-        "monitor_data.db.mongodb.get_mongodb_client", lambda: _FakeMongo()
-    )
+    monkeypatch.setattr("monitor_data.db.mongodb.get_mongodb_client", lambda: _FakeMongo())
     monkeypatch.setattr(
         "monitor_data.tools.mongodb_tools.mongodb_get_knowledge_pack",
         lambda _uid: SimpleNamespace(
@@ -1084,9 +1045,7 @@ def test_session_game_system_doc_uses_world_id_fallback(monkeypatch):
     }
 
     monkeypatch.setattr(chat_game_system, "_GSR_AVAILABLE", True)
-    monkeypatch.setattr(
-        "monitor_data.db.mongodb.get_mongodb_client", lambda: _FakeMongo()
-    )
+    monkeypatch.setattr("monitor_data.db.mongodb.get_mongodb_client", lambda: _FakeMongo())
     monkeypatch.setattr(
         "monitor_data.tools.mongodb_tools.mongodb_get_knowledge_pack",
         lambda _uid: SimpleNamespace(

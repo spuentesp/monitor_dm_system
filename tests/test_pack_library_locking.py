@@ -7,6 +7,9 @@ from monitor_data.schemas.knowledge_packs import KnowledgePackStatus
 from monitor_ui.routers import pack_library
 
 
+from tests.conftest import LOCAL_PRINCIPAL
+
+
 @pytest.mark.asyncio
 async def test_update_pack_rejects_edits_while_backing_job_is_running(monkeypatch):
     pack_id = str(uuid4())
@@ -33,9 +36,7 @@ async def test_update_pack_rejects_edits_while_backing_job_is_running(monkeypatc
     )
 
     with pytest.raises(HTTPException) as exc:
-        await pack_library.update_pack(
-            pack_id, pack_library.PackUpdateRequest(name="Renamed")
-        )
+        await pack_library.update_pack(pack_id, pack_library.PackUpdateRequest(name="Renamed"))
 
     assert exc.value.status_code == 409
     assert "still being built" in str(exc.value.detail)
@@ -68,7 +69,7 @@ async def test_clone_pack_rejects_use_while_backing_job_is_running(monkeypatch):
 
     with pytest.raises(HTTPException) as exc:
         await pack_library.clone_pack(
-            pack_id, pack_library.ClonePackRequest(name="Clone")
+            pack_id, pack_library.ClonePackRequest(name="Clone"), principal=LOCAL_PRINCIPAL
         )
 
     assert exc.value.status_code == 409
@@ -87,9 +88,7 @@ async def test_get_pack_returns_pack_data(monkeypatch):
         tags=["test"],
     )
 
-    monkeypatch.setattr(
-        pack_library, "mongodb_get_knowledge_pack", lambda _uid: pack_data
-    )
+    monkeypatch.setattr(pack_library, "mongodb_get_knowledge_pack", lambda _uid: pack_data)
     monkeypatch.setattr(
         pack_library,
         "_pack_to_dict",
@@ -123,11 +122,11 @@ async def test_list_packs_filters_by_status(monkeypatch):
     monkeypatch.setattr(pack_library, "mongodb_list_knowledge_packs", list_packs_mock)
     monkeypatch.setattr(pack_library, "_pack_to_dict", lambda pack: {"name": pack.name})
 
-    result_ready = await pack_library.list_packs(status="ready")
+    result_ready = await pack_library.list_packs(status="ready", principal=LOCAL_PRINCIPAL)
     assert len(result_ready) == 1
     assert result_ready[0]["name"] == "Pack 1"
 
-    result_pending = await pack_library.list_packs(status="pending")
+    result_pending = await pack_library.list_packs(status="pending", principal=LOCAL_PRINCIPAL)
     assert len(result_pending) == 1
     assert result_pending[0]["name"] == "Pack 2"
 
@@ -195,7 +194,7 @@ async def test_create_pack_creates_new_pack(monkeypatch):
         tags=["test"],
     )
 
-    result = await pack_library.create_pack(body)
+    result = await pack_library.create_pack(body, principal=LOCAL_PRINCIPAL)
 
     assert len(create_called) == 1
     assert create_called[0].name == "New Pack"

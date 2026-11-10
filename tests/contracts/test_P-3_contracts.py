@@ -126,16 +126,10 @@ class TestContextAssemblyAssembleContract:
         ca = ContextAssembly(agent_id="context-test-1")
         with (
             patch.object(ca, "_cache_get_json", return_value=None),
-            patch.object(
-                ca, "_fetch_entities", new_callable=AsyncMock
-            ) as mock_entities,
-            patch.object(
-                ca, "_fetch_recent_turns", new_callable=AsyncMock
-            ) as mock_turns,
+            patch.object(ca, "_fetch_entities", new_callable=AsyncMock) as mock_entities,
+            patch.object(ca, "_fetch_recent_turns", new_callable=AsyncMock) as mock_turns,
             patch.object(ca, "_fetch_game_system", new_callable=AsyncMock) as mock_gs,
-            patch.object(
-                ca, "_fetch_plot_threads", new_callable=AsyncMock
-            ) as mock_threads,
+            patch.object(ca, "_fetch_plot_threads", new_callable=AsyncMock) as mock_threads,
             patch.object(ca, "_cache_set_json"),
         ):
             mock_entities.return_value = [{"id": "char-1", "name": "Aldern"}]
@@ -216,9 +210,7 @@ class TestMongodbGetSceneContract:
         }
 
         # Call tool (simulated)
-        result = await fake_mcp_client.call_tool(
-            "mongodb_get_scene", {"scene_id": "scene-456"}
-        )
+        result = await fake_mcp_client.call_tool("mongodb_get_scene", {"scene_id": "scene-456"})
 
         # Verify contract: returns Dict[str, Any]
         assert isinstance(result, dict)
@@ -247,9 +239,7 @@ class TestMongodbGetSceneContract:
 
         # Verify contract: raises error
         with pytest.raises(Exception) as exc_info:
-            await fake_mcp_client.call_tool(
-                "mongodb_get_scene", {"scene_id": "scene-999"}
-            )
+            await fake_mcp_client.call_tool("mongodb_get_scene", {"scene_id": "scene-999"})
 
         assert "SceneNotFoundError" in str(exc_info.value)
 
@@ -314,9 +304,7 @@ class TestMongodbGetTurnsContract:
         ]
 
         # Call with limit=5
-        await fake_mcp_client.call_tool(
-            "mongodb_get_turns", {"scene_id": "scene-456", "limit": 5}
-        )
+        await fake_mcp_client.call_tool("mongodb_get_turns", {"scene_id": "scene-456", "limit": 5})
 
         # Verify limit parameter was passed
         call_args = fake_mcp_client.call_tool.call_args

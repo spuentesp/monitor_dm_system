@@ -49,9 +49,33 @@ def _tree(paragraphs: list[str]) -> BookTree:
     """One paragraph and one sentence per string, with IDs p0/s0, p1/s1, ..."""
     nodes = [BookNode(id="root", doc_id="d", kind=BookNodeKind.BOOK, seq=0, page_start=0, page_end=0)]
     for i, text in enumerate(paragraphs):
-        nodes.append(BookNode(id=f"p{i}", doc_id="d", kind=BookNodeKind.PARAGRAPH, parent_id="root", seq=len(nodes), text=text, page_start=i, page_end=i))
-        nodes.append(BookNode(id=f"s{i}", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id=f"p{i}", seq=len(nodes), text=text, page_start=i, page_end=i))
-    return BookTree(doc_id="d", title="T", decomposer_version="1", content_hash="x", nodes=nodes, report=DecompositionReport())
+        nodes.append(
+            BookNode(
+                id=f"p{i}",
+                doc_id="d",
+                kind=BookNodeKind.PARAGRAPH,
+                parent_id="root",
+                seq=len(nodes),
+                text=text,
+                page_start=i,
+                page_end=i,
+            )
+        )
+        nodes.append(
+            BookNode(
+                id=f"s{i}",
+                doc_id="d",
+                kind=BookNodeKind.SENTENCE,
+                parent_id=f"p{i}",
+                seq=len(nodes),
+                text=text,
+                page_start=i,
+                page_end=i,
+            )
+        )
+    return BookTree(
+        doc_id="d", title="T", decomposer_version="1", content_hash="x", nodes=nodes, report=DecompositionReport()
+    )
 
 
 def _item(statement: str, source: int, kind: AtomKind = AtomKind.RULE, **fields: str) -> ProvenancedAtom:
@@ -66,7 +90,17 @@ def _outcome(*items: ProvenancedAtom, skipped: dict[str, str] | None = None) -> 
 class _Model:
     """Scripted review model. `verdicts` maps claim text to a verdict; default is supported."""
 
-    def __init__(self, verdicts=None, stacks=None, rescued=None, fail_verify=False, fail_stack=False, fail_audit=False, gaps=(), fail_gaps=False):
+    def __init__(
+        self,
+        verdicts=None,
+        stacks=None,
+        rescued=None,
+        fail_verify=False,
+        fail_stack=False,
+        fail_audit=False,
+        gaps=(),
+        fail_gaps=False,
+    ):
         self.gaps = list(gaps)
         self.fail_gaps = fail_gaps
         self.coverage_prompts = []
@@ -85,7 +119,11 @@ class _Model:
             label = block.split("]")[0].strip("[")
             claim = block.split("CLAIM: ")[1].split("\nHEADING")[0]
             verdict, *rest = self.verdicts.get(claim, (ClaimVerdict.SUPPORTED,))
-            checks.append(ClaimCheck(label=label, verdict=verdict, corrected_statement=rest[0] if rest else None, reason="because"))
+            checks.append(
+                ClaimCheck(
+                    label=label, verdict=verdict, corrected_statement=rest[0] if rest else None, reason="because"
+                )
+            )
         return VerificationBatch(checks=checks)
 
     async def stack(self, prompt: str) -> StackDecision:
@@ -113,7 +151,13 @@ DUPLICATES = ("The Momentum pool holds at most 6 points.", "The Momentum pool ho
 
 
 def _same_stack(prompt: str) -> list[ClaimStack]:
-    return [ClaimStack(labels=["C1", "C2"], relation=StackRelation.SAME, canonical_statement="The Momentum pool holds at most 6 points.")]
+    return [
+        ClaimStack(
+            labels=["C1", "C2"],
+            relation=StackRelation.SAME,
+            canonical_statement="The Momentum pool holds at most 6 points.",
+        )
+    ]
 
 
 @pytest.mark.unit
@@ -168,9 +212,7 @@ async def test_rejecting_a_sentences_only_claim_reports_that_sentence_as_orphane
     """The safeguard against missing things: a bad deletion can't go unnoticed."""
     tree = _tree(["Important rule text.", "Other rule text."])
     bad, good = "Filler claim here.", "Other rule claim."
-    result = await review_claims(
-        tree, [_outcome(_item(bad, 0), _item(good, 1))], _Model({bad: (ClaimVerdict.FILLER,)})
-    )
+    result = await review_claims(tree, [_outcome(_item(bad, 0), _item(good, 1))], _Model({bad: (ClaimVerdict.FILLER,)}))
     assert _status(result, bad) == ClaimStatus.REJECTED
     assert result.report.orphaned_sentences == ["s0"]
 
@@ -179,9 +221,7 @@ async def test_rejecting_a_sentences_only_claim_reports_that_sentence_as_orphane
 async def test_rejected_claim_with_another_claim_on_its_sentence_is_not_orphaned():
     tree = _tree(["Rule text."])
     bad, good = "Filler claim here.", "Good claim here."
-    result = await review_claims(
-        tree, [_outcome(_item(bad, 0), _item(good, 0))], _Model({bad: (ClaimVerdict.FILLER,)})
-    )
+    result = await review_claims(tree, [_outcome(_item(bad, 0), _item(good, 0))], _Model({bad: (ClaimVerdict.FILLER,)}))
     assert result.report.orphaned_sentences == []
 
 
@@ -196,7 +236,9 @@ async def test_verification_failure_sends_claims_to_a_person_and_never_approves_
 
 @pytest.mark.unit
 async def test_duplicates_merge_and_the_survivor_inherits_every_citation():
-    tree = _tree(["Momentum pool holds 6 points, or at most six.", "Later: Momentum pool holds 6 points, or at most six."])
+    tree = _tree(
+        ["Momentum pool holds 6 points, or at most six.", "Later: Momentum pool holds 6 points, or at most six."]
+    )
     result = await review_claims(
         tree,
         [_outcome(_item(DUPLICATES[0], 0), _item(DUPLICATES[1], 1))],
@@ -216,7 +258,16 @@ async def test_contradiction_the_source_settles_rejects_the_misreading():
     wrong, right = "The Momentum pool holds at most 8 points.", "The Momentum pool holds at most 6 points."
 
     def stacks(_):
-        return [ClaimStack(labels=["C1", "C2"], relation=StackRelation.CONTRADICTION, settled_by_source=True, wrong_labels=["C1"], canonical_statement=right, reason="source says 6")]
+        return [
+            ClaimStack(
+                labels=["C1", "C2"],
+                relation=StackRelation.CONTRADICTION,
+                settled_by_source=True,
+                wrong_labels=["C1"],
+                canonical_statement=right,
+                reason="source says 6",
+            )
+        ]
 
     result = await review_claims(tree, [_outcome(_item(wrong, 0), _item(right, 1))], _Model(stacks=stacks))
     assert _status(result, wrong) == ClaimStatus.REJECTED
@@ -231,7 +282,11 @@ async def test_contradiction_the_source_cannot_settle_goes_to_a_person():
     first, second = "The Momentum pool holds at most 6 points.", "The Momentum pool holds at most 8 points."
 
     def stacks(_):
-        return [ClaimStack(labels=["C1", "C2"], relation=StackRelation.CONTRADICTION, reason="the book disagrees with itself")]
+        return [
+            ClaimStack(
+                labels=["C1", "C2"], relation=StackRelation.CONTRADICTION, reason="the book disagrees with itself"
+            )
+        ]
 
     result = await review_claims(tree, [_outcome(_item(first, 0), _item(second, 1))], _Model(stacks=stacks))
     assert result.claims == []
@@ -248,12 +303,26 @@ async def test_contradiction_the_source_cannot_settle_goes_to_a_person():
 
 @pytest.mark.unit
 async def test_contradiction_goes_to_a_person_when_the_book_states_both_versions():
-    tree = _tree(["Luck: after rolling, swap any number of tokens in your hand.", "After rolling, spend Luck to swap your entire hand."])
+    tree = _tree(
+        [
+            "Luck: after rolling, swap any number of tokens in your hand.",
+            "After rolling, spend Luck to swap your entire hand.",
+        ]
+    )
     wrong = "After rolling, a player can spend Luck to swap any number of tokens in their hand."
     other = "After rolling, a player can spend Luck to swap their entire hand."
 
     def stacks(_):
-        return [ClaimStack(labels=["C1", "C2"], relation=StackRelation.CONTRADICTION, settled_by_source=True, wrong_labels=["C1"], canonical_statement=other, reason="picked one")]
+        return [
+            ClaimStack(
+                labels=["C1", "C2"],
+                relation=StackRelation.CONTRADICTION,
+                settled_by_source=True,
+                wrong_labels=["C1"],
+                canonical_statement=other,
+                reason="picked one",
+            )
+        ]
 
     result = await review_claims(tree, [_outcome(_item(wrong, 0), _item(other, 1))], _Model(stacks=stacks))
     assert result.claims == []
@@ -268,7 +337,11 @@ async def test_settled_contradiction_without_a_stated_answer_goes_to_a_person():
     first, second = "The Momentum pool holds at most 6 points.", "The Momentum pool holds at most 8 points."
 
     def stacks(_):
-        return [ClaimStack(labels=["C1", "C2"], relation=StackRelation.CONTRADICTION, settled_by_source=True, wrong_labels=["C1"])]
+        return [
+            ClaimStack(
+                labels=["C1", "C2"], relation=StackRelation.CONTRADICTION, settled_by_source=True, wrong_labels=["C1"]
+            )
+        ]
 
     result = await review_claims(tree, [_outcome(_item(first, 0), _item(second, 1))], _Model(stacks=stacks))
     assert {e.status for e in result.ledger} == {ClaimStatus.NEEDS_HUMAN}
@@ -277,7 +350,9 @@ async def test_settled_contradiction_without_a_stated_answer_goes_to_a_person():
 @pytest.mark.unit
 async def test_stacking_failure_sends_those_claims_to_a_person_instead_of_approving_them():
     """A contradiction may have gone unseen, so "supported" alone isn't enough."""
-    tree = _tree(["Momentum pool holds 6 points, or at most six.", "Momentum pool holds 6 points, or at most six.", "Three."])
+    tree = _tree(
+        ["Momentum pool holds 6 points, or at most six.", "Momentum pool holds 6 points, or at most six.", "Three."]
+    )
     other = "Spice extends human life."
     result = await review_claims(
         tree,
@@ -299,7 +374,9 @@ async def test_stack_with_invented_labels_changes_nothing():
     def stacks(_):
         return [ClaimStack(labels=["C1", "C99"], relation=StackRelation.SAME, canonical_statement="X")]
 
-    result = await review_claims(tree, [_outcome(_item(DUPLICATES[0], 0), _item(DUPLICATES[1], 1))], _Model(stacks=stacks))
+    result = await review_claims(
+        tree, [_outcome(_item(DUPLICATES[0], 0), _item(DUPLICATES[1], 1))], _Model(stacks=stacks)
+    )
     assert len(result.claims) == 2
 
 
@@ -374,7 +451,11 @@ async def test_differently_worded_contradiction_reaches_the_model_and_goes_to_a_
         seen.append(prompt)
         return [ClaimStack(labels=["C1", "C2"], relation=StackRelation.CONTRADICTION, reason="6 or 8")]
 
-    result = await review_claims(_tree(["The Momentum pool holds 6 points, or 8.", "A group saves 6 or 8 Momentum."]), [_outcome(_item(first, 0), _item(second, 1))], _Model(stacks=stacks))
+    result = await review_claims(
+        _tree(["The Momentum pool holds 6 points, or 8.", "A group saves 6 or 8 Momentum."]),
+        [_outcome(_item(first, 0), _item(second, 1))],
+        _Model(stacks=stacks),
+    )
     assert len(seen) == 1
     assert {e.status for e in result.ledger} == {ClaimStatus.NEEDS_HUMAN}
 
@@ -390,11 +471,21 @@ async def test_a_claim_settled_in_one_cluster_is_not_reopened_by_another():
 
     def stacks(prompt):
         if other not in prompt:
-            return [ClaimStack(labels=["C1", "C2"], relation=StackRelation.CONTRADICTION, settled_by_source=True, wrong_labels=["C1"], canonical_statement=kept)]
+            return [
+                ClaimStack(
+                    labels=["C1", "C2"],
+                    relation=StackRelation.CONTRADICTION,
+                    settled_by_source=True,
+                    wrong_labels=["C1"],
+                    canonical_statement=kept,
+                )
+            ]
         return [ClaimStack(labels=["C1", "C2", "C3"], relation=StackRelation.SAME, canonical_statement=kept)]
 
     items = [_item(rejected, 0), _item(kept, 1), _item(other, 2)]
-    result = await review_claims(_tree(["The Momentum pool holds 6 points, or 8."] * 3), [_outcome(*items)], _Model(stacks=stacks))
+    result = await review_claims(
+        _tree(["The Momentum pool holds 6 points, or 8."] * 3), [_outcome(*items)], _Model(stacks=stacks)
+    )
     assert _status(result, rejected) == ClaimStatus.REJECTED
     assert result.report.ledger_problems == []
     assert [c.statement for c in result.claims] == [kept]
@@ -439,11 +530,25 @@ def test_clusters_are_capped_so_one_call_stays_small():
     [
         (ReviewResult(), "no ledger entry"),
         (
-            ReviewResult(ledger=[LedgerEntry(claim_id="x", kind=AtomKind.RULE, original_statement="s", status=ClaimStatus.MERGED, canonical_id="gone")]),
+            ReviewResult(
+                ledger=[
+                    LedgerEntry(
+                        claim_id="x",
+                        kind=AtomKind.RULE,
+                        original_statement="s",
+                        status=ClaimStatus.MERGED,
+                        canonical_id="gone",
+                    )
+                ]
+            ),
             "merged into a missing claim",
         ),
         (
-            ReviewResult(ledger=[LedgerEntry(claim_id="x", kind=AtomKind.RULE, original_statement="s", status=ClaimStatus.ACCEPTED)]),
+            ReviewResult(
+                ledger=[
+                    LedgerEntry(claim_id="x", kind=AtomKind.RULE, original_statement="s", status=ClaimStatus.ACCEPTED)
+                ]
+            ),
             "isn't in the output",
         ),
     ],
@@ -609,9 +714,34 @@ def _styled_tree(rows: list[tuple[BookNodeKind, str, str | None]]) -> BookTree:
     """Rows of (kind, text, style), with paragraph IDs p0, p1, ... by row."""
     nodes = [BookNode(id="root", doc_id="d", kind=BookNodeKind.BOOK, seq=0, page_start=0, page_end=0)]
     for i, (kind, text, style) in enumerate(rows):
-        nodes.append(BookNode(id=f"p{i}", doc_id="d", kind=kind, parent_id="root", seq=len(nodes), text=text, page_start=i, page_end=i, style=style))
-        nodes.append(BookNode(id=f"s{i}", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id=f"p{i}", seq=len(nodes), text=text, page_start=i, page_end=i))
-    return BookTree(doc_id="d", title="T", decomposer_version="3", content_hash="x", nodes=nodes, report=DecompositionReport())
+        nodes.append(
+            BookNode(
+                id=f"p{i}",
+                doc_id="d",
+                kind=kind,
+                parent_id="root",
+                seq=len(nodes),
+                text=text,
+                page_start=i,
+                page_end=i,
+                style=style,
+            )
+        )
+        nodes.append(
+            BookNode(
+                id=f"s{i}",
+                doc_id="d",
+                kind=BookNodeKind.SENTENCE,
+                parent_id=f"p{i}",
+                seq=len(nodes),
+                text=text,
+                page_start=i,
+                page_end=i,
+            )
+        )
+    return BookTree(
+        doc_id="d", title="T", decomposer_version="3", content_hash="x", nodes=nodes, report=DecompositionReport()
+    )
 
 
 PARA = BookNodeKind.PARAGRAPH
@@ -620,57 +750,67 @@ BODY = "A long ordinary paragraph of rules that sets the main style of this book
 
 @pytest.mark.unit
 def test_unlabeled_paragraph_continuing_an_example_is_found():
-    tree = _styled_tree([
-        (PARA, BODY, BODY_STYLE),
-        (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
-        (PARA, "Mira attends the party.", EXAMPLE_STYLE),
-        (PARA, "She whispers a hint.", EXAMPLE_STYLE),
-        (PARA, BODY, BODY_STYLE),
-        (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
-    ])
+    tree = _styled_tree(
+        [
+            (PARA, BODY, BODY_STYLE),
+            (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
+            (PARA, "Mira attends the party.", EXAMPLE_STYLE),
+            (PARA, "She whispers a hint.", EXAMPLE_STYLE),
+            (PARA, BODY, BODY_STYLE),
+            (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
+        ]
+    )
     assert example_continuations(tree) == {"p2", "p3"}
 
 
 @pytest.mark.unit
 def test_quote_in_the_example_style_outside_a_run_is_not_an_example():
-    tree = _styled_tree([
-        (PARA, BODY, BODY_STYLE),
-        (PARA, "Faith can be bought.", EXAMPLE_STYLE),
-        (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
-        (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
-    ])
+    tree = _styled_tree(
+        [
+            (PARA, BODY, BODY_STYLE),
+            (PARA, "Faith can be bought.", EXAMPLE_STYLE),
+            (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
+            (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
+        ]
+    )
     assert example_continuations(tree) == set()
 
 
 @pytest.mark.unit
 def test_heading_ends_an_example_run():
-    tree = _styled_tree([
-        (PARA, BODY, BODY_STYLE),
-        (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
-        (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
-        (BookNodeKind.HEADING, "Next Rule", "Heading|1"),
-        (PARA, "Same style, new section.", EXAMPLE_STYLE),
-    ])
+    tree = _styled_tree(
+        [
+            (PARA, BODY, BODY_STYLE),
+            (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
+            (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
+            (BookNodeKind.HEADING, "Next Rule", "Heading|1"),
+            (PARA, "Same style, new section.", EXAMPLE_STYLE),
+        ]
+    )
     assert example_continuations(tree) == set()
 
 
 @pytest.mark.unit
 def test_label_in_body_style_never_marks_the_following_rules():
-    tree = _styled_tree([
-        (PARA, "Example: of how this works, read on through the book's main text.", BODY_STYLE),
-        (PARA, "Example: another one written in the book's ordinary running text.", BODY_STYLE),
-        (PARA, BODY, BODY_STYLE),
-    ])
+    tree = _styled_tree(
+        [
+            (PARA, "Example: of how this works, read on through the book's main text.", BODY_STYLE),
+            (PARA, "Example: another one written in the book's ordinary running text.", BODY_STYLE),
+            (PARA, BODY, BODY_STYLE),
+        ]
+    )
     assert example_continuations(tree) == set()
 
 
 @pytest.mark.unit
 def test_one_labeled_paragraph_does_not_make_a_style_mean_example():
-    tree = _styled_tree([
-        (PARA, BODY, BODY_STYLE),
-        (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
-        (PARA, "A sidebar in this style.", EXAMPLE_STYLE),
-    ])
+    tree = _styled_tree(
+        [
+            (PARA, BODY, BODY_STYLE),
+            (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
+            (PARA, "A sidebar in this style.", EXAMPLE_STYLE),
+        ]
+    )
     assert example_continuations(tree) == set()
 
 
@@ -681,12 +821,14 @@ def test_tree_without_style_information_finds_nothing():
 
 
 def _run_tree() -> BookTree:
-    return _styled_tree([
-        (PARA, BODY, BODY_STYLE),
-        (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
-        (PARA, "Mira attends the party.", EXAMPLE_STYLE),
-        (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
-    ])
+    return _styled_tree(
+        [
+            (PARA, BODY, BODY_STYLE),
+            (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
+            (PARA, "Mira attends the party.", EXAMPLE_STYLE),
+            (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
+        ]
+    )
 
 
 @pytest.mark.unit
@@ -725,12 +867,14 @@ async def test_check_made_before_layout_flag_is_not_reused(tmp_path):
 async def test_verifier_can_keep_a_general_rule_found_in_a_run():
     model = _Model()  # Flagged, but the verifier says it's supported.
     outcome = _outcome(_item("The gamemaster receives Threat per player.", 2))
-    tree = _styled_tree([
-        (PARA, BODY, BODY_STYLE),
-        (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
-        (PARA, "The gamemaster receives Threat per player.", EXAMPLE_STYLE),
-        (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
-    ])
+    tree = _styled_tree(
+        [
+            (PARA, BODY, BODY_STYLE),
+            (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
+            (PARA, "The gamemaster receives Threat per player.", EXAMPLE_STYLE),
+            (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
+        ]
+    )
     result = await review_claims(tree, [outcome], model)
     assert _status(result, "The gamemaster receives Threat per player.") == ClaimStatus.ACCEPTED
 
@@ -759,9 +903,6 @@ async def test_correction_that_fixes_a_bad_number_is_kept():
     assert result.claims[0].statement == "Players roll 2 dice."
 
 
-
-
-
 def _list_tree() -> BookTree:
     nodes = [BookNode(id="root", doc_id="d", kind=BookNodeKind.BOOK, seq=0, page_start=0, page_end=0)]
     rows = [
@@ -769,15 +910,36 @@ def _list_tree() -> BookTree:
         (PARA, "p1", "Overcoming a complex lock"),
     ]
     for kind, node_id, text in rows:
-        nodes.append(BookNode(id=node_id, doc_id="d", kind=kind, parent_id="root", seq=len(nodes), text=text, page_start=0, page_end=0))
-    nodes.append(BookNode(id="s1", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id="p1", seq=len(nodes), text="Overcoming a complex lock", page_start=0, page_end=0))
-    return BookTree(doc_id="d", title="T", decomposer_version="3", content_hash="x", nodes=nodes, report=DecompositionReport())
+        nodes.append(
+            BookNode(
+                id=node_id, doc_id="d", kind=kind, parent_id="root", seq=len(nodes), text=text, page_start=0, page_end=0
+            )
+        )
+    nodes.append(
+        BookNode(
+            id="s1",
+            doc_id="d",
+            kind=BookNodeKind.SENTENCE,
+            parent_id="p1",
+            seq=len(nodes),
+            text="Overcoming a complex lock",
+            page_start=0,
+            page_end=0,
+        )
+    )
+    return BookTree(
+        doc_id="d", title="T", decomposer_version="3", content_hash="x", nodes=nodes, report=DecompositionReport()
+    )
 
 
 @pytest.mark.unit
 async def test_number_stated_by_the_heading_above_a_list_counts_as_in_the_source():
     statement = "Overcoming a complex lock is a Difficulty 2 skill test."
-    outcome = _outcome(ProvenancedAtom(atom=ExtractedAtom(kind=AtomKind.RULE, statement=statement, cites=["S1"]), source_node_ids=["s1"], page=0))
+    outcome = _outcome(
+        ProvenancedAtom(
+            atom=ExtractedAtom(kind=AtomKind.RULE, statement=statement, cites=["S1"]), source_node_ids=["s1"], page=0
+        )
+    )
     result = await review_claims(_list_tree(), [outcome], _Model())
     assert _status(result, statement) == ClaimStatus.ACCEPTED
 
@@ -785,7 +947,11 @@ async def test_number_stated_by_the_heading_above_a_list_counts_as_in_the_source
 @pytest.mark.unit
 def test_verifier_and_stacker_see_the_heading_above_a_list():
     statement = "Overcoming a complex lock is a Difficulty 2 skill test."
-    outcome = _outcome(ProvenancedAtom(atom=ExtractedAtom(kind=AtomKind.RULE, statement=statement, cites=["S1"]), source_node_ids=["s1"], page=0))
+    outcome = _outcome(
+        ProvenancedAtom(
+            atom=ExtractedAtom(kind=AtomKind.RULE, statement=statement, cites=["S1"]), source_node_ids=["s1"], page=0
+        )
+    )
     claims = build_claims(_list_tree(), [outcome])
     assert "CHALLENGING (DIFFICULTY 2)" in format_for_verification(claims)
     assert "CHALLENGING (DIFFICULTY 2)" in format_for_stacking(claims, {claims[0].id: statement})
@@ -947,7 +1113,9 @@ async def test_verifier_can_reject_a_gap_claim():
 async def test_separate_coverage_model_is_used_when_given():
     gap = CoverageGap(label="P1", missing="The gamemaster may veto traits.", quote="the gamemaster may veto them")
     main, judge = _Model(), _Model(gaps=[gap])
-    result = await review_claims(_tree([VETO]), [_outcome(_item("Players may add traits.", 0))], main, coverage_model=judge)
+    result = await review_claims(
+        _tree([VETO]), [_outcome(_item("Players may add traits.", 0))], main, coverage_model=judge
+    )
     assert main.coverage_prompts == [] and len(judge.coverage_prompts) == 1
     assert result.report.claims_from_gaps == 1
 
@@ -970,7 +1138,9 @@ async def test_paragraph_with_changed_claims_is_checked_again(tmp_path):
     log = CoverageLog(tmp_path / "coverage.jsonl")
     await review_claims(_tree([VETO]), [_outcome(_item("Players may add traits.", 0))], _Model(), coverage_log=log)
     second = _Model()
-    await review_claims(_tree([VETO]), [_outcome(_item("The gamemaster may veto traits.", 0))], second, coverage_log=log)
+    await review_claims(
+        _tree([VETO]), [_outcome(_item("The gamemaster may veto traits.", 0))], second, coverage_log=log
+    )
     assert len(second.coverage_prompts) == 1
 
 
@@ -986,12 +1156,21 @@ async def test_coverage_log_ignores_a_torn_line(tmp_path):
 
 @pytest.mark.unit
 async def test_merge_that_gathers_separate_rules_into_a_list_is_refused():
-    first, second = "Hiding a lantern requires a test with Difficulty 2.", "Lifting a gate requires a test with Difficulty 2."
+    first, second = (
+        "Hiding a lantern requires a test with Difficulty 2.",
+        "Lifting a gate requires a test with Difficulty 2.",
+    )
     bundled = "Certain actions require a skill test at Difficulty 2, including hiding a lantern, lifting a gate, starting a fire and putting out a fire."
+
     def stacks(_):
         return [ClaimStack(labels=["C1", "C2"], relation=StackRelation.SAME, canonical_statement=bundled)]
-    source = "Hiding a lantern, lifting a gate, starting a fire and putting out a fire require a test with Difficulty 2."
-    result = await review_claims(_tree([source, source]), [_outcome(_item(first, 0), _item(second, 1))], _Model(stacks=stacks))
+
+    source = (
+        "Hiding a lantern, lifting a gate, starting a fire and putting out a fire require a test with Difficulty 2."
+    )
+    result = await review_claims(
+        _tree([source, source]), [_outcome(_item(first, 0), _item(second, 1))], _Model(stacks=stacks)
+    )
     assert _status(result, first) == ClaimStatus.ACCEPTED and _status(result, second) == ClaimStatus.ACCEPTED
     assert result.report.merges_refused == 1
     assert bundled not in [claim.statement for claim in result.claims]
@@ -1023,14 +1202,16 @@ SIDEBAR_STYLE = "Book|white"
 
 @pytest.mark.unit
 def test_example_resumes_after_a_boxed_sidebar_on_the_next_page():
-    tree = _styled_tree([
-        (PARA, BODY, BODY_STYLE),
-        (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
-        (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
-        (BookNodeKind.HEADING, "Overview", None),
-        (PARA, "A sidebar with its own steps.", SIDEBAR_STYLE),
-        (PARA, "Tobin also wears a cloak.", EXAMPLE_STYLE),
-    ])
+    tree = _styled_tree(
+        [
+            (PARA, BODY, BODY_STYLE),
+            (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
+            (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
+            (BookNodeKind.HEADING, "Overview", None),
+            (PARA, "A sidebar with its own steps.", SIDEBAR_STYLE),
+            (PARA, "Tobin also wears a cloak.", EXAMPLE_STYLE),
+        ]
+    )
     resumed = next(n for n in tree.nodes if n.id == "p5")
     resumed.page_start = resumed.page_end = 3  # The page after the labeled example.
     assert "p5" in example_continuations(tree)
@@ -1038,14 +1219,16 @@ def test_example_resumes_after_a_boxed_sidebar_on_the_next_page():
 
 @pytest.mark.unit
 def test_body_text_ends_an_example_even_after_a_sidebar():
-    tree = _styled_tree([
-        (PARA, BODY, BODY_STYLE),
-        (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
-        (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
-        (PARA, "A sidebar with its own steps.", SIDEBAR_STYLE),
-        (PARA, BODY, BODY_STYLE),
-        (PARA, "A quote in the example style.", EXAMPLE_STYLE),
-    ])
+    tree = _styled_tree(
+        [
+            (PARA, BODY, BODY_STYLE),
+            (PARA, "Example: Mira walks in.", EXAMPLE_STYLE),
+            (PARA, "Example: Tobin moves.", EXAMPLE_STYLE),
+            (PARA, "A sidebar with its own steps.", SIDEBAR_STYLE),
+            (PARA, BODY, BODY_STYLE),
+            (PARA, "A quote in the example style.", EXAMPLE_STYLE),
+        ]
+    )
     assert "p5" not in example_continuations(tree)
 
 

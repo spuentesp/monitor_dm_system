@@ -40,9 +40,7 @@ pytestmark = pytest.mark.unit
 
 class TestVariableProperty:
     def test_minimal(self):
-        prop = VariableProperty(
-            property_path="stats.STR", generation_type=GenerationType.FIXED
-        )
+        prop = VariableProperty(property_path="stats.STR", generation_type=GenerationType.FIXED)
         assert prop.property_path == "stats.STR"
         assert prop.generation_type == GenerationType.FIXED
         assert prop.options == []
@@ -96,9 +94,7 @@ class TestVariableProperty:
 
     def test_path_too_long(self):
         with pytest.raises(ValidationError):
-            VariableProperty(
-                property_path="x" * 201, generation_type=GenerationType.FIXED
-            )
+            VariableProperty(property_path="x" * 201, generation_type=GenerationType.FIXED)
 
     def test_pattern_too_long(self):
         with pytest.raises(ValidationError):
@@ -270,9 +266,7 @@ class TestEntityTemplateCreate:
 
     def test_name_too_short(self):
         with pytest.raises(ValidationError):
-            EntityTemplateCreate(
-                universe_id=uuid4(), name="", entity_type=EntityType.CHARACTER
-            )
+            EntityTemplateCreate(universe_id=uuid4(), name="", entity_type=EntityType.CHARACTER)
 
     def test_name_too_long(self):
         with pytest.raises(ValidationError):
@@ -313,9 +307,7 @@ class TestEntityTemplateUpdate:
         assert u.base_properties is None
 
     def test_partial_update(self):
-        u = EntityTemplateUpdate(
-            name="New Name", default_detail_level=DetailLevel.DETAILED
-        )
+        u = EntityTemplateUpdate(name="New Name", default_detail_level=DetailLevel.DETAILED)
         assert u.name == "New Name"
         assert u.default_detail_level == DetailLevel.DETAILED
 
@@ -422,9 +414,7 @@ class TestEntityTemplateListResponse:
             default_detail_level=DetailLevel.STUB,
             created_at=datetime.now(UTC),
         )
-        r = EntityTemplateListResponse(
-            templates=[template], total=1, limit=50, offset=0
-        )
+        r = EntityTemplateListResponse(templates=[template], total=1, limit=50, offset=0)
         assert len(r.templates) == 1
         assert r.total == 1
 

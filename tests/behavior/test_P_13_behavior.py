@@ -102,9 +102,7 @@ class TestAddPartyMemberSchema:
 
     def test_add_member_with_role(self):
         """AddPartyMember can specify role and position."""
-        m = AddPartyMember(
-            party_id=uuid4(), entity_id=uuid4(), role="leader", position=0
-        )
+        m = AddPartyMember(party_id=uuid4(), entity_id=uuid4(), role="leader", position=0)
         assert m.role == "leader"
         assert m.position == 0
 
@@ -296,9 +294,7 @@ class TestPartySplitCreateSchema:
     def test_subparty_fields(self):
         """SubParty has name, member_ids, and optional fields."""
         m1 = uuid4()
-        sub = SubParty(
-            name="Scout Team", member_ids=[m1], location_id=uuid4(), purpose="Recon"
-        )
+        sub = SubParty(name="Scout Team", member_ids=[m1], location_id=uuid4(), purpose="Recon")
         assert sub.name == "Scout Team"
         assert sub.purpose == "Recon"
 

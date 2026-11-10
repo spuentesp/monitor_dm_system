@@ -150,9 +150,7 @@ class FakeMongoCollection:
         result.inserted_ids = [d.get("_id", f"mock-{i}") for i, d in enumerate(docs)]
         return result
 
-    def find_one(
-        self, filter: dict | None = None, *args, **kwargs
-    ) -> dict[str, Any] | None:
+    def find_one(self, filter: dict | None = None, *args, **kwargs) -> dict[str, Any] | None:
         if not filter:
             return self._docs[0] if self._docs else None
         for doc in self._docs:
@@ -163,9 +161,7 @@ class FakeMongoCollection:
     def find(self, filter: dict | None = None, *args, **kwargs) -> list[dict[str, Any]]:
         if not filter:
             return list(self._docs)
-        return [
-            doc for doc in self._docs if all(doc.get(k) == v for k, v in filter.items())
-        ]
+        return [doc for doc in self._docs if all(doc.get(k) == v for k, v in filter.items())]
 
     def find_one_and_update(
         self, filter: dict, update: dict, *args, **kwargs
@@ -180,9 +176,7 @@ class FakeMongoCollection:
                 doc[k] = doc.get(k, 0) + v
         return doc
 
-    def find_one_and_delete(
-        self, filter: dict, *args, **kwargs
-    ) -> dict[str, Any] | None:
+    def find_one_and_delete(self, filter: dict, *args, **kwargs) -> dict[str, Any] | None:
         for i, doc in enumerate(self._docs):
             if all(doc.get(k) == v for k, v in filter.items()):
                 return self._docs.pop(i)
@@ -219,9 +213,7 @@ class FakeMongoCollection:
     def delete_many(self, filter: dict) -> Any:
         before = len(self._docs)
         self._docs = [
-            doc
-            for doc in self._docs
-            if not all(doc.get(k) == v for k, v in filter.items())
+            doc for doc in self._docs if not all(doc.get(k) == v for k, v in filter.items())
         ]
         result = MagicMock()
         result.deleted_count = before - len(self._docs)
@@ -230,9 +222,7 @@ class FakeMongoCollection:
     def count_documents(self, filter: dict | None = None) -> int:
         if not filter:
             return len(self._docs)
-        return sum(
-            1 for doc in self._docs if all(doc.get(k) == v for k, v in filter.items())
-        )
+        return sum(1 for doc in self._docs if all(doc.get(k) == v for k, v in filter.items()))
 
     def create_index(self, *args, **kwargs) -> str:
         return "mock-index-name"

@@ -68,9 +68,33 @@ def _tree(count: int = 12) -> BookTree:
     nodes = [BookNode(id="root", doc_id="d", kind=BookNodeKind.BOOK, seq=0, page_start=0, page_end=0)]
     for i in range(count):
         text = "Word " * 300
-        nodes.append(BookNode(id=f"p{i}", doc_id="d", kind=BookNodeKind.PARAGRAPH, parent_id="root", seq=len(nodes), text=text, page_start=i, page_end=i))
-        nodes.append(BookNode(id=f"s{i}", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id=f"p{i}", seq=len(nodes), text=text, page_start=i, page_end=i))
-    return BookTree(doc_id="d", title="T", decomposer_version="4", content_hash="x", nodes=nodes, report=DecompositionReport())
+        nodes.append(
+            BookNode(
+                id=f"p{i}",
+                doc_id="d",
+                kind=BookNodeKind.PARAGRAPH,
+                parent_id="root",
+                seq=len(nodes),
+                text=text,
+                page_start=i,
+                page_end=i,
+            )
+        )
+        nodes.append(
+            BookNode(
+                id=f"s{i}",
+                doc_id="d",
+                kind=BookNodeKind.SENTENCE,
+                parent_id=f"p{i}",
+                seq=len(nodes),
+                text=text,
+                page_start=i,
+                page_end=i,
+            )
+        )
+    return BookTree(
+        doc_id="d", title="T", decomposer_version="4", content_hash="x", nodes=nodes, report=DecompositionReport()
+    )
 
 
 class _Extractor:

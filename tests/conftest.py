@@ -122,10 +122,7 @@ class _CallToolProxy:
         Each entry is a tuple of ((tool_name, params),) compatible with
         unittest.mock call_args_list format.
         """
-        return [
-            ((tool_name, params),)
-            for tool_name, params in self._parent._call_tool_all_args
-        ]
+        return [((tool_name, params),) for tool_name, params in self._parent._call_tool_all_args]
 
     async def __call__(
         self, tool_name: str, params: dict[str, Any] | None = None, **kwargs: Any
@@ -204,9 +201,7 @@ class FakeMCPClient:
         """Pre-configure a successful response for a specific tool call."""
         self.responses[tool_name] = result
 
-    def add_error(
-        self, tool_name: str, params: dict[str, Any], exception: Exception
-    ) -> None:
+    def add_error(self, tool_name: str, params: dict[str, Any], exception: Exception) -> None:
         """Pre-configure an error response for a specific tool call."""
         self.responses[tool_name] = exception
 
@@ -354,12 +349,8 @@ def fake_mcp_client() -> FakeMCPClient:
             }
         ],
     )
-    client.add_response(
-        "neo4j_create_entity", {}, "550e8400-e29b-41d4-a716-446655440000"
-    )
-    client.add_response(
-        "neo4j_create_relationship", {}, "650e8400-e29b-41d4-a716-446655440001"
-    )
+    client.add_response("neo4j_create_entity", {}, "550e8400-e29b-41d4-a716-446655440000")
+    client.add_response("neo4j_create_relationship", {}, "650e8400-e29b-41d4-a716-446655440001")
     client.add_response("neo4j_create_story", {}, "story-123")
     client.add_response("mongodb_create_scene", {}, "scene-456")
     client.add_response("mongodb_create_character_sheet", {}, "sheet-789")
@@ -487,10 +478,18 @@ def _hermetic_ui_db_singletons(monkeypatch: pytest.MonkeyPatch, request: pytest.
     import monitor_data.tools as _tools_pkg
 
     _mods = list(pkgutil.iter_modules(_tools_pkg.__path__, prefix="monitor_data.tools."))
-    for _sub in ("mongodb_tools", "neo4j_tools", "ingest_tools", "plot_thread_tools", "temporal_tools"):
+    for _sub in (
+        "mongodb_tools",
+        "neo4j_tools",
+        "ingest_tools",
+        "plot_thread_tools",
+        "temporal_tools",
+    ):
         try:
             _submod = __import__(f"monitor_data.tools.{_sub}", fromlist=["*"])
-            _mods += list(pkgutil.iter_modules(_submod.__path__, prefix=f"monitor_data.tools.{_sub}."))
+            _mods += list(
+                pkgutil.iter_modules(_submod.__path__, prefix=f"monitor_data.tools.{_sub}.")
+            )
         except Exception:
             continue
     for _mi in _mods:
@@ -562,3 +561,11 @@ def sandbox_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv("RUN_INTEGRATION", os.getenv("RUN_INTEGRATION", ""))
     monkeypatch.setenv("RUN_E2E", os.getenv("RUN_E2E", ""))
     yield
+
+
+# A real local-mode Principal for tests that call route handlers directly
+# (bypassing FastAPI dependency injection). The fail-closed via check requires
+# an object with .via — never pass a raw Depends default.
+from monitor_ui.auth import LOCAL_USER_ID, Principal
+
+LOCAL_PRINCIPAL = Principal(user_id=LOCAL_USER_ID, is_admin=True, via="local")

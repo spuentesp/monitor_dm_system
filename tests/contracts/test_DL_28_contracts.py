@@ -73,9 +73,7 @@ class TestPartyCreate:
 
     def test_all_statuses(self):
         for status in PartyStatus:
-            p = PartyCreate(
-                story_id=uuid4(), name=f"Party {status.value}", status=status
-            )
+            p = PartyCreate(story_id=uuid4(), name=f"Party {status.value}", status=status)
             assert p.status == status
 
 
@@ -127,9 +125,7 @@ class TestPartyResponse:
 
 class TestAddPartyMember:
     def test_valid(self):
-        a = AddPartyMember(
-            party_id=uuid4(), entity_id=uuid4(), role="scout", position=1
-        )
+        a = AddPartyMember(party_id=uuid4(), entity_id=uuid4(), role="scout", position=1)
         assert a.role == "scout"
         assert a.position == 1
 

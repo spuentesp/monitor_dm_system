@@ -16,9 +16,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-BACKEND_SRC = (
-    Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-)
+BACKEND_SRC = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
 if str(BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(BACKEND_SRC))
 
@@ -92,9 +90,7 @@ def _mock_db_clients(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr(chat_router, "_run_preplay_turn", fake_run_preplay_turn)
-    monkeypatch.setattr(
-        chat_router, "_run_world_architect_turn", fake_run_world_architect_turn
-    )
+    monkeypatch.setattr(chat_router, "_run_world_architect_turn", fake_run_world_architect_turn)
 
     async def fake_build_gm_opening(*args, **kwargs):
         return (

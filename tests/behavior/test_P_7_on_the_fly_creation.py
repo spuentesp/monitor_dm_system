@@ -257,9 +257,7 @@ class TestExtractNewEntitiesBehavior:
         # of a larger suite (it passes in isolation).
         import asyncio
 
-        result = asyncio.new_event_loop().run_until_complete(
-            extract_new_entities(state)
-        )
+        result = asyncio.new_event_loop().run_until_complete(extract_new_entities(state))
         assert result == {}
 
     def test_extract_new_entities_returns_empty_when_empty_narration(self):
@@ -269,9 +267,7 @@ class TestExtractNewEntitiesBehavior:
         state = self._make_state(narrative_text="")
         import asyncio
 
-        result = asyncio.new_event_loop().run_until_complete(
-            extract_new_entities(state)
-        )
+        result = asyncio.new_event_loop().run_until_complete(extract_new_entities(state))
         assert result == {}
 
     def test_proposal_dict_matches_canonkeeper_expectations(self):

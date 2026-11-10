@@ -25,9 +25,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-_backend_src = (
-    Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-)
+_backend_src = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
 sys.path.insert(0, str(_backend_src))
 
 

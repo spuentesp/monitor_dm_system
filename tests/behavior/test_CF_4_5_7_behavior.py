@@ -36,9 +36,7 @@ class TestPlotHookSchema:
     """PlotHook model has expected fields and defaults."""
 
     def test_minimal_plot_hook(self):
-        h = PlotHook(
-            title="Mystery at the docks", description="A ship arrived at midnight."
-        )
+        h = PlotHook(title="Mystery at the docks", description="A ship arrived at midnight.")
         assert h.title == "Mystery at the docks"
         assert h.urgency == "medium"
         assert h.suggested_scene_type == "exploration"
@@ -73,11 +71,14 @@ class TestSuggestHooksHeuristic:
     async def test_empty_universe_yields_no_hooks(self):
         agent = PlotHookAgent()
         # Force LLM path to fail so heuristic path runs
-        with patch.object(
-            agent,
-            "call_llm_structured",
-            new=AsyncMock(side_effect=RuntimeError("no LLM")),
-        ), patch.object(agent, "call_tool", new=AsyncMock(return_value={})):
+        with (
+            patch.object(
+                agent,
+                "call_llm_structured",
+                new=AsyncMock(side_effect=RuntimeError("no LLM")),
+            ),
+            patch.object(agent, "call_tool", new=AsyncMock(return_value={})),
+        ):
             hooks = await agent.suggest_hooks(universe_id=uuid4(), max_hooks=5)
         # No data → no hooks
         assert isinstance(hooks, list)
@@ -109,12 +110,13 @@ class TestSuggestHooksHeuristic:
                 return {"entities": []}
             return {}
 
-        with patch.object(
-            agent,
-            "call_llm_structured",
-            new=AsyncMock(side_effect=RuntimeError("no LLM")),
-        ), patch.object(
-            agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)
+        with (
+            patch.object(
+                agent,
+                "call_llm_structured",
+                new=AsyncMock(side_effect=RuntimeError("no LLM")),
+            ),
+            patch.object(agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)),
         ):
             hooks = await agent.suggest_hooks(universe_id=uuid4(), max_hooks=10)
         assert len(hooks) >= 1
@@ -142,12 +144,13 @@ class TestSuggestHooksHeuristic:
                 }
             return {"scenes": [], "entities": []}
 
-        with patch.object(
-            agent,
-            "call_llm_structured",
-            new=AsyncMock(side_effect=RuntimeError("no LLM")),
-        ), patch.object(
-            agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)
+        with (
+            patch.object(
+                agent,
+                "call_llm_structured",
+                new=AsyncMock(side_effect=RuntimeError("no LLM")),
+            ),
+            patch.object(agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)),
         ):
             hooks = await agent.suggest_hooks(universe_id=uuid4(), max_hooks=3)
         assert len(hooks) <= 3
@@ -171,18 +174,18 @@ class TestSuggestHooksHeuristic:
                 }
             return {"scenes": [], "entities": []}
 
-        with patch.object(
-            agent,
-            "call_llm_structured",
-            new=AsyncMock(side_effect=RuntimeError("no LLM")),
-        ), patch.object(
-            agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)
+        with (
+            patch.object(
+                agent,
+                "call_llm_structured",
+                new=AsyncMock(side_effect=RuntimeError("no LLM")),
+            ),
+            patch.object(agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)),
         ):
             hooks = await agent.suggest_hooks(universe_id=uuid4(), max_hooks=5)
         # Heuristic should at least produce one hook with the title
         assert any(
-            h.title == "The Baron's Secret" or "Baron" in (h.title + h.description)
-            for h in hooks
+            h.title == "The Baron's Secret" or "Baron" in (h.title + h.description) for h in hooks
         )
 
 
@@ -205,9 +208,7 @@ class TestSuggestHooksLLMPath:
             )
 
         with patch.object(agent, "call_tool", new=AsyncMock(return_value={})):
-            with patch.object(
-                agent, "call_llm_structured", new=AsyncMock(side_effect=fake_llm)
-            ):
+            with patch.object(agent, "call_llm_structured", new=AsyncMock(side_effect=fake_llm)):
                 hooks = await agent.suggest_hooks(universe_id=uuid4(), max_hooks=5)
         assert len(hooks) == 1
         assert hooks[0].title == "LLM Hook 1"
@@ -253,11 +254,14 @@ class TestDetectContradictionsHeuristic:
     @pytest.mark.asyncio
     async def test_empty_universe_no_contradictions(self):
         agent = PlotHookAgent()
-        with patch.object(
-            agent,
-            "call_llm_structured",
-            new=AsyncMock(side_effect=RuntimeError("no LLM")),
-        ), patch.object(agent, "call_tool", new=AsyncMock(return_value={})):
+        with (
+            patch.object(
+                agent,
+                "call_llm_structured",
+                new=AsyncMock(side_effect=RuntimeError("no LLM")),
+            ),
+            patch.object(agent, "call_tool", new=AsyncMock(return_value={})),
+        ):
             contradictions = await agent.detect_contradictions(universe_id=uuid4())
         assert contradictions == []
 
@@ -268,12 +272,13 @@ class TestDetectContradictionsHeuristic:
         async def fake_call_tool(name, args):
             return {"facts": []}
 
-        with patch.object(
-            agent,
-            "call_llm_structured",
-            new=AsyncMock(side_effect=RuntimeError("no LLM")),
-        ), patch.object(
-            agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)
+        with (
+            patch.object(
+                agent,
+                "call_llm_structured",
+                new=AsyncMock(side_effect=RuntimeError("no LLM")),
+            ),
+            patch.object(agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)),
         ):
             contradictions = await agent.detect_contradictions(universe_id=uuid4())
         assert contradictions == []
@@ -290,12 +295,13 @@ class TestDetectContradictionsHeuristic:
                 return {"name": "Theron", "entity_type": "CHARACTER"}
             return {"facts": []}
 
-        with patch.object(
-            agent,
-            "call_llm_structured",
-            new=AsyncMock(side_effect=RuntimeError("no LLM")),
-        ), patch.object(
-            agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)
+        with (
+            patch.object(
+                agent,
+                "call_llm_structured",
+                new=AsyncMock(side_effect=RuntimeError("no LLM")),
+            ),
+            patch.object(agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)),
         ):
             await agent.detect_contradictions(
                 universe_id=uuid4(),
@@ -324,10 +330,9 @@ class TestDetectContradictionsLLMPath:
                 ]
             )
 
-        with patch.object(
-            agent, "call_tool", new=AsyncMock(return_value={"facts": []})
-        ), patch.object(
-            agent, "call_llm_structured", new=AsyncMock(side_effect=fake_llm)
+        with (
+            patch.object(agent, "call_tool", new=AsyncMock(return_value={"facts": []})),
+            patch.object(agent, "call_llm_structured", new=AsyncMock(side_effect=fake_llm)),
         ):
             contradictions = await agent.detect_contradictions(universe_id=uuid4())
         assert len(contradictions) == 1
@@ -357,12 +362,13 @@ class TestGenerateSessionPrep:
         async def fake_call_tool(name, args):
             return {}
 
-        with patch.object(
-            agent,
-            "call_llm_structured",
-            new=AsyncMock(side_effect=RuntimeError("no LLM")),
-        ), patch.object(
-            agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)
+        with (
+            patch.object(
+                agent,
+                "call_llm_structured",
+                new=AsyncMock(side_effect=RuntimeError("no LLM")),
+            ),
+            patch.object(agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)),
         ):
             prep = await agent.generate_session_prep(
                 universe_id=uuid4(),
@@ -392,12 +398,13 @@ class TestGenerateSessionPrep:
                 }
             return {}
 
-        with patch.object(
-            agent,
-            "call_llm_structured",
-            new=AsyncMock(side_effect=RuntimeError("no LLM")),
-        ), patch.object(
-            agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)
+        with (
+            patch.object(
+                agent,
+                "call_llm_structured",
+                new=AsyncMock(side_effect=RuntimeError("no LLM")),
+            ),
+            patch.object(agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)),
         ):
             prep = await agent.generate_session_prep(
                 universe_id=uuid4(),
@@ -420,21 +427,20 @@ class TestGenerateSessionPrep:
                 }
             return {}
 
-        with patch.object(
-            agent,
-            "call_llm_structured",
-            new=AsyncMock(side_effect=RuntimeError("no LLM")),
-        ), patch.object(
-            agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)
+        with (
+            patch.object(
+                agent,
+                "call_llm_structured",
+                new=AsyncMock(side_effect=RuntimeError("no LLM")),
+            ),
+            patch.object(agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)),
         ):
             prep = await agent.generate_session_prep(
                 universe_id=uuid4(),
                 story_id=uuid4(),
             )
         # The agent should surface thread titles
-        assert (
-            any("Crown" in t for t in prep.open_threads) or len(prep.open_threads) == 0
-        )
+        assert any("Crown" in t for t in prep.open_threads) or len(prep.open_threads) == 0
 
     @pytest.mark.asyncio
     async def test_world_state_changes_filters_canon_facts(self):
@@ -454,12 +460,13 @@ class TestGenerateSessionPrep:
                 }
             return {}
 
-        with patch.object(
-            agent,
-            "call_llm_structured",
-            new=AsyncMock(side_effect=RuntimeError("no LLM")),
-        ), patch.object(
-            agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)
+        with (
+            patch.object(
+                agent,
+                "call_llm_structured",
+                new=AsyncMock(side_effect=RuntimeError("no LLM")),
+            ),
+            patch.object(agent, "call_tool", new=AsyncMock(side_effect=fake_call_tool)),
         ):
             prep = await agent.generate_session_prep(
                 universe_id=uuid4(),

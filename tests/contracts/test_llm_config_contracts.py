@@ -250,9 +250,7 @@ class TestLLMNodeAssignment:
 
 class TestEffectiveLLMConfig:
     def test_minimal(self):
-        c = EffectiveLLMConfig(
-            id="x", name="y", provider=LLMProviderType.OPENAI, model="gpt-4o"
-        )
+        c = EffectiveLLMConfig(id="x", name="y", provider=LLMProviderType.OPENAI, model="gpt-4o")
         assert c.api_key == ""
         assert c.base_url is None
         assert c.role == ModelRole.STANDARD

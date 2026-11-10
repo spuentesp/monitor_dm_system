@@ -14,7 +14,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.parties import PartyResponse
 from monitor_ui.auth import Principal, get_current_user, get_postgres
-from monitor_ui.ownership import owned_world_ids, require_story_owner, resource_route_guard
+from monitor_ui.ownership import (
+    owned_world_ids,
+    require_entities_owner,
+    require_story_owner,
+    resource_route_guard,
+)
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -49,6 +54,12 @@ async def create_party(
 ) -> PartyResponse:
     """Create a new party for a story (P-13)."""
     await require_story_owner(db, principal, body.story_id)
+    member_ids = list(body.initial_member_ids or [])
+    if body.active_pc_id:
+        member_ids.append(body.active_pc_id)
+    if body.location_id:
+        member_ids.append(body.location_id)
+    await require_entities_owner(db, principal, member_ids)
     from monitor_data.schemas.parties import PartyCreate
     from monitor_data.tools.neo4j_tools.parties import neo4j_create_party
 
@@ -100,8 +111,14 @@ async def list_parties(
 
 
 @router.post("/{party_id}/members", response_model=PartyResponse)
-async def add_member(party_id: str, body: AddMemberRequest) -> PartyResponse:
-    """Add a character to a party (P-13)."""
+async def add_member(
+    party_id: str,
+    body: AddMemberRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> PartyResponse:
+    """Add a character to a party (P-13). The character must be owned (404 else)."""
+    await require_entities_owner(db, principal, [body.entity_id])
     from monitor_data.schemas.parties import AddPartyMember
     from monitor_data.tools.neo4j_tools.parties import neo4j_add_party_member
 
@@ -120,8 +137,14 @@ async def add_member(party_id: str, body: AddMemberRequest) -> PartyResponse:
 
 
 @router.delete("/{party_id}/members/{entity_id}", response_model=PartyResponse)
-async def remove_member(party_id: str, entity_id: str) -> PartyResponse:
+async def remove_member(
+    party_id: str,
+    entity_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> PartyResponse:
     """Remove a character from a party (P-13)."""
+    await require_entities_owner(db, principal, [entity_id])
     from monitor_data.schemas.parties import RemovePartyMember
     from monitor_data.tools.neo4j_tools.parties import neo4j_remove_party_member
 
@@ -138,8 +161,14 @@ async def remove_member(party_id: str, entity_id: str) -> PartyResponse:
 
 
 @router.post("/{party_id}/active-pc", response_model=PartyResponse)
-async def set_active_pc(party_id: str, body: AddMemberRequest) -> PartyResponse:
+async def set_active_pc(
+    party_id: str,
+    body: AddMemberRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> PartyResponse:
     """Set the active PC for turn-based actions (P-13)."""
+    await require_entities_owner(db, principal, [body.entity_id])
     from monitor_data.schemas.parties import SetActivePC
     from monitor_data.tools.neo4j_tools.parties import neo4j_set_active_pc
 

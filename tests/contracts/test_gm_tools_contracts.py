@@ -46,9 +46,7 @@ class TestGMRouterImport:
         from monitor_ui.routers.gm_tools import router
 
         routes = {r.path: r.methods for r in router.routes}
-        assert "/gm/contradictions" in routes, (
-            f"Expected /gm/contradictions route, got {routes}"
-        )
+        assert "/gm/contradictions" in routes, f"Expected /gm/contradictions route, got {routes}"
         assert "POST" in routes["/gm/contradictions"]
 
     def test_has_session_prep_endpoint(self):
@@ -56,9 +54,7 @@ class TestGMRouterImport:
         from monitor_ui.routers.gm_tools import router
 
         routes = {r.path: r.methods for r in router.routes}
-        assert "/gm/session-prep" in routes, (
-            f"Expected /gm/session-prep route, got {routes}"
-        )
+        assert "/gm/session-prep" in routes, f"Expected /gm/session-prep route, got {routes}"
         assert "POST" in routes["/gm/session-prep"]
 
 

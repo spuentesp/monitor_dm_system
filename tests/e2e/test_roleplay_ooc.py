@@ -72,17 +72,13 @@ class TestOOCChatRouting:
     @patch("monitor_ui.routers.chat._db_save_session")
     @patch("monitor_ui.routers.chat._SESSIONS", new_callable=dict)
     @patch("monitor_ui.routers.chat._MESSAGES", new_callable=dict)
-    def test_ooc_message_routes_to_ooc_turn(
-        self, _msgs, _sessions, _save_ses, _save_msg
-    ):
+    def test_ooc_message_routes_to_ooc_turn(self, _msgs, _sessions, _save_ses, _save_msg):
         """OOC message with character_id should route to run_ooc_turn."""
         session_id = str(uuid4())
         _sessions[session_id] = _make_session(session_id)
         _msgs[session_id] = []
 
-        with patch(
-            "monitor_ui.routers.chat_loops.run_ooc_turn", new=AsyncMock()
-        ) as mock_ooc:
+        with patch("monitor_ui.routers.chat_loops.run_ooc_turn", new=AsyncMock()) as mock_ooc:
             mock_ooc.return_value = (
                 "The shadows welcome you… I am Nyx.",
                 {
@@ -111,21 +107,15 @@ class TestOOCChatRouting:
     @patch("monitor_ui.routers.chat._db_save_session")
     @patch("monitor_ui.routers.chat._SESSIONS", new_callable=dict)
     @patch("monitor_ui.routers.chat._MESSAGES", new_callable=dict)
-    def test_ooc_message_does_not_trigger_scene_loop(
-        self, _msgs, _sessions, _save_ses, _save_msg
-    ):
+    def test_ooc_message_does_not_trigger_scene_loop(self, _msgs, _sessions, _save_ses, _save_msg):
         """OOC messages should NOT trigger the SceneLoop."""
         session_id = str(uuid4())
         _sessions[session_id] = _make_session(session_id)
         _msgs[session_id] = []
 
         with (
-            patch(
-                "monitor_ui.routers.chat_loops.run_ooc_turn", new=AsyncMock()
-            ) as mock_ooc,
-            patch(
-                "monitor_ui.routers.chat._run_scene_turn", new=AsyncMock()
-            ) as mock_scene,
+            patch("monitor_ui.routers.chat_loops.run_ooc_turn", new=AsyncMock()) as mock_ooc,
+            patch("monitor_ui.routers.chat._run_scene_turn", new=AsyncMock()) as mock_scene,
         ):
             mock_ooc.return_value = (
                 "Hi there!",
@@ -155,12 +145,8 @@ class TestOOCChatRouting:
         _msgs[session_id] = []
 
         with (
-            patch(
-                "monitor_ui.routers.chat_loops.run_ooc_turn", new=AsyncMock()
-            ) as mock_ooc,
-            patch(
-                "monitor_ui.routers.chat._run_scene_turn", new=AsyncMock()
-            ) as mock_scene,
+            patch("monitor_ui.routers.chat_loops.run_ooc_turn", new=AsyncMock()) as mock_ooc,
+            patch("monitor_ui.routers.chat._run_scene_turn", new=AsyncMock()) as mock_scene,
         ):
             mock_ooc.return_value = (
                 "I am Echo.",
@@ -193,12 +179,8 @@ class TestOOCChatRouting:
         _msgs[session_id] = []
 
         with (
-            patch(
-                "monitor_ui.routers.chat_loops.run_ooc_turn", new=AsyncMock()
-            ) as mock_ooc,
-            patch(
-                "monitor_ui.routers.chat._run_scene_turn", new=AsyncMock()
-            ) as mock_scene,
+            patch("monitor_ui.routers.chat_loops.run_ooc_turn", new=AsyncMock()) as mock_ooc,
+            patch("monitor_ui.routers.chat._run_scene_turn", new=AsyncMock()) as mock_scene,
         ):
             mock_scene.return_value = (
                 "The goblin growls.",

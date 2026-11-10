@@ -263,7 +263,12 @@ async def test_reaching_max_turns_advances_the_story_without_ending_it() -> None
     session: dict[str, Any] = {"id": "s", "universe_id": str(uuid4())}
     loop = types.SimpleNamespace(
         run=AsyncMock(
-            return_value={"resolution": {}, "narrative_text": "End.", "scene_complete": True, "total_minutes_passed": 90}
+            return_value={
+                "resolution": {},
+                "narrative_text": "End.",
+                "scene_complete": True,
+                "total_minutes_passed": 90,
+            }
         )
     )
     callbacks = types.SimpleNamespace(
@@ -517,9 +522,7 @@ async def test_multi_turn_combat_carries_round_and_hp_and_persists_deltas(world:
                 "reason": "Combat damage: HP 10 → 7",
             }
         ]
-        combat_persist_calls = [
-            call for call in persist_ws.await_args_list if call.kwargs.get("resource_deltas")
-        ]
+        combat_persist_calls = [call for call in persist_ws.await_args_list if call.kwargs.get("resource_deltas")]
         assert len(combat_persist_calls) == 1
         assert combat_persist_calls[0].kwargs["resource_deltas"][0]["delta"] == -3
         # Combat is resolved inside the graph, so the normal turn write includes
@@ -556,4 +559,3 @@ async def test_propose_roll_and_pushback_defer_combat_and_set_pending_roll(world
     assert res["pending_roll"]["resolution_type"] == "forced_narrative_pushback"
     assert res["pending_roll"]["dc"] == 25
     combat_spy.assert_not_awaited()
-

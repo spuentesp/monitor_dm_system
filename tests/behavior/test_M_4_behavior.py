@@ -76,9 +76,7 @@ class TestEntityCreateSchema:
     def test_minimal_create(self):
         """EntityCreate with only required fields."""
         uid = uuid4()
-        e = EntityCreate(
-            universe_id=uid, name="Gandalf", entity_type=EntityType.CHARACTER
-        )
+        e = EntityCreate(universe_id=uid, name="Gandalf", entity_type=EntityType.CHARACTER)
         assert e.name == "Gandalf"
         assert e.entity_type == EntityType.CHARACTER
         assert e.is_archetype is False
@@ -259,9 +257,7 @@ class TestEntityBatchCreateSchema:
         """EntityBatchCreateRequest accepts multiple entities."""
         uid = uuid4()
         entities = [
-            EntityCreate(
-                universe_id=uid, name=f"Entity {i}", entity_type=EntityType.CHARACTER
-            )
+            EntityCreate(universe_id=uid, name=f"Entity {i}", entity_type=EntityType.CHARACTER)
             for i in range(3)
         ]
         req = EntityBatchCreateRequest(universe_id=uid, entities=entities)
@@ -283,9 +279,7 @@ class TestEntityBatchCreateSchema:
 class TestBatchErrorSchema:
     def test_batch_error(self):
         """BatchError describes a single failed entity creation."""
-        err = BatchError(
-            index=2, entity_id=None, message="Name too long", code="VALIDATION_ERROR"
-        )
+        err = BatchError(index=2, entity_id=None, message="Name too long", code="VALIDATION_ERROR")
         assert err.index == 2
         assert err.message == "Name too long"
         assert err.code == "VALIDATION_ERROR"

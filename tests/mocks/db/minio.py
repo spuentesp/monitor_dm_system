@@ -71,9 +71,7 @@ class FakeMinIOClient:
         """Generate a fake presigned URL."""
         return f"http://localhost:9000/{self._bucket}/{object_name}?expires={expires}"
 
-    def seed_object(
-        self, object_name: str, data: bytes, metadata: dict | None = None
-    ) -> None:
+    def seed_object(self, object_name: str, data: bytes, metadata: dict | None = None) -> None:
         """Seed an object directly."""
         self._objects[object_name] = data
         self._metadata[object_name] = metadata or {}

@@ -50,7 +50,9 @@ class TestIngestionStage:
         assert len(stages) == 8
 
     def test_normal_jobs_leave_out_the_separate_decompose_stage(self):
-        stages = IngestionJobCreate(universe_id=uuid4(), source_id=uuid4(), doc_id=uuid4()).pipeline_stages
+        stages = IngestionJobCreate(
+            universe_id=uuid4(), source_id=uuid4(), doc_id=uuid4()
+        ).pipeline_stages
         assert IngestionStage.DECOMPOSE not in stages and len(stages) == 7
 
 

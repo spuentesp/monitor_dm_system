@@ -54,6 +54,7 @@ Env vars (all optional, all default to InstructedSpec's defaults):
     MONITOR_PLAYTEST_MAX_TOKENS  — default 220
     MONITOR_PLAYTEST_TIMEOUT_S   — per-turn wall-clock, default 60
 """
+
 from __future__ import annotations
 
 import json

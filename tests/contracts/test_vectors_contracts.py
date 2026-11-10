@@ -99,15 +99,11 @@ class TestSceneChunkPayload:
 
     def test_required_text(self):
         with pytest.raises(ValidationError):
-            SceneChunkPayload(
-                scene_id="s", story_id="s", universe_id="u", type="x", timestamp="t"
-            )
+            SceneChunkPayload(scene_id="s", story_id="s", universe_id="u", type="x", timestamp="t")
 
     def test_required_type(self):
         with pytest.raises(ValidationError):
-            SceneChunkPayload(
-                scene_id="s", story_id="s", universe_id="u", text="x", timestamp="t"
-            )
+            SceneChunkPayload(scene_id="s", story_id="s", universe_id="u", text="x", timestamp="t")
 
 
 # =============================================================================
@@ -513,9 +509,7 @@ class TestCollectionInfo:
 
     def test_required_status(self):
         with pytest.raises(ValidationError):
-            CollectionInfo(
-                name="x", vector_size=1536, points_count=0, distance="Cosine"
-            )
+            CollectionInfo(name="x", vector_size=1536, points_count=0, distance="Cosine")
 
 
 class TestCollectionInfoRequest:

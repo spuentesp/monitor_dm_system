@@ -62,7 +62,9 @@ async def chat():
     with (
         patch.object(npc_mod.NPCVoice, "call_tool", call_tool),
         patch.object(npc_mod, "NPCDirectVoiceModule", lambda: store.predict),
-        patch("monitor_agents.context_assembly.agent.ContextAssembly._fetch_runtime_profile", return_value={}, create=True),
+        patch(
+            "monitor_agents.context_assembly.agent.ContextAssembly._fetch_runtime_profile", return_value={}, create=True
+        ),
     ):
         loop = await cl.ConversationLoop.start(
             universe_id=UNIVERSE, mode=cl.ConversationMode.DIRECT, npc_ids=[NPC], player_entity_id=PLAYER
@@ -191,7 +193,9 @@ async def test_character_card_reaches_the_prompt_but_gm_notes_do_not() -> None:
     with (
         patch.object(npc_mod.NPCVoice, "call_tool", call_tool),
         patch.object(npc_mod, "NPCDirectVoiceModule", lambda: store.predict),
-        patch("monitor_agents.context_assembly.agent.ContextAssembly._fetch_runtime_profile", return_value={}, create=True),
+        patch(
+            "monitor_agents.context_assembly.agent.ContextAssembly._fetch_runtime_profile", return_value={}, create=True
+        ),
     ):
         carded = await cl.ConversationLoop.start(
             universe_id=UNIVERSE,
@@ -200,7 +204,9 @@ async def test_character_card_reaches_the_prompt_but_gm_notes_do_not() -> None:
             character_card="Scenario: a storm traps you at the inn.",
         )
         await carded.step("Hello")
-        story_npc = await cl.ConversationLoop.start(universe_id=UNIVERSE, mode=cl.ConversationMode.DIRECT, npc_ids=[NPC])
+        story_npc = await cl.ConversationLoop.start(
+            universe_id=UNIVERSE, mode=cl.ConversationMode.DIRECT, npc_ids=[NPC]
+        )
         await story_npc.step("Hello")
 
     assert store.prompts[0]["character_card"] == "Scenario: a storm traps you at the inn."

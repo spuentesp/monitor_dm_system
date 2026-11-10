@@ -34,6 +34,10 @@ def fake_db() -> FakePostgres:
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres):
     monkeypatch.setenv("AUTH_COOKIE_SECURE", "false")
+    import monitor_ui.auth as _auth_mod
+
+    monkeypatch.setattr(_auth_mod, "_signup_limiter", None)
+    monkeypatch.setattr(_auth_mod, "_login_limiter", None)
     get_settings.cache_clear()
 
     async def _fake_get_postgres() -> FakePostgres:
@@ -47,9 +51,12 @@ def client(monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres):
 
 
 def _signup(c: TestClient, email: str, username: str) -> dict:
+    if not c.cookies.get("monitor_csrf"):
+        c.get("/api/auth/config")  # safe GET issues the CSRF cookie
     r = c.post(
         "/api/auth/signup",
         json={"email": email, "username": username, "password": "correct horse battery"},
+        headers={"X-CSRF-Token": c.cookies.get("monitor_csrf", "")},
     )
     assert r.status_code == 201, r.text
     return r.json()
@@ -302,3 +309,139 @@ class TestCommonGuardDispatch:
         c2.cookies.update(client.cookies)
         r = c2.get(f"/api/templates/{template_id}")
         assert r.status_code == 500  # past the guard (404 would mean denied)
+
+
+class TestBodyReferenceChecks:
+    """Body-supplied IDs (characters, entities, packs) must be owner-checked."""
+
+    def test_chat_session_with_foreign_character_404(
+        self, client: TestClient, fake_db: FakePostgres, monkeypatch: pytest.MonkeyPatch
+    ):
+        # Caller owns the universe, so the universe check passes and the
+        # 404 must come from the character check (non-vacuous).
+        bob = _signup(client, "bob10@example.com", "bob10")
+        world_id = _seed_world(fake_db, UUID(bob["id"]))
+        alice_char = str(uuid4())
+
+        class _Chars:
+            def find_one(self, query):
+                if query.get("id") == alice_char and query.get("owner_id") == str(uuid4()):
+                    return {"id": alice_char, "owner_id": str(uuid4())}  # owned by someone else
+                return None
+
+        monkeypatch.setattr(ownership_mod, "_characters_collection", lambda: _Chars())
+        monkeypatch.setattr(ownership_mod, "_universes_of_entities", lambda ids: {})  # not a world entity either
+        r = client.post(
+            "/api/chat",
+            json={"universe_id": world_id, "character_id": alice_char},
+            headers=_csrf(client),
+        )
+        assert r.status_code == 404
+        assert r.json()["detail"] == "Not found"
+
+    def test_fact_with_foreign_entity_ref_404(
+        self, client: TestClient, fake_db: FakePostgres, monkeypatch: pytest.MonkeyPatch
+    ):
+        alice = _signup(client, "alice11@example.com", "alice11")
+        bob_world = _seed_world(fake_db, UUID(_signup(client, "bob11@example.com", "bob11")["id"]))
+        alice_world = _seed_world(fake_db, UUID(alice["id"]))
+        foreign_entity = uuid4()
+        monkeypatch.setattr(
+            ownership_mod,
+            "_universes_of_entities",
+            lambda ids: {str(foreign_entity): alice_world},
+        )
+        r = client.post(
+            f"/api/entities/entities/{bob_world}/facts",
+            json={"statement": "x", "entity_ids": [str(foreign_entity)]},
+            headers=_csrf(client),
+        )
+        assert r.status_code == 404
+
+    def test_party_with_foreign_member_404(
+        self, client: TestClient, fake_db: FakePostgres, monkeypatch: pytest.MonkeyPatch
+    ):
+        alice = _signup(client, "alice12@example.com", "alice12")
+        bob_world = _seed_world(fake_db, UUID(_signup(client, "bob12@example.com", "bob12")["id"]))
+        alice_world = _seed_world(fake_db, UUID(alice["id"]))
+        story_id = str(uuid4())
+        foreign_entity = uuid4()
+
+        async def _fake_universe_of_story(_sid):
+            return bob_world
+
+        monkeypatch.setattr(ownership_mod, "_universe_of_story", _fake_universe_of_story)
+        monkeypatch.setattr(ownership_mod, "_universes_of_entities", lambda ids: {str(foreign_entity): alice_world})
+        r = client.post(
+            "/api/parties",
+            json={"story_id": story_id, "name": "p", "initial_member_ids": [str(foreign_entity)]},
+            headers=_csrf(client),
+        )
+        assert r.status_code == 404
+
+    def test_publish_ignores_client_min_score(self, client: TestClient):
+        import inspect
+
+        import monitor_ui.routers.pack_library as pl_mod
+
+        sig = inspect.signature(pl_mod.publish_pack)
+        assert "min_score" not in sig.parameters
+
+
+class TestGraphNodeResolvers:
+    """entity/fact/axiom/event/relationship/sheet path params are owner-checked."""
+
+    def test_foreign_fact_and_entity_get_404(self, client, fake_db, monkeypatch):
+        alice = _signup(client, "alice13@example.com", "alice13")
+        _signup(client, "bob13@example.com", "bob13")
+        world = _seed_world(fake_db, UUID(alice["id"]))
+        fact_id = str(uuid4())
+        entity_id = str(uuid4())
+
+        class _Neo:
+            def execute_read(self, q, params):
+                if "Fact" in q:
+                    return [{"uid": world}]
+                if "Entity" in q:
+                    return [{"id": params["ids"][0], "uid": world}]
+                return []
+
+        monkeypatch.setattr("monitor_data.db.neo4j.get_neo4j_client", lambda: _Neo())
+        # patch at ownership import site
+        import monitor_data.db.neo4j as neo_mod
+
+        monkeypatch.setattr(neo_mod, "get_neo4j_client", lambda: _Neo())
+        monkeypatch.setattr(ownership_mod, "_universes_of_entities", lambda ids: {str(i): world for i in ids})
+        r = client.get(f"/api/entities/entities/{entity_id}")
+        assert r.status_code == 404
+        r = client.delete(f"/api/entities/entities/facts/{fact_id}?force=true", headers=_csrf(client))
+        assert r.status_code == 404
+
+    def test_playable_character_accepts_card_or_owned_entity(self, client, fake_db, monkeypatch):
+        bob = _signup(client, "bob14@example.com", "bob14")
+        world = _seed_world(fake_db, UUID(bob["id"]))
+        card_id = str(uuid4())
+        entity_id = str(uuid4())
+
+        class _Chars:
+            def find_one(self, q):
+                if q.get("id") == card_id and q.get("owner_id") == str(UUID(bob["id"])):
+                    return {"id": card_id}
+                return None
+
+        monkeypatch.setattr(ownership_mod, "_characters_collection", lambda: _Chars())
+        monkeypatch.setattr(ownership_mod, "_universes_of_entities", lambda ids: {str(entity_id): world})
+        principal = (
+            ownership_mod.Principal(user_id=UUID(bob["id"]), is_admin=False, via="session")
+            if hasattr(ownership_mod, "Principal")
+            else None
+        )
+        from monitor_ui.auth import Principal
+
+        principal = Principal(user_id=UUID(bob["id"]), is_admin=False, via="session")
+        import asyncio
+
+        asyncio.run(ownership_mod.require_playable_character(fake_db, principal, card_id))  # card: ok
+        asyncio.run(ownership_mod.require_playable_character(fake_db, principal, entity_id))  # entity: ok
+        with pytest.raises(Exception):
+            asyncio.run(ownership_mod.require_playable_character(fake_db, principal, str(uuid4())))

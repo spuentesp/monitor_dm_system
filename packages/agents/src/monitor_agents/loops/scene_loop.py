@@ -288,7 +288,6 @@ class SceneState(BaseModel):
                 log.debug("gm_verdict dict rehydration failed", exc_info=True)
 
 
-
 # =============================================================================
 # NODES
 # =============================================================================
@@ -444,7 +443,11 @@ async def load_context(state: SceneState) -> dict[str, Any]:
             # Profiles don't carry a name; the entity does.
             names = {str(e.get("id")): e.get("name") for e in context.get("entities", []) if isinstance(e, dict)}
             npc_profiles = {
-                str(p.entity_id): {**p.model_dump(mode="json"), "name": names.get(str(p.entity_id)) or p.model_dump(mode="json").get("name")} for p in profiles
+                str(p.entity_id): {
+                    **p.model_dump(mode="json"),
+                    "name": names.get(str(p.entity_id)) or p.model_dump(mode="json").get("name"),
+                }
+                for p in profiles
             }
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in load_context)
         logger.warning("load_context: npc profile fetch failed: %s", exc)
@@ -600,13 +603,21 @@ async def run_combat_node(state: SceneState) -> dict[str, Any]:
     prior = state.combat_state if isinstance(state.combat_state, dict) else None
     active = bool(prior and prior.get("combat_active"))
     awaiting_choice = resolution.get("resolution_type") in ("propose_roll", "forced_narrative_pushback")
-    if not active and (awaiting_choice or not (resolution.get("subsystem_hint") == "combat" or resolution.get("action_type") == "combat")):
+    if not active and (
+        awaiting_choice
+        or not (resolution.get("subsystem_hint") == "combat" or resolution.get("action_type") == "combat")
+    ):
         return {"combat_result": None}
     result = await _run_combat(
-        scene_id=state.scene_id, story_id=state.story_id, user_input=state.user_input or "",
-        entity_context=state.entity_context, game_context=state.game_context,
-        source_profile=state.source_profile, gm_profile=state.gm_profile,
-        session_tone=state.session_tone, prior_combat_state=prior if active else None,
+        scene_id=state.scene_id,
+        story_id=state.story_id,
+        user_input=state.user_input or "",
+        entity_context=state.entity_context,
+        game_context=state.game_context,
+        source_profile=state.source_profile,
+        gm_profile=state.gm_profile,
+        session_tone=state.session_tone,
+        prior_combat_state=prior if active else None,
         actor_id=state.actor_id,
     )
     return {
@@ -997,7 +1008,8 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
             narrative_text=state.narrative_text,
             turn_id=persist_turn_id,
             pending_proposals=state.pending_proposals,
-            resource_deltas=state.resource_deltas + _extract_combat_resource_deltas(state.combat_result or {}, state.entity_context),
+            resource_deltas=state.resource_deltas
+            + _extract_combat_resource_deltas(state.combat_result or {}, state.entity_context),
             memories_to_persist=state.memories_to_persist,
             actor_context=state.actor_context,
             universe_id=state.universe_id,
@@ -1041,7 +1053,9 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
     merged_payload = dict(persistence_payload)
     merged_payload["pending_proposals"] = state.pending_proposals + new_state_proposals
     if state.combat_result:
-        merged_payload["resource_deltas"] = state.resource_deltas + _extract_combat_resource_deltas(state.combat_result, state.entity_context)
+        merged_payload["resource_deltas"] = state.resource_deltas + _extract_combat_resource_deltas(
+            state.combat_result, state.entity_context
+        )
     if persistence_payload and state.memories_to_persist:
         merged_payload["memories_to_persist"] = []
     return {
@@ -1835,9 +1849,7 @@ def _is_combatant_entity(entity: dict[str, Any], *, actor_id: UUID | str | None 
         props = {}
     if props.get("non_combatant") is True:
         return False
-    is_pc = str(props.get("role") or "").upper() == "PC" or (
-        actor_id is not None and str(eid) == str(actor_id)
-    )
+    is_pc = str(props.get("role") or "").upper() == "PC" or (actor_id is not None and str(eid) == str(actor_id))
     if is_pc:
         return True
     etype = str(entity.get("entity_type") or entity.get("type") or props.get("entity_type") or "").strip().lower()
@@ -1897,25 +1909,13 @@ async def _run_combat(
 
             raw_hp_curr = props.get("hp_current")
             raw_hp = props.get("hp")
-            hp = (
-                int(raw_hp_curr)
-                if raw_hp_curr is not None
-                else int(raw_hp)
-                if raw_hp is not None
-                else 10
-            )
+            hp = int(raw_hp_curr) if raw_hp_curr is not None else int(raw_hp) if raw_hp is not None else 10
             raw_hp_max = props.get("hp_max")
             hp_max_val = (
-                int(raw_hp_max)
-                if raw_hp_max is not None
-                else int(raw_hp)
-                if raw_hp is not None
-                else max(hp, 10)
+                int(raw_hp_max) if raw_hp_max is not None else int(raw_hp) if raw_hp is not None else max(hp, 10)
             )
 
-            is_pc = str(props.get("role") or "").upper() == "PC" or (
-                actor_id is not None and str(eid) == str(actor_id)
-            )
+            is_pc = str(props.get("role") or "").upper() == "PC" or (actor_id is not None and str(eid) == str(actor_id))
 
             combatants.append(
                 CombatantState(

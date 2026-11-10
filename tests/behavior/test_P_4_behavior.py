@@ -99,23 +99,17 @@ class TestP4ResolutionTypeDetermination:
 
     def test_combat_action_requires_dice(self):
         """Test that combat actions require dice resolution."""
-        resolution_type = determine_resolution_type(
-            "I attack the goblin", is_combat=True
-        )
+        resolution_type = determine_resolution_type("I attack the goblin", is_combat=True)
         assert resolution_type == ResolutionType.DICE
 
     def test_trivial_action_narrative_resolution(self):
         """Test that trivial actions use narrative resolution."""
-        resolution_type = determine_resolution_type(
-            "I open an unlocked door", is_trivial=True
-        )
+        resolution_type = determine_resolution_type("I open an unlocked door", is_trivial=True)
         assert resolution_type == ResolutionType.NARRATIVE
 
     def test_impossible_action_forced_narrative(self):
         """Test that impossible actions use forced narrative."""
-        resolution_type = determine_resolution_type(
-            "I jump to the moon", is_impossible=True
-        )
+        resolution_type = determine_resolution_type("I jump to the moon", is_impossible=True)
         assert resolution_type == ResolutionType.FORCED_NARRATIVE
 
     def test_skill_check_requires_dice(self):
@@ -223,11 +217,10 @@ class TestP4ResolutionStorage:
         story_id = uuid4()
 
         # Mock MongoDB client and Neo4j client
-        with patch(
-            "monitor_data.tools.mongodb_tools.resolutions.get_mongodb_client"
-        ) as mock_mongo, patch(
-            "monitor_data.tools.mongodb_tools.resolutions.get_neo4j_client"
-        ) as mock_neo:
+        with (
+            patch("monitor_data.tools.mongodb_tools.resolutions.get_mongodb_client") as mock_mongo,
+            patch("monitor_data.tools.mongodb_tools.resolutions.get_neo4j_client") as mock_neo,
+        ):
             mongo_client = MagicMock()
             mock_mongo.return_value = mongo_client
 
@@ -244,9 +237,7 @@ class TestP4ResolutionStorage:
                 if collection_name == "scenes":
                     collection.find_one.return_value = scene_mock
                 elif collection_name == "resolutions":
-                    collection.insert_one.return_value = MagicMock(
-                        inserted_id="test_resolution_id"
-                    )
+                    collection.insert_one.return_value = MagicMock(inserted_id="test_resolution_id")
                 return collection
 
             mongo_client.get_collection.side_effect = get_collection_side_effect
@@ -294,9 +285,7 @@ class TestP4ProposalCreation:
         scene_id = uuid4()
         entity_id = uuid4()
 
-        with patch(
-            "monitor_data.tools.mongodb_tools.proposals.get_mongodb_client"
-        ) as mock_mongo:
+        with patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client") as mock_mongo:
             mongo_client = MagicMock()
             mock_mongo.return_value = mongo_client
             mongo_client.get_collection.return_value.insert_one = MagicMock()
@@ -332,9 +321,7 @@ class TestP4AcceptanceCriteria:
 
     def test_ac3_narrative_resolution_for_trivial(self):
         """AC-3: Narrative resolution for trivial actions."""
-        resolution_type = determine_resolution_type(
-            "I look at the sky", is_trivial=True
-        )
+        resolution_type = determine_resolution_type("I look at the sky", is_trivial=True)
         assert resolution_type == ResolutionType.NARRATIVE
 
     def test_ac4_outcome_mapping(self):

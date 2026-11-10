@@ -39,9 +39,7 @@ from uuid import uuid4
 import pytest
 
 # Backend on path
-BACKEND_SRC = (
-    Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-)
+BACKEND_SRC = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
 if str(BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(BACKEND_SRC))
 
@@ -102,9 +100,7 @@ class _FakeSceneLoop:
 
         # Update working state
         if success_level == "failure":
-            self.working_state["hp"]["current"] = max(
-                0, self.working_state["hp"]["current"] - 3
-            )
+            self.working_state["hp"]["current"] = max(0, self.working_state["hp"]["current"] - 3)
         self.working_state["xp"] = self.working_state.get("xp", 0) + xp_awarded
         if self.working_state["xp"] >= 100:
             self.working_state["level"] = 2
@@ -250,9 +246,7 @@ def _mock_infra(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(chat_router, "_db_save_message", fake_db_save_message)
     monkeypatch.setattr(chat_router, "_db_load_sessions", fake_db_load_sessions)
     monkeypatch.setattr(chat_router, "_db_load_messages", fake_db_load_messages)
-    monkeypatch.setattr(
-        chat_router, "_bootstrap_story_scene", fake_bootstrap_story_scene
-    )
+    monkeypatch.setattr(chat_router, "_bootstrap_story_scene", fake_bootstrap_story_scene)
 
     # Replace get_scene_loop in chat_loops with our fake factory
     monkeypatch.setattr(chat_loops_module, "get_scene_loop", _get_fake_scene_loop)

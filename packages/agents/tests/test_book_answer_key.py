@@ -38,21 +38,65 @@ from monitor_data.schemas.book_graph import (
     ExtractedAtom,
 )
 
-LABELS = {"support": "quoted", "scope": "general_rule", "force": "may", "authority": "core_rule", "dropped_condition": False, "canon": True}
+LABELS = {
+    "support": "quoted",
+    "scope": "general_rule",
+    "force": "may",
+    "authority": "core_rule",
+    "dropped_condition": False,
+    "canon": True,
+}
 
 
 def _tree(texts: list[str]) -> BookTree:
     nodes = [BookNode(id="root", doc_id="d", kind=BookNodeKind.BOOK, seq=0, page_start=0, page_end=0)]
-    nodes.append(BookNode(id="div", doc_id="d", kind=BookNodeKind.DIVISION, parent_id="root", seq=1, text="Rules", page_start=0, page_end=0))
+    nodes.append(
+        BookNode(
+            id="div",
+            doc_id="d",
+            kind=BookNodeKind.DIVISION,
+            parent_id="root",
+            seq=1,
+            text="Rules",
+            page_start=0,
+            page_end=0,
+        )
+    )
     for i, text in enumerate(texts):
-        nodes.append(BookNode(id=f"p{i}", doc_id="d", kind=BookNodeKind.PARAGRAPH, parent_id="div", seq=len(nodes), text=text, page_start=i, page_end=i))
-        nodes.append(BookNode(id=f"s{i}", doc_id="d", kind=BookNodeKind.SENTENCE, parent_id=f"p{i}", seq=len(nodes), text=text, page_start=i, page_end=i))
-    return BookTree(doc_id="d", title="T", decomposer_version="1", content_hash="x", nodes=nodes, report=DecompositionReport())
+        nodes.append(
+            BookNode(
+                id=f"p{i}",
+                doc_id="d",
+                kind=BookNodeKind.PARAGRAPH,
+                parent_id="div",
+                seq=len(nodes),
+                text=text,
+                page_start=i,
+                page_end=i,
+            )
+        )
+        nodes.append(
+            BookNode(
+                id=f"s{i}",
+                doc_id="d",
+                kind=BookNodeKind.SENTENCE,
+                parent_id=f"p{i}",
+                seq=len(nodes),
+                text=text,
+                page_start=i,
+                page_end=i,
+            )
+        )
+    return BookTree(
+        doc_id="d", title="T", decomposer_version="1", content_hash="x", nodes=nodes, report=DecompositionReport()
+    )
 
 
 def _claims(tree: BookTree, count: int, kind: AtomKind = AtomKind.RULE):
     atoms = [
-        ProvenancedAtom(atom=ExtractedAtom(kind=kind, statement=f"Claim {i}.", cites=["S1"]), source_node_ids=[f"s{i}"], page=i)
+        ProvenancedAtom(
+            atom=ExtractedAtom(kind=kind, statement=f"Claim {i}.", cites=["S1"]), source_node_ids=[f"s{i}"], page=i
+        )
         for i in range(count)
     ]
     return build_claims(tree, [WindowOutcome(window_id="w", atoms=atoms)])
@@ -109,7 +153,9 @@ def test_rows_carry_heading_and_neighboring_paragraphs():
 
 @pytest.mark.unit
 def test_prefill_prompt_shows_the_surrounding_text():
-    row = KeyRow(id="a", split="test", page=1, kind="rule", statement="S", heading="H", source="SRC", before="BEF", after="AFT")
+    row = KeyRow(
+        id="a", split="test", page=1, kind="rule", statement="S", heading="H", source="SRC", before="BEF", after="AFT"
+    )
     prompt = format_for_prefill([row])
     assert all(text in prompt for text in ("BEF", "SRC", "AFT", "[C1]"))
 
@@ -140,7 +186,10 @@ async def test_prefill_stops_on_quota_and_keeps_the_rest_blank(monkeypatch):
         raise RuntimeError("usage limit reached (2056)")
 
     monkeypatch.setattr(module, "run_metered", quota)
-    rows = [KeyRow(id=str(i), split="test", page=1, kind="rule", statement="S", heading="H", source="SRC") for i in range(25)]
+    rows = [
+        KeyRow(id=str(i), split="test", page=1, kind="rule", statement="S", heading="H", source="SRC")
+        for i in range(25)
+    ]
     guard = RunGuard()
     with pytest.raises(Exception, match="usage limit"):
         await prefill_rows(rows, _FailingLm(), guard)
@@ -149,7 +198,9 @@ async def test_prefill_stops_on_quota_and_keeps_the_rest_blank(monkeypatch):
 
 @pytest.mark.unit
 def test_rows_survive_a_round_trip(tmp_path):
-    row = KeyRow(id="a", split="test", page=1, kind="rule", statement="S", heading="H", source="SRC", prefill=Labels(**LABELS))
+    row = KeyRow(
+        id="a", split="test", page=1, kind="rule", statement="S", heading="H", source="SRC", prefill=Labels(**LABELS)
+    )
     path = tmp_path / "rows.json"
     write_rows(path, [row])
     assert read_rows(path) == [row]
@@ -197,7 +248,9 @@ def sheet(tmp_path):
 
 
 def _post(url, body, **headers):
-    request = urllib.request.Request(url + "/answer", data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers})
+    request = urllib.request.Request(
+        url + "/answer", data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers}
+    )
     return urllib.request.urlopen(request, timeout=5).status
 
 

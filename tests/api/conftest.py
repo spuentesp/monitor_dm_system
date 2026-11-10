@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture(autouse=True)
 def _hermetic_db_singletons(monkeypatch: pytest.MonkeyPatch):
     import pkgutil
+
     """tests/api builds full apps whose lifespan and routes resolve the real
     DB singletons. Swap every singleton for the in-memory fakes and force
     local auth mode so no test ever opens a real socket."""
@@ -36,9 +37,7 @@ def _hermetic_db_singletons(monkeypatch: pytest.MonkeyPatch):
 
     import monitor_ui.auth as _auth_mod
 
-    _backend_tests = (
-        Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "tests"
-    )
+    _backend_tests = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "tests"
     sys.path.insert(0, str(_backend_tests))
     from fake_postgres import FakePostgres
 
@@ -69,7 +68,13 @@ def _hermetic_db_singletons(monkeypatch: pytest.MonkeyPatch):
             monkeypatch.setattr(_mod, "get_qdrant_client", lambda: FakeQdrantClient())
         if hasattr(_mod, "get_redis_client"):
             monkeypatch.setattr(_mod, "get_redis_client", lambda: FakeRedisClient())
-    for _sub in ("mongodb_tools", "neo4j_tools", "ingest_tools", "plot_thread_tools", "temporal_tools"):
+    for _sub in (
+        "mongodb_tools",
+        "neo4j_tools",
+        "ingest_tools",
+        "plot_thread_tools",
+        "temporal_tools",
+    ):
         try:  # noqa: S112
             _submod = __import__(f"monitor_data.tools.{_sub}", fromlist=["*"])
         except Exception:
@@ -127,9 +132,7 @@ def _hermetic_db_singletons(monkeypatch: pytest.MonkeyPatch):
 
 def _add_backend_to_path() -> None:
     """Ensure the monitor_ui package is importable."""
-    backend_src = (
-        Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-    )
+    backend_src = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
     sys.path.insert(0, str(backend_src))
 
 
@@ -186,9 +189,7 @@ def _mock_db_clients(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, N
 
     # Stub agent turn runners — same (narrative, metadata) tuple contract and
     # keyword-only plumbing args as the real chat_loops runners.
-    async def fake_run_scene_turn(
-        session_id: str, user_content: str, **kwargs
-    ) -> tuple[str, dict]:
+    async def fake_run_scene_turn(session_id: str, user_content: str, **kwargs) -> tuple[str, dict]:
         return (
             "The scene continues...",
             {"phase": "active_play", "action_taken": True, "scene_checkpoint": {}},
@@ -211,9 +212,7 @@ def _mock_db_clients(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, N
         )
 
     monkeypatch.setattr(chat_router, "_run_scene_turn", fake_run_scene_turn)
-    monkeypatch.setattr(
-        chat_router, "_run_world_architect_turn", fake_run_world_architect_turn
-    )
+    monkeypatch.setattr(chat_router, "_run_world_architect_turn", fake_run_world_architect_turn)
     monkeypatch.setattr(chat_router, "_run_preplay_turn", fake_run_preplay_turn)
 
     # Stub the GM opening builder — it walks the lore/LLM path (covered by its
@@ -270,9 +269,8 @@ def ui_client() -> Generator[TestClient, None, None]:
 
     from monitor_ui.auth import Principal, get_current_user, get_postgres
     from tests.mocks.db.mongo import FakeMongoClient
-    backend_tests = (
-        Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "tests"
-    )
+
+    backend_tests = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "tests"
     sys.path.insert(0, str(backend_tests))
     from fake_postgres import FakePostgres
 
@@ -293,9 +291,11 @@ def ui_client() -> Generator[TestClient, None, None]:
 
     import monitor_ui.auth as _auth_mod
 
-    with _mock_patch("monitor_data.db.mongodb.get_mongodb_client", lambda: _fake_mongo), _mock_patch.object(
-        chat_router, "require_chat_session_owner", _passthrough_session_owner
-    ), _mock_patch.object(_auth_mod, "get_postgres_client", lambda: _fake_pg):
+    with (
+        _mock_patch("monitor_data.db.mongodb.get_mongodb_client", lambda: _fake_mongo),
+        _mock_patch.object(chat_router, "require_chat_session_owner", _passthrough_session_owner),
+        _mock_patch.object(_auth_mod, "get_postgres_client", lambda: _fake_pg),
+    ):
         with TestClient(app) as client:
             yield client
     app.dependency_overrides.clear()

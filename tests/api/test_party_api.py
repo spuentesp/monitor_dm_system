@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
+from tests.conftest import LOCAL_PRINCIPAL
 
 
 @pytest.fixture(autouse=True)
@@ -20,9 +21,7 @@ def _setup_path() -> None:
     import sys
     from pathlib import Path
 
-    backend_src = (
-        Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
-    )
+    backend_src = Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "src"
     if str(backend_src) not in sys.path:
         sys.path.insert(0, str(backend_src))
 
@@ -55,7 +54,8 @@ class TestPartyAPI:
                 story_id=str(story_id),
                 name="The Brave Companions",
                 initial_member_ids=[str(member_id)],
-            )
+            ),
+            principal=LOCAL_PRINCIPAL,
         )
 
         assert result.name == "The Brave Companions"
@@ -72,7 +72,7 @@ class TestPartyAPI:
             lambda params: [mock_party],
         )
 
-        result = await parties.list_parties(story_id=str(uuid4()))
+        result = await parties.list_parties(story_id=str(uuid4()), principal=LOCAL_PRINCIPAL)
         assert len(result) == 1
 
     @pytest.mark.asyncio
@@ -88,7 +88,7 @@ class TestPartyAPI:
             failing_list,
         )
 
-        result = await parties.list_parties()
+        result = await parties.list_parties(principal=LOCAL_PRINCIPAL)
         assert result == []
 
     @pytest.mark.asyncio
@@ -111,6 +111,7 @@ class TestPartyAPI:
         result = await parties.add_member(
             str(party_id),
             parties.AddMemberRequest(entity_id=str(entity_id), role="scout"),
+            principal=LOCAL_PRINCIPAL,
         )
         assert result.id == party_id
 
@@ -130,7 +131,9 @@ class TestPartyAPI:
             lambda params: mock_response,
         )
 
-        result = await parties.remove_member(str(party_id), str(entity_id))
+        result = await parties.remove_member(
+            str(party_id), str(entity_id), principal=LOCAL_PRINCIPAL
+        )
         assert result.id == party_id
 
     @pytest.mark.asyncio
@@ -153,6 +156,7 @@ class TestPartyAPI:
         result = await parties.set_active_pc(
             str(party_id),
             parties.AddMemberRequest(entity_id=str(entity_id)),
+            principal=LOCAL_PRINCIPAL,
         )
         assert result.active_pc_id == entity_id
 
@@ -167,6 +171,7 @@ class TestPartyAPI:
                 parties.PartyCreateRequest(
                     story_id="not-a-uuid",
                     name="Test",
-                )
+                ),
+                principal=LOCAL_PRINCIPAL,
             )
         assert exc_info.value.status_code == 422

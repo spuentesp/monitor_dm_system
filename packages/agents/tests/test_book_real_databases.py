@@ -194,7 +194,9 @@ def test_book_structure_is_stored_repeatably_and_deleted_on_real_neo4j(neo4j):
             assert neo4j_book_tree.neo4j_merge_book_tree(tree, source) == count
             nodes = neo4j("MATCH (n:BookNode {doc_id: $d}) RETURN count(n) AS c", {"d": doc})
             links = neo4j("MATCH (:BookNode {doc_id: $d})-[r:PART_OF]->() RETURN count(r) AS c", {"d": doc})
-            described = neo4j("MATCH (:BookNode {doc_id: $d})-[r:DESCRIBES]->(:Source) RETURN count(r) AS c", {"d": doc})
+            described = neo4j(
+                "MATCH (:BookNode {doc_id: $d})-[r:DESCRIBES]->(:Source) RETURN count(r) AS c", {"d": doc}
+            )
             assert nodes[0]["c"] == count and links[0]["c"] == count - 1 and described[0]["c"] == 1
         neo4j_book_tree.neo4j_delete_book_tree(doc)
         assert neo4j("MATCH (n:BookNode {doc_id: $d}) RETURN count(n) AS c", {"d": doc})[0]["c"] == 0

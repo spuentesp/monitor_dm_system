@@ -40,9 +40,7 @@ def _make_pdf_bytes(text: str) -> bytes:
 class TestFullPipeline:
     """End-to-end smoke coverage for the RPG book → playable story pipeline."""
 
-    def test_ingest_pdf_extracts_world_and_rules_keywords(
-        self, rpg_book_text: str
-    ) -> None:
+    def test_ingest_pdf_extracts_world_and_rules_keywords(self, rpg_book_text: str) -> None:
         """I-1/I-2: A real PDF can be ingested and yields lore + rules text."""
         from monitor_data.tools.ingest_tools import ingest_pdf
 
@@ -72,9 +70,7 @@ class TestFullPipeline:
         from monitor_data.tools.ingest_tools import ingest_pdf
         from monitor_data.tools.mongodb_tools import mongodb_get_scene
 
-        pdf_chunks = ingest_pdf(
-            _make_pdf_bytes(rpg_book_text), "realm_of_shadows_full.pdf"
-        )
+        pdf_chunks = ingest_pdf(_make_pdf_bytes(rpg_book_text), "realm_of_shadows_full.pdf")
         assert any("Void Cult" in chunk.text for chunk in pdf_chunks)
         assert seeded_game_system.name == "Realm of Shadows D20"
         assert seeded_world["multiverse_id"] is not None
@@ -97,8 +93,7 @@ class TestFullPipeline:
         assert scene is not None
         assert len(scene.turns) >= 2
         assert any(
-            "hooded stranger" in turn.text.lower()
-            or "shadowed alley" in turn.text.lower()
+            "hooded stranger" in turn.text.lower() or "shadowed alley" in turn.text.lower()
             for turn in scene.turns
         )
 
@@ -122,7 +117,12 @@ class TestFullPipeline:
            and rehydration into a clean instance with GMVerdict intact.
         """
         import json
-        from monitor_agents.gm_awareness import ActionType, CausalityAction, IntentType, RollNecessity
+        from monitor_agents.gm_awareness import (
+            ActionType,
+            CausalityAction,
+            IntentType,
+            RollNecessity,
+        )
         from monitor_agents.gm_tools.contracts import GMVerdict
         from monitor_agents.loops.scene_loop import SceneState
         from monitor_data.tools.neo4j_tools import neo4j_get_entity
@@ -162,4 +162,3 @@ class TestFullPipeline:
         from tests.e2e.conftest import assert_cross_store_invariants
 
         assert_cross_store_invariants(universe_id=seeded_world["universe_id"])
-

@@ -65,9 +65,7 @@ class TestOmniverseUpdate:
 class TestOmniverseResponse:
     def test_valid(self):
         now = datetime.now(UTC)
-        r = OmniverseResponse(
-            id=uuid4(), name="Root", description="desc", created_at=now
-        )
+        r = OmniverseResponse(id=uuid4(), name="Root", description="desc", created_at=now)
         assert r.name == "Root"
 
 
@@ -104,9 +102,7 @@ class TestMultiverseCreate:
 
     def test_name_required(self):
         with pytest.raises(ValidationError):
-            MultiverseCreate(
-                omniverse_id=uuid4(), name="", system_name="", description=""
-            )
+            MultiverseCreate(omniverse_id=uuid4(), name="", system_name="", description="")
 
 
 class TestMultiverseUpdate:
@@ -145,9 +141,7 @@ class TestMultiverseFilter:
 class TestUniverseCreate:
     def test_minimal(self):
         mid = uuid4()
-        u = UniverseCreate(
-            multiverse_id=mid, name="Toril", description="The world of Toril"
-        )
+        u = UniverseCreate(multiverse_id=mid, name="Toril", description="The world of Toril")
         assert u.name == "Toril"
         assert u.alt_world_type == AltWorldType.MAIN
         assert u.is_template is False
@@ -173,13 +167,9 @@ class TestUniverseCreate:
 
     def test_confidence_bounds(self):
         with pytest.raises(ValidationError):
-            UniverseCreate(
-                multiverse_id=uuid4(), name="X", description="x", confidence=-0.1
-            )
+            UniverseCreate(multiverse_id=uuid4(), name="X", description="x", confidence=-0.1)
         with pytest.raises(ValidationError):
-            UniverseCreate(
-                multiverse_id=uuid4(), name="X", description="x", confidence=1.1
-            )
+            UniverseCreate(multiverse_id=uuid4(), name="X", description="x", confidence=1.1)
 
 
 class TestUniverseUpdate:

@@ -58,7 +58,13 @@ from monitor_ui.config import get_settings
 
 from monitor_data.db.postgres import PostgresClient
 from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
-from monitor_ui.ownership import require_character_owner, require_universe_owner
+from monitor_ui.ownership import (
+    owned_world_ids,
+    require_character_owner,
+    require_entities_owner,
+    require_universe_owner,
+    resource_route_guard,
+)
 
 from .character_storage import (
     create_character as _create_character_doc,
@@ -117,7 +123,7 @@ log = structlog.get_logger()
 
 logger = structlog.get_logger()
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 _settings = get_settings()
 
 
@@ -921,7 +927,12 @@ async def generate_entity(body: GenerateEntityRequest) -> dict[str, Any]:
 
 
 @router.get("/systems/{system_id}/characters", response_model=list[Character])
-async def list_characters(system_id: str) -> list[Character]:
+async def list_characters(
+    system_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> list[Character]:
+    """Characters for a game system, scoped to the caller's universes (D4)."""
     try:
         from monitor_data.schemas.character_sheets import CharacterSheetFilter
         from monitor_data.schemas.entities import EntityFilter
@@ -929,6 +940,7 @@ async def list_characters(system_id: str) -> list[Character]:
         from monitor_data.tools.neo4j_tools.entities import neo4j_list_entities
 
         system_uuid = UUID(system_id)
+        owned_w = await owned_world_ids(db, principal)
         sheets = mongodb_list_character_sheets(
             CharacterSheetFilter(
                 entity_id=None,
@@ -943,9 +955,14 @@ async def list_characters(system_id: str) -> list[Character]:
         if not sheets.sheets:
             return []
 
-        entities = neo4j_list_entities(EntityFilter(limit=500)).entities
+        # Only entities in the caller's universes — never an unscoped list.
+        entities = neo4j_list_entities(
+            EntityFilter(limit=500, universe_ids=[UUID(i) for i in owned_w] if owned_w is not None else None)
+        ).entities
         entities_by_id: dict[str, Any] = {str(entity.id): entity for entity in entities}
 
+        # Drop sheets whose entity is not in the caller's universes —
+        # otherwise the sheet row itself (entity id, system, universe) leaks.
         return [
             Character(
                 id=str(sheet.entity_id),
@@ -959,6 +976,7 @@ async def list_characters(system_id: str) -> list[Character]:
                 canon_level=str(getattr(entities_by_id.get(str(sheet.entity_id)), "canon_level", "canon")),
             )
             for sheet in sheets.sheets
+            if str(sheet.entity_id) in entities_by_id
         ]
     except Exception:  # noqa: BLE001  # reason: falls back to `[]` on failure (in list_characters)
         return []
@@ -1754,9 +1772,14 @@ async def create_character_relationship(
     rel_type: str,
     # reason: FastAPI dependency-injected query/body parameter typed as `dict | None`; mypy can't model the framework's runtime parsing without Annotated[]
     properties: dict | None = None,  # type: ignore
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
     # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 ) -> dict:  # type: ignore
-    """Create a relationship between two characters in Neo4j."""
+    """Create a relationship between two characters in Neo4j.
+
+    Both characters must be owned by the caller (foreign → 404)."""
+    await require_entities_owner(db, principal, [from_id, to_id])
     from monitor_data.tools.neo4j_tools.entities import (
         neo4j_create_character_relationship,
     )
@@ -1816,12 +1839,18 @@ class EdgeCreateRequest(BaseModel):
 
 @router.post("/entities/edges", status_code=201)
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
-async def create_edge(body: EdgeCreateRequest) -> dict:  # type: ignore
+async def create_edge(
+    body: EdgeCreateRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore
     """Create a relationship edge between two canon entities (M-37).
 
     Drawn by dragging between nodes on the graph; ``category`` is inferred from
     ``rel_type`` when omitted. Writes via the CanonKeeper-authority data tool.
+    Both entities must live in a universe the caller owns.
     """
+    await require_entities_owner(db, principal, [body.from_id, body.to_id])
     from monitor_data.schemas.relationships import (
         RelationshipCategory,
         RelationshipCreate,
@@ -1977,12 +2006,20 @@ def _http_for_value_error(exc: ValueError) -> HTTPException:
 
 
 @router.post("/entities/{universe_id}/facts", status_code=201)
-async def create_fact(universe_id: UUID, body: FactCreateRequest) -> dict[str, Any]:
+async def create_fact(
+    universe_id: UUID,
+    body: FactCreateRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict[str, Any]:
     """Create a fact in a universe (F2-2).
 
     Writes through the data layer's CanonKeeper-authority fact tool — the
     same direct-write precedent as single-entity create (``POST /entities``).
+    Entities referenced by the fact must live in a universe the caller owns.
     """
+    await require_universe_owner(db, principal, universe_id)
+    await require_entities_owner(db, principal, body.entity_ids or [])
     from monitor_data.schemas.facts import FactCreate
     from monitor_data.tools.neo4j_tools.facts import neo4j_create_fact
 
@@ -2063,8 +2100,14 @@ async def delete_fact(fact_id: UUID, force: bool = False) -> dict[str, Any]:
 
 
 @router.post("/entities/{universe_id}/axioms", status_code=201)
-async def create_axiom(universe_id: UUID, body: AxiomCreateRequest) -> dict[str, Any]:
+async def create_axiom(
+    universe_id: UUID,
+    body: AxiomCreateRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict[str, Any]:
     """Create an axiom (ontological world truth) in a universe (F2-2)."""
+    await require_universe_owner(db, principal, universe_id)
     from monitor_data.schemas.facts import AxiomCreate
     from monitor_data.tools.neo4j_tools.facts import neo4j_create_axiom
 

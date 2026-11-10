@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from monitor_data.db.postgres import get_postgres_client
+from monitor_data.security import new_csrf_token
 
 from monitor_ui.auth import get_optional_principal
 from monitor_ui.config import get_settings
@@ -270,20 +271,39 @@ def create_app() -> FastAPI:
     async def _csrf_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         """Double-submit CSRF + origin check for cookie-authenticated unsafe requests.
 
-        Applies when a session cookie is present and no Bearer token is used
-        (bearer/API-token clients are not cookie-authenticated). Login and
-        signup set the cookies, so they are exempt. In auth-disabled local
-        mode there are no session cookies and this passes through.
+        Applies to every unsafe method when the request could be cookie-
+        authenticated — including login/signup (login-CSRF hardening): a CSRF
+        cookie is issued on safe-method responses so a browser always has one
+        before the first unsafe call. Bearer/API-token requests are not
+        cookie-authenticated and skip. In auth-disabled local mode there are
+        no cookies and this passes through.
         """
         settings = get_settings()
-        if settings.monitor_auth_disabled or request.method in ("GET", "HEAD", "OPTIONS"):
+        if settings.monitor_auth_disabled:
             return await call_next(request)
-        has_session_cookie = settings.auth_session_cookie in request.cookies
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            response = await call_next(request)
+            # Issue the double-submit cookie on safe responses when absent, so
+            # the very first login/signup POST already carries a token pair.
+            if settings.auth_csrf_cookie not in request.cookies:
+                response.set_cookie(
+                    key=settings.auth_csrf_cookie,
+                    value=new_csrf_token(),
+                    max_age=settings.auth_session_ttl_hours * 3600,
+                    httponly=False,
+                    secure=settings.cookie_secure,
+                    samesite="lax",
+                    path="/",
+                )
+            return response
         has_bearer = request.headers.get("authorization", "").lower().startswith("bearer ")
-        if not (has_session_cookie and not has_bearer):
+        if has_bearer:
+            # Bearer/API-token clients are not cookie-authenticated.
             return await call_next(request)
-        if request.url.path in ("/api/auth/login", "/api/auth/signup"):
-            return await call_next(request)
+        # Origin check for EVERY unsafe method, including login/signup:
+        # browsers always send Origin on cross-site POSTs, so this blocks
+        # login-CSRF even though those endpoints cannot require a pre-existing
+        # CSRF cookie. Non-browser clients send no Origin/Referer and pass.
         allowed = settings.cors_origins_list
         origin = request.headers.get("origin")
         if origin is not None:
@@ -293,16 +313,22 @@ def create_app() -> FastAPI:
             referer = request.headers.get("referer")
             if referer is not None and not any(referer == o or referer.startswith(o + "/") for o in allowed):
                 return JSONResponse({"detail": "Cross-origin request rejected."}, status_code=403)
-        csrf_cookie = request.cookies.get(settings.auth_csrf_cookie, "")
-        csrf_header = request.headers.get(settings.auth_csrf_header, "")
-        if not csrf_cookie or not secrets.compare_digest(csrf_cookie, csrf_header):
-            return JSONResponse({"detail": "Missing or invalid CSRF token."}, status_code=403)
+        # Double-submit required once a session cookie is present (any state
+        # change on an authenticated session). Safe GETs above always issue
+        # the CSRF cookie, so browser flows have the pair from the first load.
+        if settings.auth_session_cookie in request.cookies:
+            csrf_cookie = request.cookies.get(settings.auth_csrf_cookie, "")
+            csrf_header = request.headers.get(settings.auth_csrf_header, "")
+            if not csrf_cookie or not secrets.compare_digest(csrf_cookie, csrf_header):
+                return JSONResponse({"detail": "Missing or invalid CSRF token."}, status_code=403)
         return await call_next(request)
 
     @app.middleware("http")
     async def _security_headers_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         """Baseline security headers on every response (API surface only)."""
         response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
