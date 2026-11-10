@@ -7,7 +7,10 @@ on:
 
 jobs:
   integration:
-    runs-on: ubuntu-latest
+    # ubuntu-24.04, not ubuntu-latest: the Playwright version this repo pins
+    # (1.60) refuses to install its browsers on the ubuntu-26.04 image, and
+    # the page smokes are the last step of this job.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       # Object storage runs on the local-folder backend on CI. The MinIO image
@@ -104,39 +107,9 @@ jobs:
             exit 0
           fi
           rc=0
-          python3 - <<'PY' || rc=$?
-          import json
-          import urllib.request
-
-          BASE = "http://127.0.0.1:8000/api"
-
-
-          def get(path):
-              with urllib.request.urlopen(BASE + path, timeout=30) as response:
-                  return json.load(response)
-
-
-          problems = []
-          try:
-              providers = get("/llm/providers")
-          except Exception as exc:
-              problems.append(f"the LLM provider list is not readable ({exc})")
-              providers = []
-          if not [p for p in providers if p.get("api_key_masked")]:
-              problems.append("no LLM provider holds credentials")
-          try:
-              universes = get("/universes/universes")
-          except Exception as exc:
-              problems.append(f"the universe list is not readable ({exc})")
-              universes = []
-          if not universes:
-              problems.append("no universe is seeded")
-          if problems:
-              print("E2E smoke SKIPPED: " + "; ".join(problems))
-              raise SystemExit(3)
-          print("E2E smoke: live-play preconditions are met")
-          PY
+          uv run python scripts/live_gameplay_smoke.py --check || rc=$?
           if [ "$rc" -eq 3 ]; then
+            echo "E2E smoke SKIPPED: the live-play preconditions are not met (reason above)"
             exit 0
           fi
           if [ "$rc" -ne 0 ]; then
