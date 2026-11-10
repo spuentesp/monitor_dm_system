@@ -51,7 +51,9 @@ def live_backend() -> str:
 # ─── scripted player helpers ─────────────────────────────────────────────────
 
 
-def _create_session(live_backend: str, universe_id: str, multiverse_id: str | None) -> dict[str, Any]:
+def _create_session(
+    live_backend: str, universe_id: str, multiverse_id: str | None
+) -> dict[str, Any]:
     response = requests.post(
         f"{live_backend}/chat",
         json={
@@ -77,7 +79,9 @@ def _send(live_backend: str, session_id: str, content: str) -> dict[str, Any]:
     return response.json()
 
 
-def _play_guided_start(live_backend: str, session_id: str, first_meta: dict[str, Any]) -> list[dict[str, Any]]:
+def _play_guided_start(
+    live_backend: str, session_id: str, first_meta: dict[str, Any]
+) -> list[dict[str, Any]]:
     """Scripted player: pick the first start option, answer briefly, skip to
     play. Returns the GM messages after the creation question. Reaching
     active play must take at most 5 GM turns including the creation
@@ -88,7 +92,11 @@ def _play_guided_start(live_backend: str, session_id: str, first_meta: dict[str,
     gm_messages: list[dict[str, Any]] = []
 
     gm_messages.append(_send(live_backend, session_id, picked))
-    gm_messages.append(_send(live_backend, session_id, "My name is Wren, a tide-lock scribe with a stolen key. done"))
+    gm_messages.append(
+        _send(
+            live_backend, session_id, "My name is Wren, a tide-lock scribe with a stolen key. done"
+        )
+    )
 
     # Skip to play (task 7): must still produce a seeded opening that
     # materializes the chosen start.
@@ -98,7 +106,9 @@ def _play_guided_start(live_backend: str, session_id: str, first_meta: dict[str,
     return gm_messages
 
 
-def _assert_reached_active_play(live_backend: str, session_id: str, gm_turn_count: int) -> dict[str, Any]:
+def _assert_reached_active_play(
+    live_backend: str, session_id: str, gm_turn_count: int
+) -> dict[str, Any]:
     assert gm_turn_count <= 5, f"reached active play in {gm_turn_count} GM turns (max 5)"
     state = requests.get(f"{live_backend}/chat/{session_id}/state", timeout=60)
     state.raise_for_status()
@@ -132,7 +142,9 @@ def quick_world(live_backend: str) -> dict[str, Any]:
 def test_quick_world_guided_start_reaches_active_play(
     live_backend: str, quick_world: dict[str, Any], guided_start_notes: dict[str, Any]
 ) -> None:
-    session = _create_session(live_backend, quick_world["universe_id"], quick_world["multiverse_id"])
+    session = _create_session(
+        live_backend, quick_world["universe_id"], quick_world["multiverse_id"]
+    )
     session_id = session["id"]
     messages = requests.get(f"{live_backend}/chat/{session_id}/messages", timeout=60).json()
     assert messages, "session creation must produce the first GM question"
@@ -164,7 +176,9 @@ def test_quick_world_guided_start_reaches_active_play(
     named = [name for name in npc_names if name.lower() in text.lower()]
     assert len(named) >= 2, f"opening names only {named} of {npc_names}"
 
-    _assert_world_state(quick_world["universe_id"], location, npc_names, opening["metadata"]["story_id"])
+    _assert_world_state(
+        quick_world["universe_id"], location, npc_names, opening["metadata"]["story_id"]
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -209,14 +223,23 @@ def pack_world(live_backend: str) -> dict[str, Any]:
                 ),
             ],
             lore_facts=[
-                ExtractedLoreFact(statement="The cathedral bells ring below the waterline.", source_ref="walkthrough")
+                ExtractedLoreFact(
+                    statement="The cathedral bells ring below the waterline.",
+                    source_ref="walkthrough",
+                )
             ],
             agendas=[
-                ExtractedAgenda(title="Silence the bells", description="Aveline wants the bells stopped."),
+                ExtractedAgenda(
+                    title="Silence the bells", description="Aveline wants the bells stopped."
+                ),
             ],
             plot_threads=[
-                ExtractedPlotThread(title="Who rings the bells", description="The ringers drowned years ago."),
-                ExtractedPlotThread(title="Cass's last fare", description="One passenger never paid."),
+                ExtractedPlotThread(
+                    title="Who rings the bells", description="The ringers drowned years ago."
+                ),
+                ExtractedPlotThread(
+                    title="Cass's last fare", description="One passenger never paid."
+                ),
             ],
         )
     )
@@ -243,7 +266,11 @@ def pack_world(live_backend: str) -> dict[str, Any]:
             f"{live_backend}/ingest/proposals/batch",
             json={
                 "actions": [
-                    {"proposal_id": p["proposal_id"], "action": "accept", "reason": "walkthrough auto-accept"}
+                    {
+                        "proposal_id": p["proposal_id"],
+                        "action": "accept",
+                        "reason": "walkthrough auto-accept",
+                    }
                     for p in pending
                 ]
             },
@@ -284,7 +311,9 @@ def test_pack_world_guided_start_reaches_active_play(
     named = [name for name in npc_names if name.lower() in text.lower()]
     assert len(named) >= 2, f"opening names only {named} of {npc_names}"
 
-    _assert_world_state(pack_world["universe_id"], location, npc_names, opening["metadata"]["story_id"])
+    _assert_world_state(
+        pack_world["universe_id"], location, npc_names, opening["metadata"]["story_id"]
+    )
 
 
 def test_start_options_differ_between_worlds(guided_start_notes: dict[str, Any]) -> None:
@@ -317,7 +346,9 @@ def test_resume_after_backend_restart(live_backend: str) -> None:  # pragma: no 
 # ─── shared world-state assertions ───────────────────────────────────────────
 
 
-def _assert_world_state(universe_id: str, location: str, npc_names: list[str], story_id: str) -> None:
+def _assert_world_state(
+    universe_id: str, location: str, npc_names: list[str], story_id: str
+) -> None:
     """Done-when: instances in Neo4j with profiles in MongoDB; 2+ threads."""
     from monitor_data.schemas.entities import EntityFilter
     from monitor_data.schemas.story_outlines import PlotThreadFilter
@@ -338,4 +369,6 @@ def _assert_world_state(universe_id: str, location: str, npc_names: list[str], s
     assert len(profiles) >= 2, f"NPC profiles in MongoDB must back the NPC instances: {profiles}"
 
     threads = neo4j_list_plot_threads(PlotThreadFilter(story_id=UUID(story_id), limit=50))
-    assert len(threads.threads) >= 2, f"expected at least 2 plot threads, got {len(threads.threads)}"
+    assert len(threads.threads) >= 2, (
+        f"expected at least 2 plot threads, got {len(threads.threads)}"
+    )

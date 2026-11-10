@@ -132,10 +132,18 @@ def create_pack_world(api_url: str) -> dict[str, Any]:
                     source_ref="transcript",
                 )
             ],
-            agendas=[ExtractedAgenda(title="Silence the bells", description="Aveline wants the bells stopped.")],
+            agendas=[
+                ExtractedAgenda(
+                    title="Silence the bells", description="Aveline wants the bells stopped."
+                )
+            ],
             plot_threads=[
-                ExtractedPlotThread(title="Who rings the bells", description="The ringers drowned years ago."),
-                ExtractedPlotThread(title="Cass's last fare", description="One passenger never paid."),
+                ExtractedPlotThread(
+                    title="Who rings the bells", description="The ringers drowned years ago."
+                ),
+                ExtractedPlotThread(
+                    title="Cass's last fare", description="One passenger never paid."
+                ),
             ],
         )
     )
@@ -160,7 +168,11 @@ def create_pack_world(api_url: str) -> dict[str, Any]:
                 f"{api_url}/ingest/proposals/batch",
                 json={
                     "actions": [
-                        {"proposal_id": p["proposal_id"], "action": "accept", "reason": "transcript auto-accept"}
+                        {
+                            "proposal_id": p["proposal_id"],
+                            "action": "accept",
+                            "reason": "transcript auto-accept",
+                        }
                         for p in pending
                     ]
                 },
@@ -257,8 +269,20 @@ def write_transcript(output_dir: Path, world: dict[str, Any], run: dict[str, Any
         "",
     ]
     for option in run["start_options"]:
-        lines.append(f"- **{option.get('title')}** — {option.get('summary') or option.get('hook') or ''}")
-    lines += ["", "## Materialized start", "", "```json", json.dumps(run["materialized"], indent=2), "```", "", "## Transcript", ""]
+        lines.append(
+            f"- **{option.get('title')}** — {option.get('summary') or option.get('hook') or ''}"
+        )
+    lines += [
+        "",
+        "## Materialized start",
+        "",
+        "```json",
+        json.dumps(run["materialized"], indent=2),
+        "```",
+        "",
+        "## Transcript",
+        "",
+    ]
     for turn in run["transcript"]:
         speaker = "MONITOR" if turn["speaker"] == "gm" else "Player"
         lines.append(f"**{speaker}:** {turn['content']}")
@@ -286,9 +310,17 @@ def main() -> int:
     worlds: list[dict[str, Any]] = []
     if args.universe_id:
         for universe_id in args.universe_id:
-            worlds.append({"label": f"universe_{universe_id[:8]}", "universe_id": universe_id, "world_name": universe_id})
+            worlds.append(
+                {
+                    "label": f"universe_{universe_id[:8]}",
+                    "universe_id": universe_id,
+                    "world_name": universe_id,
+                }
+            )
     else:
-        worlds.append(create_quick_world(args.api_url, "a rain-soaked port where the tide-locks are failing"))
+        worlds.append(
+            create_quick_world(args.api_url, "a rain-soaked port where the tide-locks are failing")
+        )
         worlds.append(create_pack_world(args.api_url))
 
     written: list[Path] = []

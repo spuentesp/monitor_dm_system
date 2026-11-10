@@ -2,7 +2,7 @@
 """
 Ensure every commit message in a range references a documented use-case ID.
 
-Valid patterns: P-#, M-#, Q-#, I-#, SYS-#, CF-#, ST-#, RS-#, DOC-#
+Valid patterns: DL-#, P-#, M-#, Q-#, I-#, SYS-#, CF-#, ST-#, RS-#, MP-#, DOC-#
 
 Usage:
     python scripts/check_commit_use_case.py --base <commit-ish>
@@ -15,7 +15,7 @@ import re
 import subprocess
 import sys
 
-USE_CASE_RE = re.compile(r"\b(?:DL|P|M|Q|I|SYS|CF|ST|RS|DOC)-\d+\b")
+USE_CASE_RE = re.compile(r"\b(?:DL|P|M|Q|I|SYS|CF|ST|RS|MP|DOC)-\d+\b")
 
 
 def git_commits(base: str) -> list[str]:
