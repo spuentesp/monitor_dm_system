@@ -140,6 +140,10 @@ from monitor_data.tools.mongodb_tools.gm_notes import (
     mongodb_get_gm_note,
     mongodb_upsert_gm_note,
 )
+from monitor_data.tools.mongodb_tools.gm_prep import (
+    mongodb_get_gm_prep_bundle,
+    mongodb_upsert_gm_prep_bundle,
+)
 
 # Ingestion Job operations
 from monitor_data.tools.mongodb_tools.ingestion_jobs import (
@@ -615,6 +619,9 @@ __all__ = [
     # GM Notes (P2.3)
     "mongodb_get_gm_note",
     "mongodb_upsert_gm_note",
+    # GM Prep bundles (CF-7 prep-to-table)
+    "mongodb_get_gm_prep_bundle",
+    "mongodb_upsert_gm_prep_bundle",
     # World Snapshots
     "mongodb_create_world_snapshot",
     "mongodb_get_world_snapshot",
