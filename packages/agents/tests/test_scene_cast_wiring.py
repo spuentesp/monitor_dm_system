@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import pytest
 
-from monitor_agents.cast import build_cast, register_scene_cast
+from monitor_agents.cast import build_cast
 from monitor_agents.loops import scene_loop as sl
 from monitor_agents.npc_voice.npc_voice import NPCIntentModule
 
@@ -77,14 +77,11 @@ class TestNarrateNode:
     @pytest.mark.asyncio
     async def test_passes_cast_and_npc_context_to_the_narrator(self):
         scene_id = uuid4()
-        register_scene_cast(
-            str(scene_id),
-            build_cast(
-                controlled_ids=[PC1, PC2],
-                speaker_id=PC1,
-                entity_context=[{"id": NPC1, "name": "Vex", "entity_type": "character"}],
-                scene_id=str(scene_id),
-            ),
+        scene_cast = build_cast(
+            controlled_ids=[PC1, PC2],
+            speaker_id=PC1,
+            entity_context=[{"id": NPC1, "name": "Vex", "entity_type": "character"}],
+            scene_id=str(scene_id),
         )
         narrate_turn = AsyncMock(
             return_value={
@@ -108,7 +105,7 @@ class TestNarrateNode:
             patch.object(sl, "get_agent_factory", lambda: _StubFactory(narrator)),
             patch.object(NPCIntentModule, "forward", _fake_intent_forward),
         ):
-            result = await sl.narrate(_state(scene_id))
+            result = await sl.narrate(_state(scene_id, cast=scene_cast))
 
         assert result["narrative_text"] == "prose"
         kwargs = narrate_turn.await_args.kwargs
@@ -129,14 +126,11 @@ class TestNarrateNode:
     @pytest.mark.asyncio
     async def test_stamps_witnesses_on_fact_proposals(self):
         scene_id = uuid4()
-        register_scene_cast(
-            str(scene_id),
-            build_cast(
-                controlled_ids=[PC1],
-                speaker_id=PC1,
-                npc_profiles={NPC1: {"name": "Vex"}},
-                scene_id=str(scene_id),
-            ),
+        scene_cast = build_cast(
+            controlled_ids=[PC1],
+            speaker_id=PC1,
+            npc_profiles={NPC1: {"name": "Vex"}},
+            scene_id=str(scene_id),
         )
         narrate_turn = AsyncMock(
             return_value={
@@ -154,7 +148,7 @@ class TestNarrateNode:
         narrator = types.SimpleNamespace(narrate_turn=narrate_turn)
 
         with patch.object(sl, "get_agent_factory", lambda: _StubFactory(narrator)):
-            result = await sl.narrate(_state(scene_id))
+            result = await sl.narrate(_state(scene_id, cast=scene_cast))
 
         proposals = result["pending_proposals"]
         fact = next(p for p in proposals if p["change_type"] == "fact")
@@ -169,14 +163,11 @@ class TestNarrateNode:
     @pytest.mark.asyncio
     async def test_turn_proceeds_when_enrichment_fails(self):
         scene_id = uuid4()
-        register_scene_cast(
-            str(scene_id),
-            build_cast(
-                controlled_ids=[PC1],
-                speaker_id=PC1,
-                npc_profiles={NPC1: {"name": "Vex"}},
-                scene_id=str(scene_id),
-            ),
+        scene_cast = build_cast(
+            controlled_ids=[PC1],
+            speaker_id=PC1,
+            npc_profiles={NPC1: {"name": "Vex"}},
+            scene_id=str(scene_id),
         )
         narrate_turn = AsyncMock(return_value={"narrative_text": "prose", "proposals": [], "turn_id": "t1"})
 
@@ -191,7 +182,7 @@ class TestNarrateNode:
             patch.object(sl.RoleplayErrorRecorder, "record", record_mock),
             patch.object(NPCIntentModule, "forward", _fake_intent_forward),
         ):
-            result = await sl.narrate(_state(scene_id))
+            result = await sl.narrate(_state(scene_id, cast=scene_cast))
 
         assert result["narrative_text"] == "prose"
         # Failures are recorded, not swallowed silently.
@@ -202,14 +193,11 @@ class TestExtractMemoriesNode:
     @pytest.mark.asyncio
     async def test_extractor_receives_full_cast(self):
         scene_id = uuid4()
-        register_scene_cast(
-            str(scene_id),
-            build_cast(
-                controlled_ids=[PC1, PC2],
-                speaker_id=PC1,
-                npc_profiles={NPC1: {"name": "Vex"}},
-                scene_id=str(scene_id),
-            ),
+        scene_cast = build_cast(
+            controlled_ids=[PC1, PC2],
+            speaker_id=PC1,
+            npc_profiles={NPC1: {"name": "Vex"}},
+            scene_id=str(scene_id),
         )
         extract = AsyncMock(return_value={"memories_to_persist": []})
         extractor = types.SimpleNamespace(
@@ -217,7 +205,7 @@ class TestExtractMemoriesNode:
             extract_memories=extract,
             extract_facts=AsyncMock(return_value={}),
         )
-        state = _state(scene_id, narrative_text="prose")
+        state = _state(scene_id, narrative_text="prose", cast=scene_cast)
 
         with patch.object(sl, "get_agent_factory", lambda: _StubFactory(None, extractor)):
             await sl.extract_memories(state)

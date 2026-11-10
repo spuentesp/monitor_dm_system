@@ -1,4 +1,4 @@
-"""Cast model, builder, registry and who-knows-what filtering (Phase 4 Task 1/8)."""
+"""Cast model, builder, state transport and who-knows-what filtering (Phase 4 Task 1/8)."""
 
 from __future__ import annotations
 
@@ -10,11 +10,8 @@ from monitor_agents.cast import (
     CastMember,
     build_cast,
     cast_from_state,
-    clear_scene_cast,
     fact_visible_to,
     filter_visible_facts,
-    get_scene_cast,
-    register_scene_cast,
 )
 
 
@@ -128,16 +125,12 @@ class TestFactVisibility:
         assert [f["statement"] for f in visible] == ["common"]
 
 
-class TestRegistry:
-    def test_register_and_get(self):
-        scene_id = str(uuid4())
-        cast = build_cast(controlled_ids=["a"], speaker_id="a", scene_id=scene_id)
-        register_scene_cast(scene_id, cast)
-        assert get_scene_cast(scene_id) is cast
-        clear_scene_cast(scene_id)
-        assert get_scene_cast(scene_id) is None
+class TestStateTransport:
+    """The cast rides on the scene state (``SceneState.cast``), not on a
+    process-level registry — a backend restart between two turns must not
+    change what the GM and the Narrator see (join Task 6)."""
 
-    def test_cast_from_state_prefers_registry(self):
+    def test_cast_from_state_returns_the_state_field(self):
         scene_id = str(uuid4())
         cast = build_cast(
             controlled_ids=["a", "b"],
@@ -145,18 +138,45 @@ class TestRegistry:
             entity_context=[{"id": "n1", "name": "Vex", "entity_type": "character"}],
             scene_id=scene_id,
         )
-        register_scene_cast(scene_id, cast)
 
         class _State:
             pass
 
         state = _State()
         state.scene_id = scene_id
+        state.cast = cast
         state.actor_id = "a"
-        state.actor_context = {"id": "a", "name": "Ana"}
+        assert cast_from_state(state) is cast
+
+    def test_cast_from_state_accepts_a_serialized_cast(self):
+        scene_id = str(uuid4())
+        cast = build_cast(controlled_ids=["a"], speaker_id="a", scene_id=scene_id)
+
+        class _State:
+            pass
+
+        state = _State()
+        state.scene_id = scene_id
+        state.cast = cast.model_dump(mode="json")
+        state.actor_id = "a"
+        restored = cast_from_state(state)
+        assert isinstance(restored, Cast)
+        assert restored.by_id("a") is not None
+        assert restored.by_id("a").is_speaker is True
+
+    def test_malformed_state_cast_degrades_to_the_state_fallback(self):
+        class _State:
+            pass
+
+        state = _State()
+        state.scene_id = str(uuid4())
+        state.cast = {"members": [{"entity_id": 42, "controller": "nobody"}]}
+        state.actor_id = "pc1"
+        state.actor_context = {"id": "pc1", "name": "Ana"}
         state.entity_context = []
         state.npc_profiles = {}
-        assert cast_from_state(state) is cast
+        cast = cast_from_state(state)
+        assert cast.by_id("pc1").controller == "user"
 
     def test_cast_from_state_fallback_marks_only_speaker_as_user(self):
         class _State:
@@ -172,10 +192,11 @@ class TestRegistry:
         assert cast.by_id("pc1").controller == "user"
         assert cast.by_id("n1").controller == "gm"
 
-    def test_registry_evicts_oldest(self):
-        from monitor_agents.cast import _CAST_REGISTRY, _CAST_REGISTRY_MAX
+    def test_scene_state_carries_the_cast_field(self):
+        from monitor_agents.loops.scene_loop import SceneState
 
-        for i in range(_CAST_REGISTRY_MAX + 2):
-            register_scene_cast(f"scene-{i}", Cast(members=[CastMember(entity_id=str(i))]))
-        assert len(_CAST_REGISTRY) <= _CAST_REGISTRY_MAX
-        assert get_scene_cast("scene-0") is None
+        state = SceneState(scene_id=uuid4(), story_id=uuid4())
+        assert state.cast is None
+        cast = Cast(members=[CastMember(entity_id="a", controller="user", is_speaker=True)])
+        state2 = SceneState(scene_id=uuid4(), story_id=uuid4(), cast=cast)
+        assert state2.cast is cast

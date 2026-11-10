@@ -36,6 +36,7 @@ from monitor_data.config import settings
 from pydantic import BaseModel, Field
 
 from monitor_agents.agent_factory import get_agent_factory
+from monitor_agents.cast import Cast
 
 # Pure helpers extracted into a separate module for testability
 from monitor_agents.image_suggestions import (
@@ -71,6 +72,10 @@ _CARRIED_CHANNELS = frozenset(
         "established_facts",
         "image_suggestions",
         "combat_state",
+        # Who acted in this scene so far. Accumulated by ``narrate``; the
+        # scene end needs it to tell an NPC who was there from an NPC who
+        # never got a word in.
+        "scene_actors",
     }
 )
 
@@ -169,6 +174,20 @@ def _is_flashback(temporal_mode: Any) -> bool:
     """True when a scene is set outside the story's present."""
     mode = str(getattr(temporal_mode, "value", temporal_mode) or "").strip().lower()
     return mode in {"flashback", "flash_back", "dream", "memory"}
+
+
+def _scene_actors_with(previous: list[str] | None, actor_id: UUID | None) -> list[str]:
+    """The scene's actors so far, with this turn's actor added.
+
+    The list accumulates across the scene (it is a carried channel), so the
+    scene end can tell the characters who were present but never spoke.
+    """
+    actors = [str(a) for a in (previous or []) if str(a).strip()]
+    if actor_id is not None:
+        key = str(actor_id)
+        if key not in actors:
+            actors.append(key)
+    return actors
 
 
 def _stamp_time_ref(proposal: dict[str, Any], when: datetime) -> dict[str, Any]:
@@ -287,6 +306,12 @@ class SceneState(BaseModel):
     # NPC profiles fetched per scene (entity_id -> dict). Rendered by Narrator
     # into the NPC STATE block; never reset across turns.
     npc_profiles: dict[str, Any] = Field(default_factory=dict)
+    # The scene cast: who is present, who controls whom, who is speaking.
+    # Set on every turn from the session roster, so the GM and the Narrator
+    # read the same roster before and after a backend restart.
+    cast: Cast | None = None
+    # Entity ids that acted in this scene so far (accumulated across turns).
+    scene_actors: list[str] = Field(default_factory=list)
     # Open foreshadowing items for the current scene (loaded in load_context).
     scene_foreshadowing_open: list[dict[str, Any]] = Field(default_factory=list)
     # Optional one-line recap from the previous scene. Rendered once at scene
@@ -694,6 +719,8 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
 
     factory = get_agent_factory()
     resolver = factory.create_resolver()
+    from monitor_agents.cast import cast_from_state
+
     # resolve_turn returns (resolution_dict, gm_verdict) — the verdict
     # carries the GM's narrative_draft so the Narrator downstream can
     # refine it against the outcome. We pop the internal "_gm_verdict"
@@ -706,6 +733,7 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
             *state.established_facts,
             *[f for f in source_profile.get("established_facts") or [] if f not in state.established_facts],
         ]
+
     resolution, gm_verdict = await resolver.resolve_turn(
         scene_id=str(state.scene_id),
         user_input=state.user_input,
@@ -717,6 +745,9 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
             "actor_id": str(state.actor_id) if state.actor_id else None,
             "actor": state.actor_context,
             "pending_roll": state.pending_roll,
+            # Who is who (Phase 4 Task 1): the GM reads the cast so it never
+            # acts or speaks for a character the user controls.
+            "cast": cast_from_state(state).model_dump(mode="json"),
             "agreements": {
                 "lines": list(state.agreements_lines or []),
                 "veils": list(state.agreements_veils or []),
@@ -1007,6 +1038,9 @@ async def narrate(state: SceneState) -> dict[str, Any]:
         "turn_id": result.get("turn_id"),
         "total_minutes_passed": state.total_minutes_passed + minutes,
         "suggested_actions": result.get("suggested_actions", []),
+        # Who acted in this scene. The scene end needs the roster of the
+        # characters who never spoke, to give them their own memory of it.
+        "scene_actors": _scene_actors_with(state.scene_actors, state.actor_id),
         "image_suggestions": [
             *[s.model_dump(mode="json") for s in state.image_suggestions],
             *[s.model_dump(mode="json") for s in new_suggestions],
@@ -1956,6 +1990,7 @@ class SceneLoop:
         ooc_exchanges: list[dict[str, Any]] | None = None,
         chat_log: list[Any] | None = None,
         opening_recap: str = "",
+        cast: Cast | None = None,
     ) -> None:
         self.scene_id = scene_id
         self.story_id = story_id
@@ -1988,6 +2023,9 @@ class SceneLoop:
         self.chat_log = chat_log
         # Optional one-line recap from the previous scene (Task 7).
         self.opening_recap = opening_recap
+        # The scene cast (who is who). Refreshed by the caller on every turn,
+        # so a mid-scene speaker switch is picked up on the next turn.
+        self.cast = cast
         # Task 9 (fix round 1): register an empty history so narrate can
         # append suggestions across calls within this process. The list is a
         # single shared object reference — narrate mutates it.
@@ -2039,6 +2077,7 @@ class SceneLoop:
                 ooc_exchanges=list(getattr(self, "ooc_exchanges", []) or []),
                 recent_chat=_chat_tail(getattr(self, "chat_log", None)),
                 opening_recap=str(getattr(self, "opening_recap", "") or ""),
+                cast=getattr(self, "cast", None),
                 resolution=resolution_override,
             )
             # Add pre-loaded gm_profile to state if available

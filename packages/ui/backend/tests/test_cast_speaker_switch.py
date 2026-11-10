@@ -1,7 +1,8 @@
 """Scene-cast refresh + speaker switching (Phase 4 Tasks 1, 3).
 
 Two controlled characters alternate as speaker; each ``get_scene_loop`` call
-must refresh the registered cast so the next turn sees who is speaking now.
+must refresh the cast carried on the loop (``SceneLoop.cast`` →
+``SceneState.cast``) so the next turn sees who is speaking now.
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from typing import Any
 from unittest.mock import patch
 from uuid import uuid4
 
-from monitor_agents.cast import clear_scene_cast, get_scene_cast
 from monitor_ui.routers import chat_loops
 
 
@@ -18,6 +18,7 @@ class _FakeLoop:
     def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
         self.chat_log = kwargs.get("chat_log")
+        self.cast = kwargs.get("cast")
 
 
 CHAR_A = str(uuid4())
@@ -68,7 +69,7 @@ def test_speaker_switch_refreshes_the_cast_on_the_next_turn() -> None:
     try:
         # Turn 1: Ana speaks.
         loop_a = _run(_session(CHAR_A), scene_id, story_id)
-        cast = get_scene_cast(scene_id)
+        cast = loop_a.cast
         assert cast is not None
         assert cast.by_id(CHAR_A).is_speaker is True
         assert cast.by_id(CHAR_B).is_speaker is False
@@ -78,11 +79,10 @@ def test_speaker_switch_refreshes_the_cast_on_the_next_turn() -> None:
         # actor) differs, so a fresh loop is built AND the cast refreshes.
         loop_b = _run(_session(CHAR_B), scene_id, story_id)
         assert loop_b is not loop_a
-        cast = get_scene_cast(scene_id)
+        cast = loop_b.cast
         assert cast.by_id(CHAR_B).is_speaker is True
         assert cast.by_id(CHAR_A).is_speaker is False
     finally:
-        clear_scene_cast(scene_id)
         chat_loops._SCENE_LOOPS.clear()
 
 
@@ -95,12 +95,12 @@ def test_cached_loop_still_refreshes_the_cast() -> None:
         loop2 = _run(_session(CHAR_A), scene_id, story_id)
         # Same signature → same cached loop…
         assert loop2 is loop1
-        # …but the cast is re-registered every call.
-        cast = get_scene_cast(scene_id)
+        # …but the cast is refreshed on every call, on the loop itself (so a
+        # backend restart between turns cannot change what the nodes see).
+        cast = loop2.cast
         assert cast is not None
         assert cast.by_id(CHAR_A).is_speaker is True
     finally:
-        clear_scene_cast(scene_id)
         chat_loops._SCENE_LOOPS.clear()
 
 
@@ -109,13 +109,12 @@ def test_cast_carries_personas_and_matches_controlled_ids() -> None:
     scene_id = str(uuid4())
     story_id = str(uuid4())
     try:
-        _run(_session(CHAR_A), scene_id, story_id)
-        cast = get_scene_cast(scene_id)
+        loop = _run(_session(CHAR_A), scene_id, story_id)
+        cast = loop.cast
         assert cast is not None
         # The cast panel / done-when: the roster matches the session's
         # controlled ids exactly.
         assert {m.entity_id for m in cast.user_characters()} == {CHAR_A, CHAR_B}
         assert cast.by_id(CHAR_A).persona_name == "Ana Persona"
     finally:
-        clear_scene_cast(scene_id)
         chat_loops._SCENE_LOOPS.clear()

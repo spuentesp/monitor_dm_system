@@ -17,7 +17,7 @@ from uuid import uuid4
 
 import pytest
 
-from monitor_agents.cast import AGENCY_RULE, build_cast, clear_scene_cast, register_scene_cast
+from monitor_agents.cast import AGENCY_RULE, build_cast
 from monitor_agents.gm_agent import GMAgent
 
 
@@ -52,7 +52,7 @@ def _capture_into(captured: dict[str, Any]):
 
 class TestGMAgentCastInput:
     @pytest.mark.asyncio
-    async def test_decide_passes_registered_cast_block_to_the_react_module(self):
+    async def test_decide_passes_scene_context_cast_block_to_the_react_module(self):
         scene_id = str(uuid4())
         cast = build_cast(
             controlled_ids=["pc1", "pc2"],
@@ -61,24 +61,20 @@ class TestGMAgentCastInput:
             entity_context=[{"id": "n1", "name": "Vex", "entity_type": "character"}],
             scene_id=scene_id,
         )
-        register_scene_cast(scene_id, cast)
 
         agent = GMAgent()
         agent._react_module = MagicMock()
         captured: dict[str, Any] = {}
         agent._predict_react = _capture_into(captured)  # type: ignore[method-assign]
-        try:
-            with (
-                patch("monitor_agents.gm_agent.GM_TOOLS", lambda: []),
-                patch("monitor_agents.dspy_runtime.dspy_context_for", _no_lm_context),
-            ):
-                verdict = await agent.decide(
-                    scene_id=scene_id,
-                    user_input="I ask about the ledger",
-                    scene_context={"entities": [], "turns": []},
-                )
-        finally:
-            clear_scene_cast(scene_id)
+        with (
+            patch("monitor_agents.gm_agent.GM_TOOLS", lambda: []),
+            patch("monitor_agents.dspy_runtime.dspy_context_for", _no_lm_context),
+        ):
+            verdict = await agent.decide(
+                scene_id=scene_id,
+                user_input="I ask about the ledger",
+                scene_context={"entities": [], "turns": [], "cast": cast.model_dump(mode="json")},
+            )
 
         # The real callee (ReAct seam) received the cast block with the rule.
         assert "[PLAYER-CONTROLLED] Ana" in captured["cast_context"]
@@ -88,37 +84,28 @@ class TestGMAgentCastInput:
         assert verdict.narrative_draft == "draft"
 
     @pytest.mark.asyncio
-    async def test_decide_prefers_explicit_scene_context_cast(self):
+    async def test_decide_malformed_cast_degrades_to_no_cast_block(self):
         scene_id = str(uuid4())
-        register_scene_cast(
-            scene_id,
-            build_cast(controlled_ids=["registered"], speaker_id="registered", scene_id=scene_id),
-        )
-        explicit = build_cast(
-            controlled_ids=["explicit"],
-            speaker_id="explicit",
-            scene_id=scene_id,
-        )
 
         agent = GMAgent()
         agent._react_module = MagicMock()
         captured: dict[str, Any] = {}
         agent._predict_react = _capture_into(captured)  # type: ignore[method-assign]
-        try:
-            with (
-                patch("monitor_agents.gm_agent.GM_TOOLS", lambda: []),
-                patch("monitor_agents.dspy_runtime.dspy_context_for", _no_lm_context),
-            ):
-                await agent.decide(
-                    scene_id=scene_id,
-                    user_input="hi",
-                    scene_context={"entities": [], "turns": [], "cast": explicit.model_dump(mode="json")},
-                )
-        finally:
-            clear_scene_cast(scene_id)
+        with (
+            patch("monitor_agents.gm_agent.GM_TOOLS", lambda: []),
+            patch("monitor_agents.dspy_runtime.dspy_context_for", _no_lm_context),
+        ):
+            await agent.decide(
+                scene_id=scene_id,
+                user_input="hi",
+                scene_context={
+                    "entities": [],
+                    "turns": [],
+                    "cast": {"members": [{"entity_id": 42, "controller": "nobody"}]},
+                },
+            )
 
-        assert "[PLAYER-CONTROLLED] explicit" in captured["cast_context"]
-        assert "registered" not in captured["cast_context"]
+        assert captured.get("cast_context") == ""
 
     @pytest.mark.asyncio
     async def test_decide_without_cast_sends_empty_cast_context(self):

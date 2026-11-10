@@ -220,9 +220,12 @@ def get_scene_loop(
     # loops included — so a mid-scene speaker switch is picked up on the next
     # turn (``scene_loop_signature`` already keys on the actor, which also
     # rebuilds the loop). The roster comes from the session's controlled ids,
-    # with persona links and names resolved through character_resolution.
+    # with persona links and names resolved through character_resolution, and
+    # travels on the scene state — not in a process-level registry, so a
+    # backend restart between two turns changes nothing.
+    cast: Any = None
     try:
-        from monitor_agents.cast import build_cast, register_scene_cast
+        from monitor_agents.cast import build_cast
 
         from .character_resolution import (
             resolve_character_names,
@@ -241,18 +244,17 @@ def get_scene_loop(
             personas=personas,
             scene_id=scene_id,
         )
-        register_scene_cast(scene_id, cast)
     except Exception as exc:  # noqa: BLE001  # reason: recorded, loop falls back to the state-derived minimal cast (in get_scene_loop)
         logger.warning("get_scene_loop: cast refresh failed: %s", exc, exc_info=True)
         try:
-            loop = asyncio.get_running_loop()
+            event_loop = asyncio.get_running_loop()
         except RuntimeError:
-            loop = None
-        if loop is not None:
+            event_loop = None
+        if event_loop is not None:
             from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
             from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
-            loop.create_task(
+            event_loop.create_task(
                 RoleplayErrorRecorder.record(
                     source=RoleplayErrorSource.SCENE_LOOP,
                     category=RoleplayErrorCategory.UNKNOWN,
@@ -266,6 +268,8 @@ def get_scene_loop(
         _SCENE_LOOPS.move_to_end(session_id)
         if chat_log is not None:
             cached[1].chat_log = chat_log  # refresh volatile reference
+        if cast is not None:
+            cached[1].cast = cast  # the roster may have changed without the actor changing
         return cached[1]
 
     agreements_lines, agreements_veils = _session_agreements(session)
@@ -309,6 +313,9 @@ def get_scene_loop(
         chat_log=chat_log,
         # Task 7: last scene's summary becomes the next scene's opening recap.
         opening_recap=str(session.get("last_scene_summary") or ""),
+        # Phase 4 (Task 1): the scene cast, refreshed from the session on
+        # every turn so the GM and the Narrator see the current roster.
+        cast=cast,
     )
     _SCENE_LOOPS[session_id] = (signature, loop)
     _SCENE_LOOPS.move_to_end(session_id)

@@ -566,9 +566,8 @@ class GMAgent(BaseAgent):
                     agreements_block = "\n".join(block_parts)
 
         # Phase 4 (Task 1/2): the cast block — who is who + the agency rule —
-        # is an explicit GM input. Callers may pass it as ``scene_context[
-        # "cast"]``; otherwise the scene-cast registry (populated per turn by
-        # ``get_scene_loop``) supplies it.
+        # is an explicit GM input, carried on the scene state and passed
+        # down as ``scene_context["cast"]``.
         cast_block = ""
         raw_cast = scene_context.get("cast") if isinstance(scene_context, dict) else None
         if raw_cast:
@@ -576,17 +575,8 @@ class GMAgent(BaseAgent):
                 from monitor_agents.cast import Cast
 
                 cast_block = Cast.model_validate(raw_cast).to_prompt_block()
-            except Exception:  # noqa: BLE001  # reason: falls through to the registry lookup (in decide)
+            except Exception:  # noqa: BLE001  # reason: a malformed cast degrades to no cast block (in decide)
                 log.debug("gm_agent: scene_context cast unparseable", exc_info=True)
-        if not cast_block:
-            try:
-                from monitor_agents.cast import get_scene_cast
-
-                registered = get_scene_cast(scene_id)
-                if registered is not None:
-                    cast_block = registered.to_prompt_block()
-            except Exception:  # noqa: BLE001  # reason: no cast is a supported legacy mode (in decide)
-                log.debug("gm_agent: cast registry lookup failed", exc_info=True)
 
         # Install the loop-bridge so async tools can resolve.
         set_loop_bridge(build_loop_bridge_from_running_loop())

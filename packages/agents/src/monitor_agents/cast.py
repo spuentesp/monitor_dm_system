@@ -2,7 +2,7 @@
 Cast — who is who in the current scene.
 
 LAYER: 2 (agents)
-IMPORTS FROM: pydantic, typing, collections (stdlib only)
+IMPORTS FROM: pydantic, structlog, typing, uuid (no data-layer, no loops)
 
 The Cast answers, on every turn, the question the GM must never guess at:
 which characters does the user control, which one is speaking right now,
@@ -17,21 +17,22 @@ state, GMAgent, Narrator and the memory extractor so that:
 - memories and facts written in play can carry ``witnesses`` — the cast
   members actually present (Task 8).
 
-Registry (``register_scene_cast`` / ``get_scene_cast``): the cast is
-assembled in the UI layer (``get_scene_loop``, which owns the session's
-controlled ids) and consumed inside the scene-loop nodes, which only see
-``SceneState``. The registry bridges the two without widening the
-``SceneState`` schema owned by other phases. Entries are keyed by scene id,
-refreshed on every ``get_scene_loop`` call, and evicted LRU-style.
+Transport: the cast is assembled in the UI layer (``get_scene_loop``, which
+owns the session's controlled ids) and carried on ``SceneState.cast``, so the
+scene-loop nodes read the same roster the session holds. A backend restart
+between two turns changes nothing: the roster is rebuilt from the session on
+every turn.
 """
 
 from __future__ import annotations
 
-from collections import OrderedDict
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+import structlog
+from pydantic import BaseModel, Field, ValidationError
+
+log = structlog.get_logger()
 
 # The agency rule, placed next to every cast input and in the narrator / GM
 # output fields (mirrors the G-4 hallucination-guard placement).
@@ -301,57 +302,32 @@ def filter_visible_facts(facts: list[dict[str, Any]], npc_id: str | UUID) -> lis
 
 
 # =============================================================================
-# REGISTRY (UI layer → scene-loop nodes)
+# STATE TRANSPORT (UI layer → scene-loop nodes)
 # =============================================================================
-
-_CAST_REGISTRY_MAX = 32
-_CAST_REGISTRY: OrderedDict[str, Cast] = OrderedDict()
-
-
-def _scene_key(scene_id: str | UUID) -> str:
-    return str(scene_id)
-
-
-def register_scene_cast(scene_id: str | UUID, cast: Cast) -> None:
-    """Store the cast for a scene. Called by ``get_scene_loop`` every turn,
-    so a mid-scene speaker switch refreshes ``is_speaker`` on the next turn."""
-    key = _scene_key(scene_id)
-    if cast.scene_id is None:
-        cast.scene_id = key
-    _CAST_REGISTRY[key] = cast
-    _CAST_REGISTRY.move_to_end(key)
-    while len(_CAST_REGISTRY) > _CAST_REGISTRY_MAX:
-        _CAST_REGISTRY.popitem(last=False)
-
-
-def get_scene_cast(scene_id: str | UUID | None) -> Cast | None:
-    """The registered cast for a scene, or None when the UI never registered
-    one (CLI play, process restart)."""
-    if scene_id is None:
-        return None
-    cast = _CAST_REGISTRY.get(_scene_key(scene_id))
-    if cast is not None:
-        _CAST_REGISTRY.move_to_end(_scene_key(scene_id))
-    return cast
-
-
-def clear_scene_cast(scene_id: str | UUID) -> None:
-    _CAST_REGISTRY.pop(_scene_key(scene_id), None)
 
 
 def cast_from_state(state: Any) -> Cast:
-    """Best-effort cast inside the scene-loop nodes.
+    """The cast the scene state carries.
 
-    Prefers the registry (populated from the session by ``get_scene_loop``).
-    Falls back to what ``SceneState`` alone knows: the speaker is
+    ``SceneState.cast`` is set on every turn from the session roster (the UI
+    layer's ``get_scene_loop``), so the GM and the Narrator read the same
+    roster before and after a backend restart.
+
+    When the state carries no cast (the CLI, which has no session roster),
+    the fallback is built from what the state alone knows: the speaker is
     user-controlled, every other character-typed entity or NPC profile is
     GM-controlled. The fallback cannot know the non-speaking user
-    characters — that roster lives only in the session — which is why
-    ``get_scene_loop`` registers the full cast.
+    characters — that roster lives only in the session.
     """
-    registered = get_scene_cast(getattr(state, "scene_id", None))
-    if registered is not None:
-        return registered
+    raw = getattr(state, "cast", None)
+    if raw is not None:
+        if isinstance(raw, Cast):
+            return raw
+        try:
+            return Cast.model_validate(raw)
+        except ValidationError:
+            # A malformed cast degrades to the state-derived fallback below.
+            log.debug("cast_from_state: state cast failed validation", exc_info=True)
     speaker_id = getattr(state, "actor_id", None)
     return build_cast(
         controlled_ids=[str(speaker_id)] if speaker_id else [],
