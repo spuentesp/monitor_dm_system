@@ -60,6 +60,11 @@ jobs:
               exit 1
             fi
           done
+          sick=$(docker ps --format '{{.Names}} {{.Status}}' | grep -E 'starting|unhealthy' || true)
+          if [ -n "$sick" ]; then
+            echo "::error::services did not become healthy: $sick"
+            exit 1
+          fi
 
       - name: Integration tests
         env:
@@ -96,11 +101,11 @@ jobs:
           RUN_E2E: "1"
         # The honest smoke (FINAL_FABLE T-027) drives a real GM turn, so it
         # needs a live LLM provider and a seeded universe. The weekly job has
-        # neither: CI carries no provider credentials and starts with empty
-        # databases. The step therefore reports SKIPPED with the reason
-        # instead of failing the run — which is what "tolerate absence until
-        # it lands" asks for. Give the job a provider credential and a seeded
-        # universe and the smoke runs for real.
+        # no LLM: CI carries no provider credentials, so the backend starts
+        # without a single usable chat provider. The step therefore reports
+        # SKIPPED with the reason instead of failing the run — which is what
+        # "tolerate absence until it lands" asks for. Give the job a provider
+        # credential and a seeded universe and the smoke runs for real.
         run: |
           if [ ! -f scripts/live_gameplay_smoke.py ]; then
             echo "E2E smoke SKIPPED: scripts/live_gameplay_smoke.py is not in the tree"

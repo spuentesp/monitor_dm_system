@@ -149,6 +149,10 @@ def neo4j_client(neo4j_container, monkeypatch) -> Generator[Neo4jClient, None, N
         {"id": marker_id},
     )
     assert rows and rows[0]["id"] == marker_id, "the Neo4j client under test is not connected to the test container"
+    client.execute_write(
+        "MATCH (m:IntegrationTestMarker {id: $id}) DELETE m",
+        {"id": marker_id},
+    )
 
     yield client
 
@@ -185,6 +189,7 @@ def mongodb_client(mongodb_container, monkeypatch) -> Generator[MongoDBClient, N
         container_client[MONGO_TEST_DATABASE]["integration_test_marker"].insert_one({"id": marker_id})
     found = client.get_collection("integration_test_marker").find_one({"id": marker_id})
     assert found is not None, "the MongoDB client under test is not connected to the test container"
+    client.get_collection("integration_test_marker").delete_one({"id": marker_id})
 
     yield client
 
