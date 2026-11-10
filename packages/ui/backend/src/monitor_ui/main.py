@@ -80,6 +80,11 @@ def _startup_runtime() -> None:
             "resolves to the fixed local admin account. This is a local-development "
             "exception only; never run it on a reachable host."
         )
+    # Provider-key encryption: warns (once) when MONITOR_PROVIDER_KEY_ENCRYPTION_KEY
+    # is unset so plaintext storage is a deliberate, visible state.
+    from monitor_data.db.postgres import ensure_provider_key_crypto_ready
+
+    ensure_provider_key_crypto_ready()
     ingest.prepare_ingest_runtime()
     _recover_stale_jobs()
     ensure_tone_builtins()
@@ -342,14 +347,13 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
     app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+    app.include_router(chat.ws_router, prefix="/api/chat", tags=["chat"])
     app.include_router(modes.router, prefix="/api/modes", tags=["modes"])
     app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"])
     app.include_router(llm_mgmt.router, prefix="/api/llm", tags=["llm"])
     app.include_router(databases.router, prefix="/api/databases", tags=["databases"])
     app.include_router(entities.router, prefix="/api/entities", tags=["entities"])
-    app.include_router(
-        character_templates.router, prefix="/api/characters", tags=["character-templates"]
-    )
+    app.include_router(character_templates.router, prefix="/api/characters", tags=["character-templates"])
     app.include_router(search.router, prefix="/api/search", tags=["search"])
     app.include_router(universes.router, prefix="/api/universes", tags=["universes"])
     app.include_router(graph.router, prefix="/api/graph", tags=["graph"])

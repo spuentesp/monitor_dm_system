@@ -15,9 +15,9 @@ from monitor_data.schemas.coverage import CoverageThresholds, WorldCoverage
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.tools.neo4j_tools import neo4j_get_universe
 from monitor_ui.auth import Principal, get_current_user, get_postgres
-from monitor_ui.ownership import require_universe_owner
+from monitor_ui.ownership import require_universe_owner, resource_route_guard
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 @router.get("/architect/{universe_id}/coverage", response_model=WorldCoverage)

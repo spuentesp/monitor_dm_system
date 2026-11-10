@@ -56,13 +56,14 @@ from monitor_ui.ownership import (
     owned_world_ids,
     require_multiverse_owner,
     require_universe_owner,
+    resource_route_guard,
 )
 
 from .ingest_shared import db_op
 
 log = structlog.get_logger()
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 def _default_world_bindings(world_id: str) -> dict[str, Any]:

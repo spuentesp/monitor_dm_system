@@ -9,10 +9,12 @@ are never returned.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.users import (
@@ -24,7 +26,7 @@ from monitor_data.schemas.users import (
 
 from monitor_ui.auth import Principal, get_postgres, require_admin
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 
 def _admin_view(row: dict[str, Any]) -> UserAdminResponse:
@@ -124,3 +126,107 @@ async def set_user_role(
     await db.user_set_admin(user_id, body.is_admin)
     user["is_admin"] = body.is_admin
     return _admin_view(user)
+
+
+# ---------------------------------------------------------------------------
+# Usage + quota administration (multi-tenancy)
+# ---------------------------------------------------------------------------
+
+
+class UsageLimitUpdate(BaseModel):
+    """Per-user quota override. ``None`` columns fall back to the env defaults."""
+
+    daily_token_cap: int | None = None
+    daily_call_cap: int | None = None
+    exempt: bool = False
+
+
+class UsageView(BaseModel):
+    user_id: str
+    username: str = ""
+    email: str = ""
+    tokens: int = 0
+    calls: int = 0
+    daily_token_cap: int | None = None
+    daily_call_cap: int | None = None
+    exempt: bool = False
+
+
+class UsageSummary(BaseModel):
+    day: str
+    users: list[UsageView]
+
+
+@router.get("/usage", response_model=UsageSummary)
+async def list_usage(
+    limit: int = Query(default=50, ge=1, le=200),
+    principal: Principal = Depends(require_admin),
+    db: PostgresClient = Depends(get_postgres),
+) -> UsageSummary:
+    """Per-user usage for the current UTC day (admin view)."""
+    rows = await db.usage_admin_summary(limit)
+    return UsageSummary(
+        day=datetime.now(UTC).date().isoformat(),
+        users=[UsageView(**{**r, **(await _usage_extra(db, str(r["user_id"])))}) for r in rows],
+    )
+
+
+@router.get("/usage/{user_id}", response_model=UsageView)
+async def get_usage(
+    user_id: UUID,
+    principal: Principal = Depends(require_admin),
+    db: PostgresClient = Depends(get_postgres),
+) -> UsageView:
+    """One user's usage today plus their quota override."""
+    user = await _get_user_or_404(db, user_id)
+    usage = await db.usage_get(user_id)
+    limits = await db.usage_limit_get(user_id) or {}
+    return UsageView(
+        user_id=str(user_id),
+        username=user.get("username", ""),
+        email=user.get("email", ""),
+        tokens=int(usage.get("tokens", 0)),
+        calls=int(usage.get("calls", 0)),
+        daily_token_cap=limits.get("daily_token_cap"),
+        daily_call_cap=limits.get("daily_call_cap"),
+        exempt=bool(limits.get("exempt", False)),
+    )
+
+
+@router.put("/usage/{user_id}/limits", response_model=UsageView)
+async def set_usage_limits(
+    user_id: UUID,
+    body: UsageLimitUpdate,
+    principal: Principal = Depends(require_admin),
+    db: PostgresClient = Depends(get_postgres),
+) -> UsageView:
+    """Set or clear a user's quota overrides (admin-changeable caps)."""
+    await _get_user_or_404(db, user_id)
+    row = await db.usage_limit_set(
+        user_id,
+        daily_token_cap=body.daily_token_cap,
+        daily_call_cap=body.daily_call_cap,
+        exempt=body.exempt,
+    )
+    usage = await db.usage_get(user_id)
+    user = await _get_user_or_404(db, user_id)
+    return UsageView(
+        user_id=str(user_id),
+        username=user.get("username", ""),
+        email=user.get("email", ""),
+        tokens=int(usage.get("tokens", 0)),
+        calls=int(usage.get("calls", 0)),
+        daily_token_cap=row.get("daily_token_cap"),
+        daily_call_cap=row.get("daily_call_cap"),
+        exempt=bool(row.get("exempt", False)),
+    )
+
+
+async def _usage_extra(db: PostgresClient, user_id: str) -> dict[str, Any]:
+    """Quota-override columns for one user in the summary listing."""
+    limits = await db.usage_limit_get(UUID(user_id)) or {}
+    return {
+        "daily_token_cap": limits.get("daily_token_cap"),
+        "daily_call_cap": limits.get("daily_call_cap"),
+        "exempt": bool(limits.get("exempt", False)),
+    }

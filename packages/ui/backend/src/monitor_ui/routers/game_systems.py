@@ -18,11 +18,12 @@ from monitor_data.tools.mongodb_tools import (
 
 from .entities import _build_game_system_create, _build_game_system_update
 from .entities_schemas import RPGSystemCreateRequest, RPGSystemUpdateRequest
-from monitor_ui.auth import Principal, get_current_user, require_admin
+from monitor_ui.auth import Principal, require_admin
+from monitor_ui.ownership import resource_route_guard
 
 from .ingest_shared import db_op, validate_uuid
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 # reason: bare-typed helper that accepts a Pydantic GameSystemResponse | Any and returns dict; the helper is reused from create/update endpoints where mypy can't narrow the AsyncIOMotorClient cursor's yielded element type

@@ -9,9 +9,10 @@ A standalone "character" (see character_storage) is, by default, a light card
 backed by a real EntityInstance (Neo4j) + NPCProfile (Mongo).
 
 This module:
-  * find-or-creates a hidden "Conversatory" universe to host standalone
-    characters' entities (so ConversationLoop, which requires a universe_id,
-    works without any story);
+  * find-or-creates the owner's hidden "Conversatory" universe (one per user,
+    via the Postgres ownership registry) to host standalone characters'
+    entities (so ConversationLoop, which requires a universe_id, works
+    without any story);
   * expands a light card into a full NPCProfile via NPCProfileGenerator and
     provisions the backing entity (ensure_character_backed) — idempotent;
   * starts / steps / ends story-less ConversationLoop DIRECT sessions and
@@ -52,9 +53,6 @@ _CONVERSATORY_UNIVERSE_NAME = "Conversatory"
 # a player_entity_id, NPCVoice skips relationship tracking entirely.
 _CONVERSATORY_PLAYER_ID = uuid.UUID("c0a7e7a7-0000-4000-8000-000000000001")
 
-# Cached host-universe id (resolved once per process).
-_conversatory_universe_id: str | None = None
-
 # Live ConversationLoop cache, keyed by conversation_id (string).
 _LOOPS: OrderedDict[str, Any] = OrderedDict()
 _LOOPS_MAX = 64
@@ -75,25 +73,31 @@ _CLIENT_FINGERPRINT_MESSAGES = 2
 # ---------------------------------------------------------------------------
 
 
-async def ensure_conversatory_universe() -> str:
-    """Find-or-create the hidden universe that hosts standalone characters."""
-    global _conversatory_universe_id
-    if _conversatory_universe_id:
-        return _conversatory_universe_id
+async def ensure_conversatory_universe(owner_id: str | uuid.UUID | None = None) -> str:
+    """Find-or-create the owner's hidden universe that hosts standalone cards.
 
-    from monitor_data.schemas.universe import UniverseFilter
-    from monitor_data.tools.neo4j_tools.core import neo4j_list_universes
+    One Conversatory per user, found through the Postgres ownership registry
+    (``worlds.kind = 'conversatory'``) — never by name and never cached in a
+    process global. ``owner_id=None`` means the auth-disabled local account
+    (legacy cards created before ownership existed).
+    """
+    from monitor_data.db.postgres import get_postgres_client
 
-    try:
-        universes = await asyncio.to_thread(neo4j_list_universes, UniverseFilter(limit=1000))
-        for u in universes:
-            if getattr(u, "name", None) == _CONVERSATORY_UNIVERSE_NAME:
-                _conversatory_universe_id = str(u.id)
-                return _conversatory_universe_id
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in ensure_conversatory_universe)
-        log.warning("conversatory_universe_lookup_failed", error=str(exc))
+    if owner_id is None:
+        from monitor_ui.auth import LOCAL_USER_ID
 
-    # Not found — create the multiverse → universe chain via CanonKeeper.
+        owner = LOCAL_USER_ID
+    else:
+        owner = uuid.UUID(str(owner_id))
+
+    db = get_postgres_client()
+    await db.connect()
+    row = await db.world_get_conversatory(owner)
+    if row:
+        return str(row["id"])
+
+    # Not found — create the multiverse → universe chain via CanonKeeper and
+    # register the universe in the ownership registry as this user's host.
     from monitor_agents.canonkeeper.agent import CanonKeeper
 
     keeper = CanonKeeper()
@@ -121,10 +125,22 @@ async def ensure_conversatory_universe() -> str:
     if "id" not in u:  # type: ignore
         raise RuntimeError(f"Failed to create conversatory universe: {u}")
 
-    # reason: same Any subscript gap as the `"id" not in u` check above; keep the runtime guard
-    _conversatory_universe_id = str(u["id"])  # type: ignore
-    log.info("conversatory_universe_created", universe_id=_conversatory_universe_id)
-    return _conversatory_universe_id
+    universe_id = str(u["id"])  # type: ignore
+    await db.multiverse_upsert(
+        {"id": str(mv["id"]), "owner_id": owner, "label": _CONVERSATORY_MULTIVERSE_NAME, "active": True}
+    )
+    await db.world_upsert(
+        {
+            "id": universe_id,
+            "owner_id": owner,
+            "multiverse_id": str(mv["id"]),
+            "label": _CONVERSATORY_UNIVERSE_NAME,
+            "active": True,
+            "kind": "conversatory",
+        }
+    )
+    log.info("conversatory_universe_created", universe_id=universe_id, owner_id=str(owner))
+    return universe_id
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +267,9 @@ async def ensure_character_backed(
     # Resolve the target universe for this incarnation.
     if universe_id is None:
         universe_id = (
-            char.get("default_universe_id") or char.get("source_universe_id") or await ensure_conversatory_universe()
+            char.get("default_universe_id")
+            or char.get("source_universe_id")
+            or await ensure_conversatory_universe(char.get("owner_id"))
         )
     universe_id = str(universe_id)
 

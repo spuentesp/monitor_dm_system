@@ -34,12 +34,12 @@ from pydantic import BaseModel, Field
 from monitor_agents.llm_registry import LLMRegistry
 from monitor_data.db.postgres import get_postgres_client
 from monitor_ui.auth import Principal, get_current_user
-from monitor_ui.ownership import require_character_owner
+from monitor_ui.ownership import require_character_owner, resource_route_guard
 from monitor_data.schemas.llm_config import ModelRole
 
 logger = structlog.get_logger()
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 class OpenAIMessage(BaseModel):

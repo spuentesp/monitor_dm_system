@@ -20,6 +20,7 @@ from monitor_ui.ownership import (
     require_scene_owner,
     require_story_owner,
     require_universe_owner,
+    resource_route_guard,
 )
 
 from monitor_data.schemas.play_sessions import (
@@ -44,7 +45,7 @@ from uuid import UUID
 
 from .ingest_shared import db_op, validate_uuid
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 # ---------------------------------------------------------------------------

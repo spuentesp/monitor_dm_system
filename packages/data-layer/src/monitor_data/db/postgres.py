@@ -28,11 +28,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import weakref
 from typing import Any
 from uuid import UUID
 
 import asyncpg
+import structlog
+from cryptography.fernet import Fernet, InvalidToken
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -41,6 +44,8 @@ from tenacity import (
 )
 
 from monitor_data.config import settings
+
+log = structlog.get_logger()
 
 # ---------------------------------------------------------------------------
 # Retry policy
@@ -56,6 +61,98 @@ _DB_RETRY: dict[str, Any] = {
     "retry": retry_if_exception_type((asyncpg.PostgresConnectionError, asyncpg.TooManyConnectionsError)),
     "reraise": True,
 }
+
+# ---------------------------------------------------------------------------
+# Provider API-key encryption at rest (multi-tenancy)
+# ---------------------------------------------------------------------------
+#
+# ``llm_providers.api_key`` is encrypted with Fernet whenever
+# ``MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`` holds a url-safe base64 32-byte key
+# (generate one with ``python -c "from cryptography.fernet import Fernet;
+# print(Fernet.generate_key().decode())"``). When the variable is unset, keys
+# stay plaintext so a local install keeps working; exactly one warning is
+# logged per process (at app startup or first use).
+#
+# Reads tolerate legacy plaintext rows: a value that does not decrypt is
+# returned unchanged, so enabling the key does not break existing rows before
+# ``scripts/migrate_encrypt_provider_keys.py`` rewrites them.
+
+PROVIDER_KEY_ENV = "MONITOR_PROVIDER_KEY_ENCRYPTION_KEY"
+
+_fernet_cache: Fernet | None = None
+_fernet_cache_key: str | None = None
+_plaintext_warning_emitted = False
+
+
+def provider_key_encryption_enabled() -> bool:
+    """True when ``MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`` is configured."""
+    return bool(os.environ.get(PROVIDER_KEY_ENV, "").strip())
+
+
+def _provider_fernet() -> Fernet | None:
+    """The Fernet for provider keys, or None in plaintext mode (one warning)."""
+    global _fernet_cache, _fernet_cache_key, _plaintext_warning_emitted
+    raw = os.environ.get(PROVIDER_KEY_ENV, "").strip()
+    if not raw:
+        if not _plaintext_warning_emitted:
+            _plaintext_warning_emitted = True
+            log.warning(
+                "provider_api_keys_unencrypted",
+                detail=(
+                    f"{PROVIDER_KEY_ENV} is unset; llm_providers.api_key is stored "
+                    "as plaintext. Set it to encrypt keys at rest."
+                ),
+            )
+        return None
+    if _fernet_cache is not None and _fernet_cache_key == raw:
+        return _fernet_cache
+    _fernet_cache = Fernet(raw.encode("ascii"))
+    _fernet_cache_key = raw
+    return _fernet_cache
+
+
+def encrypt_provider_api_key(value: str) -> str:
+    """Encrypt a provider API key for storage (no-op without the env key).
+
+    Idempotent: an already-encrypted value is returned unchanged. Never
+    logs or returns anything derived from ``value`` except the ciphertext.
+    """
+    if not value:
+        return value
+    fernet = _provider_fernet()
+    if fernet is None:
+        return value
+    try:
+        fernet.decrypt(value.encode("utf-8"))
+        return value  # already encrypted with this key
+    except (InvalidToken, ValueError, TypeError):
+        pass
+    return fernet.encrypt(value.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_provider_api_key(value: str) -> str:
+    """Decrypt a stored provider API key (plaintext pass-through when needed).
+
+    Without the env key, or when the stored value is a legacy plaintext row
+    that does not decrypt, the value is returned unchanged. The ciphertext is
+    never logged.
+    """
+    if not value:
+        return value
+    fernet = _provider_fernet()
+    if fernet is None:
+        return value
+    try:
+        return fernet.decrypt(value.encode("utf-8")).decode("utf-8")
+    except (InvalidToken, ValueError, TypeError):
+        return value
+
+
+def ensure_provider_key_crypto_ready() -> bool:
+    """Startup hook: log the one plaintext warning. True when encryption is on."""
+    _provider_fernet()
+    return provider_key_encryption_enabled()
+
 
 # ---------------------------------------------------------------------------
 # DDL — all tables created once on first connect (fully idempotent)
@@ -509,6 +606,36 @@ _MIGRATIONS: tuple[tuple[int, str], ...] = (
         CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON oauth_accounts(user_id);
         """,
     ),
+    (
+        3,
+        """
+        -- Multi-tenancy: per-user daily usage/quota and the per-user
+        -- Conversatory marker on the ownership registry.
+        CREATE TABLE IF NOT EXISTS user_usage_daily (
+            user_id    UUID        NOT NULL,
+            usage_day  DATE        NOT NULL,
+            tokens     BIGINT      NOT NULL DEFAULT 0,
+            calls      BIGINT      NOT NULL DEFAULT 0,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (user_id, usage_day)
+        );
+
+        CREATE TABLE IF NOT EXISTS user_usage_limits (
+            user_id         UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            -- NULL columns fall back to the MONITOR_DAILY_*_CAP env defaults;
+            -- exempt=TRUE disables caps for the user entirely.
+            daily_token_cap BIGINT,
+            daily_call_cap  BIGINT,
+            exempt          BOOLEAN     NOT NULL DEFAULT FALSE,
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        -- kind='conversatory' marks the hidden per-user universe that hosts
+        -- standalone roleplay characters (found via this registry, never by
+        -- name). 'world' is every ordinary universe.
+        ALTER TABLE worlds ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'world';
+        """,
+    ),
 )
 
 
@@ -719,7 +846,7 @@ class PostgresClient:
                 provider["name"],
                 provider["provider"],
                 provider["model"],
-                provider.get("api_key", ""),
+                encrypt_provider_api_key(provider.get("api_key", "")),
                 provider.get("base_url"),
                 json.dumps(provider.get("model_params", {})),
                 provider.get("role", "standard"),
@@ -1472,18 +1599,21 @@ class PostgresClient:
         Register or refresh a world pointer.
         ``id`` must match the corresponding Neo4j Universe.id.
         ``label`` is a cached display name read from Neo4j — update it whenever
-        the Neo4j node changes.
+        the Neo4j node changes. ``kind`` is ``world`` (default) or
+        ``conversatory`` for the hidden per-user character host; an upsert
+        without ``kind`` preserves the existing marker.
         """
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO worlds (id, owner_id, multiverse_id, label, active, updated_at)
-                VALUES ($1, $2, $3, $4, $5, now())
+                INSERT INTO worlds (id, owner_id, multiverse_id, label, active, kind, updated_at)
+                VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'world'), now())
                 ON CONFLICT (id) DO UPDATE SET
                     multiverse_id = EXCLUDED.multiverse_id,
                     label         = EXCLUDED.label,
                     active        = EXCLUDED.active,
+                    kind          = COALESCE($6, worlds.kind),
                     updated_at    = now()
                 """,
                 world["id"],
@@ -1491,7 +1621,22 @@ class PostgresClient:
                 world.get("multiverse_id"),
                 world["label"],
                 bool(world.get("active", True)),
+                world.get("kind"),
             )
+
+    async def world_get_conversatory(self, owner_id: UUID) -> dict[str, Any] | None:
+        """Return the owner's hidden per-user Conversatory universe row, if any.
+
+        Found through the ownership registry (``worlds.kind = 'conversatory'``),
+        never by universe name.
+        """
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM worlds WHERE owner_id = $1 AND kind = 'conversatory' LIMIT 1",
+                owner_id,
+            )
+            return self._row_to_dict(row) if row else None
 
     async def world_delete(self, world_id: str) -> None:
         pool = await self._get_pool()
@@ -1711,6 +1856,116 @@ class PostgresClient:
             )
 
     # ------------------------------------------------------------------
+    # user usage + daily quota (multi-tenancy)
+    # ------------------------------------------------------------------
+
+    async def usage_record(
+        self,
+        user_id: UUID,
+        *,
+        tokens: int = 0,
+        calls: int = 0,
+        day: Any = None,
+    ) -> dict[str, Any]:
+        """Add ``tokens``/``calls`` to the user's daily usage (UTC day).
+
+        This is the single write path for usage accounting: the quota guard
+        charges one call per model-spending request, and the LLM layer adds
+        real token counts after each model call.
+        """
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO user_usage_daily (user_id, usage_day, tokens, calls, updated_at)
+                VALUES ($1, COALESCE($4::date, (now() AT TIME ZONE 'utc')::date), $2, $3, now())
+                ON CONFLICT (user_id, usage_day) DO UPDATE SET
+                    tokens     = user_usage_daily.tokens + EXCLUDED.tokens,
+                    calls      = user_usage_daily.calls + EXCLUDED.calls,
+                    updated_at = now()
+                RETURNING *
+                """,
+                user_id,
+                int(tokens),
+                int(calls),
+                day,
+            )
+            return self._row_to_dict(row) if row else {}
+
+    async def usage_get(self, user_id: UUID, day: Any = None) -> dict[str, Any]:
+        """The user's usage totals for one UTC day (zeroed row when none)."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT COALESCE(SUM(tokens), 0) AS tokens, COALESCE(SUM(calls), 0) AS calls
+                FROM   user_usage_daily
+                WHERE  user_id = $1
+                  AND  usage_day = COALESCE($2::date, (now() AT TIME ZONE 'utc')::date)
+                """,
+                user_id,
+                day,
+            )
+            return self._row_to_dict(row) if row else {"tokens": 0, "calls": 0}
+
+    async def usage_limit_get(self, user_id: UUID) -> dict[str, Any] | None:
+        """The user's per-user quota override row, or None (env defaults apply)."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM user_usage_limits WHERE user_id = $1", user_id)
+            return self._row_to_dict(row) if row else None
+
+    async def usage_limit_set(
+        self,
+        user_id: UUID,
+        *,
+        daily_token_cap: int | None,
+        daily_call_cap: int | None,
+        exempt: bool = False,
+    ) -> dict[str, Any]:
+        """Set (or clear) the user's quota overrides. ``None`` falls back to env."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO user_usage_limits
+                    (user_id, daily_token_cap, daily_call_cap, exempt, updated_at)
+                VALUES ($1, $2, $3, $4, now())
+                ON CONFLICT (user_id) DO UPDATE SET
+                    daily_token_cap = EXCLUDED.daily_token_cap,
+                    daily_call_cap  = EXCLUDED.daily_call_cap,
+                    exempt          = EXCLUDED.exempt,
+                    updated_at      = now()
+                RETURNING *
+                """,
+                user_id,
+                daily_token_cap,
+                daily_call_cap,
+                bool(exempt),
+            )
+            return self._row_to_dict(row) if row else {}
+
+    async def usage_admin_summary(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Per-user usage for the current UTC day, for the admin view."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT u.id AS user_id, u.username, u.email,
+                       COALESCE(s.tokens, 0) AS tokens,
+                       COALESCE(s.calls, 0)  AS calls
+                FROM   users u
+                LEFT   JOIN user_usage_daily s
+                       ON s.user_id = u.id
+                      AND s.usage_day = (now() AT TIME ZONE 'utc')::date
+                ORDER  BY (COALESCE(s.tokens, 0) + COALESCE(s.calls, 0)) DESC
+                LIMIT  $1
+                """,
+                int(limit),
+            )
+            return [self._row_to_dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
@@ -1739,7 +1994,12 @@ class PostgresClient:
 
     @staticmethod
     def _row_to_dict(row: Any) -> dict[str, Any]:
-        """Convert an asyncpg Record to a plain dict, expanding JSONB fields."""
+        """Convert an asyncpg Record to a plain dict, expanding JSONB fields.
+
+        Provider rows additionally get their ``api_key`` decrypted so every
+        consumer sees plaintext inside the process and only the stored form
+        is ciphertext.
+        """
         import json as _json
 
         d = dict(row)
@@ -1756,6 +2016,8 @@ class PostgresClient:
             # Timestamps → ISO strings for easy JSON serialisation downstream.
             if hasattr(v, "isoformat"):
                 d[k] = v.isoformat()
+        if "api_key" in d and isinstance(d.get("api_key"), str):
+            d["api_key"] = decrypt_provider_api_key(d["api_key"])
         return d
 
 

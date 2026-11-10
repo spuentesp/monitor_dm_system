@@ -29,9 +29,9 @@ from monitor_data.tools.qdrant_tools import qdrant_search
 from pydantic import BaseModel, Field
 
 from monitor_ui.auth import Principal, get_current_user, get_postgres
-from monitor_ui.ownership import owned_world_ids, require_universe_owner
+from monitor_ui.ownership import owned_world_ids, require_universe_owner, resource_route_guard
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 # ─── Schema ──────────────────────────────────────────────────────────────────
 

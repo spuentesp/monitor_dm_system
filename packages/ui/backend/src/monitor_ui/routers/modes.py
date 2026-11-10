@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from monitor_ui.auth import get_current_user
+from monitor_ui.ownership import resource_route_guard
 
 from .modes_schemas import ActiveMode, ModeConfig, SetActiveMode
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 # ---------------------------------------------------------------------------
 # Static mode definitions

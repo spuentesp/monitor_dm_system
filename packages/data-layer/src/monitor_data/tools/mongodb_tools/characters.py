@@ -53,11 +53,13 @@ def mongodb_resolve_character(character_id: str) -> dict[str, Any]:
     except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in mongodb_resolve_character)
         log.debug("character document parse failed", exc_info=True)
 
-    # 2. Check Neo4j entities
+    # 2. Check Neo4j entities. Entity nodes store their key as ``id``
+    #    (see neo4j_tools.entities.neo4j_get_entity); matching on
+    #    ``entity_id`` here never hit and silently hid every world NPC/PC.
     try:
         neo = get_neo4j_client()
         rows = neo.execute_read(
-            "MATCH (e:Entity {entity_id: $id}) RETURN e",
+            "MATCH (e:Entity {id: $id}) RETURN e",
             {"id": str(character_id)},
         )
         if rows:

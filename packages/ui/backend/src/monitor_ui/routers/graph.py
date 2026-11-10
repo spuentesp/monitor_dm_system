@@ -31,9 +31,14 @@ from monitor_data.tools.neo4j_tools import (
     neo4j_list_universes,
 )
 from monitor_ui.auth import Principal, get_current_user, get_postgres
-from monitor_ui.ownership import owned_multiverse_ids, owned_world_ids, require_universe_owner
+from monitor_ui.ownership import (
+    owned_multiverse_ids,
+    owned_world_ids,
+    require_universe_owner,
+    resource_route_guard,
+)
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 # ─── Entity type → graph kind ─────────────────────────────────
 
