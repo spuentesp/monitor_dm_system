@@ -102,11 +102,12 @@ from monitor_ui.image_budget import (
 from .character_storage import get_character
 from .chat_persistence import db_load_messages
 from monitor_data.db.postgres import PostgresClient
-from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.auth import Principal, get_current_user, get_postgres, usage_quota_guard
+from monitor_ui.ownership import resource_route_guard
 
 log = structlog.get_logger()
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 _NO_PROVIDER_DETAIL = (
     "No image provider configured. Add a MiniMax (image-01) or Google "
@@ -567,7 +568,7 @@ async def _portrait_agreements(char: dict[str, Any]) -> tuple[tuple[str, ...], t
     return _session_agreements_from_doc(session)
 
 
-@router.post("/portrait", response_model=PortraitResponse)
+@router.post("/portrait", response_model=PortraitResponse, dependencies=[Depends(usage_quota_guard)])
 async def generate_portrait(
     body: PortraitRequest, principal: Principal = Depends(get_current_user)
 ) -> PortraitResponse:
@@ -677,7 +678,7 @@ async def generate_portrait(
     )
 
 
-@router.post("/scene", response_model=SceneResponse)
+@router.post("/scene", response_model=SceneResponse, dependencies=[Depends(usage_quota_guard)])
 async def generate_scene_image(
     body: SceneRequest, principal: Principal = Depends(get_current_user), db: PostgresClient = Depends(get_postgres)
 ) -> SceneResponse:

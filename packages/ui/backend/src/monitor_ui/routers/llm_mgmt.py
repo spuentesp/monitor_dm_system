@@ -229,11 +229,12 @@ def _resolve_model(env_var: str, existing: str, fallback: str) -> str:
 
 
 def _mask_key(key: str | None) -> str | None:
+    """Mask a stored key for API responses: only the last 4 characters."""
     if not key:
         return None
     if len(key) <= 8:
         return "••••••••"
-    return key[:4] + "••••••••" + key[-4:]
+    return "••••••••" + key[-4:]
 
 
 # reason: bare adapter from raw dict[str, Any] (from MongoDB / provider registry) to typed LLMProvider Pydantic model; subscript accesses on `p` can't be narrowed statically

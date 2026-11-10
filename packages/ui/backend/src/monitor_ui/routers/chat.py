@@ -29,6 +29,7 @@ from monitor_ui.auth import (
     get_postgres,
     resolve_principal,
     is_local_mode,
+    usage_quota_guard,
 )
 from monitor_ui.config import get_settings
 from monitor_ui.ownership import (
@@ -687,7 +688,11 @@ def _canon_item_label(content: dict[str, Any], change_type: str) -> str:
     return change_type.replace("_", " ")
 
 
-@router.post("/{session_id}/wrap-up", response_model=WrapUpDigest)
+@router.post(
+    "/{session_id}/wrap-up",
+    response_model=WrapUpDigest,
+    dependencies=[Depends(usage_quota_guard)],
+)
 async def wrap_up_session(session_id: str, principal: Principal = Depends(get_current_user)) -> WrapUpDigest:
     await require_chat_session_owner(principal, session_id)
     """
@@ -808,7 +813,11 @@ async def wrap_up_session(session_id: str, principal: Principal = Depends(get_cu
     )
 
 
-@router.post("/{session_id}/greet", response_model=Message)
+@router.post(
+    "/{session_id}/greet",
+    response_model=Message,
+    dependencies=[Depends(usage_quota_guard)],
+)
 async def greet_character(
     session_id: str,
     character_id: str,
@@ -883,7 +892,11 @@ def _begin_story_intent(session: dict[str, Any], content: str) -> bool:
     return is_begin_story_command(content)
 
 
-@router.post("/{session_id}/begin", response_model=Message)
+@router.post(
+    "/{session_id}/begin",
+    response_model=Message,
+    dependencies=[Depends(usage_quota_guard)],
+)
 async def begin_story(session_id: str, principal: Principal = Depends(get_current_user)) -> Message:
     await require_chat_session_owner(principal, session_id)
     """Confirm Session Zero and create the first in-fiction narration once."""
@@ -927,7 +940,11 @@ async def begin_story(session_id: str, principal: Principal = Depends(get_curren
     return Message(**gm_msg)
 
 
-@router.post("/{session_id}/send", response_model=Message)
+@router.post(
+    "/{session_id}/send",
+    response_model=Message,
+    dependencies=[Depends(usage_quota_guard)],
+)
 async def send_message(
     session_id: str,
     body: MessageSend,
@@ -1220,7 +1237,11 @@ async def update_session(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{session_id}/end-scene", response_model=Message)
+@router.post(
+    "/{session_id}/end-scene",
+    response_model=Message,
+    dependencies=[Depends(usage_quota_guard)],
+)
 async def end_scene(session_id: str, principal: Principal = Depends(get_current_user)) -> Message:
     await require_chat_session_owner(principal, session_id)
     """
@@ -1289,7 +1310,11 @@ _PREPLAY_PHASES = frozenset({"awaiting_character", "character_interview", "sessi
 _CHARACTER_SETUP_PHASES = frozenset({"awaiting_character", "character_interview", "char_creation"})
 
 
-@router.post("/{session_id}/skip-preplay", response_model=Message)
+@router.post(
+    "/{session_id}/skip-preplay",
+    response_model=Message,
+    dependencies=[Depends(usage_quota_guard)],
+)
 async def skip_preplay(session_id: str, principal: Principal = Depends(get_current_user)) -> Message:
     await require_chat_session_owner(principal, session_id)
     """Use safe defaults for Session Zero and invoke the normal Begin path.

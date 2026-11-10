@@ -57,7 +57,7 @@ from pydantic import BaseModel
 from monitor_ui.config import get_settings
 
 from monitor_data.db.postgres import PostgresClient
-from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
+from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode, usage_quota_guard
 from monitor_ui.ownership import (
     owned_world_ids,
     require_character_owner,
@@ -878,7 +878,7 @@ async def test_system_npc(system_id: str, body: GenerateEntityRequest | None = N
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.post("/generate")
+@router.post("/generate", dependencies=[Depends(usage_quota_guard)])
 async def generate_entity(body: GenerateEntityRequest) -> dict[str, Any]:
     """Preview or persist a playable PC/NPC from either a generic or pack-integrated system source."""
     try:
@@ -1324,7 +1324,7 @@ async def clear_character_memories(character_id: str, principal: Principal = Dep
 # ---------------------------------------------------------------------------
 
 
-@router.post("/characters/draft", response_model=CardDraftResponse)
+@router.post("/characters/draft", response_model=CardDraftResponse, dependencies=[Depends(usage_quota_guard)])
 async def draft_character_card(
     body: CardDraftRequest, principal: Principal = Depends(get_current_user)
 ) -> CardDraftResponse:
@@ -1343,7 +1343,11 @@ async def draft_character_card(
     return CardDraftResponse(**draft)
 
 
-@router.post("/characters/{character_id}/expand", response_model=CharacterExpandResponse)
+@router.post(
+    "/characters/{character_id}/expand",
+    response_model=CharacterExpandResponse,
+    dependencies=[Depends(usage_quota_guard)],
+)
 async def expand_character(
     character_id: str,
     body: CharacterVersionCreateRequest | None = None,

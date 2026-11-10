@@ -148,6 +148,12 @@ def decrypt_provider_api_key(value: str) -> str:
         return value
 
 
+def ensure_provider_key_crypto_ready() -> bool:
+    """Startup hook: log the one plaintext warning. True when encryption is on."""
+    _provider_fernet()
+    return provider_key_encryption_enabled()
+
+
 # ---------------------------------------------------------------------------
 # DDL — all tables created once on first connect (fully idempotent)
 # ---------------------------------------------------------------------------
