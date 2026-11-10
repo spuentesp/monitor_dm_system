@@ -15,7 +15,7 @@ LAYER: 3 (UI backend / FastAPI router)
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -27,13 +27,18 @@ from monitor_data.schemas.base import EntityType
 from monitor_data.schemas.entities import EntityFilter
 from monitor_data.tools.neo4j_tools.entities import neo4j_list_entities
 from monitor_ui.auth import Principal, get_current_user, get_postgres
-from monitor_ui.ownership import require_character_owner, require_entity_owner, require_universe_owner
+from monitor_ui.ownership import (
+    require_character_owner,
+    require_entity_owner,
+    require_universe_owner,
+    resource_route_guard,
+)
 
 from . import character_conversation as cc
 
 log = structlog.get_logger()
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +116,7 @@ async def list_universe_characters(
     entities = getattr(result, "entities", result)
     out: list[dict[str, Any]] = []
     for entity in entities or []:
-        data = entity.model_dump() if hasattr(entity, "model_dump") else dict(entity)
+        data: dict[str, Any] = entity.model_dump() if hasattr(entity, "model_dump") else dict(cast(Any, entity))
         out.append(
             {
                 "entity_id": str(data.get("id", "")),

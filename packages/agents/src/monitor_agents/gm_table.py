@@ -381,7 +381,7 @@ class GmTableAgent(BaseAgent):
                     f" {attr.get('description') or ''}"
                 )
 
-        return await self.call_llm_structured(
+        rules_answer: RulesAnswer = await self.call_llm_structured(
             RulesAnswer,
             [
                 {
@@ -405,6 +405,7 @@ class GmTableAgent(BaseAgent):
             ],
             max_tokens=1024,
         )
+        return rules_answer
 
     async def suggest_names(
         self,
@@ -420,7 +421,7 @@ class GmTableAgent(BaseAgent):
         entities = _parse_tool_result(names_result, "entities", []) or []
         existing = [str(e.get("name") or "") for e in entities if e.get("name")]
 
-        return await self.call_llm_structured(
+        names: NameSuggestions = await self.call_llm_structured(
             NameSuggestions,
             [
                 {
@@ -442,6 +443,7 @@ class GmTableAgent(BaseAgent):
             ],
             max_tokens=512,
         )
+        return names
 
     async def suggest_complications(
         self,
@@ -462,7 +464,7 @@ class GmTableAgent(BaseAgent):
             if isinstance(t, dict)
         ]
 
-        return await self.call_llm_structured(
+        complications: ComplicationSuggestions = await self.call_llm_structured(
             ComplicationSuggestions,
             [
                 {
@@ -486,6 +488,7 @@ class GmTableAgent(BaseAgent):
             ],
             max_tokens=512,
         )
+        return complications
 
     # ------------------------------------------------------------------
     # After the session (CF-5 / CF-8)
@@ -509,7 +512,7 @@ class GmTableAgent(BaseAgent):
         entities = _parse_tool_result(names_result, "entities", []) or []
         known_names = [str(e.get("name") or "") for e in entities if e.get("name")]
 
-        return await self.call_llm_structured(
+        session_log: SessionLogExtraction = await self.call_llm_structured(
             SessionLogExtraction,
             [
                 {
@@ -532,6 +535,7 @@ class GmTableAgent(BaseAgent):
             ],
             max_tokens=2048,
         )
+        return session_log
 
 
 # LIGHT-tier instance factory for on-demand improv (names, complications).

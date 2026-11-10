@@ -12,6 +12,7 @@ state for "tonight's" session — no canon, no Neo4j, no CanonKeeper gate.
 
 import logging
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from monitor_data.db.mongodb import get_mongodb_client
@@ -32,7 +33,7 @@ def _story_key(story_id: UUID | None) -> str:
     return str(story_id) if story_id else ""
 
 
-def _bundle_doc_to_response(doc: dict) -> GmPrepBundleResponse:
+def _bundle_doc_to_response(doc: dict[str, Any]) -> GmPrepBundleResponse:
     """Convert a bundle document from MongoDB to a GmPrepBundleResponse."""
     return GmPrepBundleResponse(
         universe_id=UUID(doc["universe_id"]),

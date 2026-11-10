@@ -113,7 +113,7 @@ async def ensure_conversatory_universe(owner_id: str | uuid.UUID | None = None) 
         raise RuntimeError(f"Failed to create conversatory multiverse: {mv}")
 
     # reason: CanonKeeper.create_universe accepts UniverseCreate | dict; passing a bare dict literal here relies on the agent's runtime validation — narrow to UniverseCreate in a follow-up
-    u = await keeper.create_universe(  # type: ignore
+    u = await keeper.create_universe(
         {
             "multiverse_id": str(mv["id"]),
             "name": _CONVERSATORY_UNIVERSE_NAME,
@@ -123,10 +123,10 @@ async def ensure_conversatory_universe(owner_id: str | uuid.UUID | None = None) 
         }
     )
     # reason: u: Any (agent-returned universe dict); subscript access `.id` and `"id" in u` are union-attr gaps that mypy can't bridge across the agent boundary
-    if "id" not in u:  # type: ignore
+    if "id" not in u:
         raise RuntimeError(f"Failed to create conversatory universe: {u}")
 
-    universe_id = str(u["id"])  # type: ignore
+    universe_id = str(u["id"])
     await db.multiverse_upsert(
         {"id": str(mv["id"]), "owner_id": owner, "label": _CONVERSATORY_MULTIVERSE_NAME, "active": True}
     )

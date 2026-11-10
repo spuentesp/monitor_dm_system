@@ -305,7 +305,7 @@ def _make_voice_agent(
         from monitor_agents.npc_voice.npc_voice import NPCDirectVoiceModule
         from monitor_data.schemas.llm_config import ModelRole
 
-        class _TieredDirectVoiceModule(NPCDirectVoiceModule):  # type: ignore[misc]
+        class _TieredDirectVoiceModule(NPCDirectVoiceModule):
             """NPCDirectVoiceModule bound to the preset's model tier."""
 
             def forward(self, *args: Any, **kwargs: Any) -> Any:
@@ -323,7 +323,7 @@ def _make_voice_agent(
         if not hasattr(NPCVoice, "_write_npc_memory"):
             raise RuntimeError("NPCVoice has no _write_npc_memory; cannot defer memory writes")
         writer = _DeferredMemoryWriter()
-        agent._write_npc_memory = writer  # type: ignore[method-assign]
+        agent._write_npc_memory = writer  # type: ignore[method-assign, assignment]
 
     return agent, writer
 

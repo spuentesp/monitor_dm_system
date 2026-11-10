@@ -110,8 +110,12 @@ class TestCharacterTemplateOwnership:
     @pytest.fixture(autouse=True)
     def _coll(self, monkeypatch: pytest.MonkeyPatch) -> _Coll:
         coll = _Coll()
+        monkeypatch.setattr("monitor_data.tools.mongodb_tools.character_templates._collection", lambda: coll)
+        # The router-level guard resolves template_id against entity templates
+        # first (SYS-6); none exist here, so it falls through to the
+        # owner-predicated character-template lookup above.
         monkeypatch.setattr(
-            "monitor_data.tools.mongodb_tools.character_templates._collection", lambda: coll
+            "monitor_data.tools.mongodb_tools.templates.mongodb_get_entity_template", lambda template_id: None
         )
         return coll
 
@@ -168,9 +172,7 @@ class TestThreadPatchOwnership:
             "active": True,
         }
         story_id = uuid4()
-        monkeypatch.setattr(
-            "monitor_data.db.neo4j.get_neo4j_client", lambda: _Neo4j({str(story_id): world})
-        )
+        monkeypatch.setattr("monitor_data.db.neo4j.get_neo4j_client", lambda: _Neo4j({str(story_id): world}))
         writes: list[Any] = []
         monkeypatch.setattr(
             "monitor_data.tools.neo4j_tools.neo4j_get_plot_thread",

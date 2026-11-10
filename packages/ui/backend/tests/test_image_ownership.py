@@ -76,6 +76,9 @@ def client(monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres, chars: FakeCh
 
     app.dependency_overrides[get_postgres] = _fake_get_postgres
     monkeypatch.setattr(ownership_mod, "_characters_collection", lambda: chars)
+    # The router-level guard (SYS-6) falls back from a standalone card to a
+    # Neo4j world entity; this suite has no world entities.
+    monkeypatch.setattr(ownership_mod, "_universes_of_entities", lambda ids: {})
     c = TestClient(app, raise_server_exceptions=False)
     yield c
     app.dependency_overrides.pop(get_postgres, None)

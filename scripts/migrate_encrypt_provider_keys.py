@@ -63,7 +63,9 @@ async def _migrate(apply: bool) -> None:
             continue
         to_encrypt.append((row["id"], raw))
 
-    print(f"{len(rows)} provider rows: {already} already encrypted/empty, {len(to_encrypt)} to encrypt.")
+    print(
+        f"{len(rows)} provider rows: {already} already encrypted/empty, {len(to_encrypt)} to encrypt."
+    )
     if not apply:
         print("Dry run — pass --apply to write. No rows changed.")
         await pg.close()

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from monitor_agents.cast import AGENCY_RULE
 from monitor_agents.loops import conversation_loop as cl
 
 
@@ -108,7 +109,12 @@ class TestConversationLoopPersona:
             mp.setattr(npc_agent_mod, "NPCVoice", lambda: fake_voice)
             out = asyncio.run(cl.generate_npc_responses(state))
 
-        assert fake_voice.respond_direct.await_args.kwargs["player_persona"] == ("Kael — a wandering sellsword")
+        # The persona leads the block; the cast roster and the agency rule
+        # (P-17: the character never speaks for the user) follow it.
+        persona_block = fake_voice.respond_direct.await_args.kwargs["player_persona"]
+        assert persona_block.startswith("Kael — a wandering sellsword\n")
+        assert "- [GM-CONTROLLED] Maeve" in persona_block
+        assert AGENCY_RULE in persona_block
         assert out["current_npc_responses"][0]["text"] == '"A sellsword, hm?"'
 
     def test_empty_persona_passed_as_empty(self):
@@ -129,7 +135,12 @@ class TestConversationLoopPersona:
             mp.setattr(npc_agent_mod, "NPCVoice", lambda: fake_voice)
             asyncio.run(cl.generate_npc_responses(state))
 
-        assert fake_voice.respond_direct.await_args.kwargs["player_persona"] == ""
+        # No persona text and no player line in the roster; the agency rule
+        # still reaches the character (P-17).
+        persona_block = fake_voice.respond_direct.await_args.kwargs["player_persona"]
+        assert persona_block.startswith("\n\nCAST")
+        assert "- [PLAYER-CONTROLLED]" not in persona_block
+        assert AGENCY_RULE in persona_block
 
     def test_loop_init_accepts_persona(self):
         loop = cl.ConversationLoop(

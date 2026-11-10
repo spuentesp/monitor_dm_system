@@ -79,12 +79,12 @@ from monitor_data.tools.neo4j_tools import (
 )
 from monitor_data.utils.dice import roll_dice
 from monitor_ui.auth import Principal, get_current_user, get_postgres
-from monitor_ui.ownership import require_universe_owner
+from monitor_ui.ownership import require_universe_owner, resource_route_guard
 from monitor_ui.routers.chat_game_system import resolve_universe_system_binding
 from monitor_ui.routers.chat_persistence import db_load_messages, db_load_sessions
 from pydantic import BaseModel, Field
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 log = structlog.get_logger()
 
 # Bounds for the /gm/roll endpoint. ``roll_dice`` enforces no upper cap, so an
