@@ -11,7 +11,8 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ingestApi } from "@/lib/api";
 import type { KnowledgePack } from "@/lib/types";
-import ApplyPackPage, { PrepareStartAction } from "./page";
+import { PrepareStartAction } from "@/components/forge/PrepareStartAction";
+import ApplyPackPage from "./page";
 
 // ─── next/navigation mock ─────────────────────────────────────
 
