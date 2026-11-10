@@ -131,9 +131,6 @@ _CHAR_CREATION_LOOPS: OrderedDict[str, CharacterCreationLoop | None] = OrderedDi
 _SESSION_ZERO_LOOPS_MAX = 16
 _SESSION_ZERO_LOOPS: OrderedDict[str, SessionZeroLoop | None] = OrderedDict()
 
-# Cache for story states (Gap 4)
-_STORY_STATES: dict[str, dict[str, Any]] = {}
-
 
 # ---------------------------------------------------------------------------
 # Scene loop lifecycle
@@ -166,10 +163,12 @@ def scene_loop_signature(
 
 
 def _build_story_state_dict(session: dict[str, Any], *, story_id: str) -> dict[str, Any] | None:
-    """Merge the session's own ``story_premise`` with whatever arc data the
-    last StoryLoop advancement cached (``_STORY_STATES``, Gap 4), so
-    ``SceneLoop`` -- and through it, the Narrator -- can see story-level
-    context on every turn.
+    """Build the story state the scene loop starts from.
+
+    The arc itself is not cached in this process: it lives in the story's
+    MongoDB checkpoint and is read on every turn by
+    ``scene_loop.load_context``. What the session owns -- the identifiers and
+    the player's stated premise -- is added here.
 
     Previously ``SceneLoop`` never received a ``story_state`` at all on
     either the web backend or the CLI (confirmed by reading both
@@ -183,9 +182,7 @@ def _build_story_state_dict(session: dict[str, Any], *, story_id: str) -> dict[s
     universe_id = session.get("universe_id") or session.get("world_id")
     if not story_id or not universe_id:
         return None
-    story_state = dict(_STORY_STATES.get(story_id) or {})
-    story_state.setdefault("story_id", story_id)
-    story_state.setdefault("universe_id", universe_id)
+    story_state: dict[str, Any] = {"story_id": story_id, "universe_id": universe_id}
     premise = session.get("story_premise")
     if premise:
         story_state["story_premise"] = premise
@@ -542,11 +539,6 @@ async def run_scene_turn(
     callbacks.session_game_system_doc = session_game_system_doc
     callbacks.gsr_available = gsr_available
     callbacks.get_story_state = get_story_state
-
-    def set_story_state_cache(story_id: str, state_data: dict[str, Any]) -> None:
-        _STORY_STATES[story_id] = state_data
-
-    callbacks.set_story_state_cache = set_story_state_cache
 
     orchestrator = SceneOrchestrator()
     state_dict = {

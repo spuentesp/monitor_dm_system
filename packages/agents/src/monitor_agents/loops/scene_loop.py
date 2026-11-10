@@ -131,6 +131,128 @@ def _first_location_entity(entity_context: Any) -> dict[str, Any] | None:
     return None
 
 
+async def _load_story_state(state: SceneState) -> StoryState | None:
+    """Read the story's persisted state from its MongoDB checkpoint.
+
+    The story's arc lives in the checkpoint, not in this process, so reading
+    it on every turn is what makes a backend restart change nothing the
+    Narrator sees. A story with no checkpoint yet keeps the state it was
+    given.
+    """
+    try:
+        from monitor_agents.loops.story_loop import StoryLoop
+
+        loop = StoryLoop(story_id=state.story_id, universe_id=state.universe_id)
+        values = await loop.load_checkpoint_state()
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _load_story_state)
+        logger.debug("Could not read the story checkpoint for %s: %s", state.story_id, exc)
+        return None
+
+    if not values:
+        return None
+
+    try:
+        persisted = StoryState.model_validate(values)
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _load_story_state)
+        logger.debug("Story checkpoint for %s did not validate: %s", state.story_id, exc)
+        return None
+
+    # The player's stated premise belongs to the session, not to the
+    # checkpoint; keep it when the checkpoint does not carry one.
+    if state.story_state is not None and state.story_state.story_premise:
+        if not persisted.story_premise:
+            persisted = persisted.model_copy(update={"story_premise": state.story_state.story_premise})
+    return persisted
+
+
+def _is_flashback(temporal_mode: Any) -> bool:
+    """True when a scene is set outside the story's present."""
+    mode = str(getattr(temporal_mode, "value", temporal_mode) or "").strip().lower()
+    return mode in {"flashback", "flash_back", "dream", "memory"}
+
+
+def _stamp_time_ref(proposal: dict[str, Any], when: datetime) -> dict[str, Any]:
+    """Stamp a proposal with the in-world time it was made at.
+
+    CanonKeeper writes every fact and event from a proposal with this
+    ``time_ref``, so the canon carries the world's own clock. A proposal
+    that already carries a time keeps it.
+    """
+    stamped = dict(proposal)
+    stamped.setdefault("time_ref", when.isoformat())
+    for key in ("content", "payload"):
+        payload = stamped.get(key)
+        if isinstance(payload, dict):
+            copied = dict(payload)
+            copied.setdefault("time_ref", when.isoformat())
+            stamped[key] = copied
+    return stamped
+
+
+async def _validate_flashback(
+    state: SceneState,
+    *,
+    scene_time: datetime | None,
+) -> list[dict[str, Any]]:
+    """Check a flashback scene against the canon's chronology.
+
+    Returns the warnings the check raised. A scene that cannot be checked
+    (no universe, no time) raises nothing; a check that fails outright is
+    recorded and the scene still closes.
+    """
+    if state.universe_id is None or scene_time is None:
+        return []
+
+    from monitor_agents.temporal_validation import validate_scene_revision
+
+    try:
+        from monitor_agents.loops.story_loop import _read_scene_turns
+
+        turns = await _read_scene_turns(state.scene_id)
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _validate_flashback)
+        logger.debug("Could not read the turns of scene %s: %s", state.scene_id, exc)
+        turns = []
+
+    scene_text = "\n".join(
+        str(turn.get("text") or turn.get("content") or "") for turn in turns if isinstance(turn, dict)
+    ).strip()
+    if not scene_text:
+        scene_text = state.narrative_text or ""
+
+    factory = get_agent_factory()
+    canonkeeper = factory.create_canonkeeper()
+
+    try:
+        result = await validate_scene_revision(
+            scene_id=state.scene_id,
+            universe_id=state.universe_id,
+            story_id=state.story_id,
+            scene_time_ref=scene_time,
+            scene_text=scene_text,
+            proposals=list(state.pending_proposals or []),
+            canonkeeper=canonkeeper,
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _validate_flashback)
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.SCENE_LOOP,
+            category=RoleplayErrorCategory.UNKNOWN,
+            message=f"Temporal validation of flashback scene {state.scene_id} failed: {exc}",
+            fatal=False,
+            universe_id=state.universe_id,
+            story_id=state.story_id,
+            scene_id=state.scene_id,
+        )
+        return []
+
+    warnings = list(result.get("warnings") or [])
+    warnings.extend(
+        violation
+        for violation in (result.get("violations") or [])
+        if str(violation.get("severity") or "").lower() in {"warning", "info"}
+    )
+    return warnings
+
+
 class SceneState(BaseModel):
     """Typed state that flows through every scene-loop node."""
 
@@ -271,6 +393,9 @@ class SceneState(BaseModel):
     recent_chat: list[dict[str, Any]] = Field(default_factory=list)
     # Consistency violations detected by check_consistency node.
     consistency_violations: list[dict[str, Any]] = Field(default_factory=list)
+    # Temporal warnings raised when a flashback scene is checked against the
+    # canon's chronology before it is canonized.
+    temporal_warnings: list[dict[str, Any]] = Field(default_factory=list)
     # Active multi-turn tactical combat state carried across SceneLoop.run calls.
     combat_state: dict[str, Any] | None = None
 
@@ -366,6 +491,18 @@ async def load_context(state: SceneState) -> dict[str, Any]:
 
     factory = get_agent_factory()
     agent = factory.create_context_assembly()
+
+    # The story's own state (arc, ledger, in-game clock) is read from its
+    # MongoDB checkpoint on every turn, so a restart between two turns
+    # changes nothing the Narrator sees.
+    persisted_story_state = await _load_story_state(state)
+    story_state = persisted_story_state or state.story_state
+    in_game_time = story_state.in_game_time if story_state is not None else None
+    # A flashback keeps the time the scene was written for; every other
+    # scene runs at the story's clock.
+    if time_ref is None:
+        time_ref = in_game_time
+
     context = await agent.assemble(
         scene_id=state.scene_id,
         story_id=state.story_id,
@@ -376,6 +513,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         system_source_id=state.system_source_id,
         pack_id=state.pack_id,
         actor_context=state.actor_context,
+        check_time=time_ref,
     )
 
     # G3: Check token budget and compress context if needed
@@ -485,7 +623,21 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 — best-effort, see comment above
         logger.debug("load_context: durable turn count fetch failed: %s", exc)
 
-    return {
+    # The ledger and the canon reach the GM and the Narrator as established
+    # facts: the ledger's one-line history and the canon's current
+    # statements, oldest first.
+    ledger_lines = [
+        f"Scene {entry.get('scene_index', '?')}: {str(entry.get('summary') or '').strip()}"
+        for entry in context.get("story_ledger", []) or []
+        if isinstance(entry, dict) and str(entry.get("summary") or "").strip()
+    ]
+    canon_statements = [
+        str(fact.get("statement") or "").strip()
+        for fact in context.get("facts", []) or []
+        if isinstance(fact, dict) and str(fact.get("statement") or "").strip()
+    ][-8:]
+
+    updates: dict[str, Any] = {
         "entity_context": context.get("entities", []),
         "memory_context": context.get("memories", []),
         "lorebook_context": context.get("lorebook_entries", []),
@@ -505,8 +657,21 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         "established_facts": [
             *state.director_notes,
             *[fact for fact in state.established_facts if fact not in state.director_notes],
+            *ledger_lines,
+            *canon_statements,
         ],
     }
+
+    # The story's ledger travels on the story state, so the Narrator reads
+    # it on every turn of the scene. The context assembly already fitted it
+    # to the budget: the last entries in full, the older ones as one line.
+    if story_state is not None:
+        ledger_entries = [entry for entry in (context.get("story_ledger") or []) if isinstance(entry, dict)]
+        updates["story_state"] = story_state.model_copy(
+            update={"ledger_entries": ledger_entries or list(story_state.ledger_entries)}
+        )
+
+    return updates
 
 
 @_timed_node  # type: ignore[untyped-decorator]
@@ -1135,7 +1300,10 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
     Called when scene_complete=True. Handles:
     1. Persist any remaining memories (belt-and-suspenders, should already be done)
     2. Advance story state (scenes_completed++, in_game_time)
-    3. Signal scene ending (CanonKeeper.end_scene placeholder)
+    3. Stamp the scene's in-game time on the proposals, so every fact and
+       event canonized from them carries the time it happened at
+    4. Check a flashback scene against the canon's chronology
+    5. Signal scene ending (CanonKeeper.end_scene placeholder)
     """
     from datetime import timedelta
 
@@ -1158,6 +1326,7 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
             logger.warning("Failed to persist memories in complete_current_scene: %s", e)
 
     # 2. Advance story state
+    scene_time: datetime | None = state.time_ref
     if state.story_state:
         current_time = state.story_state.in_game_time
         new_time = current_time + timedelta(minutes=state.total_minutes_passed)
@@ -1166,8 +1335,28 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
             "in_game_time": new_time,
             "scenes_completed": state.story_state.scenes_completed + 1,
         }
+        if scene_time is None:
+            scene_time = new_time
 
-    # 3. Scene-end bookkeeping via CanonKeeper.end_scene()
+    # 3. Stamp the scene's in-game time on the proposals. CanonKeeper writes
+    # every fact and event canonized from them with this time_ref, so what
+    # the world learned in this scene is dated in the world's own clock.
+    if state.pending_proposals and scene_time is not None:
+        updates["pending_proposals"] = [_stamp_time_ref(proposal, scene_time) for proposal in state.pending_proposals]
+
+    # 4. A flashback is checked against the canon's chronology before it is
+    # canonized; its warnings are surfaced with the scene.
+    if _is_flashback(state.temporal_mode):
+        warnings = await _validate_flashback(state, scene_time=scene_time)
+        if warnings:
+            updates["temporal_warnings"] = warnings
+            logger.warning(
+                "Flashback scene %s has %d temporal warning(s)",
+                state.scene_id,
+                len(warnings),
+            )
+
+    # 5. Scene-end bookkeeping via CanonKeeper.end_scene()
     # Best-effort: failure here must not block scene completion.
     try:
         from monitor_agents.agent_factory import get_agent_factory
@@ -1192,7 +1381,7 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
             entity_id=state.actor_id,
         )
 
-    # 4. Downtime trigger (P-21): when the story arc reaches "resolution",
+    # 6. Downtime trigger (P-21): when the story arc reaches "resolution",
     # signal that progression options are available.
     story_state_dict = updates.get("story_state") or {}
     arc_label = story_state_dict.get("arc_label") or (state.story_state.arc_label if state.story_state else None)

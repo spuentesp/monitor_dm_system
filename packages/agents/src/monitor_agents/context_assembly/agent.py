@@ -23,11 +23,13 @@ import hashlib
 import json
 import logging
 import time
+from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
 
 from monitor_data.config import settings
 from monitor_data.schemas.llm_config import ModelRole
+from monitor_data.tools.temporal_tools import get_current_facts
 
 from monitor_agents.base import BaseAgent
 from monitor_agents.context_assembly.context_assembly import QueryFormulationModule
@@ -138,6 +140,66 @@ def _unwrap_search_results(raw: Any) -> list[dict[str, Any]]:
         payload = item.pop("payload", None)
         items.append({**payload, **item} if isinstance(payload, dict) else item)
     return items
+
+
+def compress_story_ledger(
+    entries: list[dict[str, Any]],
+    *,
+    full_entries: int = 2,
+    max_tokens: int = 1200,
+) -> list[dict[str, Any]]:
+    """Fit a story's ledger into a prompt.
+
+    The last entries are kept in full — the GM needs the detail of what just
+    happened — and the older ones are compressed to one line each. When the
+    block still does not fit the budget, the oldest lines go first and the
+    remaining summaries are shortened.
+
+    Args:
+        entries: The ledger entries, oldest first.
+        full_entries: How many of the newest entries stay in full.
+        max_tokens: The token budget for the whole block.
+
+    Returns:
+        The entries to hand to the model.
+    """
+    items = [dict(entry) for entry in entries if isinstance(entry, dict)]
+    if not items:
+        return []
+
+    if len(items) <= full_entries:
+        recent, older = items, []
+    else:
+        recent, older = items[-full_entries:], items[:-full_entries]
+
+    compressed = [_compress_ledger_entry(entry) for entry in older]
+    block = [*compressed, *recent]
+
+    while compressed and count_tokens(json.dumps(block, default=str)) > max_tokens:
+        compressed.pop(0)
+        block = [*compressed, *recent]
+
+    while count_tokens(json.dumps(block, default=str)) > max_tokens:
+        longest = max(block, key=lambda entry: len(str(entry.get("summary") or "")))
+        summary = str(longest.get("summary") or "")
+        if len(summary) <= 200:
+            break
+        longest["summary"] = summary[: max(200, int(len(summary) * 0.8))]
+
+    return block
+
+
+def _compress_ledger_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """Compress one ledger entry to a single line."""
+    summary = " ".join(str(entry.get("summary") or "").split())
+    first_sentence = summary.split(". ")[0].strip()
+    if len(first_sentence) > 200:
+        first_sentence = first_sentence[:197] + "..."
+    return {
+        "scene_index": entry.get("scene_index"),
+        "summary": first_sentence,
+        "compressed": True,
+    }
 
 
 class ContextAssembly(BaseAgent):
@@ -259,11 +321,16 @@ class ContextAssembly(BaseAgent):
         system_source_id: str | None = None,
         pack_id: str | None = None,
         actor_context: dict[str, Any] | None = None,
+        check_time: datetime | None = None,
     ) -> dict[str, Any]:
         """
         Assemble full scene context (entities + memories + recent turns + game system).
 
         Called by scene_loop.load_context() at the start of each scene.
+
+        Args:
+            check_time: The in-world time the facts are judged at. Defaults to
+                now.
 
         Returns:
             {
@@ -274,6 +341,8 @@ class ContextAssembly(BaseAgent):
                 "game_system": {...},  # compact game system rules/stats for narrator & resolver
                 "summary":     str,   # only if player_action is provided
                 "actor":       {...}, # optional actor details (Gap 1)
+                "story_ledger": [...], # the campaign's memory, newest last
+                "facts":       [...], # canon facts, oldest first
             }
         """
         cache_key = self._cache_key(
@@ -292,7 +361,7 @@ class ContextAssembly(BaseAgent):
             return cached
 
         t_embed = time.perf_counter()
-        entities, turns, game_system, plot_threads = await asyncio.gather(
+        entities, turns, game_system, plot_threads, ledger = await asyncio.gather(
             self._fetch_entities(scene_id),
             self._fetch_recent_turns(scene_id),
             self._fetch_game_system(
@@ -303,6 +372,7 @@ class ContextAssembly(BaseAgent):
                 pack_id=pack_id,
             ),
             self._fetch_plot_threads(story_id),
+            self._fetch_story_ledger(story_id),
         )
         source_profile = await self._fetch_runtime_profile(
             system_name=game_system.get("name") if isinstance(game_system, dict) else None,
@@ -328,6 +398,12 @@ class ContextAssembly(BaseAgent):
             memory_query,
             universe_id=universe_id,
             limit=8,
+        )
+        # The canon as it stands right now: superseded versions dropped,
+        # dated facts in chronological order.
+        canon_facts = await self._fetch_canon_facts(
+            universe_id,
+            check_time=check_time or datetime.now(UTC),
         )
         logger.info("SCENE_SPAN embed=%.0fms", (time.perf_counter() - t_embed) * 1000)
 
@@ -396,6 +472,11 @@ class ContextAssembly(BaseAgent):
             "source_profile": source_profile,
             "plot_threads": plot_threads,
             "lorebook_entries": matched_lore,
+            # The campaign's memory: the last entries in full, the older
+            # ones compressed to a line each.
+            "story_ledger": compress_story_ledger(ledger),
+            # The canon as it stands now, oldest first.
+            "facts": canon_facts,
         }
 
         if actor_context:
@@ -858,6 +939,92 @@ class ContextAssembly(BaseAgent):
         except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _fetch_plot_threads)
             logger.debug("_fetch_plot_threads failed: %s", exc)
             return []
+
+    async def _fetch_story_ledger(self, story_id: UUID) -> list[dict[str, Any]]:
+        """Fetch the story's ledger from MongoDB via MCP.
+
+        The ledger is the campaign's own memory: one entry per finished
+        scene, oldest first.
+        """
+        cache_key = self._cache_key("story_ledger", story_id)
+        cached = self._cache_get_json(cache_key)
+        if isinstance(cached, list):
+            return cast(list[dict[str, Any]], cached)
+
+        try:
+            raw = await self.call_tool(
+                "mongodb_list_story_ledger_entries",
+                {"story_id": str(story_id), "limit": 50},
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _fetch_story_ledger)
+            logger.debug("_fetch_story_ledger failed: %s", exc)
+            return []
+
+        payload = raw
+        if isinstance(raw, str):
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                return []
+        if isinstance(payload, dict):
+            payload = payload.get("entries") or []
+        if not isinstance(payload, list):
+            return []
+
+        entries = [entry for entry in payload if isinstance(entry, dict)]
+        self._cache_set_json(cache_key, entries, ttl=self._ttl(short=True))
+        return entries
+
+    async def _fetch_canon_facts(
+        self,
+        universe_id: str | None,
+        *,
+        check_time: datetime,
+    ) -> list[dict[str, Any]]:
+        """Fetch the universe's canon facts, ordered by their in-world time.
+
+        Facts a newer fact has replaced are dropped, and so are the ones that
+        are not valid at ``check_time``: what is left is the world as it
+        stands now, oldest first.
+        """
+        if not universe_id:
+            return []
+
+        cache_key = self._cache_key("universe_facts", universe_id, check_time.isoformat())
+        cached = self._cache_get_json(cache_key)
+        if isinstance(cached, list):
+            return cast(list[dict[str, Any]], cached)
+
+        try:
+            raw = await self.call_tool(
+                "neo4j_list_facts",
+                {
+                    "filters": {
+                        "universe_id": universe_id,
+                        "status": "active",
+                        "limit": 50,
+                    }
+                },
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _fetch_canon_facts)
+            logger.debug("_fetch_canon_facts failed: %s", exc)
+            return []
+
+        payload = raw
+        if isinstance(raw, str):
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                return []
+        if isinstance(payload, dict):
+            payload = payload.get("facts") or []
+        if not isinstance(payload, list):
+            return []
+
+        facts = [fact for fact in payload if isinstance(fact, dict)]
+        current = get_current_facts(facts, check_time)
+        self._cache_set_json(cache_key, current, ttl=self._ttl(short=True))
+        return cast(list[dict[str, Any]], current)
 
     async def _search_memories(
         self,

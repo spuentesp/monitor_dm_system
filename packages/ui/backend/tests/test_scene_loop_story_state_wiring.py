@@ -2,16 +2,18 @@
 Narrator's arc_label/tension_score/story_premise injection (previously dead
 code for real play -- see CHARACTER_TEMPLATES_AND_GM_CONDITIONING_PLAN.md Q3)
 reaches live gameplay, not just unit tests of the Narrator itself.
+
+The arc itself is not cached in the web process: it lives in the story's
+MongoDB checkpoint and is read on every turn by ``scene_loop.load_context``.
+What the session owns -- the identifiers and the player's stated premise --
+is what this module builds.
 """
 
 from __future__ import annotations
 
 # Lazy import: test_chat_loops.py::test_import_errors calls
 # importlib.reload on chat_loops, which replaces the module-level dict
-# objects. Binding _STORY_STATES at import time would capture the orphaned
-# OLD dict; reading it through chat_loops._STORY_STATES always returns the
-# current canonical instance.
-from monitor_ui.routers import chat_loops
+# objects. Reading them through the module keeps the current instance.
 from monitor_ui.routers.chat_loops import _build_story_state_dict
 
 
@@ -38,24 +40,14 @@ def test_world_id_alias_when_universe_id_missing():
     assert result["universe_id"] == "w-1"
 
 
-def test_merges_cached_story_loop_arc_data():
-    """chat_loops._STORY_STATES is populated after each scene completes (existing
-    Gap-4 caching) -- confirm it's picked up alongside story_premise."""
-    chat_loops._STORY_STATES["story-cache-test"] = {
-        "story_id": "story-cache-test",
-        "universe_id": "u-1",
-        "arc_label": "climax",
-        "tension_score": 0.9,
-    }
-    try:
-        session = {"universe_id": "u-1", "story_premise": "A slow-burn mystery."}
-        result = _build_story_state_dict(session, story_id="story-cache-test")
+def test_the_story_identifiers_are_carried():
+    """The scene loop needs to know which story and universe it serves."""
+    session = {"universe_id": "u-1", "story_premise": "A slow-burn mystery."}
+    result = _build_story_state_dict(session, story_id="story-cache-test")
 
-        assert result["arc_label"] == "climax"
-        assert result["tension_score"] == 0.9
-        assert result["story_premise"] == "A slow-burn mystery."
-    finally:
-        chat_loops._STORY_STATES.pop("story-cache-test", None)
+    assert result["story_id"] == "story-cache-test"
+    assert result["universe_id"] == "u-1"
+    assert result["story_premise"] == "A slow-burn mystery."
 
 
 def test_result_round_trips_through_real_story_state_model():
