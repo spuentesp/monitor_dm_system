@@ -10,6 +10,7 @@ import {
   ChevronUp,
   ClipboardList,
   Dices,
+  FileText,
   GitBranch,
   Globe2,
   Layers,
@@ -17,6 +18,7 @@ import {
   Mic,
   NotebookPen,
   RefreshCw,
+  Search,
   SlidersHorizontal,
   Sparkles,
   Upload,
@@ -32,6 +34,9 @@ import { useDismissRef } from "@/lib/useDismissRef";
 import { uuid } from "@/lib/uuid";
 import { SessionRecorder } from "@/components/gm/SessionRecorder";
 import { AskTheWorldPanel } from "@/components/gm/AskTheWorldPanel";
+import { PrepToTablePanel } from "@/components/gm/PrepToTablePanel";
+import { SessionLogPanel } from "@/components/gm/SessionLogPanel";
+import { TableLookupsPanel } from "@/components/gm/TableLookupsPanel";
 import { useGmPanelPrefs, visibleOrderedPanels } from "@/lib/gm-panel-prefs";
 import { useWorldContext } from "@/lib/world-context";
 
@@ -1410,6 +1415,9 @@ const GM_PANELS = [
   { id: "recorder",       label: "Recorder",       icon: Mic },
   { id: "notebook",       label: "Scratchpad",     icon: NotebookPen },
   { id: "dice",           label: "Dice",            icon: Dices },
+  { id: "prep-table",     label: "Tonight",        icon: ClipboardList },
+  { id: "lookups",        label: "Lookups",        icon: Search },
+  { id: "session-log",    label: "Session Log",    icon: FileText },
   { id: "ask-world",      label: "Ask",             icon: Globe2 },
   { id: "hooks",          label: "Hooks",          icon: Sparkles },
   { id: "threads",        label: "Threads",        icon: GitBranch },
@@ -1420,7 +1428,17 @@ const GM_PANELS = [
 
 type GMPanel = (typeof GM_PANELS)[number]["id"];
 
-const TOOL_PANEL_IDS: GMPanel[] = ["ask-world", "hooks", "threads", "contradictions", "session-prep", "handouts"];
+const TOOL_PANEL_IDS: GMPanel[] = [
+  "prep-table",
+  "lookups",
+  "session-log",
+  "ask-world",
+  "hooks",
+  "threads",
+  "contradictions",
+  "session-prep",
+  "handouts",
+];
 
 function GMAssistantPageContent() {
   const searchParams = useSearchParams();
@@ -1643,6 +1661,9 @@ function GMAssistantPageContent() {
                 </div>
               ) : (
                 <>
+                  {effectiveToolPanel === "prep-table" && <PrepToTablePanel universeId={universeId} />}
+                  {effectiveToolPanel === "lookups" && <TableLookupsPanel universeId={universeId} systemId={systemId} />}
+                  {effectiveToolPanel === "session-log" && <SessionLogPanel universeId={universeId} />}
                   {effectiveToolPanel === "ask-world" && <AskTheWorldPanel universeId={universeId} />}
                   {effectiveToolPanel === "hooks" && <PlotHooksPanel universeId={universeId} />}
                   {effectiveToolPanel === "threads" && <ThreadsPanel universeId={universeId} />}
@@ -1700,6 +1721,21 @@ function GMAssistantPageContent() {
               {activePanel === "dice" && (
                 <div className="flex-1 overflow-hidden px-4 py-4">
                   <DiceRoller />
+                </div>
+              )}
+              {activePanel === "prep-table" && (
+                <div className="flex-1 overflow-hidden">
+                  <PrepToTablePanel universeId={universeId} />
+                </div>
+              )}
+              {activePanel === "lookups" && (
+                <div className="flex-1 overflow-hidden">
+                  <TableLookupsPanel universeId={universeId} systemId={systemId} />
+                </div>
+              )}
+              {activePanel === "session-log" && (
+                <div className="flex-1 overflow-hidden">
+                  <SessionLogPanel universeId={universeId} />
                 </div>
               )}
               {activePanel === "ask-world" && (

@@ -279,7 +279,17 @@ describe("GM Assistant hidden tool panels (user-modifiable prefs)", () => {
   it("shows a placeholder instead of a hidden panel when every tool panel is hidden", () => {
     window.localStorage.setItem(
       "monitor.gm.hiddenPanels",
-      JSON.stringify(["ask-world", "hooks", "threads", "contradictions", "session-prep", "handouts"]),
+      JSON.stringify([
+        "prep-table",
+        "lookups",
+        "session-log",
+        "ask-world",
+        "hooks",
+        "threads",
+        "contradictions",
+        "session-prep",
+        "handouts",
+      ]),
     );
     renderPage();
 
@@ -294,9 +304,9 @@ describe("GM Assistant hidden tool panels (user-modifiable prefs)", () => {
     renderPage();
 
     // The default active panel is the recorder (a non-tool panel), so the tools
-    // body falls back to the first VISIBLE tool panel — Hooks — never the
-    // hidden Ask panel.
-    expect(screen.getByText(/select a universe to generate plot hooks/i)).toBeInTheDocument();
+    // body falls back to the first VISIBLE tool panel — Tonight (prep-table) —
+    // never the hidden Ask panel.
+    expect(screen.getByText(/select a universe to prep tonight's session/i)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/ask the world/i)).not.toBeInTheDocument();
   });
 });
