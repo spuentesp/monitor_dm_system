@@ -87,3 +87,52 @@ class StartOptionsModule(dspy.Module):  # type: ignore[misc]
                 min_options=min_options,
                 max_options=max_options,
             )
+
+
+class WorldStartEstimateSignature(dspy.Signature):  # type: ignore[misc]
+    """
+    You are a tabletop RPG setting historian. Determine the in-world date
+    and time the world's stories begin at, from the world's canon and
+    material below.
+
+    Rules:
+    - Anchor the date in what the material establishes: explicit years,
+      calendars, named eras, or dates its chronology implies. Convert
+      relative dating ("three centuries after the fall of X") only when the
+      material gives enough to place it.
+    - When the material cannot tell when the world's present is, answer
+      with an EMPTY start_time. A missing date is a valid answer; an
+      invented one is not.
+    - Output a plain ISO 8601 instant (YYYY-MM-DDTHH:MM:SS+00:00): the
+      year's first day when only a year is known, noon when only a day is.
+    """
+
+    world_material: str = dspy.InputField(
+        desc="Grounding digest: the universe's name, description, genre, axioms, "
+        "lore facts, entities, agendas, and plot threads."
+    )
+    system_name: str = dspy.InputField(desc="Setting / system name. May be empty.")
+    start_time: str = dspy.OutputField(
+        desc="ISO 8601 instant the world's stories begin at; empty string when the material cannot tell."
+    )
+    reason: str = dspy.OutputField(desc="One line: which material anchored the date, or why it is undetermined.")
+
+
+class WorldStartEstimateModule(dspy.Module):  # type: ignore[misc]
+    """Estimate a world's starting date from its canon and material."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.estimate = dspy.ChainOfThought(WorldStartEstimateSignature)
+
+    def forward(
+        self,
+        *,
+        world_material: str,
+        system_name: str,
+        role: ModelRole | None = None,
+    ) -> dspy.Prediction:
+        # STANDARD role: on par with the story-side time seed; the extra
+        # grounding (canon + material) is what makes this source better.
+        with dspy_context_for("world_start_estimate", role or ModelRole.STANDARD):
+            return self.estimate(world_material=world_material, system_name=system_name)

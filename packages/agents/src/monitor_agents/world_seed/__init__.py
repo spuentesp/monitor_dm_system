@@ -20,7 +20,7 @@ from monitor_agents.world_seed.models import (
     UniverseMaterial,
     WorldSeedResult,
 )
-from monitor_agents.world_seed.seed import WorldSeed
+from monitor_agents.world_seed.seed import WorldSeed, estimate_start_time
 
 __all__ = [
     "StartOption",
@@ -29,6 +29,7 @@ __all__ = [
     "UniverseMaterial",
     "WorldSeed",
     "WorldSeedResult",
+    "estimate_start_time",
     "gather_universe_material",
     "materialize_chosen_start",
     "prepare_starting_situation",

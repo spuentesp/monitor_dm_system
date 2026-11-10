@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -385,3 +386,44 @@ class WorldSeed(BaseAgent):
                 )
             )
         return normalized
+
+
+async def estimate_start_time(universe_id: str | UUID) -> datetime | None:
+    """The world's starting date, read from its canon and material (join Task 4).
+
+    A typed model judgment (``WorldStartEstimateSignature``) over the
+    universe's gathered canon — axioms, lore facts, entities, agendas, plot
+    threads and pack material. Returns ``None`` when the material cannot
+    tell: a missing date is preferred over an invented one, so the caller
+    (``StoryAgent.seed_in_game_time``) can fall back to its own estimate.
+    """
+    from monitor_agents.world_seed.signatures import WorldStartEstimateModule
+
+    material = await gather_universe_material(universe_id)
+    digest = material.digest()
+    if not digest.strip():
+        return None
+
+    module = WorldStartEstimateModule()
+
+    def _estimate() -> Any:
+        return module.forward(
+            world_material=digest,
+            system_name=material.system_name or material.universe_name or "",
+        )
+
+    try:
+        prediction = await asyncio.to_thread(_estimate)
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in estimate_start_time)
+        logger.warning("Could not estimate the start time of universe %s: %s", universe_id, exc)
+        return None
+
+    raw = str(getattr(prediction, "start_time", "") or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        logger.warning("World seed start time for universe %s is not a timestamp: %r", universe_id, raw)
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
