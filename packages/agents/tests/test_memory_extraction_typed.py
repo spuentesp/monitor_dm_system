@@ -71,7 +71,9 @@ class TestTypedParsing:
 
 class TestCastExtraction:
     @pytest.mark.asyncio
-    async def test_runs_once_per_present_character_with_owner_and_witnesses(self):
+    async def test_per_turn_extracts_only_the_speaker_with_owner_and_witnesses(self):
+        """Join task 2: one model call per turn, for the acting character;
+        the rest of the cast gets its scene memory at scene end."""
         agent = ExtractionAgent(agent_id="extractor-test")
         pc_id = str(uuid4())
         npc_id = str(uuid4())
@@ -83,8 +85,8 @@ class TestCastExtraction:
             return MemoryExtractionResult(memories=[ExtractedMemory(text=f"{actor_name} remembers", importance=5.0)])
 
         cast = [
-            {"entity_id": pc_id, "name": "Ana", "controller": "user"},
-            {"entity_id": npc_id, "name": "Vex", "controller": "gm"},
+            {"entity_id": pc_id, "name": "Ana", "controller": "user", "is_speaker": True},
+            {"entity_id": npc_id, "name": "Vex", "controller": "gm", "is_speaker": False},
         ]
         with patch.object(MemoryExtractor, "forward_typed", _fake_forward_typed):
             out = await agent.extract_memories(
@@ -96,14 +98,38 @@ class TestCastExtraction:
                 universe_id=universe_id,
             )
 
-        # One extraction per present character, each from its own POV.
-        assert calls == ["Ana", "Vex"]
+        # One extraction per turn, for the acting character only.
+        assert calls == ["Ana"]
         memories = out["memories_to_persist"]
-        assert len(memories) == 2
-        assert {m["entity_id"] for m in memories} == {pc_id, npc_id}
+        assert len(memories) == 1
+        assert {m["entity_id"] for m in memories} == {pc_id}
         assert all(m["universe_id"] == str(universe_id) for m in memories)
         # Witnesses = the whole present cast (Task 8).
         assert all(set(m["witnesses"]) == {pc_id, npc_id} for m in memories)
+
+    @pytest.mark.asyncio
+    async def test_the_speaker_falls_back_to_the_actor_context(self):
+        agent = ExtractionAgent(agent_id="extractor-test")
+        pc_id = str(uuid4())
+        calls: list[str] = []
+
+        def _fake_forward_typed(self, narrative_text, resolution, actor_name, role=None):
+            calls.append(actor_name)
+            return MemoryExtractionResult(memories=[ExtractedMemory(text="x", importance=5.0)])
+
+        cast = [{"entity_id": pc_id, "name": "Ana", "controller": "user"}]
+        with patch.object(MemoryExtractor, "forward_typed", _fake_forward_typed):
+            out = await agent.extract_memories(
+                narrative_text="the scene",
+                actor_context={"id": pc_id, "name": "Ana"},
+                resolution=None,
+                cast=cast,
+                scene_id=uuid4(),
+                universe_id=uuid4(),
+            )
+
+        assert calls == ["Ana"]
+        assert [m["entity_id"] for m in out["memories_to_persist"]] == [pc_id]
 
     @pytest.mark.asyncio
     async def test_parse_failure_is_recorded_and_yields_no_raw_text_memory(self):
@@ -123,7 +149,7 @@ class TestCastExtraction:
                 narrative_text="the scene",
                 actor_context=None,
                 resolution=None,
-                cast=[{"entity_id": str(uuid4()), "name": "Ana", "controller": "user"}],
+                cast=[{"entity_id": str(uuid4()), "name": "Ana", "controller": "user", "is_speaker": True}],
                 scene_id=uuid4(),
                 universe_id=uuid4(),
             )
@@ -152,3 +178,50 @@ class TestCastExtraction:
 
         assert calls == ["whole scene transcript"]
         assert out["memories_to_persist"][0]["text"] == "Vex scene memory"
+
+    @pytest.mark.asyncio
+    async def test_scene_end_narrows_to_the_members_who_never_acted(self):
+        """Join task 2: extract_for_ids picks the non-actors; the witnesses
+        stay the whole cast present."""
+        agent = ExtractionAgent(agent_id="extractor-test")
+        pc_id = str(uuid4())
+        npc_id = str(uuid4())
+        calls: list[str] = []
+
+        def _fake_forward_typed(self, narrative_text, resolution, actor_name, role=None):
+            calls.append(actor_name)
+            return MemoryExtractionResult(memories=[ExtractedMemory(text=f"{actor_name} scene memory")])
+
+        cast = [
+            {"entity_id": pc_id, "name": "Ana", "controller": "user", "is_speaker": True},
+            {"entity_id": npc_id, "name": "Vex", "controller": "gm", "is_speaker": False},
+        ]
+        with patch.object(MemoryExtractor, "forward_typed", _fake_forward_typed):
+            out = await agent.extract_scene_memories(
+                transcript="whole scene transcript",
+                cast=cast,
+                scene_id=uuid4(),
+                universe_id=uuid4(),
+                extract_for_ids=[npc_id],
+            )
+
+        assert calls == ["Vex"]
+        memories = out["memories_to_persist"]
+        assert [m["entity_id"] for m in memories] == [npc_id]
+        assert all(set(m["witnesses"]) == {pc_id, npc_id} for m in memories)
+
+    @pytest.mark.asyncio
+    async def test_scene_end_with_no_targets_extracts_nothing(self):
+        agent = ExtractionAgent(agent_id="extractor-test")
+
+        def _boom(self, *a, **k):  # pragma: no cover — must never run
+            raise AssertionError("no extraction expected")
+
+        cast = [{"entity_id": str(uuid4()), "name": "Vex", "controller": "gm"}]
+        with patch.object(MemoryExtractor, "forward_typed", _boom):
+            out = await agent.extract_scene_memories(
+                transcript="whole scene transcript",
+                cast=cast,
+                extract_for_ids=[],
+            )
+        assert out["memories_to_persist"] == []

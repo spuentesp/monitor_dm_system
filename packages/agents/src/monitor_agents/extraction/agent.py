@@ -204,11 +204,14 @@ class ExtractionAgent(BaseAgent):
         """
         Task 4/6: Extract salient character memories from the narrative prose.
 
-        With ``cast`` (Phase 4 Task 6), runs ``MemoryExtractor`` once per
-        character present — user-controlled AND GM-controlled, not only the
-        speaker — from that character's point of view, and tags every memory
-        with its owner (``entity_id``), ``universe_id``, and ``witnesses``
-        (the cast present when the memory formed, Task 8).
+        Per-turn extraction runs for the acting/speaking character only
+        (join Task 2 — one model call per turn, as before Phase 4). With
+        ``cast``, the acting member is the one marked ``is_speaker`` (or the
+        member matching ``actor_context``), and every memory is tagged with
+        its owner (``entity_id``), ``universe_id``, and ``witnesses`` (the
+        whole cast present, Task 8). The cast members who never act get
+        their own summary memory at scene end instead — see
+        ``extract_scene_memories``.
 
         Without ``cast``, keeps the legacy single-actor behavior and output
         contract exactly.
@@ -217,10 +220,10 @@ class ExtractionAgent(BaseAgent):
             return {"memories_to_persist": []}
 
         resolution_text = str(resolution.get("success_level") if resolution else "narrative")
-        extractor = MemoryExtractor()
 
         if not cast:
             # Legacy single-actor path — output contract unchanged.
+            extractor = MemoryExtractor()
             actor_name = actor_context.get("name") or "the character"  # type: ignore[union-attr]
             try:
                 memories = await anyio.to_thread.run_sync(
@@ -234,11 +237,39 @@ class ExtractionAgent(BaseAgent):
                 return {"memories_to_persist": []}
             return {"memories_to_persist": memories}
 
-        # Phase 4 (Task 6): one extraction per present character, typed,
-        # from each one's point of view, with provenance tags.
+        # Per turn: the acting/speaking character only (join Task 2).
         witnesses = [str(m.get("entity_id")) for m in cast if m.get("entity_id")]
-        targets = [m for m in cast if m.get("entity_id") and m.get("name")]
+        speaker = next((m for m in cast if m.get("is_speaker")), None)
+        if speaker is None and isinstance(actor_context, dict) and actor_context.get("id"):
+            actor_key = str(actor_context.get("id"))
+            speaker = next((m for m in cast if str(m.get("entity_id") or "") == actor_key), None)
+        if speaker is None or not speaker.get("entity_id"):
+            return {"memories_to_persist": []}
+        return await self._extract_for_members(
+            narrative_text=narrative_text,
+            resolution_text=resolution_text,
+            targets=[speaker],
+            witnesses=witnesses,
+            scene_id=scene_id,
+            universe_id=universe_id,
+        )
 
+    async def _extract_for_members(
+        self,
+        *,
+        narrative_text: str,
+        resolution_text: str,
+        targets: list[dict[str, Any]],
+        witnesses: list[str],
+        scene_id: UUID | None,
+        universe_id: UUID | None,
+    ) -> dict[str, Any]:
+        """One typed ``MemoryExtractor`` call per target member, from that
+        member's point of view, tagged with owner, universe and witnesses.
+        A failed call is recorded (RoleplayErrorRecorder) and skipped; the
+        remaining members still run.
+        """
+        extractor = MemoryExtractor()
         memories_out: list[dict[str, Any]] = []
         for member in targets:
             actor_name = str(member.get("name") or "the character")
@@ -249,7 +280,7 @@ class ExtractionAgent(BaseAgent):
                     resolution_text,
                     actor_name,
                 )
-            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in extract_memories)
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _extract_for_members)
                 logger.warning("Memory extraction failed for %s", actor_name, exc_info=True)
                 continue
             if not result.parse_ok:
@@ -279,25 +310,35 @@ class ExtractionAgent(BaseAgent):
         scene_id: UUID | None = None,
         story_id: UUID | None = None,
         universe_id: UUID | None = None,
+        extract_for_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """
         Scene-end extraction (Phase 4 Task 6): one ``MemoryExtractor`` call
         per cast member over the whole scene transcript, from that member's
         point of view, persisted under its ``entity_id`` and ``universe_id``.
 
-        The live graph's per-turn ``extract_memories`` node already extracts
-        for every present character on every turn; this helper is the
-        once-per-scene summary pass. It is called from the scene-end
-        choreography (``complete_current_scene``) — see the Phase 4 report
-        for the exact wiring the scene-end owner must add.
+        ``extract_for_ids`` narrows the extraction to a subset of the cast
+        (join Task 2: the members who never acted in the scene — GM NPCs
+        present and user characters that never spoke); ``witnesses`` on each
+        memory is still the whole cast present. ``None`` extracts for every
+        member. The scene-end choreography (``complete_current_scene``)
+        calls this once per scene.
         """
         if not transcript or not cast:
             return {"memories_to_persist": []}
-        return await self.extract_memories(
+        targets = cast
+        if extract_for_ids is not None:
+            wanted = {str(i) for i in extract_for_ids}
+            targets = [m for m in cast if str(m.get("entity_id") or "") in wanted]
+        if not targets:
+            return {"memories_to_persist": []}
+        resolution_text = str(resolution.get("success_level") if resolution else "narrative")
+        witnesses = [str(m.get("entity_id")) for m in cast if m.get("entity_id")]
+        return await self._extract_for_members(
             narrative_text=transcript,
-            actor_context=None,
-            resolution=resolution,
-            cast=cast,
+            resolution_text=resolution_text,
+            targets=targets,
+            witnesses=witnesses,
             scene_id=scene_id,
             universe_id=universe_id,
         )

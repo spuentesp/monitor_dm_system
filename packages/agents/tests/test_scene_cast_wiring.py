@@ -11,7 +11,7 @@ from __future__ import annotations
 import types
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -32,12 +32,16 @@ class _StubFactory:
             extract_memories=AsyncMock(return_value={"memories_to_persist": []}),
             extract_facts=AsyncMock(return_value={}),
         )
+        self._canonkeeper = types.SimpleNamespace(end_scene=AsyncMock(return_value=None))
 
     def create_narrator(self) -> Any:
         return self._narrator
 
     def create_extractor(self) -> Any:
         return self._extractor
+
+    def create_canonkeeper(self) -> Any:
+        return self._canonkeeper
 
 
 class _SpyCallTool:
@@ -211,11 +215,147 @@ class TestExtractMemoriesNode:
             await sl.extract_memories(state)
 
         kwargs = extract.await_args.kwargs
-        # Task 6: every present character — user and GM — not only the speaker.
+        # Join task 2: the node hands the extractor the full cast (witnesses),
+        # and the extractor picks the acting/speaking member only.
         assert {m["entity_id"] for m in kwargs["cast"]} == {PC1, PC2, NPC1}
         assert kwargs["scene_id"] == scene_id
         assert kwargs["universe_id"] == state.universe_id
         assert kwargs["narrative_text"] == "prose"
+
+
+class TestSceneEndMemoryPass:
+    """Scene end: one summary memory per cast member who never acted
+    (join Task 2). Both scene-end paths (automatic routing and
+    ``SceneLoop.finalize``) reach ``complete_current_scene``."""
+
+    @pytest.mark.asyncio
+    async def test_the_scene_end_pass_extracts_for_the_non_actors(self):
+        from datetime import UTC, datetime
+
+        scene_id = uuid4()
+        scene_cast = build_cast(
+            controlled_ids=[PC1, PC2],
+            speaker_id=PC1,
+            npc_profiles={NPC1: {"name": "Vex"}},
+            scene_id=str(scene_id),
+        )
+        state = _state(
+            scene_id,
+            cast=scene_cast,
+            scene_actors=[PC1],  # Ana acted; Bor and Vex never spoke
+            narrative_text="the last prose",
+            previous_turns=[{"speaker": "Ana", "text": "I search the room"}],
+            time_ref=datetime(1012, 3, 1, 9, 0, tzinfo=UTC),
+        )
+        extract_scene = AsyncMock(
+            return_value={
+                "memories_to_persist": [
+                    {
+                        "text": "Vex watched Ana search",
+                        "importance": 5,
+                        "entity_id": NPC1,
+                        "universe_id": str(state.universe_id),
+                        "witnesses": [PC1, PC2, NPC1],
+                    },
+                    {
+                        "text": "Bor was not there",
+                        "importance": 3,
+                        "entity_id": PC2,
+                        "universe_id": str(state.universe_id),
+                        "witnesses": [PC1, PC2, NPC1],
+                    },
+                ]
+            }
+        )
+        extractor = types.SimpleNamespace(
+            extract_new_entities=AsyncMock(return_value={}),
+            extract_memories=AsyncMock(return_value={"memories_to_persist": []}),
+            extract_facts=AsyncMock(return_value={}),
+            extract_scene_memories=extract_scene,
+        )
+        create_memory_mock = MagicMock(return_value=None)
+
+        with (
+            patch.object(sl, "get_agent_factory", lambda: _StubFactory(None, extractor)),
+            patch("monitor_agents.agent_factory.get_agent_factory", lambda: _StubFactory(None, extractor)),
+            patch("monitor_data.tools.mongodb_tools.mongodb_create_memory", create_memory_mock),
+        ):
+            result = await sl.complete_current_scene(state)
+
+        # The scene transition is unaffected.
+        assert result["scene_complete"] is True
+        # One call for the whole scene, narrowed to the members who never acted.
+        assert extract_scene.await_count == 1
+        kwargs = extract_scene.await_args.kwargs
+        assert set(kwargs["extract_for_ids"]) == {PC2, NPC1}
+        assert {m["entity_id"] for m in kwargs["cast"]} == {PC1, PC2, NPC1}
+        assert "I search the room" in kwargs["transcript"]
+        assert "the last prose" in kwargs["transcript"]
+        # Persisted under each owner with witnesses, universe_id and time_ref.
+        assert create_memory_mock.call_count == 2
+        by_owner = {call.args[0].entity_id: call.args[0] for call in create_memory_mock.call_args_list}
+        assert set(by_owner) == {UUID(PC2), UUID(NPC1)}
+        vex = by_owner[UUID(NPC1)]
+        assert vex.universe_id == state.universe_id
+        assert set(vex.witnesses) == {UUID(PC1), UUID(PC2), UUID(NPC1)}
+        assert vex.metadata["time_ref"].startswith("1012-03-01T09:00")
+
+    @pytest.mark.asyncio
+    async def test_a_failed_scene_end_pass_does_not_block_the_transition(self):
+        scene_id = uuid4()
+        scene_cast = build_cast(
+            controlled_ids=[PC1],
+            speaker_id=PC1,
+            npc_profiles={NPC1: {"name": "Vex"}},
+            scene_id=str(scene_id),
+        )
+        state = _state(scene_id, cast=scene_cast, scene_actors=[PC1])
+        extractor = types.SimpleNamespace(
+            extract_new_entities=AsyncMock(return_value={}),
+            extract_memories=AsyncMock(return_value={"memories_to_persist": []}),
+            extract_facts=AsyncMock(return_value={}),
+            extract_scene_memories=AsyncMock(side_effect=RuntimeError("mcp down")),
+        )
+        record_mock = AsyncMock(return_value=None)
+
+        with (
+            patch.object(sl, "get_agent_factory", lambda: _StubFactory(None, extractor)),
+            patch("monitor_agents.agent_factory.get_agent_factory", lambda: _StubFactory(None, extractor)),
+            patch.object(sl.RoleplayErrorRecorder, "record", record_mock),
+        ):
+            result = await sl.complete_current_scene(state)
+
+        assert result["scene_complete"] is True
+        # The failure is recorded, not swallowed silently.
+        assert record_mock.await_count == 1
+        assert "scene_end_memory_extraction_failed" in record_mock.await_args.kwargs["message"]
+
+    @pytest.mark.asyncio
+    async def test_a_member_who_acted_gets_no_second_scene_memory(self):
+        scene_id = uuid4()
+        scene_cast = build_cast(
+            controlled_ids=[PC1],
+            speaker_id=PC1,
+            scene_id=str(scene_id),
+        )
+        state = _state(scene_id, cast=scene_cast, scene_actors=[PC1], narrative_text="prose")
+        extract_scene = AsyncMock(return_value={"memories_to_persist": []})
+        extractor = types.SimpleNamespace(
+            extract_new_entities=AsyncMock(return_value={}),
+            extract_memories=AsyncMock(return_value={"memories_to_persist": []}),
+            extract_facts=AsyncMock(return_value={}),
+            extract_scene_memories=extract_scene,
+        )
+
+        with (
+            patch.object(sl, "get_agent_factory", lambda: _StubFactory(None, extractor)),
+            patch("monitor_agents.agent_factory.get_agent_factory", lambda: _StubFactory(None, extractor)),
+            patch("monitor_data.tools.mongodb_tools.mongodb_create_memory", MagicMock(return_value=None)),
+        ):
+            await sl.complete_current_scene(state)
+
+        # Everyone present acted — no scene-end extraction runs at all.
+        assert extract_scene.await_count == 0
 
 
 class TestPersistMemoriesNode:

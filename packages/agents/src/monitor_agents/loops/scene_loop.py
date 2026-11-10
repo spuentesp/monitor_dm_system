@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import structlog
 
+import anyio
 import contextlib
 import functools
 import logging
@@ -188,6 +189,83 @@ def _scene_actors_with(previous: list[str] | None, actor_id: UUID | None) -> lis
         if key not in actors:
             actors.append(key)
     return actors
+
+
+def _scene_transcript(state: SceneState) -> str:
+    """The scene's prose so far: the recorded turns plus the current
+    narration — the text the scene-end memory pass reads (join Task 2)."""
+    parts: list[str] = []
+    for turn in state.previous_turns or []:
+        if not isinstance(turn, dict):
+            continue
+        text = str(turn.get("text") or "").strip()
+        if not text:
+            continue
+        speaker = str(turn.get("speaker") or "").strip()
+        parts.append(f"{speaker}: {text}" if speaker else text)
+    current = str(state.narrative_text or "").strip()
+    if current and current not in parts:
+        parts.append(current)
+    return "\n\n".join(parts)
+
+
+def _to_uuid(raw: Any) -> UUID | None:
+    try:
+        return UUID(str(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _memory_create(
+    state: SceneState,
+    entry: dict[str, Any],
+    *,
+    owner_id: UUID,
+    universe_id: UUID,
+    witness_ids: list[str],
+) -> Any:
+    """Build the ``MemoryCreate`` for one extracted memory entry.
+
+    Shared by the per-turn ``persist_memories_node`` and the scene-end pass
+    in ``complete_current_scene``, so both store the same shape: owner
+    ``entity_id``, ``universe_id``, typed ``witnesses`` plus the metadata
+    carriers, and the in-world ``time_ref``.
+    """
+    from monitor_data.schemas.memories import MemoryCreate
+
+    raw_importance = entry.get("importance", 5)
+    try:
+        importance_float = float(raw_importance)
+    except (TypeError, ValueError):
+        importance_float = 5.0
+    importance_float = importance_float / 10.0 if importance_float > 1 else importance_float
+    try:
+        valence = float(entry.get("emotional_valence", 0.0))
+    except (TypeError, ValueError):
+        valence = 0.0
+    metadata: dict[str, Any] = {
+        "story_id": str(state.story_id),
+        # Witnesses also ride in metadata: today's mongodb_create_memory
+        # persists ``metadata`` verbatim while the typed ``witnesses`` column
+        # is stored alongside it (see the Phase 4 report).
+        "witnesses": witness_ids,
+        "viewpoint_entity_id": str(owner_id),
+    }
+    # The memory records when it happened in the world's own clock (Phase 3
+    # Task 6), so it can be placed on a timeline later.
+    time_raw = entry.get("time_ref") or state.time_ref
+    if time_raw is not None:
+        metadata["time_ref"] = time_raw.isoformat() if isinstance(time_raw, datetime) else str(time_raw)
+    return MemoryCreate(
+        universe_id=universe_id,
+        entity_id=owner_id,
+        scene_id=state.scene_id,
+        text=str(entry.get("text") or "").strip(),
+        importance=min(1.0, max(0.0, importance_float)),
+        emotional_valence=max(-1.0, min(1.0, valence)),
+        witnesses=[u for u in (_to_uuid(w) for w in witness_ids) if u is not None],
+        metadata=metadata,
+    )
 
 
 def _stamp_time_ref(proposal: dict[str, Any], when: datetime) -> dict[str, Any]:
@@ -1070,9 +1148,11 @@ async def extract_memories(state: SceneState) -> dict[str, Any]:
     """
     Task 4/6: Extract salient character memories from the narrative prose.
 
-    Phase 4 (Task 6): runs once per character present — user-controlled AND
-    GM-controlled, not only the speaker — from each one's point of view,
-    tagged with its ``entity_id``, ``universe_id``, and the cast witnesses.
+    Per turn this extracts for the acting/speaking character only (join
+    Task 2 — one model call per turn, as before Phase 4). The cast members
+    who never act in the scene get their own summary memory at scene end
+    instead (``complete_current_scene``). Every memory is tagged with its
+    owner ``entity_id``, ``universe_id``, and the cast witnesses.
     """
     factory = get_agent_factory()
     agent = factory.create_extractor()
@@ -1386,16 +1466,9 @@ async def persist_memories_node(state: SceneState) -> dict[str, Any]:
     if not state.memories_to_persist:
         return {}
 
-    from monitor_data.schemas.memories import MemoryCreate
     from monitor_data.tools.mongodb_tools import mongodb_create_memory
 
     import anyio
-
-    def _to_uuid(raw: str) -> UUID | None:
-        try:
-            return UUID(raw)
-        except (TypeError, ValueError):
-            return None
 
     persisted = 0
     failed: list[dict[str, Any]] = []
@@ -1423,39 +1496,12 @@ async def persist_memories_node(state: SceneState) -> dict[str, Any]:
             owner_id = UUID(str(owner_raw))
             universe_id = UUID(str(universe_raw))
             witness_ids = [str(w) for w in (entry.get("witnesses") or []) if str(w).strip()]
-            raw_importance = entry.get("importance", 5)
-            try:
-                importance_float = float(raw_importance)
-            except (TypeError, ValueError):
-                importance_float = 5.0
-            importance_float = importance_float / 10.0 if importance_float > 1 else importance_float
-            try:
-                valence = float(entry.get("emotional_valence", 0.0))
-            except (TypeError, ValueError):
-                valence = 0.0
-            metadata: dict[str, Any] = {
-                "story_id": str(state.story_id),
-                # Witnesses also ride in metadata: today's
-                # mongodb_create_memory persists ``metadata`` verbatim
-                # while the typed ``witnesses`` column is not yet stored
-                # by the write tool (see Phase 4 report).
-                "witnesses": witness_ids,
-                "viewpoint_entity_id": str(owner_id),
-            }
-            # The memory records when it happened in the world's own clock
-            # (Phase 3 Task 6), so it can be placed on a timeline later.
-            time_raw = entry.get("time_ref") or state.time_ref
-            if time_raw is not None:
-                metadata["time_ref"] = time_raw.isoformat() if isinstance(time_raw, datetime) else str(time_raw)
-            params = MemoryCreate(
+            params = _memory_create(
+                state,
+                entry,
+                owner_id=owner_id,
                 universe_id=universe_id,
-                entity_id=owner_id,
-                scene_id=state.scene_id,
-                text=text,
-                importance=min(1.0, max(0.0, importance_float)),
-                emotional_valence=max(-1.0, min(1.0, valence)),
-                witnesses=[u for u in (_to_uuid(w) for w in witness_ids) if u is not None],
-                metadata=metadata,
+                witness_ids=witness_ids,
             )
             await anyio.to_thread.run_sync(mongodb_create_memory, params)
             persisted += 1
@@ -1494,11 +1540,19 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
 
     Called when scene_complete=True. Handles:
     1. Persist any remaining memories (belt-and-suspenders, should already be done)
+    1b. One scene summary memory per cast member who never acted in the
+       scene (join Task 2) — GM-controlled NPCs present and user characters
+       that never spoke
     2. Advance story state (scenes_completed++, in_game_time)
     3. Stamp the scene's in-game time on the proposals, so every fact and
        event canonized from them carries the time it happened at
     4. Check a flashback scene against the canon's chronology
     5. Signal scene ending (CanonKeeper.end_scene placeholder)
+
+    Both scene-end paths reach this node: the automatic path (the routing
+    after a turn completes the scene) and the explicit end-scene path
+    (``SceneLoop.finalize``). Failures in the memory pass are recorded
+    (RoleplayErrorRecorder) and never block the scene transition.
     """
     from datetime import timedelta
 
@@ -1529,6 +1583,79 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
             updates["memories_to_persist"] = []
         except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in complete_current_scene)
             logger.warning("Failed to persist memories in complete_current_scene: %s", e)
+
+    # 1b. Scene-end memory pass (join Task 2): the cast members who never
+    # acted in this scene — GM-controlled NPCs present and user characters
+    # that never spoke — get one summary memory of the scene each, from
+    # their own point of view, under their own entity id. The acting
+    # character's memories were already extracted per turn.
+    from monitor_agents.cast import cast_from_state
+
+    scene_cast = cast_from_state(state)
+    acted = {str(a) for a in (state.scene_actors or [])}
+    non_actors = [m for m in scene_cast.members if m.entity_id not in acted]
+    if non_actors:
+        scene_memories: dict[str, Any] = {}
+        try:
+            extractor = get_agent_factory().create_extractor()
+            scene_memories = await extractor.extract_scene_memories(
+                transcript=_scene_transcript(state),
+                cast=[m.model_dump(mode="json") for m in scene_cast.members],
+                scene_id=state.scene_id,
+                story_id=state.story_id,
+                universe_id=state.universe_id,
+                extract_for_ids=[m.entity_id for m in non_actors],
+            )
+        except Exception as e:  # noqa: BLE001  # reason: recorded below, the scene transition proceeds (in complete_current_scene)
+            logger.warning("Scene-end memory extraction failed (non-fatal): %s", e)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=f"scene_end_memory_extraction_failed: {e}",
+                fatal=False,
+                universe_id=getattr(state, "universe_id", None),
+                story_id=state.story_id,
+                scene_id=state.scene_id,
+                entity_id=state.actor_id,
+            )
+
+        from monitor_data.tools.mongodb_tools import mongodb_create_memory
+
+        for memory in scene_memories.get("memories_to_persist") or []:
+            if not isinstance(memory, dict) or not str(memory.get("text") or "").strip():
+                continue
+            entry = dict(memory)
+            if scene_time is not None:
+                entry.setdefault("time_ref", scene_time)
+            owner_raw = entry.get("entity_id")
+            universe_raw = entry.get("universe_id") or state.universe_id
+            if not owner_raw or not universe_raw:
+                logger.warning("scene-end memory without owner or universe; skipping")
+                continue
+            witness_ids = [str(w) for w in (entry.get("witnesses") or []) if str(w).strip()]
+            try:
+                params = _memory_create(
+                    state,
+                    entry,
+                    owner_id=UUID(str(owner_raw)),
+                    universe_id=UUID(str(universe_raw)),
+                    witness_ids=witness_ids,
+                )
+                await anyio.to_thread.run_sync(mongodb_create_memory, params)
+            except Exception as e:  # noqa: BLE001  # reason: recorded below, the remaining entries still persist (in complete_current_scene)
+                logger.warning("Scene-end memory persist failed (non-fatal): %s", e)
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.SCENE_LOOP,
+                    category=RoleplayErrorCategory.MEMORY_PERSIST_NOT_FOUND
+                    if isinstance(e, ValueError)
+                    else RoleplayErrorCategory.UNKNOWN,
+                    message=f"scene_end_memory_persist_failed: {e}",
+                    fatal=False,
+                    universe_id=getattr(state, "universe_id", None),
+                    story_id=state.story_id,
+                    scene_id=state.scene_id,
+                    entity_id=state.actor_id,
+                )
 
     # 2. Advance story state
     if state.story_state:
@@ -1563,8 +1690,6 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
     # 5. Scene-end bookkeeping via CanonKeeper.end_scene()
     # Best-effort: failure here must not block scene completion.
     try:
-        from monitor_agents.agent_factory import get_agent_factory
-
         ck = get_agent_factory().create_canonkeeper()
         await ck.end_scene(
             scene_id=state.scene_id,
