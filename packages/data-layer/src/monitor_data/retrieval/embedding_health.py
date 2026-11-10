@@ -214,7 +214,19 @@ class EmbeddingHealthChecker:
         if self._base_url:
             kwargs["api_base"] = self._base_url
         try:
+            from monitor_data.usage import (
+                enforce_owner_quota_async,
+                record_model_usage_async,
+                tokens_from_response,
+            )
+
+            await enforce_owner_quota_async()
             resp = await litellm.aembedding(**kwargs)
+            usage_tokens = tokens_from_response(resp)
+            await record_model_usage_async(
+                tokens=(usage_tokens[0] + usage_tokens[1]) if usage_tokens else 2,
+                calls=1,
+            )
         except Exception as exc:  # noqa: BLE001  # reason: falls back to `None, f"embed probe failed: {exc}"` on failure (in _probe_embed)
             return None, f"embed probe failed: {exc}"
 

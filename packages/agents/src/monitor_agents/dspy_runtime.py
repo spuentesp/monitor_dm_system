@@ -506,6 +506,68 @@ def _model_string_for_dspy(client: LLMClient) -> str:
     return f"openai/{client.model}"
 
 
+# ---------------------------------------------------------------------------
+# Per-model-call usage accounting (multi-tenancy)
+# ---------------------------------------------------------------------------
+# One small helper plus one call site (the ``@_track_model_usage`` line on
+# ``CachedDSPyLM.__call__``): every model call checks the acting owner's
+# daily cap first (typed ``QuotaExceededError`` at the cap) and records its
+# prompt/completion tokens plus one call afterward. No owner in context
+# (local mode, scripts, ingestion workers, tests) means no accounting —
+# existing behavior is unchanged there. A failed usage write is logged and
+# recorded, never raised into the turn.
+# ---------------------------------------------------------------------------
+
+
+def _estimate_call_tokens(
+    model: str,
+    prompt: str | None,
+    messages: list[dict] | None,
+    result: Any,
+) -> tuple[int, int]:
+    """(prompt_tokens, completion_tokens) for one model call.
+
+    Prefers litellm's offline token counter and falls back to a chars/4
+    estimate so accounting can never raise into the turn.
+    """
+    import litellm
+
+    def _count(text: str) -> int:
+        try:
+            return int(litellm.token_counter(model=model, text=text))
+        except Exception:  # noqa: BLE001  # reason: estimation must never fail the call it describes
+            return max(1, len(text) // 4)
+
+    prompt_text = prompt or ""
+    if messages:
+        try:
+            prompt_tokens = int(litellm.token_counter(model=model, messages=messages))
+        except Exception:  # noqa: BLE001  # reason: estimation must never fail the call it describes
+            prompt_tokens = _count("".join(str(m.get("content", "")) for m in messages))
+    else:
+        prompt_tokens = _count(prompt_text)
+    outputs = result if isinstance(result, list) else [result]
+    completion_tokens = _count("".join(str(part or "") for part in outputs))
+    return prompt_tokens, completion_tokens
+
+
+def _track_model_usage(fn):  # type: ignore[no-untyped-def]
+    """Wrap ``CachedDSPyLM.__call__``: quota check before, usage record after."""
+    import functools
+
+    from monitor_data.usage import enforce_owner_quota, record_model_usage
+
+    @functools.wraps(fn)
+    def wrapper(self: Any, prompt: Any = None, messages: Any = None, **call_kwargs: Any) -> Any:
+        enforce_owner_quota()
+        result = fn(self, prompt=prompt, messages=messages, **call_kwargs)
+        prompt_tokens, completion_tokens = _estimate_call_tokens(self.model, prompt, messages, result)
+        record_model_usage(tokens=prompt_tokens + completion_tokens, calls=1)
+        return result
+
+    return wrapper
+
+
 def get_dspy_lm(
     node_name: str,
     role: ModelRole | None = None,
@@ -579,6 +641,7 @@ def get_dspy_lm(
             self.node_name = kwargs.pop("monitor_node_name", "")
             super().__init__(model, **kwargs)
 
+        @_track_model_usage
         def __call__(self, prompt=None, messages=None, **call_kwargs):
             if messages and isinstance(messages, list) and "anthropic" in self.model.lower():
                 for m in messages:

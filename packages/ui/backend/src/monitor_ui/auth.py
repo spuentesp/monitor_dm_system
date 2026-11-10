@@ -24,7 +24,6 @@ per-route wiring.
 from __future__ import annotations
 
 import asyncio
-import os
 import secrets
 import time
 from collections import deque
@@ -39,6 +38,8 @@ from fastapi import Depends, HTTPException, Request, WebSocket, WebSocketExcepti
 from monitor_data.db.postgres import PostgresClient, get_postgres_client
 from monitor_data.schemas.users import UserResponse
 from monitor_data.security import hash_password, hash_token
+from monitor_data.tenancy import set_owner_id as set_context_owner_id
+from monitor_data import usage as usage_accounting
 
 from monitor_ui.config import UISettings, get_settings
 
@@ -256,15 +257,25 @@ async def resolve_principal(
 
     Shared by the HTTP dependency and the WebSocket handler so both surfaces
     enforce identical rules: bearer token first, then session cookie, else 401.
+
+    Also binds the acting owner to the request/turn context
+    (``monitor_data.tenancy``) for the duration of the authenticated work, so
+    the agent and data layers can assert ownership and account usage. In
+    auth-disabled local mode the owner is explicitly unbound (no assertion,
+    no accounting).
     """
     if settings.monitor_auth_disabled:
+        set_context_owner_id(None)
         return await _local_principal(db)
     if authorization and authorization.lower().startswith("bearer "):
-        return await _principal_from_api_token(db, authorization[7:].strip())
-    session_cookie = cookies.get(settings.auth_session_cookie)
-    if session_cookie:
-        return await _principal_from_session(db, session_cookie)
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+        principal = await _principal_from_api_token(db, authorization[7:].strip())
+    else:
+        session_cookie = cookies.get(settings.auth_session_cookie)
+        if not session_cookie:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+        principal = await _principal_from_session(db, session_cookie)
+    set_context_owner_id(principal.user_id)
+    return principal
 
 
 async def get_current_user(
@@ -341,84 +352,49 @@ async def require_admin(principal: Principal = Depends(get_current_user)) -> Pri
 # Daily caps come from ``MONITOR_DAILY_TOKEN_CAP`` / ``MONITOR_DAILY_CALL_CAP``
 # (unset = no cap); a per-user override row (``user_usage_limits``, admin-
 # managed) wins over the env defaults. Admins and the auth-disabled local
-# account are never capped. Every model-spending request charges one call
-# through ``usage_quota_guard``; real token counts are added by the LLM layer
-# via ``PostgresClient.usage_record`` (see MULTI_TENANCY_PLAN.md).
+# account are never capped.
+#
+# Spending is counted PER MODEL CALL (not per HTTP request): every model call
+# records one call plus its prompt/completion tokens through
+# ``monitor_data.usage.record_model_usage``, and the next model call fails
+# with ``QuotaExceededError`` at the cap (mapped to a readable 429 here and
+# to a readable error event on the chat WebSocket). ``usage_quota_guard`` is
+# the pre-request face of the same check — it no longer charges per request,
+# which would double-count against the per-model-call accounting.
 
-QUOTA_TOKEN_CAP_ENV = "MONITOR_DAILY_TOKEN_CAP"
-QUOTA_CALL_CAP_ENV = "MONITOR_DAILY_CALL_CAP"
-
-_quota_env_warned: set[str] = set()
+QUOTA_TOKEN_CAP_ENV = usage_accounting.QUOTA_TOKEN_CAP_ENV
+QUOTA_CALL_CAP_ENV = usage_accounting.QUOTA_CALL_CAP_ENV
 
 
 def _env_cap(name: str) -> int | None:
     """Parse a daily-cap env var. Unset or invalid = no cap (warn once)."""
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return None
-    try:
-        value = int(raw)
-    except ValueError:
-        if name not in _quota_env_warned:
-            _quota_env_warned.add(name)
-            log.warning("quota_env_invalid", env=name, detail="not an integer; treated as no cap")
-        return None
-    return value if value >= 0 else None
+    return usage_accounting._env_cap(name)
 
 
 async def effective_quota(principal: Principal, db: PostgresClient) -> tuple[int | None, int | None]:
     """The (token_cap, call_cap) in force for the user; ``None`` = no cap."""
-    limits = await db.usage_limit_get(principal.user_id)
-    token_cap = (limits or {}).get("daily_token_cap")
-    if token_cap is None:
-        token_cap = _env_cap(QUOTA_TOKEN_CAP_ENV)
-    call_cap = (limits or {}).get("daily_call_cap")
-    if call_cap is None:
-        call_cap = _env_cap(QUOTA_CALL_CAP_ENV)
-    return token_cap, call_cap
+    return await usage_accounting.effective_caps(db, principal.user_id)
 
 
 async def usage_quota_guard(
     principal: Principal = Depends(get_current_user),
     db: PostgresClient = Depends(get_postgres),
 ) -> None:
-    """Charge one call against the user's daily model quota (429 at the cap).
+    """Reject the request with a readable 429 when the user is over their cap.
 
-    Mounted on model-spending routes. Usage is recorded for every caller;
-    caps apply to non-admin, non-local, non-exempt users only. The error is
-    a readable 429 naming the cap and the UTC reset.
+    Mounted on model-spending routes as a cheap pre-request check on top of
+    the per-model-call enforcement in ``monitor_data.usage``. Caps apply to
+    non-admin, non-local, non-exempt users only.
     """
-    await db.usage_record(principal.user_id, calls=1)
     if principal.is_admin or is_local_mode(principal):
         return
-    limits = await db.usage_limit_get(principal.user_id)
-    if limits and limits.get("exempt"):
-        return
-    token_cap = (limits or {}).get("daily_token_cap")
-    if token_cap is None:
-        token_cap = _env_cap(QUOTA_TOKEN_CAP_ENV)
-    call_cap = (limits or {}).get("daily_call_cap")
-    if call_cap is None:
-        call_cap = _env_cap(QUOTA_CALL_CAP_ENV)
-    if call_cap is None and token_cap is None:
-        return
-    usage = await db.usage_get(principal.user_id)
-    if call_cap is not None and int(usage.get("calls", 0)) > call_cap:
+    try:
+        await usage_accounting.enforce_usage_quota(db, principal.user_id)
+    except usage_accounting.QuotaExceededError as exc:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=(
-                f"Daily model-call limit reached ({call_cap} calls). "
-                "The limit resets at 00:00 UTC. Ask an admin to raise it if you need more."
-            ),
-        )
-    if token_cap is not None and int(usage.get("tokens", 0)) >= token_cap:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=(
-                f"Daily token limit reached ({token_cap} tokens). "
-                "The limit resets at 00:00 UTC. Ask an admin to raise it if you need more."
-            ),
-        )
+            detail=exc.user_message,
+        ) from None
 
 
 # ---------------------------------------------------------------------------
