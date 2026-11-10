@@ -49,7 +49,7 @@ def get_owner_id() -> str | None:
     return _owner_id_var.get()
 
 
-def set_owner_id(owner_id: str | UUID | None) -> contextvars.Token:
+def set_owner_id(owner_id: str | UUID | None) -> contextvars.Token[str | None]:
     """Bind (or with ``None``, unbind) the acting owner for this context."""
     return _owner_id_var.set(str(owner_id) if owner_id is not None else None)
 

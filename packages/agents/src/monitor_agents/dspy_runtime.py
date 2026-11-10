@@ -551,7 +551,7 @@ def _estimate_call_tokens(
     return prompt_tokens, completion_tokens
 
 
-def _track_model_usage(fn):  # type: ignore[no-untyped-def]
+def _track_model_usage(fn):
     """Wrap ``CachedDSPyLM.__call__``: quota check before, usage record after."""
     import functools
 

@@ -51,7 +51,10 @@ class TestOwnerAssertionIntegration:
         from monitor_data.db.postgres import get_postgres_client
         from monitor_data.schemas.memories import MemoryCreate
         from monitor_data.tenancy import OwnerViolationError, set_owner_id
-        from monitor_data.tools.mongodb_tools.memories import mongodb_create_memory, mongodb_delete_memory
+        from monitor_data.tools.mongodb_tools.memories import (
+            mongodb_create_memory,
+            mongodb_delete_memory,
+        )
 
         pg = get_postgres_client()
         mongo = get_mongodb_client()
@@ -61,7 +64,11 @@ class TestOwnerAssertionIntegration:
         _create_user(pg, owner_a, f"a-{owner_a.hex[:8]}@tenancy.test")
         _create_user(pg, owner_b, f"b-{owner_b.hex[:8]}@tenancy.test")
         for world_id, owner in ((universe_a, owner_a), (universe_b, owner_b)):
-            asyncio.run(pg.world_upsert({"id": world_id, "owner_id": owner, "label": "tenancy-int", "active": True}))
+            asyncio.run(
+                pg.world_upsert(
+                    {"id": world_id, "owner_id": owner, "label": "tenancy-int", "active": True}
+                )
+            )
 
         entity_id = uuid4()
         characters = mongo.get_collection("characters")
@@ -75,7 +82,9 @@ class TestOwnerAssertionIntegration:
                 mongodb_create_memory(
                     MemoryCreate(universe_id=uuid4(), entity_id=entity_id, text="foreign write")
                 )
-            assert not mongo.get_collection("character_memories").find_one({"text": "foreign write"})
+            assert not mongo.get_collection("character_memories").find_one(
+                {"text": "foreign write"}
+            )
 
             # Matching owner: the write completes.
             created = mongodb_create_memory(
@@ -113,7 +122,9 @@ class TestUsageQuotaIntegration:
         capped, fresh = uuid4(), uuid4()
         _create_user(pg, capped, f"capped-{capped.hex[:8]}@tenancy.test")
         _create_user(pg, fresh, f"fresh-{fresh.hex[:8]}@tenancy.test")
-        asyncio.run(pg.usage_limit_set(capped, daily_token_cap=None, daily_call_cap=1, exempt=False))
+        asyncio.run(
+            pg.usage_limit_set(capped, daily_token_cap=None, daily_call_cap=1, exempt=False)
+        )
         asyncio.run(pg.usage_record(capped, tokens=0, calls=1))
 
         try:
@@ -127,4 +138,6 @@ class TestUsageQuotaIntegration:
             assert int(usage["calls"]) >= 1
         finally:
             set_owner_id(None)
-            asyncio.run(pg.usage_limit_set(capped, daily_token_cap=None, daily_call_cap=None, exempt=False))
+            asyncio.run(
+                pg.usage_limit_set(capped, daily_token_cap=None, daily_call_cap=None, exempt=False)
+            )
