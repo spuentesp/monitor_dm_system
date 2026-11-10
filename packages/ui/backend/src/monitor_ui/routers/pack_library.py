@@ -1016,7 +1016,43 @@ async def apply_pack_new_world(pack_id: str, body: ApplyNewWorldRequest) -> dict
         "errors": result["errors"],
         "review_status": result.get("review_status", "pending"),
         "status": "review_pending",
+        # Phase 2 guided start: the client may offer "prepare a starting
+        # situation" next — POST /packs/{id}/prepare-start with this universe.
+        "can_prepare_starting_situation": True,
     }
+
+
+class PrepareStartRequest(BaseModel):
+    """Body for POST /packs/{id}/prepare-start."""
+
+    universe_id: str
+
+
+@router.post("/packs/{pack_id}/prepare-start", status_code=201)
+# reason: prepare-start route returns a dynamically shaped result dictionary
+async def prepare_pack_starting_situation(pack_id: str, body: PrepareStartRequest) -> dict:  # type: ignore[type-arg]
+    """Offer after apply/new-world: run the world seed against the new universe.
+
+    An ingested book yields somewhere to stand before any play session
+    exists: 2-4 start options plus the first option's location and NPC
+    instances materialized. Plot threads attach to a story and are created
+    (with the pack's own agendas and plot threads) when the first session
+    bootstraps its story.
+    """
+    pack_uid = validate_uuid(pack_id, "pack_id")
+    universe_uid = validate_uuid(body.universe_id, "universe_id")
+    with db_op("Database unavailable"):
+        pack = mongodb_get_knowledge_pack(pack_uid)
+    if not pack:
+        raise HTTPException(404, "KnowledgePack not found")
+
+    from monitor_agents.world_seed import prepare_starting_situation
+
+    try:
+        result = await prepare_starting_situation(universe_uid, pack_ids=[str(pack_uid)])
+    except Exception as exc:
+        raise HTTPException(500, f"Could not prepare a starting situation: {exc}") from exc
+    return {"pack_id": pack_id, **result}
 
 
 class ApplyExistingWorldRequest(BaseModel):
