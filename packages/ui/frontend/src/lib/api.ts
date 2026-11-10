@@ -1952,15 +1952,15 @@ export const authApi = {
   config: () => req<AuthConfig>("/auth/config"),
   me: () => req<AuthMode>("/auth/me"),
   login: (login: string, password: string) =>
-    req<AuthUser>("/auth/login", {
+    req<AuthUser>("/auth/login", withCsrf({
       method: "POST",
       body: JSON.stringify({ login, password }),
-    }),
+    })),
   signup: (email: string, username: string, password: string, display_name = "") =>
-    req<AuthUser>("/auth/signup", {
+    req<AuthUser>("/auth/signup", withCsrf({
       method: "POST",
       body: JSON.stringify({ email, username, password, display_name }),
-    }),
+    })),
   logout: () => req<{ ok: boolean }>("/auth/logout", withCsrf({ method: "POST" })),
   /** Full-page navigation to the Google consent screen. */
   googleLoginUrl: () => apiUrl("/auth/oauth/google"),

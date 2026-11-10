@@ -327,6 +327,8 @@ def create_app() -> FastAPI:
     async def _security_headers_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         """Baseline security headers on every response (API surface only)."""
         response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
