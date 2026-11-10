@@ -188,3 +188,39 @@ class StoryTimeSeedModule(dspy.Module):  # type: ignore[misc]
                 genre=genre,
                 tech_level=tech_level,
             )
+
+
+class StoryXpAwardSignature(dspy.Signature):  # type: ignore[misc]
+    """
+    Judge how much experience a finished scene is worth, from the scene's
+    own ledger entry — what happened in it, what it changed in the world,
+    and where the arc stood.
+
+    Rules:
+    - The award is a whole number between 1 and 10. A quiet scene that
+      simply happened is worth 1; a scene that changed the world, resolved
+      a thread, or carried the arc's hardest moments is worth the most.
+    - Judge the scene described by the entry — never its word count or its
+      number of turns.
+    - Keep the reason to one line, in the voice of a GM telling the player
+      why the scene earned what it earned.
+    """
+
+    ledger_entry: str = dspy.InputField(
+        desc="The scene's ledger entry: summary, state changes, open questions, in-game start/end times, arc phase."
+    )
+    xp_award: int = dspy.OutputField(desc="Experience the scene is worth: a whole number between 1 and 10.")
+    reason: str = dspy.OutputField(desc="One line: why the scene is worth that much.")
+
+
+class StoryXpAwardModule(dspy.Module):  # type: ignore[misc]
+    """Judge a finished scene's experience award from its ledger entry."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.judge = dspy.ChainOfThought(StoryXpAwardSignature)
+
+    def forward(self, ledger_entry: str, role: ModelRole | None = None) -> dspy.Prediction:
+        # LIGHT role: one bounded judgment over one entry.
+        with dspy_context_for("story_xp_award", role or ModelRole.LIGHT):
+            return self.judge(ledger_entry=ledger_entry)

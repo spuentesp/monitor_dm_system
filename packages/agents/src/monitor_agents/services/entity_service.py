@@ -33,7 +33,26 @@ class EntityProgressionService:
 
     @staticmethod
     async def process_level_up(character_id: UUID, request: LevelUpRequest) -> LevelUpResponse:
-        """Spend accumulated XP to advance a character to the next level (P-21)."""
+        """Spend accumulated XP to advance a character to the next level (P-21).
+
+        With ``upgrade_ids``, the player's chosen upgrades from the
+        progression offer are applied first, through
+        ``ProgressionLoop.apply_upgrade`` (join task 8) — the offer-and-wait
+        contract: nothing is applied without an explicit selection here.
+        """
+        applied_upgrades: list[str] = []
+        if request.upgrade_ids:
+            if not request.universe_id:
+                raise ValueError("universe_id is required to apply chosen upgrades")
+            from monitor_agents.loops.progression_loop import ProgressionLoop
+
+            progression = ProgressionLoop(entity_id=character_id, universe_id=UUID(str(request.universe_id)))
+            applied = await progression.apply_upgrade(
+                list(request.upgrade_ids),
+                available_xp=request.available_xp,
+            )
+            applied_upgrades = [str(u.get("id")) for u in applied.get("selected_upgrades") or []]
+
         current_xp = 0
         current_level = 1
         state_id: UUID | None = None
@@ -125,6 +144,9 @@ class EntityProgressionService:
                 )
             )
 
+        message = f"Level up! {current_level} → {next_level}"
+        if applied_upgrades:
+            message += f"; applied chosen upgrades: {', '.join(applied_upgrades)}"
         return LevelUpResponse(
             entity_id=str(character_id),
             old_level=current_level,
@@ -132,7 +154,7 @@ class EntityProgressionService:
             xp_remaining=current_xp - (next_entry.xp_required if next_entry and next_entry.xp_required else 0),
             features_gained=features_gained,
             resource_increases=resource_increases,
-            message=f"Level up! {current_level} → {next_level}",
+            message=message,
         )
 
     @staticmethod

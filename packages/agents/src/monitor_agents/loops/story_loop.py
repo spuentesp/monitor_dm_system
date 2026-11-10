@@ -14,6 +14,7 @@ Flow: init_story → [scene_loop per scene] → finalize_story
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -436,29 +437,52 @@ async def _read_scene_turns(scene_id: UUID, limit: int = 100) -> list[dict[str, 
     return [turn for turn in turns if isinstance(turn, dict)]
 
 
-def _derive_scene_xp(
-    outcome: dict[str, Any],
-    *,
-    arc_label: str | None,
-    state_changes: int = 0,
-) -> int:
-    """The experience a finished scene is worth (P-21).
+# The documented bounds of one scene's experience award (P-21): a small
+# bounded range the model's judgment is clamped into.
+_XP_AWARD_MIN = 1
+_XP_AWARD_MAX = 10
 
-    The value comes from the scene that was played — how long it ran, how
-    many turns it took, what it changed in the world and how the arc stood
-    when it ended — not from a fixed number. The XP is offered to the
-    player; nothing is applied until the player chooses.
+
+async def _judge_scene_xp(ledger_entry: dict[str, Any]) -> tuple[int, str]:
+    """How much experience the finished scene is worth (P-21).
+
+    A typed LIGHT-tier model judgment (``StoryXpAwardSignature``) over the
+    scene's own ledger entry — what happened, what it changed, where the arc
+    stood — never a formula over length, turns and counters (the
+    de-heuristic principle). The award is clamped to its documented bounds
+    (1..10) and only ever offered: nothing is applied until the player
+    chooses an upgrade.
+
+    A failure is recorded (RoleplayErrorRecorder) and falls back to the
+    minimum award, so the offer still reaches the player.
     """
-    minutes = int(outcome.get("total_minutes_passed") or 0)
-    turns = int(outcome.get("turns_count") or 0)
+    from monitor_agents.story.story import StoryXpAwardModule
 
-    xp = 1  # the scene happened
-    xp += minutes // 120  # every two hours of play
-    xp += turns // 4  # every four turns
-    xp += min(2, state_changes // 2)  # for what the scene changed in the world
-    if arc_label in {"climax", "resolution"}:
-        xp += 2  # the arc's hardest scenes are worth the most
-    return max(1, xp)
+    module = StoryXpAwardModule()
+
+    def _judge() -> Any:
+        return module.forward(ledger_entry=json.dumps(ledger_entry, default=str))
+
+    try:
+        prediction = await asyncio.to_thread(_judge)
+    except Exception as exc:  # noqa: BLE001  # reason: recorded below, the offer still reaches the player (in _judge_scene_xp)
+        logger.warning("Could not judge the XP of the scene: %s", exc)
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.STORY_LOOP,
+            category=RoleplayErrorCategory.LLM,
+            message=f"scene_xp_judgement_failed: {exc}",
+            fatal=False,
+        )
+        return _XP_AWARD_MIN, "the scene happened; the model could not judge its worth"
+
+    raw = getattr(prediction, "xp_award", _XP_AWARD_MIN)
+    try:
+        award = int(raw)
+    except (TypeError, ValueError):
+        award = _XP_AWARD_MIN
+    award = max(_XP_AWARD_MIN, min(_XP_AWARD_MAX, award))
+    reason = str(getattr(prediction, "reason", "") or "").strip()
+    return award, reason
 
 
 # =============================================================================
@@ -702,17 +726,15 @@ class StoryLoop:
                 pc_id = (outcome or {}).get("actor_id")
                 if pc_id:
                     prog_loop = ProgressionLoop(entity_id=UUID(str(pc_id)), universe_id=self.universe_id)
-                    # The XP comes from the scene that was played, and nothing
-                    # is applied until the player picks an upgrade.
-                    available_xp = _derive_scene_xp(
-                        outcome or {},
-                        arc_label=arc_update.get("arc_label"),
-                        state_changes=len(ledger_entry.get("state_changes") or []),
-                    )
+                    # The XP is a model judgment over the scene's own ledger
+                    # entry (join task 8), and nothing is applied until the
+                    # player picks an upgrade.
+                    available_xp, xp_reason = await _judge_scene_xp(ledger_entry or {})
                     prog_res = await prog_loop.start(available_xp=available_xp)
                     progression_update = {
                         "progression_options": prog_res,
                         "available_xp": available_xp,
+                        "xp_reason": xp_reason,
                         "progression_pending": True,
                     }
 

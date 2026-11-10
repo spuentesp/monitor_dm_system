@@ -19,7 +19,7 @@ import json
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -580,20 +580,52 @@ class TestInGameTime:
 
 
 class TestProgressionXp:
-    def test_the_xp_comes_from_the_scene_that_was_played(self):
-        from monitor_agents.loops.story_loop import _derive_scene_xp
+    """The scene's XP is a model judgment over its ledger entry (join task 8).
 
-        quiet = _derive_scene_xp({"total_minutes_passed": 5, "turns_count": 1}, arc_label="rising_action")
-        busy = _derive_scene_xp(
-            {"total_minutes_passed": 300, "turns_count": 12},
-            arc_label="climax",
-            state_changes=4,
-        )
+    These tests replace the old formula-over-length-and-counters contract on
+    purpose: the de-heuristic principle forbids it.
+    """
 
-        assert quiet >= 1
-        assert busy > quiet
+    @pytest.mark.asyncio
+    async def test_the_xp_is_the_models_judgement_over_the_ledger_entry(self):
+        module = MagicMock()
+        module.forward.return_value = SimpleNamespace(xp_award=7, reason="the vault opened")
+        entry = {
+            "summary": "The party opened the vault",
+            "state_changes": [{"who": "Ana", "what": "opened the vault"}],
+        }
+        with patch("monitor_agents.story.story.StoryXpAwardModule", MagicMock(return_value=module)):
+            award, reason = await story_loop._judge_scene_xp(entry)
 
-    def test_the_xp_is_never_below_one(self):
-        from monitor_agents.loops.story_loop import _derive_scene_xp
+        assert award == 7
+        assert reason == "the vault opened"
+        # The real callee judged the scene's ledger entry — not counters.
+        judged = module.forward.call_args.kwargs["ledger_entry"]
+        assert "opened the vault" in judged
 
-        assert _derive_scene_xp({}, arc_label=None) == 1
+    @pytest.mark.asyncio
+    async def test_the_award_stays_within_its_documented_bounds(self):
+        for raw, expected in ((12, 10), (-3, 1), ("many", 1)):
+            module = MagicMock()
+            module.forward.return_value = SimpleNamespace(xp_award=raw, reason="r")
+            with patch("monitor_agents.story.story.StoryXpAwardModule", MagicMock(return_value=module)):
+                award, _ = await story_loop._judge_scene_xp({"summary": "s"})
+            assert award == expected
+
+    @pytest.mark.asyncio
+    async def test_a_failed_judgement_still_offers_the_minimum(self):
+        module = MagicMock()
+        module.forward.side_effect = RuntimeError("provider down")
+        record_mock = AsyncMock(return_value=None)
+
+        with (
+            patch("monitor_agents.story.story.StoryXpAwardModule", MagicMock(return_value=module)),
+            patch.object(story_loop.RoleplayErrorRecorder, "record", record_mock),
+        ):
+            award, reason = await story_loop._judge_scene_xp({"summary": "s"})
+
+        # The offer still reaches the player — and the failure is recorded,
+        # not swallowed silently.
+        assert award == 1
+        assert reason
+        assert record_mock.await_count == 1

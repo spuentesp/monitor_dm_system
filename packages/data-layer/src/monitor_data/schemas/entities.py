@@ -262,6 +262,12 @@ class LevelUpRequest(BaseModel):
 
     scene_id: str | None = None
     system_id: str | None = None
+    # Join task 8: the player's chosen upgrades from the progression offer
+    # (ProgressionLoop.apply_upgrade). Optional — a plain level-up does not
+    # carry a selection.
+    upgrade_ids: list[str] = Field(default_factory=list)
+    available_xp: int = Field(0, description="The scene's XP award being spent (bounds the selection).")
+    universe_id: str | None = Field(None, description="Universe of the chosen upgrades (required with upgrade_ids).")
 
 
 class DowntimeResponse(BaseModel):
