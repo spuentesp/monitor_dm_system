@@ -230,6 +230,21 @@ async def test_loop_records_answered_category_for_start_choice():
 
 
 @pytest.mark.asyncio
+async def test_loop_keeps_every_start_option_chip_including_surprise():
+    options = [{"option_id": f"o-{i}", "title": f"Option {i}", "location": f"Place {i}"} for i in range(4)]
+    fixed, total = build_question_plan(start_options=options, start_question_text="How begin?")
+    loop = SessionZeroLoop(
+        tone="grim",
+        system_name="S",
+        authored_questions=fixed,
+        plan_total=total,
+        start_options=options,
+    )
+    result = await loop.start()
+    assert result["suggested_answers"] == ["Option 0", "Option 1", "Option 2", "Option 3", "Surprise me"]
+
+
+@pytest.mark.asyncio
 async def test_loop_checkpoint_round_trips_question_and_chips():
     """Task 8 support: the persisted state carries the plan, the current
     question, and its chips across a backend restart."""

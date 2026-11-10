@@ -485,6 +485,10 @@ export default function PlayConsole() {
       ? rawMeta.suggested_answers.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
       : []
   )
+    // The start question's suggestions repeat the option titles — the
+    // start-option chips already show those, so only the extra ones
+    // (e.g. "Surprise me") are rendered here.
+    .filter((text) => !startOptionChips.some((chip) => chip.label === text))
     .slice(0, 3)
     .map((text) => ({
       label: text,

@@ -139,7 +139,9 @@ async def ask_question(state: SessionZeroState) -> dict[str, Any]:
         question_text = str(aq.get("question_text", "")).strip()
         if question_text:
             category = _parse_category(str(aq.get("category", "custom"))).value
-            answer_options = [str(o).strip() for o in (aq.get("answer_options") or []) if str(o).strip()][:4]
+            # The start question carries every option plus "Surprise me"
+            # (up to 5 chips); other questions stay at 2-3 suggestions.
+            answer_options = [str(o).strip() for o in (aq.get("answer_options") or []) if str(o).strip()][:6]
             # Always PRESENT an authored question; completion is decided by
             # process_answer once the count/budget is reached. Marking it
             # complete at ask-time (as the LLM path may) would skip showing
