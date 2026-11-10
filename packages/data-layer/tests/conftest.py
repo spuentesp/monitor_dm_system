@@ -11,6 +11,14 @@ TEST-1: testcontainers fixtures for Neo4j and MongoDB.
         Use the ``neo4j_container`` and ``mongodb_container`` fixtures in
         integration tests.  They are session-scoped so containers start once
         per test session and are reused across all tests.
+
+The client fixtures (``neo4j_client``, ``mongodb_client``) build their client
+with the container's own URI and credentials and install it as the module-level
+singleton.  ``monitor_data.config.settings`` is a module-level singleton built
+at import time, so exporting environment variables afterwards never reached
+the clients: a "testcontainer" test could silently talk to the compose
+database instead.  The clients are now wired explicitly and the connection is
+verified against the container before the test body runs.
 """
 
 import os
@@ -23,6 +31,8 @@ import pytest
 from testcontainers.mongodb import MongoDbContainer
 from testcontainers.neo4j import Neo4jContainer
 
+from monitor_data.config import settings
+from monitor_data.db.mongodb import MongoDBClient
 from monitor_data.db.neo4j import Neo4jClient
 from monitor_data.schemas.base import Authority, CanonLevel
 
@@ -52,28 +62,31 @@ def setup_test_env():
 # TESTCONTAINERS — Real DB integration fixtures (TEST-1)
 # =============================================================================
 
+# Credentials for the throw-away containers.  They are deliberately unlike
+# anything in .env: a client that authenticates with them can only have
+# reached the container, never the compose database.
+NEO4J_TEST_USER = "neo4j"
+NEO4J_TEST_PASSWORD = "integration-neo4j-password"
+MONGO_TEST_USER = "monitor"
+MONGO_TEST_PASSWORD = "integration-mongo-password"
+MONGO_TEST_DATABASE = "monitor_integration"
+
 
 @pytest.fixture(scope="session")
 def neo4j_container():
     """
     Start a real Neo4j container for integration tests.
 
-    Yields a running Neo4jContainer.  The bolt URI and credentials are
-    exported as environment variables so Neo4jClient picks them up via Settings.
+    Yields a running Neo4jContainer.  The image matches the compose service so
+    a CI runner reuses the layers it already pulled.
 
     Scope: session — container starts once and is shared across all tests.
     """
-    with Neo4jContainer("neo4j:5") as container:
-        bolt_url = container.get_connection_url()
-        os.environ["NEO4J_URI"] = bolt_url
-        os.environ["NEO4J_USER"] = "neo4j"
-        os.environ["NEO4J_PASSWORD"] = container.NEO4J_ADMIN_PASSWORD
-
-        # Clear the settings cache so the new URI is picked up
-        from monitor_data.config import get_settings
-
-        get_settings.cache_clear()
-
+    with Neo4jContainer(
+        "neo4j:5.15-community",
+        username=NEO4J_TEST_USER,
+        password=NEO4J_TEST_PASSWORD,
+    ) as container:
         yield container
 
 
@@ -82,48 +95,129 @@ def mongodb_container():
     """
     Start a real MongoDB container for integration tests.
 
-    Yields a running MongoDbContainer.  The MongoDB URI is exported as an
-    environment variable so MongoDBClient picks it up via Settings.
+    Yields a running MongoDbContainer.  The image matches the compose service
+    so a CI runner reuses the layers it already pulled.
 
     Scope: session — container starts once and is shared across all tests.
     """
-    with MongoDbContainer("mongo:7") as container:
-        mongodb_uri = container.get_connection_url()
-        os.environ["MONGODB_URI"] = mongodb_uri
-
-        from monitor_data.config import get_settings
-
-        get_settings.cache_clear()
-
+    with MongoDbContainer(
+        "mongo:7.0",
+        username=MONGO_TEST_USER,
+        password=MONGO_TEST_PASSWORD,
+    ) as container:
         yield container
 
 
 @pytest.fixture
-async def neo4j_client(neo4j_container) -> AsyncGenerator[Neo4jClient, None]:
+def neo4j_client(neo4j_container, monkeypatch) -> Generator[Neo4jClient, None, None]:
     """
-    Provide a connected async Neo4j client, cleaned up after each test.
+    Provide a Neo4j client bound to the test container.
+
+    The client is built with the container's own URI and credentials and is
+    installed as the module-level singleton, so the sync MCP tools
+    (``neo4j_create_entity`` and friends) reach the same container as the
+    test body instead of whatever ``NEO4J_URI`` happens to point at.
 
     Requires: ``neo4j_container`` session fixture (starts the DB).
     """
-    from monitor_data.db.neo4j import get_neo4j_client, reset_neo4j_client
+    from monitor_data.db import neo4j as neo4j_module
+    from monitor_data.db._utils import run_sync
 
-    client = await get_neo4j_client()
+    uri = neo4j_container.get_connection_url()
+    client = Neo4jClient(
+        uri=uri,
+        user=neo4j_container.username,
+        password=neo4j_container.password,
+    )
+    monkeypatch.setattr(neo4j_module, "_neo4j_client_instance", client)
+    # Point the settings singleton at the container as well, so a client
+    # created later in the test (after a reset) reaches it too.
+    monkeypatch.setattr(settings, "neo4j_uri", uri)
+    monkeypatch.setattr(settings, "neo4j_user", neo4j_container.username)
+    monkeypatch.setattr(settings, "neo4j_password", neo4j_container.password)
+
+    # Prove the client under test talks to the container: a marker written
+    # through the container's own driver must come back through the client.
+    marker_id = uuid4().hex
+    with neo4j_container.get_driver() as driver:
+        driver.execute_query(
+            "CREATE (:IntegrationTestMarker {id: $id})",
+            {"id": marker_id},
+        )
+    rows = client.execute_read(
+        "MATCH (m:IntegrationTestMarker {id: $id}) RETURN m.id AS id",
+        {"id": marker_id},
+    )
+    assert rows and rows[0]["id"] == marker_id, "the Neo4j client under test is not connected to the test container"
+
     yield client
-    await reset_neo4j_client()
+
+    run_sync(client.close())
 
 
 @pytest.fixture
-async def mongodb_client(mongodb_container):
+def mongodb_client(mongodb_container, monkeypatch) -> Generator[MongoDBClient, None, None]:
     """
-    Provide a connected async Motor MongoDB client, cleaned up after each test.
+    Provide a MongoDB client bound to the test container.
+
+    Like ``neo4j_client``, the client is installed as the module-level
+    singleton so the sync MCP tools reach the container too.
 
     Requires: ``mongodb_container`` session fixture (starts the DB).
     """
-    from monitor_data.db.mongodb import get_mongodb_client, reset_mongodb_client
+    from monitor_data.db import mongodb as mongodb_module
+    from monitor_data.db._utils import run_sync
 
-    client = await get_mongodb_client()
+    uri = mongodb_container.get_connection_url()
+    client = MongoDBClient(
+        uri=uri,
+        database=MONGO_TEST_DATABASE,
+    )
+    monkeypatch.setattr(mongodb_module, "_mongodb_client_instance", client)
+    # Point the settings singleton at the container as well, so a client
+    # created later in the test (after a reset) reaches it too.
+    monkeypatch.setattr(settings, "mongodb_uri", uri)
+    monkeypatch.setattr(settings, "mongodb_database", MONGO_TEST_DATABASE)
+
+    # Prove the client under test talks to the container.
+    marker_id = uuid4().hex
+    with mongodb_container.get_connection_client() as container_client:
+        container_client[MONGO_TEST_DATABASE]["integration_test_marker"].insert_one({"id": marker_id})
+    found = client.get_collection("integration_test_marker").find_one({"id": marker_id})
+    assert found is not None, "the MongoDB client under test is not connected to the test container"
+
     yield client
-    await reset_mongodb_client()
+
+    run_sync(client.close())
+
+
+@pytest.fixture
+async def qdrant_client() -> AsyncGenerator[Any, None]:
+    """
+    Provide the async Qdrant client with the entity and knowledge collections created.
+
+    There is no Qdrant testcontainer: this talks to the Qdrant at the
+    configured address (the compose service in the integration job) and skips
+    when none answers.  The collections are created the way the application
+    creates them, payload indexes included.
+    """
+    from monitor_data.db.qdrant import QdrantClient
+
+    url = settings.resolved_qdrant_url
+    wrapper = QdrantClient(url=url)
+    await wrapper.connect()
+    try:
+        await wrapper.get_client().get_collections()
+    except Exception as exc:  # noqa: BLE001  # reason: any connection failure means no Qdrant to test against
+        await wrapper.close()
+        pytest.skip(f"no Qdrant reachable at {url}: {exc}")
+
+    for collection_name in ("entities", "knowledge"):
+        await wrapper.ensure_collection(collection_name)
+
+    yield wrapper.get_client()
+
+    await wrapper.close()
 
 
 # =============================================================================
@@ -151,8 +245,6 @@ def mock_neo4j_client() -> Generator[Mock, None, None]:
 @pytest.fixture
 def mock_mongodb_client():
     """Provide a mock Motor MongoDB client for unit testing."""
-    from monitor_data.db.mongodb import MongoDBClient
-
     mock_client = AsyncMock(spec=MongoDBClient)
     mock_client.get_collection = Mock(return_value=AsyncMock())
     mock_client.connect = AsyncMock()

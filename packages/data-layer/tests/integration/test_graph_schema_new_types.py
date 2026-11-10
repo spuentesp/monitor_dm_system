@@ -20,7 +20,12 @@ import pytest
 
 # All tests in this module require the integration testcontainers to
 # be running (Neo4j + Qdrant). See packages/data-layer/tests/conftest.py.
-pytestmark = pytest.mark.integration
+# The per-test timeout is raised because the first test in the session also
+# pays for the Neo4j container start and the schema bootstrap.
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.timeout(300),
+]
 
 
 async def test_neo4j_bootstrap_creates_new_label_constraints(neo4j_client):
@@ -229,10 +234,11 @@ async def test_qdrant_collections_have_sub_type_payload_indexes(qdrant_client):
     assert "entities" in collection_names
     assert "knowledge" in collection_names
 
-    # Check that the payload indexes exist (the Qdrant client will
-    # raise if a payload field index doesn't exist when we try to
-    # create a point with that field; we use a small smoke test).
-    for cname in ("entities", "knowledge"):
-        coll = qdrant_client.get_collection(cname)
-        # Just verify the collection is reachable.
-        assert coll is not None
+    expected = {
+        "entities": {"sub_type", "group_type", "place_type"},
+        "knowledge": {"sub_type"},
+    }
+    for cname, fields in expected.items():
+        coll = await qdrant_client.get_collection(cname)
+        indexed = set(coll.payload_schema or {})
+        assert fields <= indexed, f"{cname} is missing payload indexes: {sorted(fields - indexed)}"
