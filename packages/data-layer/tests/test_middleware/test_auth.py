@@ -305,3 +305,32 @@ def test_authority_matrix_writes_require_canonkeeper():
     for tag_tool in ("neo4j_set_state_tags", "neo4j_update_state_tags"):
         if tag_tool in AUTHORITY_MATRIX:
             assert AUTHORITY_MATRIX[tag_tool] == ["CanonKeeper"], f"{tag_tool} should only allow CanonKeeper"
+
+
+# =============================================================================
+# TESTS: story ledger tools (join task 10)
+# =============================================================================
+
+
+def test_only_the_story_agent_appends_to_the_ledger():
+    """The campaign's ledger has one writer: the story agent (identity "story")."""
+    assert check_authority("mongodb_append_story_ledger_entry", "story") is True
+    assert check_authority("mongodb_append_story_ledger_entry", "Narrator") is False
+    assert check_authority("mongodb_append_story_ledger_entry", "CanonKeeper") is False
+    assert check_authority("mongodb_append_story_ledger_entry", "ContextAssembly") is False
+
+
+def test_the_ledger_stays_readable_by_its_readers():
+    """The list tool is fed to ContextAssembly and the recap on every scene."""
+    assert check_authority("mongodb_list_story_ledger_entries", "ContextAssembly") is True
+    assert check_authority("mongodb_list_story_ledger_entries", "RecapAgent") is True
+    assert check_authority("mongodb_list_story_ledger_entries", "Narrator") is True
+
+
+def test_the_ledger_append_is_enforced_by_require_authority():
+    """The enforcement point raises for any agent but the story agent."""
+    with pytest.raises(AuthorizationError) as excinfo:
+        require_authority("mongodb_append_story_ledger_entry", "Narrator")
+    assert excinfo.value.tool_name == "mongodb_append_story_ledger_entry"
+    # The one authorized identity passes the same gate.
+    require_authority("mongodb_append_story_ledger_entry", "story")

@@ -267,6 +267,15 @@ AUTHORITY_MATRIX = {
     "mongodb_get_story_outline": ["*"],
     "mongodb_update_story_outline": ["WorldArchitect", "Narrator"],
     # =========================================================================
+    # MONGODB OPERATIONS - Story Ledger (ST-1 / DL-4)
+    # =========================================================================
+    # Only the story agent appends (join task 10): it is the single writer of
+    # the campaign's ledger — its BaseAgent identity is "story"
+    # (``StoryAgent``, ``agent_type="story"``). Reads stay open: the ledger is
+    # fed to ContextAssembly and the recap on every scene.
+    "mongodb_append_story_ledger_entry": ["story"],
+    "mongodb_list_story_ledger_entries": ["*"],
+    # =========================================================================
     # QDRANT OPERATIONS - Vectors (DL-10)
     # =========================================================================
     "qdrant_upsert": ["Indexer"],
