@@ -6,7 +6,7 @@ Reads from the same .env as the rest of the stack.
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -92,6 +92,19 @@ class UISettings(BaseSettings):
     auth_frontend_url: str = Field(default="http://localhost:3000", alias="AUTH_FRONTEND_URL")
     oauth_state_cookie: str = Field(default="monitor_oauth_state", alias="OAUTH_STATE_COOKIE")
     oauth_state_ttl_seconds: int = Field(default=600, alias="OAUTH_STATE_TTL_SECONDS")
+
+    @field_validator("auth_cookie_secure", mode="before")
+    @classmethod
+    def _blank_cookie_secure_is_automatic(cls, value: object) -> object:
+        """Read an empty AUTH_COOKIE_SECURE as "not set".
+
+        ``env.example`` ships ``AUTH_COOKIE_SECURE=`` and documents empty as
+        automatic. Pydantic cannot parse an empty string as a boolean, so
+        without this a copied ``env.example`` stops the backend at import.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @property
     def cors_origins_list(self) -> list[str]:
