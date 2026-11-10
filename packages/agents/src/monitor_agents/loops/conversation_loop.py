@@ -39,7 +39,7 @@ import structlog
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from langgraph.graph import END, StateGraph
@@ -50,7 +50,13 @@ log = structlog.get_logger()
 
 # Re-export ConversationMode so Layer 3 (CLI) can import it from here
 # instead of directly from monitor_data.schemas.conversations.
-__all__ = ["ConversationClosedError", "ConversationMode"]
+__all__ = [
+    "ConversationClosedError",
+    "ConversationMode",
+    "LightPreset",
+    "PRESETS",
+    "get_preset",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +78,47 @@ def _normalize_conversation_change_type(change_type: str) -> str:
 
 
 _NPC_CONTEXT_LOAD_CONCURRENCY = 4
+
+
+# =============================================================================
+# PRESETS — named configuration over this loop (Phase 7, light RP)
+# =============================================================================
+
+
+class LightPreset(BaseModel):
+    """Named configuration over the ConversationLoop — never a new loop.
+
+    The "light" preset is the Conversatory default: pick a character, start
+    talking. It declares what light RP explicitly does not run — no dice, no
+    GM verdict step, no canonization prompts — and which model tier the voice
+    runs on (LIGHT by default, STANDARD when the user opts into more care).
+
+    ``stage_canon_proposals`` is the behavioral knob: light RP is "no canon,
+    just talk", so a light-preset close stages no ProposedChange documents
+    (the canon review queue stays clean) while per-turn CharacterMemory
+    writes — the character's recall — are unaffected.
+    """
+
+    name: str = "light"
+    model_tier: Literal["light", "standard"] = Field(
+        default="light",
+        description=(
+            "Model tier for the NPC voice. 'light' (default) or 'standard'. "
+            "The tier resolves through the LLM registry's npc_voice node."
+        ),
+    )
+    dice: bool = False
+    gm_verdict: bool = False
+    canonization_prompts: bool = False
+    stage_canon_proposals: bool = False
+
+
+PRESETS: dict[str, LightPreset] = {"light": LightPreset()}
+
+
+def get_preset(name: str) -> LightPreset:
+    """Resolve a named preset. Raises KeyError for unknown names."""
+    return PRESETS[name]
 
 
 # =============================================================================
@@ -136,6 +183,22 @@ class ConversationState(BaseModel):
     # directives. Applies to this conversation only; the lorebook isn't changed.
     lorebook_overrides: dict[str, bool] = Field(default_factory=dict)
 
+    # Persona display name (before " — description"). Feeds the CAST block so
+    # the player is named when the agency rule is stated. Empty when unbound.
+    player_name: str = ""
+
+    # Preset configuration (Phase 7 light RP). Defaults preserve the legacy
+    # loop behavior; a LightPreset overrides them via ConversationLoop.start.
+    preset_name: str = ""
+    model_tier: Literal["light", "standard"] = "light"
+    stage_canon_proposals: bool = True
+
+    # Streaming (Phase 7): when True, this turn's NPC memory writes are
+    # buffered into deferred_memory_writes instead of running inline, so the
+    # caller can flush them after the reply's stream completes.
+    defer_memory_writes: bool = False
+    deferred_memory_writes: list[dict[str, Any]] = Field(default_factory=list)
+
 
 # =============================================================================
 # NODES
@@ -186,6 +249,110 @@ def _extract_conversation_id(result: Any) -> UUID | None:
         return UUID(str(raw))
     except (ValueError, TypeError):
         return None
+
+
+async def _flush_memory_writes(calls: list[dict[str, Any]]) -> int:
+    """Run buffered ``_write_npc_memory`` calls through the real NPCVoice.
+
+    Each buffered entry is the exact kwargs ``respond_direct`` would have
+    passed to ``NPCVoice._write_npc_memory``; the real callee is invoked here
+    so streaming can defer the writes until the stream completes without
+    changing what gets written.
+    """
+    if not calls:
+        return 0
+    from monitor_agents.npc_voice.agent import NPCVoice
+
+    agent = NPCVoice()
+    flushed = 0
+    for kwargs in calls:
+        await NPCVoice._write_npc_memory(agent, **kwargs)
+        flushed += 1
+    return flushed
+
+
+class _DeferredMemoryWriter:
+    """Stand-in for ``NPCVoice._write_npc_memory`` while a reply streams.
+
+    Buffers the real write's keyword arguments; the loop replays them through
+    the real method via ``_flush_memory_writes`` once the stream completes.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def __call__(self, **kwargs: Any) -> None:
+        self.calls.append(kwargs)
+
+
+def _make_voice_agent(
+    model_tier: str = "light",
+    *,
+    defer_memory_writes: bool = False,
+) -> tuple[Any, _DeferredMemoryWriter | None]:
+    """Build the NPCVoice for one turn, honoring the preset's tier and memory policy.
+
+    Returns ``(agent, writer)`` where ``writer`` is the buffering stand-in when
+    memory writes are deferred (the caller must flush), else ``None``.
+    """
+    from monitor_agents.npc_voice.agent import NPCVoice
+
+    agent = NPCVoice()
+    writer: _DeferredMemoryWriter | None = None
+
+    if model_tier == "standard":
+        from monitor_agents import dspy_runtime
+        from monitor_agents.npc_voice.npc_voice import NPCDirectVoiceModule
+        from monitor_data.schemas.llm_config import ModelRole
+
+        class _TieredDirectVoiceModule(NPCDirectVoiceModule):  # type: ignore[misc]
+            """NPCDirectVoiceModule bound to the preset's model tier."""
+
+            def forward(self, *args: Any, **kwargs: Any) -> Any:
+                # Module-attribute lookup (not a captured name) so tests can
+                # patch monitor_agents.dspy_runtime.dspy_context_for.
+                with dspy_runtime.dspy_context_for("npc_voice", ModelRole.STANDARD):
+                    return self.speak(*args, **kwargs)
+
+        module = _TieredDirectVoiceModule()
+        agent._direct_module = module
+        if getattr(agent, "_direct_module", None) is not module:
+            raise RuntimeError("could not install the tiered voice module on NPCVoice")
+
+    if defer_memory_writes:
+        if not hasattr(NPCVoice, "_write_npc_memory"):
+            raise RuntimeError("NPCVoice has no _write_npc_memory; cannot defer memory writes")
+        writer = _DeferredMemoryWriter()
+        agent._write_npc_memory = writer  # type: ignore[method-assign]
+
+    return agent, writer
+
+
+def _persona_prompt_block(state: ConversationState, npc_id: UUID, npc_name: str) -> str:
+    """Render the bound persona plus the Phase 4 cast block (agency rule).
+
+    The persona goes into the prompt by name and description. The cast is
+    built with the Phase 4 builder and rendered with its own ``to_prompt_block``
+    so the single source of the agency rule (``monitor_agents.cast``) is reused:
+    the character never speaks for the user's player-controlled persona.
+    """
+    from monitor_agents.cast import build_cast
+
+    player_key = str(state.player_entity_id) if state.player_entity_id else ""
+    persona_name = state.player_name or ""
+    personas: dict[str, dict[str, Any]] = {}
+    if player_key and persona_name:
+        personas[player_key] = {"persona_id": player_key, "persona_name": persona_name}
+    cast = build_cast(
+        controlled_ids=[player_key] if player_key else [],
+        speaker_id=player_key or None,
+        actor_context={"id": player_key, "name": persona_name or "the player"} if player_key else None,
+        personas=personas,
+        npc_profiles={str(npc_id): {"name": npc_name}},
+    )
+    cast_block = cast.to_prompt_block()
+    parts = [p for p in (state.player_persona.strip(), cast_block) if p]
+    return "\n\n".join(parts)
 
 
 async def open_session(state: ConversationState) -> dict[str, Any]:
@@ -318,9 +485,10 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
     if not state.current_player_input:
         return {}
 
-    from monitor_agents.npc_voice.agent import NPCVoice
-
-    agent = NPCVoice()
+    agent, memory_writer = _make_voice_agent(
+        state.model_tier,
+        defer_memory_writes=state.defer_memory_writes,
+    )
     responses: list[dict[str, Any]] = []
     new_proposals: list[dict[str, Any]] = []
     new_turns: list[dict[str, Any]] = list(state.turns)
@@ -389,7 +557,9 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     universe_id=state.universe_id,
                     include_cross_incarnation=getattr(state, "include_cross_incarnation", False),
                     lorebook_context=lorebook_context,
-                    player_persona=state.player_persona,
+                    player_persona=_persona_prompt_block(
+                        state, npc_id, state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
+                    ),
                     character_card=state.character_card,
                     parse_directives=bool(state.lorebook_character_ids),
                 )
@@ -498,6 +668,11 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
             }
         )
 
+    # Light RP ("no canon"): drop per-turn canon proposals at the source so
+    # nothing accumulates for canonization. Memory writes are unaffected.
+    if not state.stage_canon_proposals:
+        new_proposals = []
+
     return {
         "current_npc_responses": responses,
         "npc_contexts": npc_contexts,
@@ -506,6 +681,11 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
         "pending_proposals": state.pending_proposals + new_proposals,
         "turns_count": state.turns_count + 1,
         "current_player_input": None,  # reset for next turn
+        "deferred_memory_writes": (
+            state.deferred_memory_writes + list(memory_writer.calls)
+            if memory_writer is not None
+            else state.deferred_memory_writes
+        ),
     }
 
 
@@ -661,20 +841,31 @@ async def close_session(state: ConversationState) -> dict[str, Any]:
 
     agent = NPCVoice()
 
-    # Distill session-level episodic memories and stage them alongside the
-    # per-turn state/relationship proposals.
-    proposals_to_stage = list(state.pending_proposals) + await _extract_episodic_memories(state)
+    # Safety net: memory writes deferred for streaming are flushed before the
+    # session closes, so an unstreamed close still leaves the recall intact.
+    if state.deferred_memory_writes:
+        flushed = list(state.deferred_memory_writes)
+        state.deferred_memory_writes = []
+        await _flush_memory_writes(flushed)
 
-    # Stage proposals for CanonKeeper BEFORE marking completed so failures
-    # remain recoverable via resume_conversation / end_conversation.
-    unstaged: list[dict[str, Any]] = []
-    for proposal in proposals_to_stage:
-        if not await _stage_proposal(agent, state, proposal):
-            unstaged.append(proposal)
+    if state.stage_canon_proposals:
+        # Distill session-level episodic memories and stage them alongside the
+        # per-turn state/relationship proposals.
+        proposals_to_stage = list(state.pending_proposals) + await _extract_episodic_memories(state)
 
-    if unstaged:
-        state.pending_proposals = unstaged
-        raise RuntimeError(f"Failed to stage {len(unstaged)} proposal(s) for conversation {state.conversation_id}")
+        # Stage proposals for CanonKeeper BEFORE marking completed so failures
+        # remain recoverable via resume_conversation / end_conversation.
+        unstaged: list[dict[str, Any]] = []
+        for proposal in proposals_to_stage:
+            if not await _stage_proposal(agent, state, proposal):
+                unstaged.append(proposal)
+
+        if unstaged:
+            state.pending_proposals = unstaged
+            raise RuntimeError(f"Failed to stage {len(unstaged)} proposal(s) for conversation {state.conversation_id}")
+    else:
+        # Light preset: no canonization — nothing is staged for review.
+        proposals_to_stage = []
 
     # Mark session complete only after all proposals have been safely staged.
     await agent.call_tool(
@@ -757,7 +948,10 @@ class ConversationLoop:
         lorebook_character_ids: list[str] | None = None,
         player_persona: str | None = None,
         character_card: str | None = None,
+        player_name: str | None = None,
+        preset: str | LightPreset | None = None,
     ) -> None:
+        resolved = get_preset(preset) if isinstance(preset, str) else preset
         self.state = ConversationState(
             conversation_id=conversation_id,
             universe_id=universe_id,
@@ -769,6 +963,10 @@ class ConversationLoop:
             lorebook_character_ids=lorebook_character_ids or [],
             player_persona=player_persona or "",
             character_card=character_card or "",
+            player_name=player_name or "",
+            preset_name=resolved.name if resolved else "",
+            model_tier=resolved.model_tier if resolved else "light",
+            stage_canon_proposals=True if resolved is None else resolved.stage_canon_proposals,
         )
         self._graph = build_conversation_graph().compile()
         self._closed = False
@@ -790,6 +988,8 @@ class ConversationLoop:
         lorebook_character_ids: list[str] | None = None,
         player_persona: str | None = None,
         character_card: str | None = None,
+        player_name: str | None = None,
+        preset: str | LightPreset | None = None,
     ) -> ConversationLoop:
         """Open a new ConversationSession and pre-load NPC context."""
         conversation_id = uuid4()
@@ -804,6 +1004,8 @@ class ConversationLoop:
             lorebook_character_ids=lorebook_character_ids or [],
             player_persona=player_persona,
             character_card=character_card,
+            player_name=player_name,
+            preset=preset,
         )
         # Run open_session + load_npc_context nodes
         result = await loop._graph.ainvoke(loop.state.model_dump())
@@ -840,7 +1042,7 @@ class ConversationLoop:
             },
         ]
 
-    async def step(self, player_input: str) -> list[dict[str, Any]]:
+    async def step(self, player_input: str, *, defer_memory_writes: bool = False) -> list[dict[str, Any]]:
         """
         Process one player input → return list of NPC responses.
 
@@ -851,6 +1053,10 @@ class ConversationLoop:
 
         Args:
             player_input: What the player said / asked.
+            defer_memory_writes: When True, this turn's NPC memory writes are
+                buffered instead of executed; the caller MUST call
+                ``flush_memory_writes()`` after the reply has finished
+                streaming (Phase 7: memory writes happen after the stream).
 
         Returns:
             List of dicts: [{npc_name, text, emotional_state?, canon_insight?}]
@@ -860,6 +1066,7 @@ class ConversationLoop:
 
         prior_turns = list(self.state.turns)
         self.state.current_player_input = player_input
+        self.state.defer_memory_writes = defer_memory_writes
 
         try:
             self._apply(await process_player_turn(self.state))
@@ -868,6 +1075,11 @@ class ConversationLoop:
             self.state.turns = prior_turns
             self.state.current_player_input = None
             raise
+        finally:
+            self.state.defer_memory_writes = False
+
+        if not defer_memory_writes:
+            await self.flush_memory_writes()
 
         # Honor the loop's own ceiling (max_turns / explicit completion).
         if route_after_npc_response(self.state) == "close" and not self._closed:
@@ -875,6 +1087,20 @@ class ConversationLoop:
             self._closed = True
 
         return self.state.current_npc_responses
+
+    async def flush_memory_writes(self) -> int:
+        """Execute buffered NPC memory writes through the real NPCVoice.
+
+        Returns the number of writes flushed. Called by streaming send paths
+        after the reply's stream completes; ``close_session`` also flushes any
+        leftovers as a safety net.
+        """
+        if not self.state.deferred_memory_writes:
+            return 0
+        calls = list(self.state.deferred_memory_writes)
+        self.state.deferred_memory_writes = []
+        flushed = await _flush_memory_writes(calls)
+        return flushed
 
     async def finish(self) -> list[dict[str, Any]]:
         """
