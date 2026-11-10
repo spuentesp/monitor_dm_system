@@ -30,6 +30,12 @@ class NarratorSignature(dspy.Signature):  # type: ignore[misc]
     Core GM craft rules that must never be violated:
     - Stay fully in-world. Never mention the game system, engine, or rules by name.
     - React to what the PLAYER did — do not write their next action for them.
+    - NEVER decide actions, speech, thoughts, or feelings for a character whose
+      controller is the user ([PLAYER-CONTROLLED] in the CAST input) — not even
+      for one who is not speaking right now. Narrate only what they perceive and
+      what the world does around them.
+    - Never contradict a stated NPC intent (NPC STATE block): an NPC acts on the
+      intent listed for them this beat.
     - Vary your length: simple actions get 1-2 sentences; dramatic moments get 2-3 paragraphs.
     - Failure and partial success are as interesting as victory — lean into consequences.
     - Ask one question at the end only when the situation is genuinely open; otherwise let
@@ -104,6 +110,16 @@ class NarratorSignature(dspy.Signature):  # type: ignore[misc]
 
     # ── SEMI-STATIC (changes slowly — scene entities, memories) ──
     scene_context: str = dspy.InputField(desc="JSON summary of entities, location, and active conditions in the scene")
+    cast_context: str = dspy.InputField(
+        desc=(
+            "CAST — who is who in this scene, and the agency rule. "
+            "[PLAYER-CONTROLLED] characters belong to the user: NEVER decide or write "
+            "their actions, speech, thoughts, or feelings — not even for one who is not "
+            "the current speaker; the user alone decides those. [GM-CONTROLLED] "
+            "characters are yours to play, but only from what they could know. "
+            "Empty string when no cast is available (legacy sessions)."
+        )
+    )
     memory_context: str = dspy.InputField(desc="Relevant character memories and past narrative excerpts")
     prior_turns: str = dspy.InputField(desc="Recent turn history (last N turns) for conversational continuity")
 
@@ -139,6 +155,9 @@ class NarratorSignature(dspy.Signature):  # type: ignore[misc]
         desc=(
             "Never assign the player character identity facts (clan, class, species, stats, "
             "background) that are not present in the inputs. "
+            "Never act or speak for a [PLAYER-CONTROLLED] character other than the "
+            "current speaker — no dialogue, actions, thoughts, or feelings for them. "
+            "Never contradict a stated NPC intent. "
             "GM prose in the voice set by tone_context. "
             "Length: 1-2 sentences for trivial/reaction beats; 1-2 short paragraphs for "
             "standard turns; 2-3 paragraphs for dramatic turning points. "
@@ -236,6 +255,7 @@ class NarratorModule(dspy.Module):  # type: ignore[misc]
         resolution_summary: str,
         setting_anchor: str = "",
         context_summary: str = "",
+        cast_context: str = "",
         role: ModelRole | None = None,
     ) -> dspy.Prediction:
         with dspy_context_for("narrator", role or ModelRole.HEAVY):
@@ -245,6 +265,7 @@ class NarratorModule(dspy.Module):  # type: ignore[misc]
                 game_system_context=game_system_context,
                 profile_context=profile_context,
                 scene_context=scene_context,
+                cast_context=cast_context,
                 memory_context=memory_context,
                 prior_turns=prior_turns,
                 player_action=player_action,
