@@ -55,6 +55,7 @@ from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorde
 from monitor_agents.loops.story_loop import StoryState
 from monitor_agents.narrator.agent import compute_pacing
 from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+from monitor_data.tenancy import owner_scoped
 
 log = structlog.get_logger()
 
@@ -154,7 +155,7 @@ async def _load_story_state(state: SceneState) -> StoryState | None:
     try:
         from monitor_agents.loops.story_loop import StoryLoop
 
-        loop = StoryLoop(story_id=state.story_id, universe_id=state.universe_id)
+        loop = StoryLoop(story_id=state.story_id, universe_id=state.universe_id, owner_id=state.owner_id)
         values = await loop.load_checkpoint_state()
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _load_story_state)
         logger.debug("Could not read the story checkpoint for %s: %s", state.story_id, exc)
@@ -365,6 +366,9 @@ class SceneState(BaseModel):
     universe_id: UUID | None = None
     gm_profile_id: UUID | None = None
     gm_profile: dict[str, Any] | None = None
+    # Acting owner (multi-tenancy), carried on state so nested loops and
+    # tool calls can forward it explicitly (monitor_data.tenancy).
+    owner_id: str | None = None
 
     # Context (built in load_context, read-only thereafter)
     entity_context: list[dict[str, Any]] = Field(default_factory=list)
@@ -2145,6 +2149,7 @@ class SceneLoop:
         chat_log: list[Any] | None = None,
         opening_recap: str = "",
         cast: Cast | None = None,
+        owner_id: str | UUID | None = None,
     ) -> None:
         self.scene_id = scene_id
         self.story_id = story_id
@@ -2180,12 +2185,17 @@ class SceneLoop:
         # The scene cast (who is who). Refreshed by the caller on every turn,
         # so a mid-scene speaker switch is picked up on the next turn.
         self.cast = cast
+        # The acting owner (multi-tenancy). Bound to the owner context around
+        # every turn so write-tool ownership assertions and usage accounting
+        # see it even when the loop runs outside an authenticated request.
+        self.owner_id = str(owner_id) if owner_id is not None else None
         # Task 9 (fix round 1): register an empty history so narrate can
         # append suggestions across calls within this process. The list is a
         # single shared object reference — narrate mutates it.
         _IMAGE_SUGGESTION_HISTORY.setdefault(scene_id, [])
         self._graph = build_scene_graph()
 
+    @owner_scoped
     async def run(
         self,
         user_input: str,
@@ -2209,6 +2219,7 @@ class SceneLoop:
                 scene_id=self.scene_id,
                 story_id=self.story_id,
                 universe_id=getattr(self, "universe_id", None),
+                owner_id=getattr(self, "owner_id", None),
                 gm_profile_id=getattr(self, "gm_profile_id", None),
                 user_input=user_input,
                 max_turns=self.max_turns,
@@ -2247,6 +2258,7 @@ class SceneLoop:
 
             return result
 
+    @owner_scoped
     async def finalize(self) -> None:
         """
         Force scene completion (e.g. player quits mid-scene).

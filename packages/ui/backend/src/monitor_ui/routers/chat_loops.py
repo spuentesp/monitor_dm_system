@@ -316,6 +316,9 @@ def get_scene_loop(
         # Phase 4 (Task 1): the scene cast, refreshed from the session on
         # every turn so the GM and the Narrator see the current roster.
         cast=cast,
+        # Multi-tenancy: the session's acting owner, asserted at the write
+        # tools and charged for model usage (monitor_data.tenancy).
+        owner_id=session.get("owner_id"),
     )
     _SCENE_LOOPS[session_id] = (signature, loop)
     _SCENE_LOOPS.move_to_end(session_id)
@@ -694,6 +697,7 @@ async def run_end_scene(
             story_loop = StoryLoop(
                 story_id=uuid.UUID(story_id),
                 universe_id=uuid.UUID(session["universe_id"]),
+                owner_id=session.get("owner_id"),
             )
             outcome = {"total_minutes_passed": 60}  # default 1-hour scene
             story_result = await story_loop.complete_current_scene(
@@ -867,6 +871,7 @@ async def run_start_conversation(
             scene_id=uuid.UUID(session["scene_id"]) if session.get("scene_id") else None,
             story_id=uuid.UUID(session["story_id"]) if session.get("story_id") else None,
             player_entity_id=uuid.UUID(player_id) if player_id else None,
+            owner_id=session.get("owner_id"),
         )
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in run_start_conversation)
         logger.warning("ConversationLoop.start failed: %s", exc)

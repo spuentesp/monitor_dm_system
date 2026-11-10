@@ -18,6 +18,7 @@ from monitor_data.schemas.scenes import (
     TurnCreate,
     TurnResponse,
 )
+from monitor_data.tenancy import assert_scene_write, assert_universe_write
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -102,6 +103,7 @@ def mongodb_create_scene(params: SceneCreate) -> SceneResponse:
     Raises:
         ValueError: If story_id doesn't exist in Neo4j or universe_id is invalid
     """
+    assert_universe_write(params.universe_id, resource="scene")
     mongo_client = get_mongodb_client()
     neo4j_client = get_neo4j_client()
 
@@ -296,6 +298,7 @@ def mongodb_update_scene(scene_id: UUID, params: SceneUpdate) -> SceneResponse:
     Raises:
         ValueError: If scene doesn't exist or invalid status transition
     """
+    assert_scene_write(scene_id, resource="scene")
     mongo_client = get_mongodb_client()
     scenes_collection = mongo_client.get_collection("scenes")
 
@@ -420,6 +423,7 @@ def mongodb_update_turn_resolution(
     Returns:
         True if update succeeded, False otherwise
     """
+    assert_scene_write(scene_id, resource="turn_resolution")
     from monitor_data.db.mongodb import get_mongodb_client as _get_mongodb_client
 
     mongo_client = _get_mongodb_client()
@@ -460,6 +464,7 @@ def mongodb_append_turn(scene_id: UUID, params: TurnCreate) -> TurnResponse:
     Raises:
         ValueError: If scene doesn't exist or scene is completed
     """
+    assert_scene_write(scene_id, resource="turn")
     mongo_client = get_mongodb_client()
     neo4j_client = get_neo4j_client()
     scenes_collection = mongo_client.get_collection("scenes")
