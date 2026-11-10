@@ -26,15 +26,15 @@ import asyncio
 import contextvars
 import re
 from contextlib import contextmanager
-from typing import Any, Awaitable, Callable, Iterator, NamedTuple
+from typing import Any, Callable, Coroutine, Iterator, NamedTuple
 
 import litellm
 
 log = structlog.get_logger()
 
-# One spoken-reply token/delta. Async so the sink can hand off to an event
-# loop queue without blocking the LM's worker thread.
-TokenCallback = Callable[[str], Awaitable[None]]
+# One spoken-reply token/delta, as a coroutine function, so the sink can hand
+# off to an event loop queue without blocking the LM's worker thread.
+TokenCallback = Callable[[str], Coroutine[Any, Any, None]]
 
 
 class VoiceStreamSink(NamedTuple):
@@ -167,8 +167,11 @@ def _dispatch_token(sink: VoiceStreamSink, text: str) -> None:
     """Deliver one token to the sink's callback without blocking the caller."""
     try:
         loop = asyncio.get_running_loop()
-        waiter: Any = loop.create_task(sink.callback(text))
     except RuntimeError:
+        loop = None
+    if loop is not None:
+        waiter: Any = loop.create_task(sink.callback(text))
+    else:
         target = sink.loop
         if target is None or not target.is_running():
             log.debug("voice_stream_token_dropped", reason="no running event loop")
