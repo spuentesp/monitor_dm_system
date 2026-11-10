@@ -46,6 +46,14 @@ class MemoryCreate(BaseModel):
         le=1.0,
         description="Certainty of memory: 0.0 (false) to 1.0 (certain)",
     )
+    witnesses: list[UUID] = Field(
+        default_factory=list,
+        description=(
+            "Characters present when this memory was formed (the scene cast). "
+            "Filled from the cast for memories written in play; empty for "
+            "imported / legacy memories."
+        ),
+    )
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional memory metadata")
 
 
@@ -89,6 +97,7 @@ class MemoryResponse(BaseModel):
     emotional_valence: float
     importance: float
     certainty: float
+    witnesses: list[UUID] = Field(default_factory=list)
     metadata: dict[str, Any]
     created_at: datetime
     last_accessed: datetime
