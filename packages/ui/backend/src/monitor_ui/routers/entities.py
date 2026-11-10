@@ -15,6 +15,8 @@ from uuid import UUID, uuid4
 import structlog
 
 from monitor_data.schemas.entities import LevelUpResponse, LevelUpRequest, DowntimeResponse
+from monitor_data.tenancy import OwnerViolationError
+from monitor_data.usage import QuotaExceededError
 from monitor_agents.services.entity_service import EntityProgressionService
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, Depends
@@ -1338,6 +1340,10 @@ async def draft_character_card(
             description=body.description,
             personality=body.personality,
         )
+    except (QuotaExceededError, OwnerViolationError):
+        # Tenancy refusals keep their typed shape: the app-level handlers map
+        # them to 429 / the generic 404 (see monitor_ui.main).
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in draft_character_card)
         raise HTTPException(status_code=502, detail=f"Draft failed: {exc}")
     return CardDraftResponse(**draft)

@@ -20,6 +20,7 @@ from monitor_data.schemas.proposed_changes import (
     ProposedChangeResponse,
     ProposedChangeUpdate,
 )
+from monitor_data.tenancy import assert_proposal_target_write, assert_proposal_write
 
 # =============================================================================
 # PROPOSED CHANGE OPERATIONS
@@ -118,6 +119,14 @@ def mongodb_create_proposed_change(
     Raises:
         ValueError: If scene_id or story_id doesn't exist or neither is provided
     """
+    assert_proposal_target_write(
+        scene_id=params.scene_id,
+        story_id=params.story_id,
+        content=params.content,
+        source=params.source,
+        proposer=params.proposer,
+        resource="proposed_change",
+    )
     mongo_client = get_mongodb_client()
     neo4j_client = get_neo4j_client()
 
@@ -317,6 +326,7 @@ def mongodb_flag_proposal_review(
     Returns:
         Dict with the proposal_id and the flag state.
     """
+    assert_proposal_write(proposal_id, resource="proposed_change")
     client = get_mongodb_client()
     coll = client.get_collection("proposed_changes")
     if not coll.find_one({"proposal_id": str(proposal_id)}, {"proposal_id": 1}):
@@ -352,6 +362,7 @@ def mongodb_defer_proposed_change(
     rejected later. The reason is kept separate from decision metadata because
     no final verdict has been made.
     """
+    assert_proposal_write(proposal_id, resource="proposed_change")
     mongo_client = get_mongodb_client()
     coll = mongo_client.get_collection("proposed_changes")
     doc = coll.find_one({"proposal_id": str(proposal_id)})
@@ -360,8 +371,7 @@ def mongodb_defer_proposed_change(
     current_status = _coerce_proposal_status(doc.get("status", ProposalStatus.PENDING.value))
     if current_status != ProposalStatus.PENDING:
         raise ValueError(
-            f"Cannot defer proposal with status {current_status.value}. "
-            f"Only pending proposals can be deferred."
+            f"Cannot defer proposal with status {current_status.value}. Only pending proposals can be deferred."
         )
 
     coll.update_one(
@@ -393,6 +403,7 @@ def mongodb_edit_proposed_change(
     extraction ``payload`` used by CanonKeeper's commit handlers. This keeps
     "edit before accept" from silently changing only the display copy.
     """
+    assert_proposal_write(proposal_id, resource="proposed_change")
     if not content_patch:
         raise ValueError("content_patch must not be empty")
 
@@ -452,6 +463,7 @@ def mongodb_update_proposed_change(proposal_id: UUID, params: ProposedChangeUpda
     Raises:
         ValueError: If proposal doesn't exist or invalid status transition
     """
+    assert_proposal_write(proposal_id, resource="proposed_change")
     mongo_client = get_mongodb_client()
     proposed_changes_collection = mongo_client.get_collection("proposed_changes")
 

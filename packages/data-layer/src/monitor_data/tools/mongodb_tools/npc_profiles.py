@@ -12,6 +12,7 @@ from monitor_data.schemas.npc_profiles import (
     NPCProfileResponse,
     NPCProfileUpdate,
 )
+from monitor_data.tenancy import assert_entity_write
 
 # =============================================================================
 # NPC PROFILE OPERATIONS
@@ -48,6 +49,7 @@ def _npc_profile_doc_to_response(doc: dict[str, Any]) -> NPCProfileResponse:
 
 def mongodb_create_npc_profile(params: NPCProfileCreate) -> NPCProfileResponse:
     """Create a durable NPC profile document for an existing entity."""
+    assert_entity_write(params.entity_id, resource="npc_profile")
     mongo_client = get_mongodb_client()
     neo4j_client = get_neo4j_client()
 
@@ -118,6 +120,7 @@ def mongodb_get_npc_profiles_by_entities(
 
 def mongodb_update_npc_profile(entity_id: UUID, params: NPCProfileUpdate) -> NPCProfileResponse:
     """Update or upsert an NPC profile with new emotional/social state."""
+    assert_entity_write(entity_id, resource="npc_profile")
     mongo_client = get_mongodb_client()
     neo4j_client = get_neo4j_client()
     profiles = mongo_client["npc_profiles"]

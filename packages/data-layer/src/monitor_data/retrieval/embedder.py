@@ -21,10 +21,24 @@ import litellm
 from monitor_data.config import settings
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.llm.provider_semaphore import get_provider_semaphore_registry
+from monitor_data.usage import (
+    enforce_owner_quota_async,
+    estimate_text_tokens,
+    record_model_usage_async,
+    tokens_from_response,
+)
 
 from .embedding_health import EmbeddingHealthChecker
 from .errors import EmbedderProviderError
 from .pairs import ModelPair
+
+
+async def _account_embedding(resp: Any, inputs: list[str]) -> None:
+    """Record one embedding call against the acting owner's daily usage."""
+    tokens = tokens_from_response(resp)
+    total = (tokens[0] + tokens[1]) if tokens else estimate_text_tokens("".join(inputs))
+    await record_model_usage_async(tokens=total, calls=1)
+
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +161,7 @@ class Embedder:
         await self._preflight()
         kwargs = await self._build_kwargs([text])
         sem = get_provider_semaphore_registry().get(self._pair.embedding_provider)
+        await enforce_owner_quota_async()
         async with sem:
             try:
                 resp = await litellm.aembedding(**kwargs)
@@ -154,6 +169,7 @@ class Embedder:
                 raise EmbedderProviderError(
                     f"litellm.aembedding failed for {self._pair.embedding_model!r}: {exc}"
                 ) from exc
+        await _account_embedding(resp, [text])
         data = resp.data or []
         if not data or not (data[0].get("embedding") or []):
             raise EmbedderProviderError(f"embedding model {self._pair.embedding_model!r} returned an empty vector.")
@@ -166,6 +182,7 @@ class Embedder:
         await self._preflight()
         kwargs = await self._build_kwargs(texts)
         sem = get_provider_semaphore_registry().get(self._pair.embedding_provider)
+        await enforce_owner_quota_async()
         async with sem:
             try:
                 resp = await litellm.aembedding(**kwargs)
@@ -173,6 +190,7 @@ class Embedder:
                 raise EmbedderProviderError(
                     f"litellm.aembedding failed for {self._pair.embedding_model!r}: {exc}"
                 ) from exc
+        await _account_embedding(resp, texts)
         out: list[list[float]] = []
         for i, item in enumerate(resp.data or []):
             vec = item.get("embedding") or []

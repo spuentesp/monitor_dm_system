@@ -44,6 +44,7 @@ from uuid import UUID, uuid4
 
 from langgraph.graph import END, StateGraph
 from monitor_data.schemas.conversations import ConversationMode, ConversationStatus
+from monitor_data.tenancy import owner_scope, owner_scoped
 from pydantic import BaseModel, Field
 
 log = structlog.get_logger()
@@ -133,6 +134,9 @@ class ConversationState(BaseModel):
     conversation_id: UUID
     universe_id: UUID
     mode: ConversationMode
+    # Acting owner (multi-tenancy): bound around every turn so write-tool
+    # ownership assertions and usage accounting see it (monitor_data.tenancy).
+    owner_id: str | None = None
 
     # NPC roster for this session
     npc_ids: list[UUID] = Field(default_factory=list)
@@ -951,12 +955,15 @@ class ConversationLoop:
         character_card: str | None = None,
         player_name: str | None = None,
         preset: str | LightPreset | None = None,
+        owner_id: str | UUID | None = None,
     ) -> None:
         resolved = get_preset(preset) if isinstance(preset, str) else preset
+        self.owner_id = str(owner_id) if owner_id is not None else None
         self.state = ConversationState(
             conversation_id=conversation_id,
             universe_id=universe_id,
             mode=mode,
+            owner_id=self.owner_id,
             npc_ids=npc_ids,
             scene_id=scene_id,
             story_id=story_id,
@@ -991,6 +998,7 @@ class ConversationLoop:
         character_card: str | None = None,
         player_name: str | None = None,
         preset: str | LightPreset | None = None,
+        owner_id: str | UUID | None = None,
     ) -> ConversationLoop:
         """Open a new ConversationSession and pre-load NPC context."""
         conversation_id = uuid4()
@@ -1007,12 +1015,15 @@ class ConversationLoop:
             character_card=character_card,
             player_name=player_name,
             preset=preset,
+            owner_id=owner_id,
         )
         # Run open_session + load_npc_context nodes
-        result = await loop._graph.ainvoke(loop.state.model_dump())
-        loop.state = ConversationState(**{**loop.state.model_dump(), **result})
+        with owner_scope(loop.owner_id):
+            result = await loop._graph.ainvoke(loop.state.model_dump())
+            loop.state = ConversationState(**{**loop.state.model_dump(), **result})
         return loop
 
+    @owner_scoped
     async def add_opening(self, text: str) -> None:
         """Record the character's greeting, so they know what they said first."""
         from monitor_agents.npc_voice.agent import NPCVoice
@@ -1043,6 +1054,7 @@ class ConversationLoop:
             },
         ]
 
+    @owner_scoped
     async def step(self, player_input: str, *, defer_memory_writes: bool = False) -> list[dict[str, Any]]:
         """
         Process one player input → return list of NPC responses.
@@ -1089,6 +1101,7 @@ class ConversationLoop:
 
         return self.state.current_npc_responses
 
+    @owner_scoped
     async def flush_memory_writes(self) -> int:
         """Execute buffered NPC memory writes through the real NPCVoice.
 
@@ -1105,6 +1118,7 @@ class ConversationLoop:
         self.state.deferred_memory_writes = []
         return flushed
 
+    @owner_scoped
     async def finish(self) -> list[dict[str, Any]]:
         """
         Close the session and stage all accumulated proposals.

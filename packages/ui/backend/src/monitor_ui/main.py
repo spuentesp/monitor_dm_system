@@ -17,6 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from monitor_data.db.postgres import get_postgres_client
 from monitor_data.security import new_csrf_token
+from monitor_data.tenancy import OwnerViolationError
+from monitor_data.usage import QuotaExceededError
 
 from monitor_ui.auth import get_optional_principal
 from monitor_ui.config import get_settings
@@ -344,6 +346,20 @@ def create_app() -> FastAPI:
         if request.url.scheme == "https":
             response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
+
+    # --- Multi-tenancy error mapping (defense in depth) ---------------------
+    # A write refused at the tool boundary (a missed HTTP guard) answers the
+    # same generic 404 as the guards (plan D4), and an owner over their daily
+    # model budget answers a readable 429.
+
+    @app.exception_handler(OwnerViolationError)
+    async def _owner_violation_handler(request: Request, exc: OwnerViolationError) -> JSONResponse:
+        logging.getLogger(__name__).warning("owner violation refused: %s (%s)", exc, request.url.path)
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+
+    @app.exception_handler(QuotaExceededError)
+    async def _quota_exceeded_handler(request: Request, exc: QuotaExceededError) -> JSONResponse:
+        return JSONResponse({"detail": exc.user_message}, status_code=429)
 
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(admin.router, prefix="/api/admin", tags=["admin"])

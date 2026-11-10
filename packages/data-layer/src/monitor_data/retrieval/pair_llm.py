@@ -21,6 +21,7 @@ from typing import Any
 import litellm
 
 from monitor_data.db.postgres import PostgresClient
+from monitor_data.usage import enforce_owner_quota_async, record_completion_usage
 
 from .errors import PairLLMProviderError
 from .pairs import ModelPair
@@ -155,6 +156,7 @@ class PairLLM:
             kwargs["api_key"] = "not-needed"
         if base_url:
             kwargs["api_base"] = base_url
+        await enforce_owner_quota_async()
         try:
             resp = await litellm.acompletion(**kwargs)
         except Exception as exc:
@@ -163,7 +165,9 @@ class PairLLM:
             ) from exc
         if not resp.choices or not resp.choices[0].message.content:
             raise PairLLMProviderError(f"PairLLM({component!r}) got empty response from {model!r}.")
-        return str(resp.choices[0].message.content).strip()
+        text = str(resp.choices[0].message.content).strip()
+        await record_completion_usage(messages=kwargs["messages"], response=resp, output_text=text)
+        return text
 
 
 __all__ = ["PairLLM"]

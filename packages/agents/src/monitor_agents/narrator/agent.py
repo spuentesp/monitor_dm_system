@@ -25,6 +25,7 @@ from uuid import UUID, uuid4
 
 import structlog
 from monitor_data.schemas.base import Speaker
+from monitor_data.usage import QuotaExceededError
 
 from monitor_agents.base import BaseAgent
 from monitor_agents.dspy_runtime import resolve_dynamic_role
@@ -932,6 +933,10 @@ class Narrator(BaseAgent):
                 if narrative_text.strip():
                     break
                 logger.warning("Narrator returned empty narrative_text (attempt %d)", attempt + 1)
+            except QuotaExceededError:
+                # The acting owner is over their daily model budget: fail the
+                # turn visibly (429 / WS error event) instead of degrading.
+                raise
             except Exception as exc:  # noqa: BLE001  # reason: falls back to `classify_llm_error(exc)` on failure (in _generate_once)
                 info = classify_llm_error(exc)
                 if info.error_class == LLMErrorClass.UNKNOWN:
@@ -1160,6 +1165,8 @@ class Narrator(BaseAgent):
             try:
                 pred = self._compat_check(draft=draft_text, outcome_summary=outcome_summary)
                 compat = self._normalize_compat(getattr(pred, "verdict", None))  # type: ignore[no-untyped-call]
+            except QuotaExceededError:
+                raise
             except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _reconcile_gm_draft)
                 logger.info(
                     "narrator.reconcile.compat_check_failed (%s); using DIVERGES",
@@ -1233,6 +1240,8 @@ class Narrator(BaseAgent):
                 session_tone=session_tone,
                 gm_profile=gm_profile,
             )
+        except QuotaExceededError:
+            raise
         except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _reconcile_gm_draft)
             logger.warning("narrator.refine.failed; using gm_draft verbatim: %s", exc)
             narrative_text = draft_text

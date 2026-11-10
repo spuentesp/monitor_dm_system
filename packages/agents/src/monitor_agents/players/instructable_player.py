@@ -210,13 +210,18 @@ class InstructedSpec:
 
         from litellm import acompletion  # local import keeps hermetic tests light
 
+        from monitor_data.usage import enforce_owner_quota_async, record_completion_usage
+
+        await enforce_owner_quota_async()
         resp = await acompletion(
             model=self.model,
             messages=messages,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
         )
-        return (resp.choices[0].message.content or "").strip()
+        text = (resp.choices[0].message.content or "").strip()
+        await record_completion_usage(messages=messages, response=resp, output_text=text)
+        return text
 
 
 @dataclass

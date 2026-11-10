@@ -15,6 +15,7 @@ from monitor_agents.loops.scene_orchestrator_support import (
 from monitor_agents.loops.scene_support import strip_entity_tags
 
 from monitor_agents.llm_errors import LLMProviderUnavailable
+from monitor_data.usage import QuotaExceededError
 
 logger = logging.getLogger(__name__)
 
@@ -324,6 +325,19 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
                 "scene_id": scene_id,
                 "error": exc.user_message,
             }
+        elif isinstance(exc, QuotaExceededError):
+            # The acting owner is over their daily model budget: surface the
+            # readable quota message through the same error-event path the
+            # WebSocket already renders (type llm_provider_error).
+            state.response_text = exc.user_message
+            state.metadata = {
+                "type": "llm_provider_error",
+                "error_class": "quota_exceeded",
+                "agents_available": state.agents_available,
+                "story_id": story_id,
+                "scene_id": scene_id,
+                "error": exc.user_message,
+            }
         else:
             state.response_text = "*(The GM is gathering their thoughts — try again in a moment.)*"
             state.metadata = {
@@ -419,6 +433,7 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
             story_loop = StoryLoop(
                 story_id=uuid.UUID(story_id),
                 universe_id=uuid.UUID(session["universe_id"]),
+                owner_id=session.get("owner_id"),
             )
             story_result = await story_loop.complete_current_scene(
                 scene_id=uuid.UUID(scene_id),
