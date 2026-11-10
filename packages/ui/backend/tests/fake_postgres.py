@@ -137,6 +137,8 @@ class FakePostgres:
     def __init_registry__(self) -> None:
         self.multiverses: dict[str, dict] = {}
         self.worlds: dict[str, dict] = {}
+        self.usage: dict[UUID, dict] = {}
+        self.usage_limits: dict[UUID, dict] = {}
 
     async def multiverse_upsert(self, multiverse: dict) -> None:
         now = datetime.now(UTC)
@@ -167,13 +169,74 @@ class FakePostgres:
         existing = self.worlds.get(world["id"])
         self.worlds[world["id"]] = {
             "id": world["id"],
-            "owner_id": world.get("owner_id"),
+            # Mirror PostgresClient.world_upsert: owner_id is set on insert and
+            # never overwritten on conflict; kind is preserved when omitted.
+            "owner_id": existing["owner_id"] if existing else world.get("owner_id"),
             "multiverse_id": world.get("multiverse_id"),
             "label": world["label"],
             "active": bool(world.get("active", True)),
+            "kind": world.get("kind") or (existing.get("kind", "world") if existing else "world"),
             "created_at": existing["created_at"] if existing else now,
             "updated_at": now,
         }
+
+    async def world_get_conversatory(self, owner_id: UUID) -> dict | None:
+        for row in self.worlds.values():
+            if row.get("kind") == "conversatory" and row["owner_id"] == owner_id:
+                return row
+        return None
+
+    # ------------------------------------------------------------------
+    # user usage + daily quota (mirrors PostgresClient)
+    # ------------------------------------------------------------------
+
+    async def usage_record(self, user_id: UUID, *, tokens: int = 0, calls: int = 0, day=None) -> dict:
+        uid = _uid(user_id)
+        usage_day = day or datetime.now(UTC).date()
+        self.usage.setdefault(uid, {})[usage_day] = {
+            "tokens": self.usage.get(uid, {}).get(usage_day, {}).get("tokens", 0) + int(tokens),
+            "calls": self.usage.get(uid, {}).get(usage_day, {}).get("calls", 0) + int(calls),
+        }
+        return {"user_id": str(uid), "usage_day": usage_day, **self.usage[uid][usage_day]}
+
+    async def usage_get(self, user_id: UUID, day=None) -> dict:
+        uid = _uid(user_id)
+        usage_day = day or datetime.now(UTC).date()
+        row = self.usage.get(uid, {}).get(usage_day, {})
+        return {"tokens": int(row.get("tokens", 0)), "calls": int(row.get("calls", 0))}
+
+    async def usage_limit_get(self, user_id: UUID) -> dict | None:
+        return self.usage_limits.get(_uid(user_id))
+
+    async def usage_limit_set(
+        self, user_id: UUID, *, daily_token_cap: int | None, daily_call_cap: int | None, exempt: bool = False
+    ) -> dict:
+        uid = _uid(user_id)
+        row = {
+            "user_id": uid,
+            "daily_token_cap": daily_token_cap,
+            "daily_call_cap": daily_call_cap,
+            "exempt": bool(exempt),
+            "updated_at": datetime.now(UTC),
+        }
+        self.usage_limits[uid] = row
+        return row
+
+    async def usage_admin_summary(self, limit: int = 50) -> list[dict]:
+        rows = []
+        for uid, user in self.users.items():
+            usage = await self.usage_get(uid)
+            rows.append(
+                {
+                    "user_id": str(uid),
+                    "username": user.get("username", ""),
+                    "email": user.get("email", ""),
+                    "tokens": usage["tokens"],
+                    "calls": usage["calls"],
+                }
+            )
+        rows.sort(key=lambda r: r["tokens"] + r["calls"], reverse=True)
+        return rows[:limit]
 
     async def world_get_for_owner(self, world_id: str, owner_id: UUID) -> dict | None:
         row = self.worlds.get(world_id)
