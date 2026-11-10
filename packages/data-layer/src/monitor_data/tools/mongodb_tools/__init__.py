@@ -292,12 +292,25 @@ from monitor_data.tools.mongodb_tools.prompt_collections import (
     mongodb_update_prompt_collection,
 )
 
+# Character Template operations (G-6)
+from monitor_data.tools.mongodb_tools.character_templates import (
+    mongodb_create_character_template,
+    mongodb_delete_character_template,
+    mongodb_get_character_template,
+    mongodb_increment_character_template_usage,
+    mongodb_list_character_templates,
+    mongodb_update_character_template,
+)
+
 # Proposed Change operations
 from monitor_data.tools.mongodb_tools.proposals import (
     _convert_proposed_change_doc_to_response,
     mongodb_create_proposed_change,
+    mongodb_defer_proposed_change,
+    mongodb_edit_proposed_change,
     mongodb_get_proposed_change,
     mongodb_list_proposed_changes,
+    mongodb_flag_proposal_review,
     mongodb_update_proposed_change,
 )
 
@@ -424,11 +437,21 @@ __all__ = [
     "make_change_log_entry",
     "mongodb_append_change_log",
     "mongodb_list_change_log",
+    # Character templates (G-6)
+    "mongodb_create_character_template",
+    "mongodb_delete_character_template",
+    "mongodb_get_character_template",
+    "mongodb_increment_character_template_usage",
+    "mongodb_list_character_templates",
+    "mongodb_update_character_template",
     # Proposals
     "_convert_proposed_change_doc_to_response",
     "mongodb_create_proposed_change",
+    "mongodb_defer_proposed_change",
+    "mongodb_edit_proposed_change",
     "mongodb_get_proposed_change",
     "mongodb_list_proposed_changes",
+    "mongodb_flag_proposal_review",
     "mongodb_update_proposed_change",
     # Stories
     "_convert_story_outline_doc_to_response",

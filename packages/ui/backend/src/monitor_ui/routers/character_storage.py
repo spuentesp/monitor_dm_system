@@ -32,6 +32,8 @@ def create_character(data: dict[str, Any]) -> dict[str, Any]:
         "description": data.get("description", ""),
         "avatar_url": data.get("avatar_url"),
         "personality": data.get("personality", ""),
+        "voice": data.get("voice", ""),
+        "backstory_beats": list(data.get("backstory_beats") or []),
         "gm_notes": data.get("gm_notes", ""),
         "first_message": data.get("first_message", ""),
         "is_ooc_persona": data.get("is_ooc_persona", False),
@@ -122,11 +124,12 @@ def delete_character(character_id: str, owner_id: str | None = None) -> bool:
 def list_characters(limit: int = 50, offset: int = 0, owner_id: str | None = None) -> tuple[list[dict[str, Any]], int]:
     """List characters sorted by updated_at descending. Returns (docs, total).
 
-    With ``owner_id`` the filter is applied in Mongo BEFORE skip/limit, so
-    pagination never crosses the ownership boundary. Without it, returns all
-    (internal/legacy callers only).
+    G-6: character templates share the ``characters`` collection. They are not
+    playable characters, so they are excluded from the list. With ``owner_id``
+    the ownership filter is applied in Mongo BEFORE skip/limit, so pagination
+    never crosses the ownership boundary.
     """
-    query: dict[str, Any] = {}
+    query: dict[str, Any] = {"is_template": {"$ne": True}}
     if owner_id is not None:
         query["owner_id"] = owner_id
     total = _coll().count_documents(query)

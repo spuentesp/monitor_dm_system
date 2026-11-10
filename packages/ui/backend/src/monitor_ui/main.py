@@ -27,6 +27,7 @@ from monitor_ui.routers import (
     canon_review,
     change_log,
     character_promotion,
+    character_templates,
     chat,
     databases,
     entities,
@@ -346,6 +347,9 @@ def create_app() -> FastAPI:
     app.include_router(llm_mgmt.router, prefix="/api/llm", tags=["llm"])
     app.include_router(databases.router, prefix="/api/databases", tags=["databases"])
     app.include_router(entities.router, prefix="/api/entities", tags=["entities"])
+    app.include_router(
+        character_templates.router, prefix="/api/characters", tags=["character-templates"]
+    )
     app.include_router(search.router, prefix="/api/search", tags=["search"])
     app.include_router(universes.router, prefix="/api/universes", tags=["universes"])
     app.include_router(graph.router, prefix="/api/graph", tags=["graph"])

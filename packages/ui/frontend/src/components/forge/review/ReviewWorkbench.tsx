@@ -169,10 +169,24 @@ function ReviewRow({
           <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full", tier.bg, tier.color)}>
             {Math.round(item.confidence * 100)}%
           </span>
+          {item.needs_review && (
+            <span
+              data-testid="needs-review-badge"
+              title={`Advisory flag: this does not prevent acceptance or commit.${item.review_reason ? ` ${item.review_reason}` : ""}`}
+              className="text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 font-medium flex items-center gap-1"
+            >
+              <AlertTriangle className="h-2.5 w-2.5" />
+              Needs review
+            </span>
+          )}
           <span className="font-semibold text-fg-primary text-sm truncate">
             {reviewItemTitle(item)}
           </span>
         </div>
+
+        {item.needs_review && (
+          <p className="text-[10px] text-amber-300/80">Advisory flag: it does not prevent acceptance or commit.</p>
+        )}
 
         {isEntity && description && (
           <p className="text-xs text-fg-secondary truncate">{description}</p>
@@ -334,6 +348,9 @@ export function buildByFilterRequest(
     // to pending. An explicit accepted/rejected filter passes through.
     status: filters.status === "all" ? null : filters.status,
     change_type: filters.changeType === "all" ? null : filters.changeType,
+    // G-9 Phase 2 — the flagged-only filter must reach the server, or
+    // "select all matching" would resolve a wider set than the list shows.
+    needs_review: filters.needsReview === "all" ? null : filters.needsReview === "flagged",
     ...confidenceRange(filters.confidenceTier),
     created_after: filters.dateFrom ? `${filters.dateFrom}T00:00:00Z` : null,
     created_before: filters.dateTo ? `${filters.dateTo}T23:59:59.999Z` : null,

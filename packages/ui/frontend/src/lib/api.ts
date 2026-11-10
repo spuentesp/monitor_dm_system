@@ -4,6 +4,9 @@ import type {
   BatchVerdictResponse,
   CanonQueue,
   ChangeLogListResponse,
+  CharacterTemplate,
+  CharacterTemplateCreate,
+  CharacterTemplateListResponse,
   DatabaseStatus,
   HeldClaim,
   IngestJob,
@@ -251,7 +254,14 @@ export const chatApi = {
     }),
   patchSession: (
     sessionId: string,
-    data: { title?: string; tone?: string; scene_id?: string; story_id?: string; roll_model?: string },
+    data: {
+      title?: string;
+      tone?: string;
+      scene_id?: string;
+      story_id?: string;
+      roll_model?: string;
+      archived?: boolean;
+    },
   ) =>
     req<Session>(`/chat/${sessionId}`, {
       method: "PATCH",
@@ -1094,6 +1104,9 @@ export const entitiesApi = {
     description?: string;
     avatar_url?: string | null;
     personality?: string;
+    // G-6 — the portable-template fields.
+    voice?: string;
+    backstory_beats?: string[];
     gm_notes?: string;
     first_message?: string;
     is_ooc_persona?: boolean;
@@ -1458,6 +1471,16 @@ export const storiesApi = {
     req<StoryThread[]>(`/stories/${storyId}/threads`, {
       query: { only_open: String(onlyOpen) },
     }),
+  updateThread: (
+    storyId: string,
+    threadId: string,
+    action: "resolve" | "dismiss" | "note",
+    note?: string,
+  ) =>
+    req<StoryThread>(`/stories/${storyId}/threads/${threadId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action, note: note ?? null }),
+    }),
   getSceneTurns: (sceneId: string, limit = 30) =>
     req<SceneTurn[]>(`/scenes/${sceneId}/turns`, { query: { limit } }),
   patchStory: (
@@ -1530,10 +1553,64 @@ export const gmApi = {
       body: JSON.stringify({ universe_id: universeId, story_id: storyId, max_hooks: maxHooks }),
     }),
 
-  detectContradictions: (universeId: string, focusEntityId?: string) =>
+  detectContradictions: (
+    universeId: string,
+    options?: {
+      focusEntityId?: string;
+      scope?: "universe" | "story" | "scene";
+      storyId?: string;
+      sceneId?: string;
+    },
+  ) =>
     req<{ contradictions: Contradiction[] }>("/gm/contradictions", {
       method: "POST",
-      body: JSON.stringify({ universe_id: universeId, focus_entity_id: focusEntityId }),
+      body: JSON.stringify({
+        universe_id: universeId,
+        focus_entity_id: options?.focusEntityId ?? null,
+        scope: options?.scope ?? "universe",
+        story_id: options?.storyId ?? null,
+        scene_id: options?.sceneId ?? null,
+      }),
+    }),
+
+  resolveContradiction: (body: {
+    universe_id: string;
+    story_id?: string | null;
+    scene_id?: string | null;
+    fact_a: string;
+    fact_b: string;
+    conflict_type?: string;
+    resolution: "retcon_older" | "retcon_newer" | "apparent_contradiction" | "explanation_fact";
+    explanation: string;
+  }) =>
+    req<{ proposal_id: string }>("/gm/contradictions/resolve", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  saveHook: (body: {
+    universe_id: string;
+    story_id: string;
+    title: string;
+    description: string;
+    urgency?: string;
+    potential_outcomes?: string[];
+    connected_threads?: string[];
+  }) =>
+    req<{ thread_id: string }>("/gm/hooks/save", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  generatePrepItem: (body: {
+    universe_id: string;
+    story_id: string;
+    category: string;
+    description: string;
+  }) =>
+    req<{ content: string }>("/gm/session-prep/generate-item", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 
   generateSessionPrep: (universeId: string, storyId: string, sessionNumber?: number) =>
@@ -1572,10 +1649,26 @@ export const gmApi = {
       body: JSON.stringify({ universe_id: universeId, entry_text: entryText }),
     }),
 
-  captureInsights: (universeId: string, entryText: string) =>
+  captureInsights: (
+    universeId: string,
+    entryText: string,
+    context?: {
+      session_id?: string | null;
+      entry_id?: string | null;
+      story_id?: string | null;
+      scene_id?: string | null;
+    },
+  ) =>
     req<CaptureInsight>("/gm/capture/insights", {
       method: "POST",
-      body: JSON.stringify({ universe_id: universeId, entry_text: entryText }),
+      body: JSON.stringify({
+        universe_id: universeId,
+        entry_text: entryText,
+        session_id: context?.session_id ?? null,
+        entry_id: context?.entry_id ?? null,
+        story_id: context?.story_id ?? null,
+        scene_id: context?.scene_id ?? null,
+      }),
     }),
 
   // P2.3 — per-universe scratchpad (server-backed; replaces localStorage)
@@ -1653,6 +1746,31 @@ export const templatesApi = {
 };
 
 // ─── Random Tables (M-33, DL-21) ────────────────────────────
+
+/**
+ * Portable character templates (G-6 / P&F §6).
+ *
+ * A template is a user-library document: who a player character is, without
+ * the mechanics of any particular world.
+ */
+export const characterTemplatesApi = {
+  list: (params?: { name_contains?: string; limit?: number; offset?: number }) =>
+    req<CharacterTemplateListResponse>("/characters/templates", {
+      query: params as Record<string, string | number | undefined>,
+    }),
+  create: (data: CharacterTemplateCreate) =>
+    req<CharacterTemplate>("/characters/templates", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  get: (id: string) => req<CharacterTemplate>(`/characters/templates/${id}`),
+  update: (id: string, data: Partial<CharacterTemplateCreate>) =>
+    req<CharacterTemplate>(`/characters/templates/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  remove: (id: string) => req<void>(`/characters/templates/${id}`, { method: "DELETE" }),
+};
 
 export const randomTablesApi = {
   list: (universeId?: string, tableType?: string, limit = 50, offset = 0) => {
@@ -1786,6 +1904,20 @@ export const canonApi = {
     req<ProposalItem>(`/canon-review/${proposalId}/reject`, {
       method: "POST",
       query: { reason },
+    }),
+
+  /** Defer a pending proposal without making a final verdict (CF-8). */
+  deferProposal: (proposalId: string, reason: string) =>
+    req<ProposalItem>(`/canon-review/${proposalId}/defer`, {
+      method: "POST",
+      body: JSON.stringify({ reason, deferred_by: "GM" }),
+    }),
+
+  /** Edit a pending proposal before accepting or rejecting it (CF-8). */
+  editProposal: (proposalId: string, contentPatch: Record<string, unknown>, reason?: string) =>
+    req<ProposalItem>(`/canon-review/${proposalId}/edit`, {
+      method: "POST",
+      body: JSON.stringify({ content_patch: contentPatch, reason: reason ?? null, edited_by: "GM" }),
     }),
 
   /** Apply a batch of accept/reject verdicts in one call. */

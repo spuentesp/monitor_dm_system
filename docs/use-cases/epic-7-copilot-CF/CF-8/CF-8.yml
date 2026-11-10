@@ -9,10 +9,10 @@ priority: "medium"
 status: "done"
 
 summary: |
-  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+  Review captured and extracted changes before canonization with defer/edit decisions and evidence.
 
 acceptance_criteria:
-  - "TBD"
+  - "The GM can accept, reject, defer, or edit-before-accept proposals and see evidence, explanations, and scene context."
 
 depends_on: []
 blocks: []

@@ -233,6 +233,41 @@ class Settings(BaseSettings):
         description="Whether the scene loop may emit image suggestion chips.",
     )
 
+    # -------------------------------------------------------------------------
+    # CanonKeeper contradiction depth (G-9)
+    # -------------------------------------------------------------------------
+    # Phase 1 ships the implication-level check but keeps it OFF by default
+    # while its false-positive rate is measured (scripts/eval_canonkeeper_depth.py).
+    # When enabled it only ever *flags* — implication conflicts are advisory and
+    # never reject a proposal (that needs Phase 3's measured evidence).
+    canonkeeper_implication_check_enabled: bool = Field(
+        default=False,
+        alias="CANONKEEPER_IMPLICATION_CHECK_ENABLED",
+        description=(
+            "Run the implication-level contradiction check alongside the direct "
+            "check. Flag-only: implication flags never reject a proposal."
+        ),
+    )
+    canonkeeper_implication_chunk_size: int = Field(
+        default=15,
+        ge=1,
+        le=100,
+        alias="CANONKEEPER_IMPLICATION_CHUNK_SIZE",
+        description="Candidate statements per implication-check LLM call.",
+    )
+    # G-9 Phase 3 — turn the deterministic transition-rule violations into
+    # outright rejections. Off by default: the rules are deterministic, but the
+    # tag vocabulary reaching them is game-system- and GM-driven, so the
+    # false-positive rate has to be measured before it can block anything.
+    canonkeeper_reject_transition_violations: bool = Field(
+        default=False,
+        alias="CANONKEEPER_REJECT_TRANSITION_VIOLATIONS",
+        description=(
+            "Reject proposals that violate the deterministic state-transition "
+            "rules. When off, violations are flagged for review instead."
+        ),
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

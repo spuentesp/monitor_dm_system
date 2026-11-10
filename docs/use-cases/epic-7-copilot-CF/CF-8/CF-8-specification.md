@@ -42,16 +42,25 @@ neo4j_update_state_tags(...)      # CanonKeeper only, after approval
 
 **Layer 2 (Agents):**
 - `CanonKeeper.evaluate_proposals(scene_id, proposals)` — Produce verdicts per scene
-- `CanonKeeper.explain_verdict(proposal)` — Explain why an item is accepted/rejected/deferred
-- `Narrator.generate_scene_review_summary(scene_id)` — Human-readable summary for the GM
+- Verdict explanations are surfaced from decision/edit/defer reasons in the review queue
+- Future depth: `CanonKeeper.explain_verdict(proposal)` and
+  `Narrator.generate_scene_review_summary(scene_id)`
+
+**Implementation (2026-11-09):** `ProposedChange` review now supports `accept`,
+`reject`, `defer`, and `edit before accept`. Deferred proposals remain pending
+and are listed separately; edits merge a content patch before the final verdict.
+Capture-created facts carry `source_excerpt`, participants, locations, and
+snippet evidence so the review lane can show the transcript context inline.
 
 **UI expectations:**
 
 | Panel | Purpose |
 |-------|---------|
 | Scene list | Review one recorded scene at a time |
+| Scene context | Summary, participants, and locations derived from the queued proposals |
 | CanonKeeper queue | Show what will be added to the world |
 | Evidence drawer | Show transcript lines supporting each change |
 | Verdict badges | `accepted`, `rejected`, `deferred`, `needs review` |
+| Verdict actions | Accept, Reject, Defer, Edit-before-accept |
 
 ---

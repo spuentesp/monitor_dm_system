@@ -11,6 +11,41 @@
 
 ---
 
+## Product boundary (decided 2026-11-07)
+
+**MONITOR supports narrative and narrative-weighted systems only.** Anything
+that bolts a *mechanical* system onto the product is out of scope — not
+deferred, rejected. Concretely, this plan's mechanical-system items are
+dropped rather than scheduled:
+
+- **VtM 20th re-ingestion and Finding 3's "properly-sourced 20th Anniversary"
+  replacement** — rejected. The ungrounded legacy `a227676a…` "5th Edition"
+  seed is therefore **retired, not relabelled**: with no properly-sourced
+  replacement coming, keeping it labelled as a hand-authored reference system
+  would preserve the very content the audit flagged as dangerous (detailed,
+  plausible, and indistinguishable from sourced material).
+- **Mechanical game-system ingestion as a product direction** — no new
+  mechanical systems are ingested, and no work is planned to make mechanical
+  character creation (attributes, skills, disciplines, resource tracks) a
+  first-class product surface.
+- **The false-positive measurement corpus for G-9** — the seeded Fallout/VtM
+  universes are mechanical, so the measurement is hermetic instead
+  (`canonkeeper/synthetic_corpus.py`): a small narrative world with known-good
+  and known-contradicting probes. The deterministic rules now measure
+  **0/12 false positives, 3/3 detections** (pinned by a test); the implication
+  check needs a configured LLM provider to be measured the same way, so the
+  rejection stays **off** until that LLM-side rate is known too.
+
+What this *keeps*: everything narrative — canon consistency and contradiction
+flagging, character templates (portable prose, no stats), the GM Assistant's
+capture/wrap-up loop, story threads and foreshadowing, and narrative-weighted
+systems where mechanics serve the story rather than the other way round.
+
+This is a scoping decision, not a teardown: the existing mechanical support in
+the codebase is left in place.
+
+---
+
 ## G-4 · Narrator hallucination guard (S, do first)
 
 **Gap:** No prompt-level prohibition on inventing character facts. A sparse sheet
@@ -475,12 +510,53 @@ model whose purpose is exactly those bindings. Net-new formalizes proven data.
   raw dicts to the new tools (API shape stable).
 - Tests: FakeMCPClient pattern (`tests/conftest.py:165`).
 
+**Status (2026-11-07): Phase 1 implemented — the data-layer contract.**
+- New `packages/data-layer/src/monitor_data/schemas/character_templates.py`:
+  the Create/Update/Response/Filter/ListResponse quintet with `name, concept,
+  personality, backstory_beats, voice, portrait_url, first_message, gm_notes` —
+  and deliberately **no** stats, skills, universe or game-system binding. That
+  portability invariant is pinned by a test, so a later "just add the stats"
+  convenience cannot creep in unnoticed.
+- New `packages/data-layer/src/monitor_data/tools/mongodb_tools/character_templates.py`:
+  create/get/list/update/delete + `increment_usage`, registered as MCP tools.
+  Storage extends the existing `characters` collection: a template is a
+  character document that additionally carries the template fields and
+  `is_template: true`. One collection keeps a persona already used in OOC chat
+  reachable, and the live character readers keep working. Every query is
+  marker-scoped, and the character list now excludes templates
+  (`character_storage.list_characters`), so a template never shows up as a
+  playable character.
+- No `middleware/auth.py` entry: templates are a user library (Mongo-only), not
+  canon — the same reasoning as the GM notes.
+- Tests: 10 (create/get/list/update/delete/usage + the marker-scoping
+  invariants + the portability invariant).
+- HTTP surface: `packages/ui/backend/src/monitor_ui/routers/character_templates.py`,
+  mounted at `/api/characters/templates` (list/create/get/update/delete) — a
+  thin data-layer-direct wrapper over the tools, following the
+  `canon_review.py` precedent.
 ### Phase 2 — fields + UI polish
 
 - Add `backstory_beats`/`voice` to `_seed_answers_from_persona` emissions.
 - Extend `CharacterEditor.tsx` with the two fields (cheaper and more correct than a
   new forge tab — one editor, no duplicated CRUD); SetupPanel persona picker
   (:102-105) shows voice/beat count + "create new template".
+
+**Status (2026-11-07): Phase 2 implemented — the fields, the editor, the picker.**
+- `CharacterCreate`/`CharacterUpdate` (UI backend) gained `voice` and
+  `backstory_beats`, so a persona carries the same voice and backstory the
+  templates do — one editor, no duplicated CRUD.
+- `_seed_answers_from_persona` now emits them: the voice becomes its own
+  seeded answer ("How do you speak?") and the backstory beats become one
+  ordered answer ("What happened before the story began?"), so Session Zero
+  stops re-interviewing what the author already wrote. A template's `concept`
+  seeds the origin answer when it has no `description`.
+- `CharacterEditor.tsx` gained the two fields (voice; backstory beats, one
+  beat per line).
+- The setup picker now lists templates next to personas, shows the selected
+  entry's voice and beat count, and offers "New character template"
+  (`TemplateEditor.tsx` → `POST /api/characters/templates`). A template
+  selected there seeds Session Zero exactly like a persona does.
+- Tests: 4 seeding cases + 1 picker case.
 
 ### Phase 3 — system binding (the real instantiation)
 
@@ -493,6 +569,34 @@ concept/personality/beats, fed through the same `process_input` path — reuses
 hardcoding. Persist with `source_persona_id` (already wired, `chat_loops.py:396-398`)
 + optionally a `versions[]` entry (`character_storage.py:163-209`). Phase 3 is
 independent of Phases 1-2 — the bridge infra is already live; can be prototyped first.
+
+**Status (2026-11-07): Phase 3 implemented — the template drives the prose,
+the system keeps the mechanics.**
+- `TemplateBackstorySignature`/`TemplateBackstoryModule` (LIGHT role,
+  `character_creator/character_creation.py`): one call turns a template's
+  backstory beats into a prose paragraph for the character sheet. If the model
+  is unavailable the beats are used verbatim — a bullet list beats an empty
+  backstory.
+- `_creation_seed()` (preplay orchestrator): when the session carries a
+  template, the template's name/concept/personality/voice/backstory are
+  merged into the character-creation seed and **win** over the Session Zero
+  summary. The template is the author's deliberate description; the summary
+  is the player's echo of it.
+- The seed now carries `personality` and `voice` through
+  `_normalise_initial_seed` → `_apply_initial_seed` → `character_data` →
+  the final character, so the characterization the author wrote survives
+  instantiation. (The seeded backstory used to be dropped at the final-build
+  step — it is now included.)
+- **Scope, deliberately:** only prose-shaped fields are seeded. Attributes,
+  skills, resources and every other mechanical value still come from the game
+  system or the player — which is precisely why templates carry no stats. The
+  plan's original "draft a player answer per creation step" was implemented
+  more narrowly: the existing seed handoff already carries the prose, and
+  auto-answering mechanical steps would let a template override the system
+  the player chose to play in.
+- Tests: 7 (template-wins merge, plain-persona no-op, no-persona no-op, the
+  draft fallback, seed normalisation, seed application, final-character
+  carry-through).
 
 ---
 
@@ -521,6 +625,33 @@ readable via `neo4j_get_state_tags`.
   counts + flag samples for spot-check. Some "FPs" will be latent canon drift —
   itself a finding.
 
+**Status (2026-11-07): Phase 1 implemented — measurement only, behaviour unchanged.**
+- `ImplicationContradictionSignature` + `ImplicationContradictionModule` in
+  `packages/agents/src/monitor_agents/canonkeeper/verification.py`. The
+  numbered-list parsing is shared with the direct batch check
+  (`ImplicationContradictionModule._LINE_RE is BatchContradictionModule._LINE_RE`),
+  so the chunked I/O is reused rather than duplicated. The extra
+  `implications` output field carries the reasoning chain, so every flag is
+  auditable in logs.
+- New additive `ContradictionType.IMPLICATION_CONFLICT`
+  (`data-layer/schemas/contradiction.py`), severity HIGH — never CRITICAL.
+- `CanonKeeper.implication_conflict_flags(universe_id, statements)` — advisory,
+  flag-only, chunked by `CANONKEEPER_IMPLICATION_CHUNK_SIZE` (default 15),
+  fail-soft per chunk (a failed chunk yields no flags, never an exception).
+- Wired into `bulk_commit_proposals` behind `CANONKEEPER_IMPLICATION_CHECK_ENABLED`
+  (default **false**) — flags are logged, never acted on. `_batch_contradiction_check`
+  keeps its direct-only behaviour; the canon-context assembly and the
+  proposal-statement extraction are now shared helpers
+  (`_canon_context_lines`, `_proposal_statements`).
+- `scripts/eval_canonkeeper_depth.py`: replays committed proposals
+  (known-good → every flag is an FP by construction), reports the flag rate
+  and prints samples for spot-checking. Read-only; exits 2 when there is
+  nothing to replay.
+- **Open:** the FP rate has not been measured yet — this environment has no
+  committed proposals and no populated universe, so the script reports
+  "nothing measured". The measurement must run against a seeded universe
+  (Fallout/VtM). Until the rate is known, the check stays off.
+
 ### Phase 2 — transition rules + advisory flagging
 
 - Deterministic rules (pure Python, no LLM, ~40 lines + a small `_TRANSITION_RULES`
@@ -542,11 +673,73 @@ readable via `neo4j_get_state_tags`.
   (fits PROPOSAL_TABS, :46-57).
 - Unit tests with FakeMCPClient/FakeLLMClient.
 
+**Status (2026-11-07): Phase 2 implemented — advisory flagging, no rejections.**
+- New `packages/agents/src/monitor_agents/canonkeeper/transition_rules.py`:
+  pure-Python rules, no LLM — terminal-tag finality (`dead`/`destroyed`/
+  `deceased` may not be removed; no agency-implying tag on a terminal entity)
+  and a short explicit complement-pair list (`dead`/`alive`,
+  `conscious`/`unconscious`). An explicit `override_reason` on the proposal
+  legalises the transition (resurrection is legal fiction — but it must be said
+  out loud, not inferred). Location/teleport checks stay deferred to the
+  implication-level check, which can reason about event sequences.
+- `CanonKeeper._check_state_transition_rules()` applies the rules to
+  `state_change` proposals only, reading current tags via
+  `neo4j_get_state_tags`; a failed tag lookup yields no violation rather than
+  an error (the rules are advisory).
+- The flag is stamped through a new CanonKeeper-only MCP tool,
+  `mongodb_flag_proposal_review`, and mirrored onto the proposal dict so the
+  verdict record carries it too (`mongodb_record_verdict` gained
+  `needs_review`/`review_reason`).
+- Data layer: `ProposedChangeCreate`/`ProposedChangeResponse` gained
+  `needs_review`, `review_reason`, `review_source`; `ProposedChangeFilter`
+  gained a `needs_review` filter and the list tool honours it.
+- UI: the shared review model carries the flag; the review workbench and the
+  canon-review panel render a "Needs review" badge, and the workbench's filter
+  bar gained a "Needs review" filter (deep-linkable as `?review=flagged`).
+- **Still open (Phase 3):** turning the deterministic violations into hard
+  rejections, gated on the implication check's measured false-positive rate.
+  Nothing in Phase 2 rejects a proposal — the verdict stays the model's call.
+
 ### Phase 3 — hard rejection (gated on data)
 
 Enable REJECTED verdicts for transition-rule violations first (deterministic, low FP
 risk). Implication-level stays flag-only until Phase 1 replay shows FP < 5% on
 committed proposals with manual spot-check confirmation.
+
+**Status (2026-11-07): implemented, opt-in, and still off.** The rejection path
+exists (`CanonKeeper._transition_violation_verdict`, gated on
+`CANONKEEPER_REJECT_TRANSITION_VIOLATIONS`, default **false**) and fires
+*before* the LLM verdict — a deterministic violation needs no reasoning, so a
+rejection costs no model call. The setting stays off until the false-positive
+rate is measured.
+
+**A correction to this plan's premise.** The plan treated the deterministic
+rules as "low FP risk" *because* they are deterministic. The rules are
+deterministic; the tag vocabulary reaching them is not. In the current
+codebase the vital-state tags (`alive`, `dead`) are only written by the Forge
+entity inspector — a GM's own edit — while the play loop writes dispositions
+(`hostile`/`friendly`/`neutral`) and game-system condition names. So the rules
+are near-dormant in the play loop: an unmeasured hard reject has no upside
+today and a real blast radius if vital-state automation ever lands. Opt-in,
+not on.
+
+The measurement script now covers the deterministic rules too:
+`scripts/eval_canonkeeper_depth.py` replays committed **state-change**
+proposals through the transition rules and reports their violation rate — the
+same "every flag on committed material is an FP by construction" logic as the
+implication check. One script, two numbers, both needed before Phase 3 is
+switched on.
+
+Because the seeded universes are mechanical (see the product boundary above),
+the script also has a **hermetic** mode: `--synthetic` replays a hand-written
+narrative corpus (`canonkeeper/synthetic_corpus.py`) instead of a universe.
+**Measured 2026-11-07** (`docs/testing/canonkeeper_depth_measurement_2026-11-07.md`):
+deterministic rules 0/12 false positives, 3/3 detected; implication check
+0/16 false positives (0%) but only 2/8 detections (25%) on `qwen2.5:7b`.
+The FP gate is met; the detection rate is the real blocker — the check is
+conservative to the point of missing three out of four real contradictions,
+so hard rejection would be safe *and useless*. It stays off; the follow-up
+work is recall (per-candidate vs batched checking), not enforcement.
 
 ---
 

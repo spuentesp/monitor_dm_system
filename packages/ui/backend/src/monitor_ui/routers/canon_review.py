@@ -34,6 +34,8 @@ from monitor_data.schemas.proposed_changes import (
 )
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.tools.mongodb_tools import (
+    mongodb_defer_proposed_change,
+    mongodb_edit_proposed_change,
     mongodb_get_ingestion_job,
     mongodb_list_proposed_changes,
     mongodb_update_proposed_change,
@@ -65,6 +67,21 @@ class VerdictItem(BaseModel):
     proposal_id: UUID
     decision: ProposalStatus  # ACCEPTED or REJECTED
     reason: str
+
+
+class ProposalDeferRequest(BaseModel):
+    """Defer a pending proposal without making a final verdict."""
+
+    reason: str = Field(min_length=1, max_length=2000)
+    deferred_by: str = Field(default="GM", max_length=100)
+
+
+class ProposalEditRequest(BaseModel):
+    """Edit a pending proposal before accepting or rejecting it."""
+
+    content_patch: dict[str, Any] = Field(min_length=1)
+    reason: str | None = Field(default=None, max_length=2000)
+    edited_by: str = Field(default="GM", max_length=100)
 
 
 class BatchVerdictRequest(BaseModel):
@@ -116,6 +133,8 @@ class VerdictByFilterRequest(BaseModel):
     )
     status: ProposalStatus | None = Field(default=None, description="Defaults to PENDING when omitted")
     change_type: ProposalType | None = None
+    # G-9 Phase 2 — restrict the bulk set to flagged / unflagged proposals.
+    needs_review: bool | None = Field(default=None)
     confidence_min: float | None = Field(default=None, ge=0.0, le=1.0)
     confidence_max: float | None = Field(default=None, ge=0.0, le=1.0)
     created_after: datetime | None = None
@@ -153,18 +172,23 @@ class SceneReviewResponse(BaseModel):
     """
 
     scene_id: UUID | None = None
+    summary: str | None = None
+    participants: list[str] = Field(default_factory=list)
+    locations: list[str] = Field(default_factory=list)
     pending: list[ProposedChangeResponse]
+    deferred: list[ProposedChangeResponse] = Field(default_factory=list)
     accepted: list[ProposedChangeResponse]
     rejected: list[ProposedChangeResponse]
     by_change_type: dict[str, int]
 
 
 class CanonQueueResponse(BaseModel):
-    """Story-level CanonKeeper queue: every scene that has any pending items."""
+    """Story-level CanonKeeper queue: every scene that has any open items."""
 
     story_id: UUID
     scenes: list[SceneReviewResponse]
     total_pending: int
+    total_deferred: int = 0
 
 
 class IngestProposalItem(BaseModel):
@@ -214,6 +238,24 @@ BatchVerdictRequest.model_rebuild()
 # ---------------------------------------------------------------------------
 
 
+def _scene_review_context(
+    proposals: list[ProposedChangeResponse],
+) -> tuple[str | None, list[str], list[str]]:
+    """Derive the scene summary and its participants/locations from proposals."""
+    participants: list[str] = []
+    locations: list[str] = []
+    summary: str | None = None
+    for proposal in proposals:
+        content = proposal.content if isinstance(proposal.content, dict) else {}
+        participants.extend(str(p) for p in content.get("participants", []) if str(p).strip())
+        locations.extend(str(loc) for loc in content.get("locations", []) if str(loc).strip())
+        if summary is None:
+            candidate = content.get("summary") or content.get("scene_summary") or content.get("source_excerpt")
+            if candidate:
+                summary = str(candidate)[:500]
+    return summary, sorted(set(participants)), sorted(set(locations))
+
+
 @router.get("/scenes/{scene_id}/canon-review", response_model=SceneReviewResponse)
 async def scene_canon_review(scene_id: str) -> SceneReviewResponse:
     """Return every proposal for a scene, grouped by status and change type.
@@ -226,22 +268,28 @@ async def scene_canon_review(scene_id: str) -> SceneReviewResponse:
         resp = mongodb_list_proposed_changes(ProposedChangeFilter(scene_id=scene_uuid, limit=500))
 
     pending: list[ProposedChangeResponse] = []
+    deferred: list[ProposedChangeResponse] = []
     accepted: list[ProposedChangeResponse] = []
     rejected: list[ProposedChangeResponse] = []
     by_type: dict[str, int] = defaultdict(int)
 
     for proposal in resp.proposed_changes:
         if proposal.status == ProposalStatus.PENDING:
-            pending.append(proposal)
+            (deferred if proposal.deferred else pending).append(proposal)
         elif proposal.status == ProposalStatus.ACCEPTED:
             accepted.append(proposal)
         elif proposal.status == ProposalStatus.REJECTED:
             rejected.append(proposal)
         by_type[proposal.change_type.value] += 1
 
+    summary, participants, locations = _scene_review_context(resp.proposed_changes)
     return SceneReviewResponse(
         scene_id=scene_uuid,
+        summary=summary,
+        participants=participants,
+        locations=locations,
         pending=pending,
+        deferred=deferred,
         accepted=accepted,
         rejected=rejected,
         by_change_type=dict(by_type),
@@ -280,27 +328,40 @@ async def story_canon_queue(
 
     scenes_out: list[SceneReviewResponse] = []
     total_pending = 0
+    total_deferred = 0
     for scene_id, proposals in per_scene.items():
-        pending = [p for p in proposals if p.status == ProposalStatus.PENDING]
+        pending = [p for p in proposals if p.status == ProposalStatus.PENDING and not p.deferred]
+        deferred = [p for p in proposals if p.status == ProposalStatus.PENDING and p.deferred]
         accepted = [p for p in proposals if p.status == ProposalStatus.ACCEPTED]
         rejected = [p for p in proposals if p.status == ProposalStatus.REJECTED]
-        if only_pending and not pending:
+        if only_pending and not pending and not deferred:
             continue
         by_type: dict[str, int] = defaultdict(int)
         for p in proposals:
             by_type[p.change_type.value] += 1
+        summary, participants, locations = _scene_review_context(proposals)
         scenes_out.append(
             SceneReviewResponse(
                 scene_id=scene_id,
+                summary=summary,
+                participants=participants,
+                locations=locations,
                 pending=pending,
+                deferred=deferred,
                 accepted=accepted,
                 rejected=rejected,
                 by_change_type=dict(by_type),
             )
         )
         total_pending += len(pending)
+        total_deferred += len(deferred)
 
-    return CanonQueueResponse(story_id=story_uuid, scenes=scenes_out, total_pending=total_pending)
+    return CanonQueueResponse(
+        story_id=story_uuid,
+        scenes=scenes_out,
+        total_pending=total_pending,
+        total_deferred=total_deferred,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +535,8 @@ def _as_aware(dt: datetime) -> datetime:
 
 def _matches_client_filters(p: ProposedChangeResponse, body: VerdictByFilterRequest) -> bool:
     """Post-filters MongoDB can't express via ProposedChangeFilter."""
+    if body.needs_review is not None and bool(p.needs_review) != body.needs_review:
+        return False
     if body.confidence_min is not None and p.confidence < body.confidence_min:
         return False
     if body.confidence_max is not None and p.confidence > body.confidence_max:
@@ -668,6 +731,43 @@ async def reject_proposal(
                         reason=reason,
                     ),
                 ),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/canon-review/{proposal_id}/defer", response_model=ProposedChangeResponse)
+async def defer_proposal(
+    proposal_id: str,
+    body: ProposalDeferRequest,
+) -> ProposedChangeResponse:
+    """Defer a pending proposal while keeping it in the CF-8 queue."""
+    proposal_uuid = validate_uuid(proposal_id, "proposal_id")
+    with db_op():
+        try:
+            return mongodb_defer_proposed_change(
+                proposal_uuid,
+                reason=body.reason,
+                deferred_by=body.deferred_by,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/canon-review/{proposal_id}/edit", response_model=ProposedChangeResponse)
+async def edit_proposal(
+    proposal_id: str,
+    body: ProposalEditRequest,
+) -> ProposedChangeResponse:
+    """Edit a pending proposal before accepting or rejecting it (CF-8)."""
+    proposal_uuid = validate_uuid(proposal_id, "proposal_id")
+    with db_op():
+        try:
+            return mongodb_edit_proposed_change(
+                proposal_uuid,
+                content_patch=body.content_patch,
+                reason=body.reason,
+                edited_by=body.edited_by,
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc

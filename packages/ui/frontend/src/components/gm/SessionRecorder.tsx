@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   AlertTriangle,
+  Archive,
   BookOpen,
   Bot,
   CircleDot,
@@ -163,12 +164,22 @@ export function SessionRecorder({
             });
         }
 
-        // P1.2 — per-entry capture insights. Same advisory contract: a
-        // failed analysis renders nothing and must never break logging.
+        // P1.2/CF-1 — per-entry capture insights and story-scoped draft
+        // proposals. Same advisory contract: a failed analysis renders nothing
+        // and must never break logging.
         gmApi
-          .captureInsights(universeId, text)
+          .captureInsights(universeId, text, {
+            session_id: activeId,
+            entry_id: optimistic.id,
+            story_id: active?.story_id ?? null,
+            scene_id: active?.scene_id ?? null,
+          })
           .then((insight) => {
             setEntryInsights((prev) => [...prev, { messageText: text, insight }]);
+            if ((insight.proposal_ids ?? []).length > 0) {
+              qc.invalidateQueries({ queryKey: ["canon-queue"] });
+              qc.invalidateQueries({ queryKey: ["canon-review"] });
+            }
           })
           .catch(() => {
             // advisory only — ignore
@@ -195,12 +206,29 @@ export function SessionRecorder({
           disabled={recordings.length === 0}
         >
           {recordings.length === 0 && <option value="">No recordings yet</option>}
-          {recordings.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.title} · {formatRelativeTime(r.updated_at)}
-              {r.wrapped_up_at ? " · wrapped up" : ""}
-            </option>
-          ))}
+          {recordings.some((r) => !r.archived) && (
+            <optgroup label="Active">
+              {recordings
+                .filter((r) => !r.archived)
+                .map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.title} · {formatRelativeTime(r.updated_at)}
+                    {r.wrapped_up_at ? " · wrapped up" : ""}
+                  </option>
+                ))}
+            </optgroup>
+          )}
+          {recordings.some((r) => r.archived) && (
+            <optgroup label="Archived">
+              {recordings
+                .filter((r) => r.archived)
+                .map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.title} · {formatRelativeTime(r.updated_at)}
+                  </option>
+                ))}
+            </optgroup>
+          )}
         </select>
         <div className="flex-1" />
         <button
@@ -233,6 +261,20 @@ export function SessionRecorder({
               <Flag className="w-3 h-3" />
               Wrap up session
             </button>
+            {active.wrapped_up_at && !active.archived && (
+              <button
+                onClick={() => {
+                  void chatApi.patchSession(active.id, { archived: true }).then(() => {
+                    qc.invalidateQueries({ queryKey: ["sessions"] });
+                  });
+                }}
+                className="btn-ghost text-xs py-1 px-2.5 border border-white/10"
+                title="Archive this wrapped-up recording — archived recordings stay out of the active list (P3.3)"
+              >
+                <Archive className="w-3 h-3" />
+                Archive
+              </button>
+            )}
           </>
         )}
       </div>
@@ -270,7 +312,8 @@ export function SessionRecorder({
                 (insight.participants.length > 0 ||
                   insight.locations.length > 0 ||
                   insight.candidate_facts.length > 0 ||
-                  insight.advances_thread !== "");
+                  insight.advances_thread !== "" ||
+                  (insight.proposal_ids ?? []).length > 0);
               return (
                 <div key={m.id} className="space-y-1.5">
                   <motion.div
@@ -356,6 +399,18 @@ export function SessionRecorder({
                             ))}
                           </ul>
                         </details>
+                      )}
+                      {(insight.proposal_ids ?? []).length > 0 && (
+                        <div className="text-[10px] text-emerald-300/80">
+                          {(insight.proposal_ids ?? []).length} draft proposal
+                          {(insight.proposal_ids ?? []).length === 1 ? "" : "s"} queued for canon review
+                        </div>
+                      )}
+                      {(insight.proposal_errors ?? []).length > 0 && (
+                        <div className="text-[10px] text-red-300/80">
+                          {(insight.proposal_errors ?? []).length} candidate fact
+                          {(insight.proposal_errors ?? []).length === 1 ? "" : "s"} could not be queued
+                        </div>
                       )}
                     </div>
                   )}

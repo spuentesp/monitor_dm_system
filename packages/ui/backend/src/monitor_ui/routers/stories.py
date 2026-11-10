@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -94,7 +94,15 @@ class ThreadOut(BaseModel):
     status: str
     urgency: str | None = None
     priority: str | None = None
+    gm_notes: str = ""
     source: str = "graph"  # "graph" | "checkpoint"
+
+
+class ThreadActionRequest(BaseModel):
+    """CF-3 action for a graph-tracked plot thread."""
+
+    action: Literal["resolve", "dismiss", "note"]
+    note: str | None = None
 
 
 def _iso(value: Any) -> str | None:
@@ -221,6 +229,7 @@ async def list_story_threads(
                     status=status,
                     urgency=getattr(t.urgency, "value", str(t.urgency)),
                     priority=getattr(t.priority, "value", str(t.priority)),
+                    gm_notes=t.gm_notes,
                     source="graph",
                 )
             )
@@ -393,4 +402,51 @@ async def patch_story(
         in_game_time=final_state.in_game_time.isoformat(),
         world_ticks=final_state.world_ticks,
         scenes_completed=final_state.scenes_completed,
+    )
+
+
+@router.patch("/{story_id}/threads/{thread_id}", response_model=ThreadOut)
+async def update_story_thread(
+    story_id: UUID,
+    thread_id: UUID,
+    body: ThreadActionRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ThreadOut:
+    """CF-3: resolve, dismiss, or annotate a graph-tracked plot thread."""
+    await require_story_owner(db, principal, story_id)
+    from monitor_data.schemas.base import PlotThreadStatus
+    from monitor_data.schemas.story_outlines import PlotThreadUpdate
+    from monitor_data.tools.neo4j_tools import neo4j_get_plot_thread, neo4j_update_plot_thread
+
+    with db_op("Plot-thread database unavailable"):
+        existing = neo4j_get_plot_thread(thread_id)
+        if existing is None or existing.story_id != story_id:
+            raise HTTPException(status_code=404, detail="Plot thread not found")
+
+        updates: dict[str, Any] = {}
+        if body.action == "resolve":
+            updates["status"] = PlotThreadStatus.RESOLVED
+        elif body.action == "dismiss":
+            updates["status"] = PlotThreadStatus.ABANDONED
+        if body.note is not None:
+            updates["gm_notes"] = body.note
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No thread update supplied")
+
+        try:
+            updated = neo4j_update_plot_thread(thread_id, PlotThreadUpdate(**updates))
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return ThreadOut(
+        id=str(updated.id),
+        title=updated.title,
+        thread_type=getattr(updated.thread_type, "value", str(updated.thread_type)),
+        status=getattr(updated.status, "value", str(updated.status)),
+        urgency=getattr(updated.urgency, "value", str(updated.urgency)),
+        priority=getattr(updated.priority, "value", str(updated.priority)),
+        gm_notes=updated.gm_notes,
+        source="graph",
     )

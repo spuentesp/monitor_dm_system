@@ -10,8 +10,11 @@ IMPORTS FROM: monitor_agents (Layer 2), monitor_data.utils (Layer 1)
 
 from __future__ import annotations
 
+import asyncio
 import re
-from uuid import UUID
+from datetime import UTC, datetime
+from typing import Any, Literal
+from uuid import UUID, uuid4
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,6 +28,24 @@ from monitor_agents.plot_hooks import (
     SessionPrep,
 )
 from monitor_data.db.postgres import PostgresClient
+from monitor_data.schemas.base import (
+    Authority,
+    PlotThreadType,
+    ProposalType,
+    ThreadPriority,
+    ThreadUrgency,
+)
+from monitor_data.schemas.proposed_changes import (
+    Evidence,
+    ProposedChangeCreate,
+    ProposedChangeFilter,
+)
+from monitor_data.schemas.story_outlines import PlotThreadCreate
+from monitor_data.tools.mongodb_tools import (
+    mongodb_create_proposed_change,
+    mongodb_list_proposed_changes,
+)
+from monitor_data.tools.neo4j_tools import neo4j_create_plot_thread
 from monitor_data.utils.dice import roll_dice
 from monitor_ui.auth import Principal, get_current_user, get_postgres
 from monitor_ui.ownership import require_universe_owner
@@ -60,11 +81,71 @@ class SuggestHooksResponse(BaseModel):
     hooks: list[PlotHook]
 
 
+class SaveHookRequest(BaseModel):
+    """Save a selected hook as a plot thread (CF-4)."""
+
+    universe_id: UUID
+    story_id: UUID
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=4000)
+    urgency: str = Field(default="medium", max_length=20)
+    potential_outcomes: list[str] = Field(default_factory=list)
+    connected_threads: list[str] = Field(default_factory=list)
+
+
+class SaveHookResponse(BaseModel):
+    """Saved hook thread reference."""
+
+    thread_id: str
+
+
+class GeneratePrepItemRequest(BaseModel):
+    """Generate content for one session-prep checklist item (CF-7)."""
+
+    universe_id: UUID
+    story_id: UUID
+    category: str = Field(default="lore", max_length=50)
+    description: str = Field(min_length=1, max_length=1000)
+
+
+class GeneratePrepItemResponse(BaseModel):
+    """Generated content for a prep checklist item."""
+
+    content: str
+
+
 class DetectContradictionsRequest(BaseModel):
     """Request body for contradiction detection."""
 
     universe_id: UUID
     focus_entity_id: UUID | None = None
+    scope: Literal["universe", "story", "scene"] = "universe"
+    story_id: UUID | None = None
+    scene_id: UUID | None = None
+
+
+class ResolveContradictionRequest(BaseModel):
+    """Resolve a detected contradiction through a pending canon proposal."""
+
+    universe_id: UUID
+    story_id: UUID | None = None
+    scene_id: UUID | None = None
+    fact_a: str = Field(min_length=1, max_length=2000)
+    fact_b: str = Field(min_length=1, max_length=2000)
+    conflict_type: str = Field(default="semantic", max_length=50)
+    resolution: Literal[
+        "retcon_older",
+        "retcon_newer",
+        "apparent_contradiction",
+        "explanation_fact",
+    ]
+    explanation: str = Field(min_length=1, max_length=4000)
+
+
+class ResolveContradictionResponse(BaseModel):
+    """Resolution recorded as a pending proposal for CF-8 review."""
+
+    proposal_id: str
 
 
 class DetectContradictionsResponse(BaseModel):
@@ -139,10 +220,25 @@ class CaptureContradictionCheckResponse(BaseModel):
 
 
 class CaptureInsightsRequest(BaseModel):
-    """Request body for per-entry capture insights (P1.2)."""
+    """Request body for per-entry capture insights (P1.2/CF-1)."""
 
     universe_id: UUID
     entry_text: str = Field(min_length=1, max_length=4000)
+    session_id: str | None = Field(default=None, max_length=100)
+    entry_id: str | None = Field(default=None, max_length=100)
+    story_id: UUID | None = None
+    scene_id: UUID | None = None
+
+
+class CaptureInsightsResponse(CaptureInsight):
+    """Capture insights plus the draft proposals created for CF-8 review."""
+
+    proposal_ids: list[str] = Field(default_factory=list)
+    proposal_errors: list[str] = Field(default_factory=list)
+
+    @property
+    def proposals_created(self) -> int:
+        return len(self.proposal_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +279,9 @@ async def detect_contradictions(
         contradictions = await agent.detect_contradictions(
             universe_id=req.universe_id,
             focus_entity_id=req.focus_entity_id,
+            scope=req.scope,
+            story_id=req.story_id,
+            scene_id=req.scene_id,
         )
         return DetectContradictionsResponse(contradictions=contradictions)
     except Exception as exc:
@@ -309,22 +408,101 @@ async def check_capture_contradiction(
     )
 
 
-@router.post("/gm/capture/insights", response_model=CaptureInsight)
+def _capture_proposal_source(entry_id: str | None) -> str:
+    return f"capture_entry:{entry_id}" if entry_id else "capture_entry:anonymous"
+
+
+def _capture_evidence(entry_id: str | None) -> list[Evidence]:
+    if not entry_id:
+        return []
+    try:
+        return [Evidence(type="snippet", ref_id=UUID(entry_id))]
+    except (TypeError, ValueError):
+        return []
+
+
+async def _create_capture_proposals(
+    req: CaptureInsightsRequest,
+    insight: CaptureInsight,
+) -> tuple[list[str], list[str]]:
+    """Create one pending FACT proposal per candidate fact (CF-1 → CF-8).
+
+    Creation is best-effort: capture analysis must remain useful even when the
+    proposal store rejects an item. Replaying the same entry is idempotent via
+    the ``capture_entry:<entry_id>`` source tag.
+    """
+    if not req.story_id or not req.scene_id or not insight.candidate_facts:
+        return [], []
+
+    source = _capture_proposal_source(req.entry_id)
+    created_ids: list[str] = []
+    errors: list[str] = []
+
+    def _create() -> tuple[list[str], list[str]]:
+        existing = mongodb_list_proposed_changes(ProposedChangeFilter(source=source, limit=500))
+        existing_statements = {
+            str(p.content.get("statement") or "").strip()
+            for p in existing.proposed_changes
+            if isinstance(p.content, dict)
+        }
+        ids: list[str] = []
+        errs: list[str] = []
+        for fact in insight.candidate_facts:
+            statement = str(fact or "").strip()
+            if not statement or statement in existing_statements:
+                continue
+            content: dict[str, Any] = {
+                "statement": statement,
+                "fact_type": "occurrence",
+                "canon_level": "proposed",
+                "source_excerpt": req.entry_text,
+                "participants": list(insight.participants),
+                "locations": list(insight.locations),
+                "captured_at": datetime.now(UTC).isoformat(),
+                "capture_entry_id": req.entry_id,
+            }
+            try:
+                proposal = mongodb_create_proposed_change(
+                    ProposedChangeCreate(
+                        scene_id=req.scene_id,
+                        story_id=req.story_id,
+                        change_type=ProposalType.FACT,
+                        content=content,
+                        evidence=_capture_evidence(req.entry_id),
+                        confidence=0.75,
+                        authority=Authority.GM,
+                        proposer="CaptureInsightAgent",
+                        source=source,
+                        proposal_type="capture_candidate_fact",
+                    )
+                )
+                ids.append(str(proposal.proposal_id))
+                existing_statements.add(statement)
+            except Exception as exc:  # noqa: BLE001  # reason: one bad candidate fact must not block the rest of the entry (in _create_capture_proposals)
+                errs.append(f"{statement[:80]}: {exc}")
+        return ids, errs
+
+    created_ids, errors = await asyncio.to_thread(_create)
+    return created_ids, errors
+
+
+@router.post("/gm/capture/insights", response_model=CaptureInsightsResponse)
 async def capture_entry_insights(
     req: CaptureInsightsRequest,
     principal: Principal = Depends(get_current_user),
     db: PostgresClient = Depends(get_postgres),
-) -> CaptureInsight:
+) -> CaptureInsightsResponse:
     """Per-entry capture insights for the Session Recorder (CF-1, P1.2).
 
-    Advisory: analyzes the entry for participants, locations, and candidate
-    facts. Candidate facts are visible, not proposed — promotion happens via
-    the scene-end canon review (CF-8).
+    Analyzes the entry for participants, locations, and candidate facts. When
+    the request carries story/scene context, each candidate fact becomes a
+    pending story-scoped FACT proposal for the CF-8 review queue, tagged with
+    the entry text as evidence.
     """
     await require_universe_owner(db, principal, req.universe_id)
     agent = CaptureInsightAgent()
     try:
-        return await agent.analyze_entry(
+        insight = await agent.analyze_entry(
             universe_id=req.universe_id,
             entry_text=req.entry_text,
         )
@@ -335,3 +513,114 @@ async def capture_entry_insights(
             error=str(exc),
         )
         raise HTTPException(status_code=500, detail=f"Failed to analyze capture entry: {exc}") from exc
+
+    proposal_ids, proposal_errors = await _create_capture_proposals(req, insight)
+    return CaptureInsightsResponse(
+        **insight.model_dump(),
+        proposal_ids=proposal_ids,
+        proposal_errors=proposal_errors,
+    )
+
+
+@router.post("/gm/contradictions/resolve", response_model=ResolveContradictionResponse)
+async def resolve_contradiction(
+    req: ResolveContradictionRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ResolveContradictionResponse:
+    """Record a CF-5 contradiction resolution as a pending canon proposal.
+
+    Resolutions are intentionally staged as ProposedChange items rather than
+    direct Neo4j writes: CanonKeeper remains the only writer, and the GM can
+    review the resolution in the CF-8 queue before it becomes canon.
+    """
+    await require_universe_owner(db, principal, req.universe_id)
+    resolution_source = f"contradiction_resolution:{uuid4()}"
+    content = {
+        "statement": req.explanation.strip(),
+        "fact_type": "state",
+        "canon_level": "proposed",
+        "resolution": req.resolution,
+        "conflict_type": req.conflict_type,
+        "fact_a": req.fact_a,
+        "fact_b": req.fact_b,
+        "resolved_at": datetime.now(UTC).isoformat(),
+    }
+    try:
+        proposal = await asyncio.to_thread(
+            mongodb_create_proposed_change,
+            ProposedChangeCreate(
+                scene_id=req.scene_id,
+                story_id=req.story_id,
+                change_type=ProposalType.FACT,
+                content=content,
+                confidence=0.9,
+                authority=Authority.GM,
+                proposer="GM",
+                source=resolution_source,
+                proposal_type="contradiction_resolution",
+            ),
+        )
+    except Exception as exc:
+        log.warning(
+            "contradiction_resolution_failed",
+            universe_id=str(req.universe_id),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to record contradiction resolution: {exc}") from exc
+    return ResolveContradictionResponse(proposal_id=str(proposal.proposal_id))
+
+
+@router.post("/gm/hooks/save", response_model=SaveHookResponse)
+async def save_hook(
+    req: SaveHookRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> SaveHookResponse:
+    """CF-4: save a selected hook as a story plot thread."""
+    await require_universe_owner(db, principal, req.universe_id)
+    try:
+        urgency = ThreadUrgency(req.urgency)
+    except ValueError:
+        urgency = ThreadUrgency.MEDIUM
+    try:
+        thread = await asyncio.to_thread(
+            neo4j_create_plot_thread,
+            PlotThreadCreate(
+                story_id=req.story_id,
+                title=req.title,
+                thread_type=PlotThreadType.SUBPLOT,
+                urgency=urgency,
+                priority=ThreadPriority.SECONDARY,
+                gm_notes=(
+                    f"{req.description}\n\nPotential outcomes: "
+                    f"{'; '.join(req.potential_outcomes) if req.potential_outcomes else 'unspecified'}"
+                ),
+            ),
+        )
+    except Exception as exc:
+        log.warning("hook_save_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to save hook: {exc}") from exc
+    return SaveHookResponse(thread_id=str(thread.id))
+
+
+@router.post("/gm/session-prep/generate-item", response_model=GeneratePrepItemResponse)
+async def generate_prep_item(
+    req: GeneratePrepItemRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> GeneratePrepItemResponse:
+    """CF-7: generate missing content for a prep checklist item."""
+    await require_universe_owner(db, principal, req.universe_id)
+    agent = PlotHookAgent()
+    try:
+        content = await agent.generate_prep_item(
+            universe_id=req.universe_id,
+            story_id=req.story_id,
+            category=req.category,
+            description=req.description,
+        )
+    except Exception as exc:
+        log.warning("prep_item_generation_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to generate prep item: {exc}") from exc
+    return GeneratePrepItemResponse(content=content)

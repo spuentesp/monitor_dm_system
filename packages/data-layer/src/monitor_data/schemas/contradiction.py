@@ -14,6 +14,9 @@ Contradiction types:
     TEMPORAL_OVERRIDE  — A newer source overrides an older one (time-based authority).
     SCOPE_CONFLICT     — Fact A is canon in Universe X but contradicted in Universe Y.
     PARTIAL_OVERLAP    — Two facts cover overlapping but not identical domains.
+    IMPLICATION_CONFLICT — The conflict needs a chain of reasoning: the canon
+                         implies something the new statement denies. Advisory
+                         only — never a hard rejection on its own (G-9).
 
 Resolution strategies:
     NEW_WINS   — The new source is more authoritative; override existing canon.
@@ -37,6 +40,9 @@ class ContradictionType(StrEnum):
     TEMPORAL_OVERRIDE = "temporal_override"
     SCOPE_CONFLICT = "scope_conflict"
     PARTIAL_OVERLAP = "partial_overlap"
+    # G-9 — conflict reached through a reasoning chain rather than a direct
+    # negation. Advisory severity HIGH; never CRITICAL, never auto-rejected.
+    IMPLICATION_CONFLICT = "implication_conflict"
 
 
 class ContradictionSeverity(StrEnum):

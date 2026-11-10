@@ -34,6 +34,7 @@ Welcome to the MONITOR Agent Documentation. This structure is designed to be hig
 - [Character Templates & GM Conditioning Plan](./architecture/CHARACTER_TEMPLATES_AND_GM_CONDITIONING_PLAN.md): Extends Play & Forge §5/§6 with live multi-world test evidence; adds the (previously undesigned) story-premise conditioning gap.
 - [Ingestion Pipeline Audit](./architecture/INGESTION_PIPELINE_AUDIT.md): Findings + remediation plan for game-system ingestion and character-creation parsing (silent degenerate extraction, missing provenance, step_type mislabeling).
 - [Multi-Tenancy Plan](./architecture/MULTI_TENANCY_PLAN.md): Phase 1 of multi-user support — per-account private campaigns, public template/character-card gallery, and the auth/ownership model needed to get there; preserves the seam for a later multiplayer phase.
+- [Multi-Tenancy Implementation Plan](./architecture/MULTI_TENANCY_IMPLEMENTATION.md): The executable version of that plan — per-phase tasks, file anchors, tests, rollout order and verification gates.
 
 ## 3. Loops & Systems (Dynamic Behaviors)
 - [Scene Loop](./3_loops_and_systems/scene_loop.md): Turn-by-turn resolution.

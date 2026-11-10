@@ -16,7 +16,9 @@ The canonical specs are:
 
 ## User Workflow
 
-1. **CF-1 — Record session.** GM starts a capture session (text, audio, or hybrid).
+1. **CF-1 — Record session.** GM starts a capture session (text). Audio/hybrid
+   capture is future work, out of CF-1 shipped scope (decision:
+   `docs/architecture/GM_ASSISTANT_MODE_PLAN.md` P3.1).
    System parses incoming material, creates draft story/scene documents in MongoDB,
    and queues `ProposedChange` items with timestamp, participants, location.
 2. **CF-2 — Generate recap.** After a session ends, MONITOR summarizes what happened
@@ -32,7 +34,7 @@ each proposed change before it is canonized.
 
 ---
 
-## Implementation Status (verified 2026-07-23)
+## Implementation Status (verified 2026-11-06)
 
 | ID | Backend | Frontend | Notes |
 |----|---------|----------|-------|

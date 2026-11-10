@@ -158,3 +158,69 @@ class TestBatchVerdicts:
         )
         assert resp.status_code == 400
         mock_update.assert_not_called()
+
+
+class TestDeferAndEdit:
+    @patch("monitor_ui.routers.canon_review.mongodb_defer_proposed_change")
+    def test_defer_keeps_the_proposal_pending_and_records_a_reason(self, mock_defer: Mock) -> None:
+        proposal = _proposal()
+        proposal.deferred = True
+        proposal.defer_reason = "Need a second look"
+        mock_defer.return_value = proposal
+
+        resp = client.post(
+            f"/api/canon-review/{proposal.proposal_id}/defer",
+            json={"reason": "Need a second look", "deferred_by": "GM"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "pending"
+        assert resp.json()["deferred"] is True
+        assert resp.json()["defer_reason"] == "Need a second look"
+        mock_defer.assert_called_once_with(
+            proposal.proposal_id,
+            reason="Need a second look",
+            deferred_by="GM",
+        )
+
+    @patch("monitor_ui.routers.canon_review.mongodb_edit_proposed_change")
+    def test_edit_merges_the_statement_patch_before_a_verdict(self, mock_edit: Mock) -> None:
+        proposal = _proposal()
+        proposal.content = {"statement": "The moon is hollow", "source_excerpt": "old evidence"}
+        proposal.edit_reason = "Clarified wording"
+        mock_edit.return_value = proposal
+
+        resp = client.post(
+            f"/api/canon-review/{proposal.proposal_id}/edit",
+            json={
+                "content_patch": {"statement": "The moon is hollow and ancient"},
+                "reason": "Clarified wording",
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["edit_reason"] == "Clarified wording"
+        mock_edit.assert_called_once_with(
+            proposal.proposal_id,
+            content_patch={"statement": "The moon is hollow and ancient"},
+            reason="Clarified wording",
+            edited_by="GM",
+        )
+
+    @patch("monitor_ui.routers.canon_review.mongodb_list_proposed_changes")
+    def test_story_queue_groups_deferred_proposals_separately(self, mock_list: Mock) -> None:
+        story_id = uuid4()
+        scene_id = uuid4()
+        deferred = _proposal(story_id=story_id, scene_id=scene_id)
+        deferred.deferred = True
+        deferred.defer_reason = "Wait for the next session"
+        mock_list.return_value = _list_response([deferred])
+
+        resp = client.get(f"/api/stories/{story_id}/canon-queue")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_pending"] == 0
+        assert data["total_deferred"] == 1
+        assert data["scenes"][0]["pending"] == []
+        assert data["scenes"][0]["deferred"][0]["defer_reason"] == "Wait for the next session"

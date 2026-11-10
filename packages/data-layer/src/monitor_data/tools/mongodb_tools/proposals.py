@@ -89,6 +89,12 @@ def _convert_proposed_change_doc_to_response(
         is_mechanically_bound=doc.get("is_mechanically_bound", False),
         source=doc.get("source"),
         proposal_type=doc.get("proposal_type"),
+        deferred=bool(doc.get("deferred", False)),
+        defer_reason=doc.get("defer_reason"),
+        edit_reason=doc.get("edit_reason"),
+        needs_review=bool(doc.get("needs_review", False)),
+        review_reason=doc.get("review_reason"),
+        review_source=doc.get("review_source"),
         created_at=doc["created_at"],
         updated_at=doc.get("updated_at") or doc["created_at"],
     )
@@ -144,11 +150,16 @@ def mongodb_create_proposed_change(
         "confidence": params.confidence,
         "authority": params.authority.value,
         "proposer": params.proposer,
+        "source": params.source,
+        "proposal_type": params.proposal_type,
         "status": ProposalStatus.PENDING.value,
         "decision_metadata": None,
         "promotion_intent": params.promotion_intent.value if params.promotion_intent else None,
         "interaction_count": params.interaction_count,
         "is_mechanically_bound": params.is_mechanically_bound,
+        "needs_review": params.needs_review,
+        "review_reason": params.review_reason,
+        "review_source": params.review_source,
         "created_at": created_at,
         "updated_at": created_at,
     }
@@ -179,11 +190,16 @@ def mongodb_create_proposed_change(
         confidence=params.confidence,
         authority=params.authority,
         proposer=params.proposer,
+        source=params.source,
+        proposal_type=params.proposal_type,
         status=ProposalStatus.PENDING,
         decision_metadata=None,
         promotion_intent=params.promotion_intent,
         interaction_count=params.interaction_count,
         is_mechanically_bound=params.is_mechanically_bound,
+        needs_review=params.needs_review,
+        review_reason=params.review_reason,
+        review_source=params.review_source,
         created_at=created_at,
         updated_at=created_at,
     )
@@ -241,6 +257,8 @@ def mongodb_list_proposed_changes(
 
     if params.status is not None:
         filter_query["status"] = params.status.value
+    if params.needs_review is not None:
+        filter_query["needs_review"] = params.needs_review
 
     if params.change_type is not None:
         filter_query["change_type"] = params.change_type.value
@@ -271,6 +289,147 @@ def mongodb_list_proposed_changes(
         limit=params.limit,
         offset=params.offset,
     )
+
+
+def mongodb_flag_proposal_review(
+    proposal_id: UUID,
+    needs_review: bool = True,
+    reason: str | None = None,
+    source: str | None = None,
+) -> dict[str, Any]:
+    """
+    Stamp (or clear) the advisory review flag on a proposal.
+
+    Authority: CanonKeeper only
+    Collection: proposed_changes
+
+    G-9 Phase 2. This never changes the proposal's status and never blocks
+    acceptance — it only makes the proposal visible to a human reviewer. The
+    flag is set by the deterministic transition rules and, once Phase 3 lands,
+    by the implication-level check too.
+
+    Args:
+        proposal_id: The proposal to flag.
+        needs_review: True to flag, False to clear.
+        reason: Why it was flagged (human-readable).
+        source: Which rule flagged it (e.g. 'transition_rule').
+
+    Returns:
+        Dict with the proposal_id and the flag state.
+    """
+    client = get_mongodb_client()
+    coll = client.get_collection("proposed_changes")
+    if not coll.find_one({"proposal_id": str(proposal_id)}, {"proposal_id": 1}):
+        raise ValueError(f"Proposal {proposal_id} not found")
+
+    coll.update_one(
+        {"proposal_id": str(proposal_id)},
+        {
+            "$set": {
+                "needs_review": needs_review,
+                "review_reason": reason,
+                "review_source": source,
+                "updated_at": datetime.now(UTC),
+            }
+        },
+    )
+    return {
+        "proposal_id": str(proposal_id),
+        "needs_review": needs_review,
+        "review_reason": reason,
+        "review_source": source,
+    }
+
+
+def mongodb_defer_proposed_change(
+    proposal_id: UUID,
+    reason: str,
+    deferred_by: str = "GM",
+) -> ProposedChangeResponse:
+    """Mark a pending proposal as deferred without deciding it.
+
+    Deferred proposals stay pending so they can still be edited, accepted, or
+    rejected later. The reason is kept separate from decision metadata because
+    no final verdict has been made.
+    """
+    mongo_client = get_mongodb_client()
+    coll = mongo_client.get_collection("proposed_changes")
+    doc = coll.find_one({"proposal_id": str(proposal_id)})
+    if not doc:
+        raise ValueError(f"Proposal {proposal_id} not found")
+    current_status = _coerce_proposal_status(doc.get("status", ProposalStatus.PENDING.value))
+    if current_status != ProposalStatus.PENDING:
+        raise ValueError(
+            f"Cannot defer proposal with status {current_status.value}. "
+            f"Only pending proposals can be deferred."
+        )
+
+    coll.update_one(
+        {"proposal_id": str(proposal_id)},
+        {
+            "$set": {
+                "deferred": True,
+                "defer_reason": reason,
+                "deferred_by": deferred_by,
+                "updated_at": datetime.now(UTC),
+            }
+        },
+    )
+    updated = mongodb_get_proposed_change(proposal_id)
+    if updated is None:
+        raise ValueError(f"Proposal {proposal_id} not found after defer")
+    return updated
+
+
+def mongodb_edit_proposed_change(
+    proposal_id: UUID,
+    content_patch: dict[str, Any],
+    reason: str | None = None,
+    edited_by: str = "GM",
+) -> ProposedChangeResponse:
+    """Edit a pending proposal's content before a final verdict.
+
+    The patch is merged shallowly into ``content`` and, when present, into the
+    extraction ``payload`` used by CanonKeeper's commit handlers. This keeps
+    "edit before accept" from silently changing only the display copy.
+    """
+    if not content_patch:
+        raise ValueError("content_patch must not be empty")
+
+    mongo_client = get_mongodb_client()
+    coll = mongo_client.get_collection("proposed_changes")
+    doc = coll.find_one({"proposal_id": str(proposal_id)})
+    if not doc:
+        raise ValueError(f"Proposal {proposal_id} not found")
+    current_status = _coerce_proposal_status(doc.get("status", ProposalStatus.PENDING.value))
+    if current_status != ProposalStatus.PENDING:
+        raise ValueError(
+            f"Cannot edit proposal with status {current_status.value}. "
+            f"Only pending proposals can be edited before a verdict."
+        )
+
+    current_content = doc.get("content") or {}
+    if not isinstance(current_content, dict):
+        raise ValueError("Proposal content is not editable")
+    new_content = {**current_content, **content_patch}
+    if "statement" in content_patch and not str(new_content.get("statement") or "").strip():
+        raise ValueError("statement must not be empty")
+
+    updates: dict[str, Any] = {
+        "content": new_content,
+        "edit_reason": reason,
+        "edited_by": edited_by,
+        "updated_at": datetime.now(UTC),
+    }
+    current_payload = doc.get("payload")
+    if isinstance(current_payload, dict):
+        updates["payload"] = {**current_payload, **content_patch}
+
+    coll.update_one({"proposal_id": str(proposal_id)}, {"$set": updates})
+    updated = mongodb_get_proposed_change(proposal_id)
+    if updated is None:
+        raise ValueError(f"Proposal {proposal_id} not found after edit")
+    return updated
 
 
 def mongodb_update_proposed_change(proposal_id: UUID, params: ProposedChangeUpdate) -> ProposedChangeResponse:

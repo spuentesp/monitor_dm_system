@@ -139,6 +139,8 @@ class Session(BaseModel):
     # P1.4 — persisted wrap-up artifacts (additive; old docs read as None).
     recap_text: str | None = None
     wrapped_up_at: str | None = None
+    # P3.3 — GM archive flag for recordings (additive; old docs read as None).
+    archived: bool | None = None
 
 
 class Message(BaseModel):
@@ -180,6 +182,8 @@ class SessionPatch(BaseModel):
     story_id: str | None = None
     chat_mode: str | None = None
     roll_model: str | None = None
+    # P3.3 — archive flag for gm_assistant recordings.
+    archived: bool | None = None
 
 
 class StoryResponse(BaseModel):

@@ -22,8 +22,10 @@
 **Input Modes:**
 - Live text/chat notes entered during play
 - Uploaded or pasted transcript after play
-- Microphone/audio capture for GM Assistant session recording
 - Hybrid notes + post-session cleanup
+
+> Audio/hybrid capture is **future work, out of CF-1 shipped scope** (decision:
+> `docs/architecture/GM_ASSISTANT_MODE_PLAN.md` P3.1 — descoped 2026-11-06).
 
 **Output:** Draft story/scene transcript with pending proposals grouped for GM review
 
@@ -40,8 +42,9 @@ mongodb_update_scene(scene_id, {"status": "review"})    # Ready for GM/CanonKeep
 **Layer 2 (Agents):**
 - `session_bootstrap.bootstrap_story_scene(...)` (`loops/session_bootstrap.py:121-139`) —
   initializes the `gm_assistant` capture session's story/scene shell
-- Capture-insights module (planned, GM_ASSISTANT_MODE_PLAN P1.2) — per-entry
-  participant/location/candidate-fact extraction
+- Capture-insights module (`monitor_agents.ingestion.capture_insights`) — per-entry
+  participant/location/candidate-fact extraction; with story/scene context the
+  candidate facts are queued as pending `ProposedChange` FACT items for CF-8
 - `RecapAgent.generate_recap` — post-session recap (CF-2)
 
 **Layer 3 (Surface):**

@@ -111,3 +111,86 @@ class BatchContradictionModule(dspy.Module):  # type: ignore[misc]
             if explanation.upper() != "NONE":
                 flagged[idx] = explanation
         return flagged
+
+
+class ImplicationContradictionSignature(dspy.Signature):  # type: ignore[misc]
+    """Identify candidate facts that IMPLICITLY conflict with established canon.
+
+    The direct check (``BatchContradictionSignature``) only fires on an outright
+    contradiction: the candidate negates what the canon states outright. This
+    check fires one level deeper — the candidate contradicts something the
+    canon *implies*, so a chain of reasoning is needed to see the conflict.
+
+    Flag-only. A finding here must never reject a proposal on its own (G-9).
+    """
+
+    context = dspy.InputField(desc="Established canon facts and axioms (the existing world).")
+    new_facts = dspy.InputField(desc="A numbered list of candidate new facts, one per line, e.g. '1. ...\\n2. ...'.")
+    contradictions = dspy.OutputField(
+        desc=(
+            "For each candidate that IMPLICITLY contradicts the context — the conflict "
+            "needs a chain of reasoning rather than an outright negation — output one "
+            "line 'INDEX: short reason'. If none conflict, output exactly 'NONE'."
+        )
+    )
+    implications = dspy.OutputField(
+        desc=(
+            "For each flagged candidate, output one line 'INDEX: the reasoning chain that "
+            "makes it a conflict' (what the canon implies, and how the candidate denies "
+            "it). Output 'NONE' when nothing is flagged."
+        )
+    )
+
+
+class ImplicationContradictionModule(dspy.Module):  # type: ignore[misc]
+    """
+    Detect IMPLICATION-level contradictions for MANY candidate facts at once.
+
+    Separate from the calibrated direct check: this module only fires when the
+    conflict requires a reasoning chain (canon implies X, candidate asserts
+    not-X). The result is advisory — the caller flags, it never rejects.
+    """
+
+    # Identical numbered-list output format as the direct batch check, so the
+    # parsing is reused rather than duplicated.
+    _LINE_RE = BatchContradictionModule._LINE_RE
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.verify = dspy.ChainOfThought(ImplicationContradictionSignature)
+
+    def forward(self, context: str, new_facts: str) -> dict[int, dict[str, str]]:
+        """Return {index (1-based): {"explanation": str, "implications": str}}."""
+        from monitor_data.schemas.llm_config import ModelRole
+
+        from monitor_agents.dspy_runtime import dspy_context_for
+
+        with dspy_context_for("canonkeeper", ModelRole.HEAVY):
+            result = self.verify(context=context, new_facts=new_facts)
+
+        raw = str(getattr(result, "contradictions", "") or "").strip()
+        if not raw or raw.strip().upper() == "NONE":
+            return {}
+
+        flagged: dict[int, dict[str, str]] = {}
+        for line in raw.splitlines():
+            m = self._LINE_RE.match(line)
+            if not m:
+                continue
+            idx = int(m.group(1))
+            explanation = m.group(2).strip()
+            if explanation.upper() != "NONE":
+                flagged[idx] = {"explanation": explanation, "implications": ""}
+
+        raw_implications = str(getattr(result, "implications", "") or "").strip()
+        if raw_implications and raw_implications.strip().upper() != "NONE":
+            for line in raw_implications.splitlines():
+                m = self._LINE_RE.match(line)
+                if not m:
+                    continue
+                idx = int(m.group(1))
+                chain = m.group(2).strip()
+                if chain.upper() == "NONE" or idx not in flagged:
+                    continue
+                flagged[idx]["implications"] = chain
+        return flagged

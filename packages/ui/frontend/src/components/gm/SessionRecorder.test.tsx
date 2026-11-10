@@ -18,6 +18,7 @@ vi.mock("@/lib/api", () => ({
     createSession: vi.fn(),
     endScene: vi.fn(),
     wrapUp: vi.fn(),
+    patchSession: vi.fn(),
   },
   storiesApi: { listThreads: vi.fn() },
   gmApi: { checkEntryContradiction: vi.fn(), captureInsights: vi.fn() },
@@ -153,7 +154,16 @@ describe("SessionRecorder per-entry capture insights (P1.2)", () => {
     expect(card).toHaveTextContent("Candidate facts");
     expect(card).toHaveTextContent("the key is now with Mira");
     expect(card).toHaveTextContent("Advances: The sealed door");
-    expect(gmApi.captureInsights).toHaveBeenCalledWith("u-1", text);
+    expect(gmApi.captureInsights).toHaveBeenCalledWith(
+      "u-1",
+      text,
+      expect.objectContaining({
+        session_id: RECORDING.id,
+        entry_id: expect.any(String),
+        story_id: null,
+        scene_id: null,
+      }),
+    );
   });
 
   it("renders insights alongside a contradiction alert for the same entry", async () => {
@@ -243,5 +253,96 @@ describe("SessionRecorder wrap-up (P1.3/P1.4)", () => {
       "The party sealed the chapel door.",
     );
     expect(chatApi.wrapUp).toHaveBeenCalledWith("rec-1");
+  });
+});
+
+describe("SessionRecorder archive metadata (P3.3)", () => {
+  it("groups archived recordings under an 'Archived' optgroup", async () => {
+    vi.mocked(chatApi.listSessions).mockResolvedValue([
+      { ...RECORDING, id: "rec-open", title: "Table log — open" },
+      {
+        ...RECORDING,
+        id: "rec-archived",
+        title: "Table log — archived",
+        archived: true,
+      },
+    ] as never);
+    renderRecorder();
+
+    await screen.findByRole("option", { name: /Table log — open/ });
+
+    const groups = Array.from(document.querySelectorAll("optgroup")).map((g) =>
+      g.getAttribute("label"),
+    );
+    expect(groups).toEqual(["Active", "Archived"]);
+
+    const archivedGroup = Array.from(document.querySelectorAll("optgroup")).find(
+      (g) => g.getAttribute("label") === "Archived",
+    )!;
+    expect(archivedGroup.textContent).toContain("Table log — archived");
+  });
+
+  it("offers Archive only for a recording that has been wrapped up", async () => {
+    vi.mocked(chatApi.listSessions).mockResolvedValue([
+      { ...RECORDING, id: "rec-open", title: "Table log — open" },
+    ] as never);
+    renderRecorder();
+
+    await screen.findByRole("option", { name: /Table log — open/ });
+    expect(screen.queryByRole("button", { name: /Archive/ })).toBeNull();
+  });
+
+  it("archives a wrapped-up recording through the session PATCH", async () => {
+    vi.mocked(chatApi.listSessions).mockResolvedValue([
+      { ...RECORDING, wrapped_up_at: new Date().toISOString() },
+    ] as never);
+    vi.mocked(chatApi.patchSession).mockResolvedValue({
+      ...RECORDING,
+      archived: true,
+    } as never);
+    renderRecorder();
+
+    await userEvent.click(await screen.findByRole("button", { name: /Archive/ }));
+
+    await waitFor(() =>
+      expect(chatApi.patchSession).toHaveBeenCalledWith("rec-1", { archived: true }),
+    );
+  });
+});
+
+
+describe("SessionRecorder CF-1 proposal handoff", () => {
+  it("shows the number of draft proposals queued for canon review", async () => {
+    const text = "Mira pocketed the key beneath the chapel";
+    stubTranscript(text);
+    vi.mocked(gmApi.checkEntryContradiction).mockResolvedValue({ alert: null });
+    vi.mocked(gmApi.captureInsights).mockResolvedValue({
+      ...EMPTY_INSIGHT,
+      candidate_facts: ["the key is now with Mira"],
+      proposal_ids: ["p-1"],
+      proposal_errors: [],
+    });
+    renderRecorder();
+
+    await logEntry(text);
+
+    expect(await screen.findByText(/1 draft proposal queued for canon review/i)).toBeInTheDocument();
+  });
+
+  it("reports candidate facts that could not be queued", async () => {
+    const text = "Mira pocketed the key beneath the chapel";
+    stubTranscript(text);
+    vi.mocked(gmApi.checkEntryContradiction).mockResolvedValue({ alert: null });
+    vi.mocked(gmApi.captureInsights).mockResolvedValue({
+      ...EMPTY_INSIGHT,
+      candidate_facts: ["the key is now with Mira"],
+      proposal_ids: [],
+      proposal_errors: ["the key is now with Mira: scene missing"],
+    });
+    renderRecorder();
+
+    await logEntry(text);
+
+    expect(await screen.findByText(/1 candidate fact could not be queued/i)).toBeInTheDocument();
   });
 });

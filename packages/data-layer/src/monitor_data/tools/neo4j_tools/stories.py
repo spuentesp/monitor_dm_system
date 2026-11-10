@@ -438,6 +438,7 @@ def neo4j_create_plot_thread(params: PlotThreadCreate) -> PlotThreadResponse:
         payoff_status: $payoff_status,
         player_interest_level: $player_interest_level,
         gm_importance: $gm_importance,
+        gm_notes: $gm_notes,
         created_at: datetime($created_at),
         updated_at: datetime($updated_at),
         resolved_at: $resolved_at
@@ -458,6 +459,7 @@ def neo4j_create_plot_thread(params: PlotThreadCreate) -> PlotThreadResponse:
         "payoff_status": params.payoff_status.value,
         "player_interest_level": params.player_interest_level,
         "gm_importance": params.gm_importance,
+        "gm_notes": params.gm_notes,
         "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
         "resolved_at": None,
@@ -596,6 +598,7 @@ def neo4j_get_plot_thread(id: UUID) -> PlotThreadResponse | None:
         payoff_status=t["payoff_status"],
         player_interest_level=t["player_interest_level"],
         gm_importance=t["gm_importance"],
+        gm_notes=t.get("gm_notes", ""),
         scene_ids=scene_ids,
         entity_ids=entity_ids,
         foreshadowing_events=foreshadowing_events,
@@ -698,6 +701,10 @@ def neo4j_update_plot_thread(id: UUID, params: PlotThreadUpdate) -> PlotThreadRe
     if params.gm_importance is not None:
         update_parts.append("t.gm_importance = $gm_importance")
         query_params["gm_importance"] = params.gm_importance
+
+    if params.gm_notes is not None:
+        update_parts.append("t.gm_notes = $gm_notes")
+        query_params["gm_notes"] = params.gm_notes
 
     # Update node properties
     update_query = f"""
@@ -882,6 +889,7 @@ def neo4j_list_plot_threads(params: PlotThreadFilter) -> PlotThreadListResponse:
                 payoff_status=t["payoff_status"],
                 player_interest_level=t["player_interest_level"],
                 gm_importance=t["gm_importance"],
+                gm_notes=t.get("gm_notes", ""),
                 scene_ids=scene_ids,
                 entity_ids=entity_ids,
                 foreshadowing_events=foreshadowing_events,

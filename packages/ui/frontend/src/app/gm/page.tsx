@@ -3,7 +3,7 @@
 import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
   ChevronDown,
@@ -26,7 +26,7 @@ import {
   Scroll,
 } from "lucide-react";
 import { entitiesApi, ingestApi, universesApi, gmApi, storiesApi } from "@/lib/api";
-import type { PlotHook, Contradiction, SessionPrep, Handout, StoryThread } from "@/lib/types";
+import type { PlotHook, Contradiction, SessionPrep, Handout, StoryThread, PrepItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useDismissRef } from "@/lib/useDismissRef";
 import { uuid } from "@/lib/uuid";
@@ -403,10 +403,13 @@ function SessionNotebook({
           onClick={() => ingestNotes.mutate()}
           disabled={!notes.trim() || ingestNotes.isPending}
           className={cn("btn-ghost text-xs py-0.5 px-2", !notes.trim() && "opacity-40 cursor-not-allowed")}
-          title="Ingest notes into the world knowledge base"
+          title="Ingest notes into the world knowledge base. Proposals land in Forge → Review."
         >
           {ingestNotes.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />} Ingest
         </button>
+        <span data-testid="ingest-hint" className="text-[10px] text-slate-700">
+          Proposals land in Forge → Review
+        </span>
       </div>
 
       {/* Textarea */}
@@ -450,10 +453,48 @@ function SessionNotebook({
 
 function PlotHooksPanel({ universeId }: { universeId: string | null }) {
   const [hooks, setHooks] = useState<PlotHook[]>([]);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [saved, setSaved] = useState<Set<string>>(new Set());
+  const [storyId, setStoryId] = useState("");
+
+  const { data: storiesData } = useQuery({
+    queryKey: ["universe-stories", universeId],
+    queryFn: () => storiesApi.listStories({ universe_id: universeId!, limit: 100 }),
+    enabled: !!universeId,
+    staleTime: 15_000,
+  });
+  const stories = storiesData?.stories ?? [];
+
+  useEffect(() => {
+    if (!storyId && stories.length > 0) setStoryId(stories[0].id);
+    if (storyId && stories.length > 0 && !stories.some((s) => s.id === storyId)) {
+      setStoryId(stories[0].id);
+    }
+  }, [stories, storyId]);
 
   const mutation = useMutation({
-    mutationFn: () => gmApi.suggestHooks(universeId!),
-    onSuccess: (data) => setHooks(data.hooks),
+    mutationFn: () => gmApi.suggestHooks(universeId!, storyId || undefined),
+    onSuccess: (data) => {
+      setHooks(data.hooks);
+      setDismissed(new Set());
+      setSaved(new Set());
+    },
+  });
+
+  const saveHook = useMutation({
+    mutationFn: (hook: PlotHook) =>
+      gmApi.saveHook({
+        universe_id: universeId!,
+        story_id: storyId,
+        title: hook.title,
+        description: hook.description,
+        urgency: hook.urgency,
+        potential_outcomes: hook.potential_outcomes ?? [],
+        connected_threads: hook.connected_threads ?? [],
+      }),
+    onSuccess: (_data, hook) => {
+      setSaved((prev) => new Set(prev).add(hook.hook_id ?? hook.title));
+    },
   });
 
   if (!universeId) {
@@ -465,11 +506,24 @@ function PlotHooksPanel({ universeId }: { universeId: string | null }) {
     );
   }
 
+  const visibleHooks = hooks.filter((hook) => !dismissed.has(hook.hook_id ?? hook.title));
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 flex-shrink-0">
         <Sparkles className="w-3.5 h-3.5 text-amber-400" />
         <span className="text-xs font-semibold text-slate-300 flex-1">Plot Hooks</span>
+        <select
+          value={storyId}
+          onChange={(e) => setStoryId(e.target.value)}
+          className="input-cyber py-1 text-xs max-w-[150px]"
+          disabled={stories.length === 0}
+        >
+          <option value="">Select story</option>
+          {stories.map((s) => (
+            <option key={s.id} value={s.id}>{s.title}</option>
+          ))}
+        </select>
         <button
           onClick={() => mutation.mutate()}
           disabled={mutation.isPending}
@@ -488,33 +542,69 @@ function PlotHooksPanel({ universeId }: { universeId: string | null }) {
         {mutation.isError && (
           <div className="text-xs text-red-400 text-center py-4">Failed to generate hooks. Try again.</div>
         )}
-        {hooks.map((hook, i) => (
-          <div key={i} className="glass-dark rounded-xl border border-white/5 p-3 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-200">{hook.title}</span>
-              <span className={cn(
-                "text-[10px] px-1.5 py-0.5 rounded font-medium",
-                hook.urgency === "critical" ? "bg-red-500/15 text-red-400" :
-                hook.urgency === "high" ? "bg-amber-500/15 text-amber-400" :
-                hook.urgency === "medium" ? "bg-cyan-500/15 text-cyan-400" :
-                "bg-slate-500/15 text-slate-400"
-              )}>
-                {hook.urgency}
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">{hook.description}</p>
-            {hook.connected_entities.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1">
-                {hook.connected_entities.map((e, j) => (
-                  <span key={j} className="text-[10px] bg-white/5 px-1.5 py-0.5 rounded text-slate-500">{e}</span>
-                ))}
+        {visibleHooks.map((hook) => {
+          const hookKey = hook.hook_id ?? hook.title;
+          return (
+            <div key={hookKey} className="glass-dark rounded-xl border border-white/5 p-3 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-200">{hook.title}</span>
+                <span className={cn(
+                  "text-[10px] px-1.5 py-0.5 rounded font-medium",
+                  hook.urgency === "critical" ? "bg-red-500/15 text-red-400" :
+                  hook.urgency === "high" ? "bg-amber-500/15 text-amber-400" :
+                  hook.urgency === "medium" ? "bg-cyan-500/15 text-cyan-400" :
+                  "bg-slate-500/15 text-slate-400"
+                )}>
+                  {hook.urgency}
+                </span>
               </div>
-            )}
-            <div className="text-[10px] text-slate-600">
-              Suggested scene: <span className="text-slate-400">{hook.suggested_scene_type}</span>
+              <p className="text-xs text-slate-400 leading-relaxed">{hook.description}</p>
+              {hook.potential_outcomes && hook.potential_outcomes.length > 0 && (
+                <p className="text-[10px] text-slate-500">Outcomes: {hook.potential_outcomes.join(" · ")}</p>
+              )}
+              {hook.connected_entities.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {hook.connected_entities.map((e, j) => (
+                    <span key={j} className="text-[10px] bg-white/5 px-1.5 py-0.5 rounded text-slate-500">{e}</span>
+                  ))}
+                </div>
+              )}
+              <div className="text-[10px] text-slate-600">
+                Suggested scene: <span className="text-slate-400">{hook.suggested_scene_type}</span>
+              </div>
+              <div className="flex gap-1 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const title = window.prompt("Hook title", hook.title);
+                    if (title === null) return;
+                    const description = window.prompt("Hook description", hook.description);
+                    if (description === null) return;
+                    setHooks((prev) => prev.map((h) => h.hook_id === hook.hook_id ? { ...h, title, description } : h));
+                  }}
+                  className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-slate-300 hover:bg-white/5"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDismissed((prev) => new Set(prev).add(hookKey))}
+                  className="text-[10px] px-2 py-0.5 rounded border border-red-500/25 text-red-300 hover:bg-red-500/10"
+                >
+                  Dismiss
+                </button>
+                <button
+                  type="button"
+                  onClick={() => saveHook.mutate(hook)}
+                  disabled={!storyId || saveHook.isPending || saved.has(hookKey)}
+                  className="text-[10px] px-2 py-0.5 rounded border border-cyan-500/25 text-cyan-300 hover:bg-cyan-500/10 disabled:opacity-50"
+                >
+                  {saved.has(hookKey) ? "Saved" : "Save as thread"}
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {!mutation.isPending && hooks.length === 0 && (
           <div className="text-center py-8">
             <Sparkles className="w-8 h-8 text-slate-700 mx-auto mb-2" />
@@ -532,10 +622,51 @@ function PlotHooksPanel({ universeId }: { universeId: string | null }) {
 
 function ContradictionsPanel({ universeId }: { universeId: string | null }) {
   const [contradictions, setContradictions] = useState<Contradiction[]>([]);
+  const [scope, setScope] = useState<"universe" | "story" | "scene">("universe");
+  const [storyId, setStoryId] = useState("");
+  const [sceneId, setSceneId] = useState("");
+  const [resolution, setResolution] = useState<
+    "retcon_older" | "retcon_newer" | "apparent_contradiction" | "explanation_fact"
+  >("explanation_fact");
+
+  const { data: storiesData } = useQuery({
+    queryKey: ["universe-stories", universeId],
+    queryFn: () => storiesApi.listStories({ universe_id: universeId!, limit: 100 }),
+    enabled: !!universeId && scope !== "universe",
+    staleTime: 15_000,
+  });
+  const stories = storiesData?.stories ?? [];
+
+  const { data: scenes = [] } = useQuery({
+    queryKey: ["story-scenes", storyId],
+    queryFn: () => storiesApi.listScenes(storyId),
+    enabled: !!storyId && scope === "scene",
+    staleTime: 15_000,
+  });
 
   const mutation = useMutation({
-    mutationFn: () => gmApi.detectContradictions(universeId!),
+    mutationFn: () =>
+      gmApi.detectContradictions(universeId!, {
+        scope,
+        storyId: scope === "universe" ? undefined : storyId || undefined,
+        sceneId: scope === "scene" ? sceneId || undefined : undefined,
+      }),
     onSuccess: (data) => setContradictions(data.contradictions),
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: (c: Contradiction) =>
+      gmApi.resolveContradiction({
+        universe_id: universeId!,
+        story_id: scope === "universe" ? null : storyId || null,
+        scene_id: scope === "scene" ? sceneId || null : null,
+        fact_a: c.fact_a,
+        fact_b: c.fact_b,
+        conflict_type: c.conflict_type ?? "semantic",
+        resolution,
+        explanation: `${c.explanation} Resolution: ${resolution.replace(/_/g, " ")}.`,
+      }),
+    onSuccess: () => mutation.mutate(),
   });
 
   if (!universeId) {
@@ -552,9 +683,50 @@ function ContradictionsPanel({ universeId }: { universeId: string | null }) {
       <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 flex-shrink-0">
         <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
         <span className="text-xs font-semibold text-slate-300 flex-1">Contradictions</span>
+        <select
+          value={scope}
+          onChange={(e) => {
+            setScope(e.target.value as typeof scope);
+            setStoryId("");
+            setSceneId("");
+          }}
+          className="input-cyber py-1 text-xs"
+        >
+          <option value="universe">Universe</option>
+          <option value="story">Story</option>
+          <option value="scene">Scene</option>
+        </select>
+        {scope !== "universe" && (
+          <select
+            value={storyId}
+            onChange={(e) => {
+              setStoryId(e.target.value);
+              setSceneId("");
+            }}
+            className="input-cyber py-1 text-xs max-w-[150px]"
+          >
+            <option value="">Select story</option>
+            {stories.map((s) => (
+              <option key={s.id} value={s.id}>{s.title}</option>
+            ))}
+          </select>
+        )}
+        {scope === "scene" && (
+          <select
+            value={sceneId}
+            onChange={(e) => setSceneId(e.target.value)}
+            className="input-cyber py-1 text-xs max-w-[150px]"
+            disabled={!storyId}
+          >
+            <option value="">Select scene</option>
+            {scenes.map((s) => (
+              <option key={s.id} value={s.id}>{s.title || s.id}</option>
+            ))}
+          </select>
+        )}
         <button
           onClick={() => mutation.mutate()}
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || (scope !== "universe" && !storyId) || (scope === "scene" && !sceneId)}
           className="btn-cyber text-xs py-1 px-3"
         >
           {mutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
@@ -581,6 +753,7 @@ function ContradictionsPanel({ universeId }: { universeId: string | null }) {
               )}>
                 {c.severity} severity
               </span>
+              <span className="text-[10px] text-slate-500">{c.conflict_type ?? "semantic"}</span>
             </div>
             <div className="space-y-1">
               <div className="text-xs text-slate-300 bg-red-500/5 rounded px-2 py-1 border-l-2 border-red-500/30">
@@ -592,6 +765,26 @@ function ContradictionsPanel({ universeId }: { universeId: string | null }) {
             </div>
             <p className="text-xs text-slate-500">{c.explanation}</p>
             <p className="text-xs text-cyan-400/80">💡 {c.suggestion}</p>
+            <div className="flex items-center gap-1 pt-1">
+              <select
+                value={resolution}
+                onChange={(e) => setResolution(e.target.value as typeof resolution)}
+                className="input-cyber py-1 text-xs"
+              >
+                <option value="retcon_older">Retcon older fact</option>
+                <option value="retcon_newer">Retcon newer fact</option>
+                <option value="apparent_contradiction">Mark apparent contradiction</option>
+                <option value="explanation_fact">Create explanation fact</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => resolveMutation.mutate(c)}
+                disabled={resolveMutation.isPending}
+                className="text-[10px] px-2 py-1 rounded border border-cyan-500/25 text-cyan-300 hover:bg-cyan-500/10"
+              >
+                Resolve
+              </button>
+            </div>
           </div>
         ))}
         {!mutation.isPending && contradictions.length === 0 && (
@@ -611,6 +804,7 @@ function ContradictionsPanel({ universeId }: { universeId: string | null }) {
 
 function SessionPrepPanel({ universeId }: { universeId: string | null }) {
   const [prep, setPrep] = useState<SessionPrep | null>(null);
+  const [checklist, setChecklist] = useState<PrepItem[]>([]);
   const [storyId, setStoryId] = useState("");
 
   const { data: storiesData } = useQuery({
@@ -631,7 +825,29 @@ function SessionPrepPanel({ universeId }: { universeId: string | null }) {
 
   const mutation = useMutation({
     mutationFn: () => gmApi.generateSessionPrep(universeId!, storyId),
-    onSuccess: (data) => setPrep(data.prep),
+    onSuccess: (data) => {
+      setPrep(data.prep);
+      setChecklist(data.prep.checklist ?? []);
+    },
+  });
+
+  const generateItem = useMutation({
+    mutationFn: (item: PrepItem) =>
+      gmApi.generatePrepItem({
+        universe_id: universeId!,
+        story_id: storyId,
+        category: item.category,
+        description: item.description,
+      }),
+    onSuccess: (data, item) => {
+      setChecklist((prev) =>
+        prev.map((candidate) =>
+          candidate.item_id === item.item_id
+            ? { ...candidate, generated_content: data.content }
+            : candidate,
+        ),
+      );
+    },
   });
 
   if (!universeId) {
@@ -747,6 +963,60 @@ function SessionPrepPanel({ universeId }: { universeId: string | null }) {
                 </ul>
               </section>
             )}
+
+            {/* Prep Checklist */}
+            {checklist.length > 0 && (
+              <section className="space-y-1.5">
+                <h3 className="text-[10px] font-bold tracking-widest uppercase text-cyan-400">Prep Checklist</h3>
+                <div className="space-y-2">
+                  {checklist.map((item) => (
+                    <div key={item.item_id} className="glass-dark rounded-lg border border-white/5 p-2.5 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-[9px] uppercase tracking-wider text-slate-500">{item.category}</span>
+                          <p className="text-xs text-slate-300">{item.description}</p>
+                        </div>
+                        <span className={cn(
+                          "text-[9px] px-1.5 py-0.5 rounded border",
+                          item.status === "ready" ? "border-emerald-500/25 text-emerald-300" :
+                          item.status === "skipped" ? "border-slate-500/20 text-slate-500" :
+                          "border-amber-500/20 text-amber-300",
+                        )}>
+                          {item.status}
+                        </span>
+                      </div>
+                      {item.generated_content && (
+                        <p className="text-[11px] text-slate-400">{item.generated_content}</p>
+                      )}
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setChecklist((prev) => prev.map((candidate) => candidate.item_id === item.item_id ? { ...candidate, status: "ready" } : candidate))}
+                          className="text-[9px] px-2 py-0.5 rounded border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/10"
+                        >
+                          Ready
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setChecklist((prev) => prev.map((candidate) => candidate.item_id === item.item_id ? { ...candidate, status: "skipped" } : candidate))}
+                          className="text-[9px] px-2 py-0.5 rounded border border-white/10 text-slate-400 hover:bg-white/5"
+                        >
+                          Skip
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => generateItem.mutate(item)}
+                          disabled={generateItem.isPending}
+                          className="text-[9px] px-2 py-0.5 rounded border border-cyan-500/20 text-cyan-300 hover:bg-cyan-500/10 disabled:opacity-50"
+                        >
+                          Generate
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
           </>
         )}
         {!mutation.isPending && !prep && (
@@ -772,6 +1042,7 @@ const THREAD_URGENCY_TAG: Record<string, string> = {
 };
 
 function ThreadsPanel({ universeId }: { universeId: string | null }) {
+  const qc = useQueryClient();
   const [storyId, setStoryId] = useState("");
 
   const { data: storiesData } = useQuery({
@@ -795,6 +1066,19 @@ function ThreadsPanel({ universeId }: { universeId: string | null }) {
     enabled: !!storyId,
     staleTime: 30_000,
     retry: 1,
+  });
+
+  const updateThread = useMutation({
+    mutationFn: ({
+      threadId,
+      action,
+      note,
+    }: {
+      threadId: string;
+      action: "resolve" | "dismiss" | "note";
+      note?: string;
+    }) => storiesApi.updateThread(storyId, threadId, action, note),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["story-threads", storyId] }),
   });
 
   if (!universeId) {
@@ -854,6 +1138,35 @@ function ThreadsPanel({ universeId }: { universeId: string | null }) {
               <span className="capitalize">{t.status.replace(/_/g, " ")}</span>
               {t.source === "checkpoint" && <span className="italic">from story state</span>}
             </div>
+            {t.gm_notes && <p className="text-[10px] text-slate-500">{t.gm_notes}</p>}
+            {t.id && (
+              <div className="flex gap-1 pt-1">
+                <button
+                  type="button"
+                  onClick={() => updateThread.mutate({ threadId: t.id!, action: "resolve" })}
+                  className="text-[10px] px-2 py-0.5 rounded border border-emerald-500/25 text-emerald-300 hover:bg-emerald-500/10"
+                >
+                  Resolve
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateThread.mutate({ threadId: t.id!, action: "dismiss" })}
+                  className="text-[10px] px-2 py-0.5 rounded border border-red-500/25 text-red-300 hover:bg-red-500/10"
+                >
+                  Dismiss
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const note = window.prompt("GM note for this thread", t.gm_notes ?? "");
+                    if (note !== null) updateThread.mutate({ threadId: t.id!, action: "note", note });
+                  }}
+                  className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-slate-300 hover:bg-white/5"
+                >
+                  Note
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

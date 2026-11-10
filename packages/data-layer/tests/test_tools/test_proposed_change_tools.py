@@ -925,3 +925,81 @@ def test_list_proposed_changes_sort_order_asc(
     assert len(result.proposed_changes) == 1
     # Verify sort is called with ascending order (1)
     collection.find.return_value.sort.assert_called_once_with("created_at", 1)
+
+
+# =============================================================================
+# TESTS: CF-8 defer/edit review actions
+# =============================================================================
+
+
+@patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client")
+def test_defer_proposed_change_keeps_pending_status(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+    proposed_change_doc: dict[str, Any],
+):
+    from monitor_data.tools.mongodb_tools import mongodb_defer_proposed_change
+
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+    deferred_doc = proposed_change_doc.copy()
+    deferred_doc.update({"deferred": True, "defer_reason": "Need a second look", "deferred_by": "GM"})
+    collection.find_one.side_effect = [proposed_change_doc, deferred_doc]
+
+    result = mongodb_defer_proposed_change(
+        UUID(proposed_change_doc["proposal_id"]),
+        reason="Need a second look",
+        deferred_by="GM",
+    )
+
+    assert result.status == ProposalStatus.PENDING
+    assert result.deferred is True
+    assert result.defer_reason == "Need a second look"
+    collection.update_one.assert_called_once()
+
+
+@patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client")
+def test_edit_proposed_change_merges_content_patch(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+    proposed_change_doc: dict[str, Any],
+):
+    from monitor_data.tools.mongodb_tools import mongodb_edit_proposed_change
+
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+    edited_doc = proposed_change_doc.copy()
+    edited_doc["content"] = {"statement": "The sky is blue tonight", "entity_ids": []}
+    edited_doc["edit_reason"] = "Clarified wording"
+    collection.find_one.side_effect = [proposed_change_doc, edited_doc]
+
+    result = mongodb_edit_proposed_change(
+        UUID(proposed_change_doc["proposal_id"]),
+        content_patch={"statement": "The sky is blue tonight"},
+        reason="Clarified wording",
+        edited_by="GM",
+    )
+
+    assert result.status == ProposalStatus.PENDING
+    assert result.content["statement"] == "The sky is blue tonight"
+    assert result.edit_reason == "Clarified wording"
+    collection.update_one.assert_called_once()
+
+
+@patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client")
+def test_edit_rejects_empty_statement(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+    proposed_change_doc: dict[str, Any],
+):
+    from monitor_data.tools.mongodb_tools import mongodb_edit_proposed_change
+
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+    collection.find_one.return_value = proposed_change_doc
+
+    with pytest.raises(ValueError, match="statement must not be empty"):
+        mongodb_edit_proposed_change(
+            UUID(proposed_change_doc["proposal_id"]),
+            content_patch={"statement": "   "},
+        )

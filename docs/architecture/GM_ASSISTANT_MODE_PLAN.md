@@ -251,11 +251,10 @@ candidate facts** and shows them inline — CF-1 spec steps 3/5
    chips (existing chip styling at :287-295) and a collapsible "Candidate
    facts" list.
 
-**Deliberately out of scope (stated to avoid over-scoping):** auto-creating
-`ProposedChange`s per entry. Scene-end proposals already land in
-`CanonReviewPanel`; per-entry auto-proposals would flood the CF-8 queue.
-Candidate facts are *visible, not proposed*; the GM's close-session review is
-the promotion path.
+**Update (2026-11-09):** when the recorder supplies story/scene context, each
+candidate fact now becomes one pending `ProposedChange` FACT tagged
+`capture_entry:<entry_id>` and appears in the CF-8 review queue. Creation is
+idempotent per entry and best-effort, so capture analysis never blocks logging.
 
 **Tests.**
 - `packages/agents/tests/test_capture_insights.py`: `FakeMCPClient` supplies
@@ -273,7 +272,8 @@ the promotion path.
 (fail-open: LLM failure → empty insight, never blocks logging), `POST
 /api/gm/capture/insights`, participant/location chips + "Advances: thread" +
 collapsible candidate-facts under each entry (alongside P1.1 alerts).
-Auto-proposals deliberately not built. Tests: 20 targeted (agents + behavior +
+Candidate facts now queue as pending story-scoped proposals when capture
+context is present. Tests: 20 targeted (agents + behavior +
 backend + frontend) all green; layer-check clean.
 
 ### P1.3 · Guided end-of-session wrap-up digest (M)
@@ -512,6 +512,12 @@ transcription step feeding the *existing* text ingest pipeline
 (`ingestApi.uploadSource` path, `page.tsx:342-356`) — never a parallel capture
 loop.
 
+**Status: DECIDED 2026-11-06 — descoped.** Text input is CF-1's shipped
+scope; audio/hybrid is future work. Spec bullets edited accordingly (see
+`docs/architecture/GM_ASSISTANT_PHASE_A_PLAN.md` A1). If audio is ever built:
+transcription feeds the existing text ingest pipeline — never a parallel
+capture loop.
+
 ### P3.2 · Notes→canon review linkage (decide; M if built)
 
 **Status (2026-07-23 audit):** 0% shipped. The data plumbing is fully
@@ -542,6 +548,12 @@ and surface at `/canon-review/by-ingest` (`canon_review.py:202-251`) and
   `ProposedChangeFilter` already supports both `source` and `story_id`
   (:180-186). Build only if GM testing shows the split queues confuse.
 
+**Status: SHIPPED 2026-11-06 — option (a).** The scratchpad Ingest button now
+carries a permanent hint line ("Proposals land in Forge → Review") and the same
+copy in its tooltip (`packages/ui/frontend/src/app/gm/page.tsx`,
+`data-testid="ingest-hint"`). Option (b) stays deferred — the ingest pipeline
+has no story context (see `FORGE_EXPANSION.md` §17).
+
 ### P3.3 · Recording archive metadata (S)
 
 **Status (2026-07-23 audit):** 0% shipped but the dep is now ready. P1.4's
@@ -569,6 +581,14 @@ has no mode badge.
 **Tests:** PATCH 200/422; dropdown grouping + badge rendering (extend
 `SessionList.test.tsx`). **Effort:** S. **Depends on:** P1.4 (uses
 `wrapped_up_at`).
+
+**Status: SHIPPED 2026-11-06.** `archived` is now a first-class session flag:
+`SessionPatch.archived` → PATCH handler → session doc → `GET /api/chat` (the
+list serializer builds `Session` field-by-field and had to be updated
+explicitly). Frontend: the recorder dropdown splits recordings into
+Active/Archived `<optgroup>`s, and a wrapped-up recording gets an "Archive"
+button; the `SessionList` mode badge already existed. Tests: 3 backend
+(`test_session_api.py`) + 3 frontend (`SessionRecorder.test.tsx`) green.
 
 ---
 

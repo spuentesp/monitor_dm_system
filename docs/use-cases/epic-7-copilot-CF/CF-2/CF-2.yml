@@ -6,13 +6,13 @@ title: "Generate Session Recap"
 category: "cf"
 epic: 7
 priority: "medium"
-status: "in-progress"
+status: "done"
 
 summary: |
-  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+  Generate a session recap and persist it so later reads do not regenerate it.
 
 acceptance_criteria:
-  - "TBD"
+  - "Wrap-up generates a recap, persists it on the session, and later recap reads return the saved text."
 
 depends_on: []
 blocks: []

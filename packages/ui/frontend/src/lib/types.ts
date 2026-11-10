@@ -34,6 +34,8 @@ export interface Session {
   // P1.4 — persisted wrap-up artifacts (null until "Wrap up session" runs).
   recap_text?: string | null;
   wrapped_up_at?: string | null;
+  // P3.3 — GM archive flag for gm_assistant recordings.
+  archived?: boolean;
 }
 
 export interface PlaytestBenchmark {
@@ -479,6 +481,10 @@ export interface StandaloneCharacter {
   gm_notes: string;
   first_message: string;
   is_ooc_persona: boolean;
+  // G-6 — the portable-template fields. A persona carries the same voice and
+  // backstory the templates do, so one editor serves both.
+  voice?: string;
+  backstory_beats?: string[];
   entity_id: string | null;
   // Character Versions: per-universe incarnations. Always present (defaults
   // to [] for legacy docs); see character_storage.add_version.
@@ -487,6 +493,45 @@ export interface StandaloneCharacter {
   memory_count: number;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * A portable character template (G-6 / P&F §6).
+ *
+ * Deliberately carries no stats, skills or world binding: a template says who
+ * a character *is*; the world they play in supplies the mechanics.
+ */
+export interface CharacterTemplate {
+  template_id: string;
+  name: string;
+  concept: string;
+  personality: string;
+  backstory_beats: string[];
+  voice: string;
+  portrait_url: string | null;
+  first_message: string;
+  gm_notes: string;
+  usage_count: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface CharacterTemplateCreate {
+  name: string;
+  concept?: string;
+  personality?: string;
+  backstory_beats?: string[];
+  voice?: string;
+  portrait_url?: string | null;
+  first_message?: string;
+  gm_notes?: string;
+}
+
+export interface CharacterTemplateListResponse {
+  templates: CharacterTemplate[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface PaginatedNPCs {
@@ -709,6 +754,19 @@ export interface ProposalItem {
   /** Extraction subtype + lineage (by-ingest surface, F1-4). */
   proposal_type?: string | null;
   source?: string | null;
+  /** CF-8 review disposition. Deferred proposals remain pending. */
+  deferred?: boolean;
+  defer_reason?: string | null;
+  edit_reason?: string | null;
+  decision_metadata?: {
+    decided_by: string;
+    decided_at: string;
+    reason: string;
+  } | null;
+  /** G-9 Phase 2 — advisory review flag set by CanonKeeper's transition rules. */
+  needs_review?: boolean;
+  review_reason?: string | null;
+  review_source?: string | null;
 }
 
 // ─── CanonKeeper Review (CF-8) ────────────────────────────────
@@ -716,7 +774,11 @@ export interface ProposalItem {
 export interface SceneReview {
   /** Null for the story-level lane: proposals with no scene attribution. */
   scene_id: string | null;
+  summary?: string | null;
+  participants?: string[];
+  locations?: string[];
   pending: ProposalItem[];
+  deferred?: ProposalItem[];
   accepted: ProposalItem[];
   rejected: ProposalItem[];
   by_change_type: Record<string, number>;
@@ -726,6 +788,7 @@ export interface CanonQueue {
   story_id: string;
   scenes: SceneReview[];
   total_pending: number;
+  total_deferred?: number;
 }
 
 /** Per-ingestion-job review payload (F1-4 by-ingest scope). */
@@ -776,6 +839,8 @@ export interface VerdictByFilterRequest {
   source?: string | null;
   status?: string | null;
   change_type?: string | null;
+  /** G-9 Phase 2 — restrict the bulk set to flagged / unflagged proposals. */
+  needs_review?: boolean | null;
   confidence_min?: number | null;
   confidence_max?: number | null;
   created_after?: string | null;
@@ -1231,6 +1296,7 @@ export interface StoryThread {
   status: string;
   urgency?: string | null;
   priority?: string | null;
+  gm_notes?: string;
   source: "graph" | "checkpoint";
 }
 
@@ -1323,12 +1389,15 @@ export interface LorebookIngestRequest {
 // ─── GM Assistant Types (CF-4, CF-5, CF-6, CF-7) ─────────────
 
 export interface PlotHook {
+  hook_id?: string;
   thread_id?: string;
   title: string;
   description: string;
   urgency: "low" | "medium" | "high" | "critical";
   suggested_scene_type: string;
   connected_entities: string[];
+  potential_outcomes?: string[];
+  connected_threads?: string[];
 }
 
 export interface Contradiction {
@@ -1337,6 +1406,11 @@ export interface Contradiction {
   severity: "low" | "medium" | "high";
   explanation: string;
   suggestion: string;
+  conflict_type?: string;
+  scope?: string;
+  fact_a_id?: string | null;
+  fact_b_id?: string | null;
+  suggested_resolutions?: string[];
 }
 
 export interface CaptureInsight {
@@ -1344,6 +1418,17 @@ export interface CaptureInsight {
   locations: string[];
   candidate_facts: string[];
   advances_thread: string;
+  /** Pending CF-8 proposal IDs created from this entry's candidate facts. */
+  proposal_ids?: string[];
+  proposal_errors?: string[];
+}
+
+export interface PrepItem {
+  item_id: string;
+  category: string;
+  description: string;
+  status: "pending" | "ready" | "skipped";
+  generated_content?: string | null;
 }
 
 export interface SessionPrep {
@@ -1352,6 +1437,7 @@ export interface SessionPrep {
   hooks: PlotHook[];
   npc_reminders: string[];
   world_state_changes: string[];
+  checklist?: PrepItem[];
 }
 
 // P1.3 — guided end-of-session wrap-up digest (gm_assistant recordings).

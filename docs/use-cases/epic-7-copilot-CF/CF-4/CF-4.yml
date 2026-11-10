@@ -9,10 +9,10 @@ priority: "medium"
 status: "done"
 
 summary: |
-  Automatically scaffolded from legacy markdown extraction. Needs detailed summary.
+  Generate contextual plot hooks and let the GM edit, dismiss, or save one as a plot thread.
 
 acceptance_criteria:
-  - "TBD"
+  - "The GM can generate hooks, edit or dismiss them, and save a selected hook as a story plot thread."
 
 depends_on: []
 blocks: []

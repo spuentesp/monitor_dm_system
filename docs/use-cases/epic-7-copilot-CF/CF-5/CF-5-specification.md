@@ -28,6 +28,12 @@
 
 **Output:** Conflict report with resolution options
 
+**Implementation (2026-11-09):** detection accepts universe/story/scene scope,
+classifies semantic/timeline/location/relationship/rule conflicts, and exposes
+resolution choices (`retcon_older`, `retcon_newer`, `apparent_contradiction`,
+`explanation_fact`). Resolutions are staged as pending `ProposedChange` items
+for CF-8 review before any canon write.
+
 ### Implementation
 
 **Layer 1 (Data Layer):**

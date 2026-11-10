@@ -276,3 +276,201 @@ def test_session_zero_complete_seeds_character_creation(monkeypatch):
     assert result["session_data"]["character_summary"] == SESSION_ZERO_SUMMARY
     assert result["session_data"]["phase"] == "char_creation"
     assert result["metadata"]["type"] == "character_interview_complete"
+
+
+# ─── G-6 Phase 3 — a template drives the prose fields ────────────────────────
+#
+# A template is the author's deliberate description of a character; the Session
+# Zero summary is the player's echo of it. Where they overlap the template is
+# authoritative. Only prose-shaped fields are seeded — the mechanics always
+# come from the game system or the player, which is exactly why templates
+# carry none of them.
+
+TEMPLATE_ID = str(uuid4())
+
+TEMPLATE_DOC = {
+    "id": TEMPLATE_ID,
+    "name": "Varys",
+    "concept": "A spymaster who is never where you expect",
+    "personality": "Charming, patient",
+    "voice": "Speaks in parables",
+    "backstory_beats": ["Lost a city to a bargain", "Never pays his debts"],
+    "is_template": True,
+}
+
+
+def _patch_persona_doc(monkeypatch, doc):
+    """Make the Mongo tool return `doc` for any character id."""
+    import monitor_data.tools.mongodb_tools as mongo_tools
+
+    monkeypatch.setattr(mongo_tools, "mongodb_get_character", lambda *a, **k: doc)
+
+
+def test_creation_seed_lets_the_template_win_over_the_summary(monkeypatch):
+    import asyncio
+
+    _patch_persona_doc(monkeypatch, TEMPLATE_DOC)
+
+    async def _fake_draft(_doc):
+        return "Varys lost a city to a bargain and has never paid his debts since."
+
+    monkeypatch.setattr(po, "_draft_template_backstory", _fake_draft)
+
+    seed = asyncio.run(po._creation_seed({"persona_id": TEMPLATE_ID}, SESSION_ZERO_SUMMARY))
+
+    assert seed["character_name"] == "Varys"
+    assert seed["concept"] == "A spymaster who is never where you expect"
+    assert seed["personality"] == "Charming, patient"
+    assert seed["voice"] == "Speaks in parables"
+    assert "never paid his debts" in seed["backstory"]
+
+
+def test_creation_seed_ignores_a_plain_persona(monkeypatch):
+    """A saved persona is not a template — it must not hijack the seed."""
+    import asyncio
+
+    persona_id = str(uuid4())
+    _patch_persona_doc(monkeypatch, {"id": persona_id, "name": "Rook"})
+
+    seed = asyncio.run(po._creation_seed({"persona_id": persona_id}, SESSION_ZERO_SUMMARY))
+
+    assert seed == SESSION_ZERO_SUMMARY
+
+
+def test_creation_seed_without_a_persona_is_the_summary():
+    import asyncio
+
+    seed = asyncio.run(po._creation_seed({}, SESSION_ZERO_SUMMARY))
+
+    assert seed == SESSION_ZERO_SUMMARY
+
+
+def test_draft_template_backstory_falls_back_to_the_beats(monkeypatch):
+    """A failed draft degrades to the raw beats, never to an empty backstory."""
+    import asyncio
+
+    import monitor_agents.character_creator.character_creation as cc
+
+    class _Boom:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("no model")
+
+    monkeypatch.setattr(cc, "TemplateBackstoryModule", _Boom)
+
+    drafted = asyncio.run(po._draft_template_backstory(TEMPLATE_DOC))
+
+    assert "Lost a city to a bargain" in drafted
+    assert "Never pays his debts" in drafted
+
+
+def test_normalise_initial_seed_carries_the_template_fields():
+    seed = _normalise_initial_seed(
+        {
+            "character_name": "Varys",
+            "personality": "Charming, patient",
+            "voice": "Speaks in parables",
+        }
+    )
+
+    assert seed["personality"] == "Charming, patient"
+    assert seed["voice"] == "Speaks in parables"
+
+
+def test_apply_initial_seed_records_them_on_character_data():
+    state = CharacterCreationLoop(game_context=SYSTEM_DOC)._state
+    seeded = state.model_copy(
+        update=_apply_initial_seed(
+            state,
+            _normalise_initial_seed(
+                {
+                    "character_name": "Varys",
+                    "concept": "A spymaster",
+                    "backstory": "He lost a city.",
+                    "personality": "Charming",
+                    "voice": "Parables",
+                }
+            ),
+        )
+    )
+
+    assert seeded.character_data["personality"] == "Charming"
+    assert seeded.character_data["voice"] == "Parables"
+    assert seeded.character_data["backstory"] == "He lost a city."
+
+
+def test_final_character_carries_the_seeded_prose():
+    """The seeded prose has to survive into the character that is persisted."""
+    loop = _build_loop(
+        seed={
+            "character_name": "Varys",
+            "concept": "A spymaster",
+            "backstory": "He lost a city.",
+            "personality": "Charming",
+            "voice": "Parables",
+        }
+    )
+    cc_module = __import__("monitor_agents.loops.character_creation_loop", fromlist=["load_system"])
+    loop._state = loop._state.model_copy(update=cc_module.load_system(loop._state))
+    loop._state = loop._state.model_copy(
+        update=_apply_initial_seed(loop._state, _normalise_initial_seed(loop._initial_seed))
+    )
+
+    character = loop._build_final_character()
+
+    assert character["name"] == "Varys"
+    assert character["backstory"] == "He lost a city."
+    assert character["personality"] == "Charming"
+    assert character["voice"] == "Parables"
+
+
+def test_completed_character_hands_template_prose_to_persistence(monkeypatch):
+    """The persistence preview must use the final character, not the earlier summary."""
+
+    class _CompleteLoop:
+        async def process_player_input(self, _player_input):
+            return {
+                "complete": True,
+                "character": {
+                    "name": "Varys",
+                    "concept": "Template concept",
+                    "backstory": "Template backstory",
+                    "personality": "Template personality",
+                    "voice": "Template voice",
+                    "attributes": {},
+                    "resources": {},
+                    "skills": {},
+                },
+            }
+
+    captured = {}
+
+    def _persist(_session, preview, _source_meta):
+        captured.update(preview)
+        return {}
+
+    async def _agreements(*_args, **_kwargs):
+        return "agreements", {}
+
+    monkeypatch.setattr(po, "get_character_creation_loop", lambda *args, **kwargs: _CompleteLoop())
+    monkeypatch.setattr(po, "persist_session_character", _persist)
+    monkeypatch.setattr(po, "start_story_agreements", _agreements)
+    state = po.PreplayState(
+        session_id="sess-template-persistence",
+        user_content="done",
+        session_data={
+            "phase": "char_creation",
+            "pending_character_concept": "Session Zero concept",
+        },
+        system_doc={"name": "Test System"},
+        gsr_available=True,
+    )
+
+    import asyncio
+
+    asyncio.run(po.handle_char_creation(state))
+
+    assert captured["concept"] == "Template concept"
+    assert captured["description"] == "Template concept"
+    assert captured["backstory"] == "Template backstory"
+    assert captured["personality"] == "Template personality"
+    assert captured["voice"] == "Template voice"

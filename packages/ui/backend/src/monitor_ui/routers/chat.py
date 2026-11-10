@@ -313,6 +313,7 @@ async def list_sessions(principal: Principal = Depends(get_current_user)) -> lis
             message_count=len(_MESSAGES.get(sid, [])),
             recap_text=s.get("recap_text"),
             wrapped_up_at=s.get("wrapped_up_at"),
+            archived=s.get("archived"),
         )
         for sid, s in _SESSIONS.items()
         if owner_filter is None or s.get("owner_id") == owner_filter
@@ -1192,6 +1193,8 @@ async def update_session(
                 detail="Invalid roll_model. Must be one of: tap, manual, gm",
             )
         session["roll_model"] = body.roll_model
+    if body is not None and body.archived is not None:
+        session["archived"] = body.archived
     session["updated_at"] = _now()
     _db_save_session(session)
     return Session(**session, message_count=len(_MESSAGES.get(session_id, [])))

@@ -33,6 +33,9 @@
 
 ### Implementation
 
+**Status (2026-11-09):** session prep now returns an actionable checklist.
+The GM can mark items ready or skipped and generate missing content on demand.
+
 **Layer 1 (Data Layer):**
 ```python
 # Gather story state

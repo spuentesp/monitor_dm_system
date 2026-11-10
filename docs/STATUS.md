@@ -31,6 +31,18 @@ Live multi-world verification 2026-07-23: three 9-turn LLM-GM-vs-LLM-player sess
 in `docs/testing/live_gm_vs_player/`. Server-authoritative tap-to-roll and
 auto-roll-and-weave live-verified the same day.
 
+**GM Assistant (Co-Pilot) verified 2026-11-06** — API-level pass against the
+live stack (backend + Mongo/Neo4j/Qdrant + a live chat provider), 11/11 steps:
+create a `gm_assistant` recording → log an entry → per-entry insights
+(participants `["Mira"]`, location `the sunken chapel`, one candidate fact) →
+live contradiction check (no alert — this universe carries no contradicting
+canon) → wrap-up digest → persisted recap (`persisted: true`) → archive flag
+round-trip → archived flag visible in `GET /api/chat` → server dice `2d6+3` →
+scratchpad note persisted → universe bound system resolved. Browser rendering
+of the recorder UI (Active/Archived optgroups, Archive button, scratchpad
+ingest hint) is covered by vitest, not by this pass. Transcript:
+`docs/testing/live_gm_assistant_phase_a_2026-11-06.md`.
+
 ## Book decomposition (I-17, 2026-11-04)
 
 The PDF reader now uses a lossless book tree, for all uploads. On Dune, sections went from 5× the book's text to about 1×, and chunks from 3,730 to 889. The Analyzer's sample is now repeatable and spans the book. Decomposition itself is off by default: `MONITOR_BOOK_DECOMPOSITION=1` runs it as a resumable background job. `MONITOR_BOOK_COVERAGE`, `MONITOR_BOOK_GRAPH` and `MONITOR_BOOK_NEO4J` add optional steps. Storage has run on real MongoDB and Neo4j, and one Dune chapter has run with live models, with 27 of 30 sampled claims labeled canon as written. Claims review sends to a person can be accepted, edited or rejected from the job's "Review claims" panel, and accepted ones join the book's pack. Documents indexed before this change keep their old chunks until deleted and uploaded again. See [the implementation plan](architecture/BOOK_DECOMPOSITION_IMPLEMENTATION_PLAN.md).
@@ -209,6 +221,15 @@ line-anchored allowlist), DST suite with tool/node invocation-topology counters,
 
 ## Not shipped / open gaps (verified 2026-07-23)
 
+**Product boundary (decided 2026-11-07): MONITOR supports narrative and
+narrative-weighted systems only.** Mechanical-system work is rejected, not
+deferred — see the boundary note at the top of
+`docs/architecture/GAP_REMEDIATION_PLAN.md`. In particular the VtM 20th
+re-ingestion is dropped, and the ungrounded legacy "5th Edition" seed is
+therefore **retired rather than relabelled** (no properly-sourced replacement
+is coming). Existing mechanical support in the codebase stays as it is; this
+is a scoping decision about what gets built next, not a teardown.
+
 Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
 
 1. **Session Zero length ([G-1 fully shipped 2026-07-23])** —
@@ -250,8 +271,23 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
 4. **Co-Pilot mode polish** — web `/gm` surface exists; CLI `monitor copilot` never
    shipped; end-to-end human-GM workflow unpolished. Full plan:
    `docs/architecture/GM_ASSISTANT_MODE_PLAN.md`.
-5. **Portable character templates (P&F §6)** — no `CharacterTemplate` schema or
-   per-world instantiation. (`EntityTemplate` is NPC-generation only.)
+5. **Portable character templates (P&F §6)** — **Phase 1 shipped 2026-11-07**
+   (data-layer contract): a `CharacterTemplate` schema (name, concept,
+   personality, backstory beats, voice, portrait, first message, GM notes —
+   explicitly no stats/skills/world binding) plus create/get/list/update/
+   delete/usage tools registered as MCP tools, stored in the existing
+   `characters` collection with an `is_template` marker and excluded from the
+   character list; HTTP surface at `/api/characters/templates`. **Phase 2
+   shipped 2026-11-07**: personas carry the same `voice`/`backstory_beats`
+   fields, Session Zero seeds from them (plus a template's `concept`), the
+   CharacterEditor edits them, and the setup picker offers templates with
+   their voice and beat count plus a "New character template" flow. **Phase 3
+   shipped 2026-11-07**: a template now drives the character creation seed
+   (name/concept/personality/voice/backstory — the template wins over the
+   Session Zero summary) and its beats are drafted into a prose backstory.
+   Only prose is seeded — mechanics always come from the game system or the
+   player, which is why templates carry no stats.
+   (`EntityTemplate` is NPC-generation only and stays separate.)
 6. **Autonomous PC (PC-Agent)** — no implementation. (The P-21 ID was reused for
    downtime/progression, which shipped.)
 8. **Ingestion residuals (partial — [G-8 (a)+(b)+(c)+(d)+(e)] shipped 2026-07-23)** —
@@ -269,8 +305,39 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    `is_builtin` docs) + `$set: hand_authored: True`. Dry-run by default;
    asserts the doc exists, has ≥5 steps, and titles match before
    applying.
-9. **CanonKeeper depth** — detection scoped to direct logical contradictions; no
-   impossible-state-transition or implication-level checks.
+9. **CanonKeeper depth** — **Phases 1, 2 and 3 shipped 2026-11-07** (no
+   behaviour change, no rejections). Phase 1 (measurement only):
+   implication-level detection as
+   `ImplicationContradictionSignature`/`ImplicationContradictionModule`
+   (`canonkeeper/verification.py`) with an auditable `implications` field, a
+   new additive `ContradictionType.IMPLICATION_CONFLICT` (HIGH severity, never
+   CRITICAL), `CanonKeeper.implication_conflict_flags()` (advisory, flag-only)
+   and the FP-measurement script `scripts/eval_canonkeeper_depth.py`. The check
+   is **off by default** (`CANONKEEPER_IMPLICATION_CHECK_ENABLED`, default
+   false) until its false-positive rate is measured against committed material
+   in a populated universe — this environment has no committed proposals, so
+   the rate is still unmeasured. Phase 2 (advisory flagging): deterministic
+   state-transition rules (`canonkeeper/transition_rules.py` — terminal-tag
+   finality, explicit complement pairs, explicit `override_reason` escape
+   hatch) stamp `needs_review`/`review_reason` on the proposal through a
+   CanonKeeper-only MCP tool; the shared review model, the review workbench and
+   the canon-review panel render a "Needs review" badge, and the workbench
+   filters flagged proposals (`?review=flagged`). Phase 3 (hard rejection) is
+   implemented but **opt-in and off** (`CANONKEEPER_REJECT_TRANSITION_VIOLATIONS`,
+   default false) — the rules are deterministic but the tag vocabulary reaching
+   them is GM/game-system driven, and the rules are near-dormant in the play
+   loop, so the rejection path waits for the measured false-positive rate.
+   The deterministic half now has that rate, measured hermetically against a
+   synthetic narrative corpus: **0/12 false positives, 3/3 detections**
+   (`canonkeeper/synthetic_corpus.py`, pinned by a test). The implication
+   check was then measured too (`qwen2.5:7b`): **0/16 false positives (0%)
+   but only 2/8 detections (25%)** — the FP gate is met, but the check misses
+   three out of four real contradictions, so hard rejection stays off and the
+   follow-up work is recall rather than enforcement. Record:
+   `docs/testing/canonkeeper_depth_measurement_2026-11-07.md`.
+   `scripts/eval_canonkeeper_depth.py` now reports that rate for both checks
+   (implication + deterministic rules) but still needs a populated universe to
+   run against. Still open: switching Phase 3 on once measured.
 
 ## Latency
 

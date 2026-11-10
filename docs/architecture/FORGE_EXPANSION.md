@@ -1177,11 +1177,11 @@ review or "tie ingest to active session").
 | 15 | **F3-3** multiverse management | 6.5-9.5 days | after F1-1 |
 | 16 | **F3-1** pack composition UX | 4-6 days | after Phase 1 |
 | 17 | **F3-1, F3-2, F3-3** remaining | 3 weeks | sequential after Phase 2 |
-| 18 | **P3.1** audio/hybrid descope | 15 min | doc stub |
-| 19 | **P3.2** hint line | 1-2 hours | in P3.3 PR |
-| 20 | **P3.3** recording archive metadata | 1 day | P1.4 dependency met |
+| 18 | **P3.1** audio/hybrid descope | 15 min | ✅ DONE 2026-11-06 |
+| 19 | **P3.2** hint line | 1-2 hours | ✅ DONE 2026-11-06 |
+| 20 | **P3.3** recording archive metadata | 1 day | ✅ DONE 2026-11-06 |
 
-**GM plan now fully closed** (P3.1 descope + P3.2 hint + P3.3 archive metadata = small PR).
+**GM plan now fully closed** (P3.1 descope + P3.2 hint + P3.3 archive metadata = small PR) — landed 2026-11-06; see `docs/architecture/GM_ASSISTANT_PHASE_A_PLAN.md`.
 
 **Forge plan has 18 work items** with realistic effort estimates (~6-12 months solo, depending on depth). The 4-6 hidden correctness bugs (F1-5(e), F1-6 step 1, F2-4(a), F1-4 lifecycle, F3-1 export/import) are now in the priority list as P0/P1.
 

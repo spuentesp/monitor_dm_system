@@ -40,6 +40,8 @@ function item(id: string, overrides: Partial<ReviewItem> = {}): ReviewItem {
     authority: "gm",
     proposer: "Narrator",
     canon_level: null,
+    needs_review: false,
+    review_reason: null,
     decision_reason: null,
     decided_by: null,
     decided_at: null,
@@ -140,6 +142,31 @@ describe("ReviewWorkbench — filters (F2-3a)", () => {
 });
 
 // ─── Detail / provenance drawer ──────────────────────────────
+
+describe("ReviewWorkbench — review flag (G-9 Phase 2)", () => {
+  it("badges a flagged proposal and keeps the reason in the tooltip", () => {
+    renderWorkbench([
+      item("a", { needs_review: true, review_reason: "a dead entity acts" }),
+    ]);
+    const badge = screen.getByTestId("needs-review-badge");
+    expect(badge).toHaveTextContent("Needs review");
+    expect(badge.getAttribute("title")).toContain("a dead entity acts");
+  });
+
+  it("does not badge unflagged proposals", () => {
+    renderWorkbench([item("a")]);
+    expect(screen.queryByTestId("needs-review-badge")).toBeNull();
+  });
+
+  it("filters to flagged proposals only", () => {
+    renderWorkbench([
+      item("a"),
+      item("b", { needs_review: true }),
+    ], { ...DEFAULT_REVIEW_FILTERS, needsReview: "flagged" });
+    expect(screen.getAllByText("Statement b").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Statement a")).toBeNull();
+  });
+});
 
 describe("ReviewWorkbench — detail drawer (F2-3b)", () => {
   it("opens the drawer on row click and shows provenance + proposed value", async () => {

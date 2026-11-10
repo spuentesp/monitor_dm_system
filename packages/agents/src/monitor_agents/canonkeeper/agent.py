@@ -48,6 +48,7 @@ from pydantic import BaseModel
 
 from monitor_agents.base import BaseAgent
 from monitor_agents.canonkeeper.canonkeeper_support import gate_entity_proposals
+from monitor_agents.canonkeeper.transition_rules import TransitionViolation
 from monitor_agents.commit_dispatcher import CommitDispatcherMixin
 from monitor_agents.canonkeeper.canonkeeper import (
     CanonKeeperReasoningModule,
@@ -586,7 +587,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 await self._commit_to_neo4j(verdict, proposal)
             elif verdict.decision == CanonKeeperDecision.REJECTED:
                 await self._record_visual_identity_rejection(proposal, verdict)
-            await self._record_verdict(scene_id, verdict)
+            await self._record_verdict(scene_id, verdict, proposal)
 
         if not proposals:
             return verdicts
@@ -610,7 +611,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 await self._record_visual_identity_rejection(proposal, verdict)
 
             # Record verdict in MongoDB for audit trail
-            await self._record_verdict(scene_id, verdict)
+            await self._record_verdict(scene_id, verdict, proposal)
 
         return verdicts
 
@@ -673,6 +674,25 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                     fatal=False,
                     universe_id=universe_id,
                 )
+
+        # G-9 Phase 1 — implication-level contradiction check. Flag-only: the
+        # flags are logged, never acted on. Off by default while the
+        # false-positive rate is measured (scripts/eval_canonkeeper_depth.py).
+        from monitor_data.config import settings
+
+        if universe_id is not None and settings.canonkeeper_implication_check_enabled:
+            try:
+                statements = [text for _, text in self._proposal_statements(ordered)]
+                implication_flags = await self.implication_conflict_flags(universe_id, statements)
+            except Exception as exc:  # noqa: BLE001  # reason: an advisory check must never block a commit (in bulk_commit_proposals)
+                logger.warning("Implication contradiction check failed (committing anyway): %s", exc)
+            else:
+                for flag in implication_flags:
+                    logger.info(
+                        "Implication contradiction flag (advisory, not a rejection): %s — %s",
+                        flag["statement"],
+                        flag["explanation"],
+                    )
 
         committed = 0
         rejected = 0
@@ -791,26 +811,12 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         has no prior canon to contradict — e.g. the first ingest into a fresh
         universe.
         """
-        facts = await self._fetch_canon_facts(universe_id)
-        axioms = await self._fetch_canon_axioms(universe_id)
-        context_lines = [f"Axiom: {a.get('statement')}" for a in axioms if a.get("statement")]
-        context_lines += [f"Fact: {f.get('statement')}" for f in facts if f.get("statement")]
+        context_lines = await self._canon_context_lines(universe_id)
         context = "\n".join(context_lines)
         if not context:
             return {}
 
-        candidates: list[tuple[str, str]] = []
-        for p in proposals:
-            content = p.get("content", {})
-            if isinstance(content, str):
-                try:
-                    content = json.loads(content)
-                except json.JSONDecodeError:
-                    content = {}
-            text = content.get("statement") or p.get("summary")
-            pid = str(p.get("proposal_id") or "")
-            if text and pid:
-                candidates.append((pid, text))
+        candidates = self._proposal_statements(proposals)
         if not candidates:
             return {}
 
@@ -828,6 +834,91 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 if 0 <= ci < len(chunk):
                     rejected[chunk[ci][0]] = explanation
         return rejected
+
+    async def _canon_context_lines(self, universe_id: UUID) -> list[str]:
+        """Assemble the canon context lines (axioms first, then facts)."""
+        facts = await self._fetch_canon_facts(universe_id)
+        axioms = await self._fetch_canon_axioms(universe_id)
+        lines = [f"Axiom: {a.get('statement')}" for a in axioms if a.get("statement")]
+        lines += [f"Fact: {f.get('statement')}" for f in facts if f.get("statement")]
+        return lines
+
+    @staticmethod
+    def _proposal_statements(proposals: list[dict[str, Any]]) -> list[tuple[str, str]]:
+        """Extract the ``(proposal_id, statement)`` pairs from proposal dicts."""
+        candidates: list[tuple[str, str]] = []
+        for p in proposals:
+            content = p.get("content", {})
+            if isinstance(content, str):
+                try:
+                    content = json.loads(content)
+                except json.JSONDecodeError:
+                    content = {}
+            text = content.get("statement") or p.get("summary")
+            pid = str(p.get("proposal_id") or "")
+            if text and pid:
+                candidates.append((pid, text))
+        return candidates
+
+    async def implication_conflict_flags(
+        self,
+        universe_id: UUID,
+        statements: list[str],
+    ) -> list[dict[str, Any]]:
+        """
+        Flag statements that IMPLICITLY conflict with a universe's canon (G-9 Phase 1).
+
+        One level deeper than the direct check: the conflict is only visible
+        through a chain of reasoning (the canon implies something the statement
+        denies). Advisory — the caller decides what to do with the flags;
+        nothing here rejects a proposal, and the severity is HIGH at most
+        (see ``GAP_REMEDIATION_PLAN.md`` §G-9).
+
+        Args:
+            universe_id: Universe whose canon facts/axioms form the context.
+            statements: Candidate statements to check.
+
+        Returns:
+            One dict per flagged statement: ``statement``, ``explanation``,
+            ``implications``, ``contradiction_type``, ``severity``.
+        """
+        from monitor_data.config import settings
+        from monitor_data.schemas.contradiction import ContradictionSeverity, ContradictionType
+        from monitor_agents.canonkeeper.verification import ImplicationContradictionModule
+
+        candidates = [s.strip() for s in statements if s and s.strip()]
+        if not candidates:
+            return []
+
+        context_lines = await self._canon_context_lines(universe_id)
+        if not context_lines:
+            return []
+        context = "\n".join(context_lines)
+
+        module = ImplicationContradictionModule()
+        chunk_size = settings.canonkeeper_implication_chunk_size
+        flags: list[dict[str, Any]] = []
+        for start in range(0, len(candidates), chunk_size):
+            chunk = candidates[start : start + chunk_size]
+            numbered = "\n".join(f"{i + 1}. {text}" for i, text in enumerate(chunk))
+            try:
+                flagged = await asyncio.to_thread(module.forward, context=context, new_facts=numbered)
+            except Exception as exc:  # noqa: BLE001  # reason: a failed chunk degrades to no flags, never a hard failure (in implication_conflict_flags)
+                logger.warning("Implication contradiction check failed (chunk skipped): %s", exc)
+                continue
+            for one_based_idx, detail in flagged.items():
+                ci = one_based_idx - 1
+                if 0 <= ci < len(chunk):
+                    flags.append(
+                        {
+                            "statement": chunk[ci],
+                            "explanation": detail.get("explanation", ""),
+                            "implications": detail.get("implications", ""),
+                            "contradiction_type": ContradictionType.IMPLICATION_CONFLICT.value,
+                            "severity": ContradictionSeverity.HIGH.value,
+                        }
+                    )
+        return flags
 
     async def apply_pack_to_universe(
         self,
@@ -1691,6 +1782,139 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
     # Private evaluation pipeline
     # ------------------------------------------------------------------
 
+    async def _check_state_transition_rules(
+        self,
+        proposal: dict[str, Any],
+    ) -> TransitionViolation | None:
+        """
+        Run the deterministic state-transition rules against a proposal (G-9 Phase 2).
+
+        Pure Python, no LLM — these catch mechanical impossibilities (a dead
+        entity that acts). Only ``state_change`` proposals carry tags, so
+        everything else short-circuits. A failed tag lookup yields no
+        violation rather than an error: the rules are advisory.
+
+        Returns:
+            The violation found, or None.
+        """
+        from monitor_agents.canonkeeper.transition_rules import check_state_transition
+
+        if proposal.get("change_type") != "state_change":
+            return None
+
+        content = proposal.get("content") or {}
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except json.JSONDecodeError:
+                return None
+        if not isinstance(content, dict):
+            return None
+
+        props = content.get("state_params") or content.get("payload") or content
+        if not isinstance(props, dict):
+            return None
+        state = _normalise_state_tag_update(props)
+        entity_id = state.get("entity_id")
+        add_tags = state.get("add_tags") or []
+        remove_tags = state.get("remove_tags") or []
+        if not entity_id or (not add_tags and not remove_tags):
+            return None
+
+        try:
+            raw = await self.call_tool("neo4j_get_state_tags", {"entity_id": str(entity_id)})
+        except Exception as exc:  # noqa: BLE001  # reason: an advisory rule lookup must never break evaluation (in _check_state_transition_rules)
+            logger.warning("State-tag lookup failed (skipping transition rules): %s", exc)
+            return None
+
+        current_tags: list[str] = []
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                raw = []
+        if isinstance(raw, dict):
+            raw = raw.get("state_tags") or []
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, str):
+                    current_tags.append(item)
+                elif isinstance(item, dict):
+                    tag = item.get("tag") or item.get("value") or item.get("name")
+                    if tag:
+                        current_tags.append(str(tag))
+        override_reason = content.get("override_reason") or props.get("override_reason")
+        return check_state_transition(
+            current_tags=current_tags,
+            add_tags=add_tags,
+            remove_tags=remove_tags,
+            override_reason=override_reason,
+        )
+
+    async def _flag_proposal_for_review(
+        self,
+        proposal: dict[str, Any],
+        violation: TransitionViolation,
+    ) -> None:
+        """
+        Stamp the advisory review flag on a proposal (G-9 Phase 2).
+
+        Writes through the MCP tool (CanonKeeper is the only writer) and mirrors
+        the flag onto the proposal dict the caller holds, so the verdict record
+        can carry it too. Never changes the proposal's status — the flag is
+        advisory until Phase 3.
+        """
+        proposal_id = str(proposal.get("proposal_id") or "")
+        if not proposal_id:
+            return
+        try:
+            await self.call_tool(
+                "mongodb_flag_proposal_review",
+                {
+                    "proposal_id": proposal_id,
+                    "needs_review": True,
+                    "reason": violation.reason,
+                    "source": f"transition_rule:{violation.rule}",
+                },
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: a failed flag write must never break evaluation (in _flag_proposal_for_review)
+            logger.warning("Could not stamp the review flag on proposal %s: %s", proposal_id, exc)
+            return
+        proposal["needs_review"] = True
+        proposal["review_reason"] = violation.reason
+        proposal["review_source"] = f"transition_rule:{violation.rule}"
+
+    def _transition_violation_verdict(
+        self,
+        proposal: dict[str, Any],
+        violation: TransitionViolation,
+    ) -> CanonKeeperVerdict | None:
+        """
+        Build the REJECTED verdict for a deterministic transition violation (G-9 Phase 3).
+
+        Returns None when rejection is disabled — the caller then flags the
+        proposal for a human instead (Phase 2 behaviour). Rejection is opt-in
+        (``CANONKEEPER_REJECT_TRANSITION_VIOLATIONS``): the rules are
+        deterministic, but the tag vocabulary reaching them is game-system- and
+        GM-driven, so the false-positive rate has to be measured before it can
+        block anything.
+        """
+        from monitor_data.config import settings
+
+        if not settings.canonkeeper_reject_transition_violations:
+            return None
+        return CanonKeeperVerdict(
+            proposal_id=str(proposal.get("proposal_id") or "unknown"),
+            decision=CanonKeeperDecision.REJECTED,
+            reasoning=(
+                f"Impossible state transition ({violation.rule}): {violation.reason} "
+                "A proposal may carry an explicit override_reason to legalise the transition."
+            ),
+            canon_node_type=proposal.get("change_type", "unknown"),
+            canon_properties={},
+            decided_at=datetime.now(UTC),
+        )
+
     async def _evaluate_single(
         self,
         proposal: dict[str, Any],
@@ -1717,6 +1941,17 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 canon_properties={},
                 decided_at=datetime.now(UTC),
             )
+
+        # Phase 1.6 — deterministic state-transition rules (G-9 Phase 2/3).
+        # Pure Python, no LLM. Advisory by default: the proposal is flagged for
+        # a human. With CANONKEEPER_REJECT_TRANSITION_VIOLATIONS on, a
+        # deterministic violation is rejected outright (Phase 3) — off until
+        # its false-positive rate has been measured.
+        transition_violation = await self._check_state_transition_rules(proposal)
+        if transition_violation is not None:
+            rejection = self._transition_violation_verdict(proposal, transition_violation)
+            if rejection is not None:
+                return rejection
 
         # Phase 1.5 — contradiction detection (Temporal & Contradiction Gap)
         # Check if this proposal contradicts existing canon before proceeding
@@ -1780,6 +2015,13 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             ],
             max_tokens=1024,
         )
+
+        # Phase 3.5 — stamp the deterministic transition violation for a human.
+        # (In rejection mode the proposal never reached this point.)
+        if transition_violation is not None:
+            await self._flag_proposal_for_review(proposal, transition_violation)
+            verdict.reasoning = f"{verdict.reasoning}\n\n[FLAGGED FOR REVIEW] {transition_violation.reason}"
+
         return verdict
 
     # _commit_to_neo4j(), _audit_commit(), _AUDIT_SUBJECT, and
@@ -2794,8 +3036,18 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         ):
             raise RuntimeError(f"{tool_name} failed: {result_text}")
 
-    async def _record_verdict(self, scene_id: UUID, verdict: CanonKeeperVerdict) -> None:
-        """Persist verdict to MongoDB for audit trail."""
+    async def _record_verdict(
+        self,
+        scene_id: UUID,
+        verdict: CanonKeeperVerdict,
+        proposal: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist verdict to MongoDB for audit trail.
+
+        ``proposal`` is optional. When given, its advisory review flag (G-9
+        Phase 2) is copied onto the verdict record, so the audit trail shows
+        that a proposal was flagged for review — not only that it was decided.
+        """
         await self.call_tool(
             "mongodb_record_verdict",
             {
@@ -2804,6 +3056,8 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 "decision": verdict.decision.value,
                 "reasoning": verdict.reasoning,
                 "decided_at": verdict.decided_at.isoformat(),
+                "needs_review": bool(proposal.get("needs_review")) if proposal else False,
+                "review_reason": proposal.get("review_reason") if proposal else None,
             },
         )
 

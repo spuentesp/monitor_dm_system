@@ -262,6 +262,8 @@ def mongodb_record_verdict(
     reasoning: str,
     decided_at: str,
     canon_node_type: str | None = None,
+    needs_review: bool = False,
+    review_reason: str | None = None,
 ) -> dict[str, Any]:
     """
     Persist a CanonKeeper verdict to MongoDB for audit trail.
@@ -276,6 +278,8 @@ def mongodb_record_verdict(
         reasoning:      CanonKeeper's reasoning text.
         decided_at:     ISO timestamp of decision.
         canon_node_type: Type of node created/rejected (optional).
+        needs_review:   G-9 Phase 2 — advisory review flag on the proposal.
+        review_reason:  G-9 Phase 2 — why the proposal was flagged.
 
     Returns:
         Dict with verdict_id and status.
@@ -291,6 +295,8 @@ def mongodb_record_verdict(
         "decision": decision,
         "reasoning": reasoning,
         "canon_node_type": canon_node_type,
+        "needs_review": needs_review,
+        "review_reason": review_reason,
         "decided_at": decided_at,
         "recorded_at": now,
     }
