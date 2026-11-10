@@ -29,6 +29,7 @@ from __future__ import annotations
 import structlog
 
 import asyncio
+import contextlib
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -42,6 +43,7 @@ from pydantic import BaseModel
 from monitor_agents.base import BaseAgent
 from monitor_agents.npc_voice.npc_voice import NPCActorModule, NPCDirectVoiceModule
 from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+from monitor_agents.voice_stream import TokenCallback, voice_stream_scope
 from monitor_agents.utils.runtime_profile_support import (
     build_npc_profile_context,
     normalize_source_profile,
@@ -395,6 +397,7 @@ class NPCVoice(BaseAgent):
         player_persona: str = "",
         character_card: str = "",
         parse_directives: bool = False,
+        token_callback: TokenCallback | None = None,
     ) -> dict[str, Any]:
         """
         Generate a direct in-character NPC response.
@@ -421,6 +424,11 @@ class NPCVoice(BaseAgent):
             character_card: Rendered card text for a character imported from a
                 card. Separate from the profile's gm_notes, which stay hidden
                 because a story NPC's notes hold real secrets.
+            token_callback: When set, the spoken reply streams to it live as
+                the model generates — only the reply text, never the
+                structured fields. The callback may receive nothing: when the
+                provider or model cannot stream, the reply arrives only at
+                return (the fallback is logged).
 
         Returns:
             {
@@ -465,24 +473,28 @@ class NPCVoice(BaseAgent):
             npc_facts=npc_data.get("facts", []),
         )
         # DSPy calls are synchronous; on the event loop one would stall the whole backend.
-        prediction = await asyncio.to_thread(
-            self._direct_module,
-            npc_name=npc_data["name"],
-            npc_role=npc_data["role"],
-            personality_summary=self._format_personality(profile, relationship_snapshot_before),
-            current_emotional_state=self._format_emotional_context(
-                profile, relationship_snapshot_before, universe_id=universe_id
-            ),
-            relevant_memories=json.dumps(memories[:5], default=str),
-            known_facts=json.dumps(npc_data.get("facts", [])[:8], default=str),
-            active_triggers=json.dumps(prompt_triggers, default=str),
-            conversation_history=history_text,
-            profile_context=profile_context,
-            lorebook_context="\n".join(lorebook_context or []),
-            character_card=character_card,
-            player_said=player_said,
-            player_persona=player_persona,
-        )
+        # With a token callback registered, the LM streams the reply text live
+        # (see monitor_agents.voice_stream) while this thread call runs.
+        scope = voice_stream_scope(token_callback) if token_callback is not None else contextlib.nullcontext()
+        with scope:
+            prediction = await asyncio.to_thread(
+                self._direct_module,
+                npc_name=npc_data["name"],
+                npc_role=npc_data["role"],
+                personality_summary=self._format_personality(profile, relationship_snapshot_before),
+                current_emotional_state=self._format_emotional_context(
+                    profile, relationship_snapshot_before, universe_id=universe_id
+                ),
+                relevant_memories=json.dumps(memories[:5], default=str),
+                known_facts=json.dumps(npc_data.get("facts", [])[:8], default=str),
+                active_triggers=json.dumps(prompt_triggers, default=str),
+                conversation_history=history_text,
+                profile_context=profile_context,
+                lorebook_context="\n".join(lorebook_context or []),
+                character_card=character_card,
+                player_said=player_said,
+                player_persona=player_persona,
+            )
 
         # 5. Extract structured fields from prediction
         npc_response = prediction.npc_response

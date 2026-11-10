@@ -62,6 +62,9 @@ _LOOPS_MAX = 64
 _LOCKS: OrderedDict[str, _AsyncLock] = OrderedDict()
 _LOCKS_MAX = 256
 
+# Sentinel pushed onto the streaming send's token queue when generation ends.
+_STREAM_END = object()
+
 # NPCProfileCreate.gm_notes limit. The full notes stay on the card.
 _PROFILE_NOTES_MAX = 5000
 _CARD_PROMPT_MAX = 12000
@@ -901,18 +904,23 @@ async def send_message_stream(
 ) -> Any:
     """Yield the reply to one player line as it streams, then persist.
 
-    Streaming send path (Phase 7): the loop's NPC memory writes for this turn
-    are deferred and flushed after the final chunk — "memory writes happen
-    after the stream completes". The outbox bookkeeping runs at the end too.
+    Streaming send path (Phase 7): the direct NPC voice generates live — the
+    spoken reply is forwarded as it is produced (``{"type": "token", "text":
+    ...}`` per chunk), then one ``{"type": "done", ...}`` carries the
+    emotional / relationship read. When the model or provider cannot stream,
+    the completed reply is replayed in small chunks (the pre-streaming
+    behavior, logged as a fallback by the voice layer).
 
-    Yields typed events: ``{"type": "token", "text": ...}`` per chunk of the
-    reply, then one ``{"type": "done", ...}`` carrying the emotional /
-    relationship read. Always ends by flushing deferred memory writes, even
-    when the consumer stops early — the exchange happened, so the character
-    must remember it.
+    The loop's NPC memory writes for this turn are deferred and flushed after
+    the final chunk — "memory writes happen after the stream completes". The
+    outbox bookkeeping runs at the end too. A client that disconnects
+    mid-stream stops generation, and a reply that never completed is never
+    written as a memory (the deferred buffer only ever holds complete
+    exchanges).
 
-    Raises KeyError up front when the conversation is unknown/inactive, and
-    propagates generation errors before the first chunk.
+    Raises KeyError up front when the conversation is unknown/inactive.
+    Generation errors propagate: before the first chunk when the failure
+    happens early, otherwise after the tokens streamed so far.
     """
     from monitor_agents.loops.conversation_loop import ConversationClosedError
 
@@ -920,32 +928,71 @@ async def send_message_stream(
         async with _get_conversation_lock(conversation_id):
             loop = await _resolve_loop(conversation_id, character_id)
 
+            # The loop's state.universe_id is the incarnation's universe; we forward
+            # the cross-incarnation flag by setting a transient attribute on the
+            # loop state (read by NPCVoice via the conversation_loop wrapper).
             if include_cross_incarnation and getattr(loop, "state", None) is not None:
                 loop.state.include_cross_incarnation = True
 
-            try:
-                responses = await loop.step(text, defer_memory_writes=True)
-            except ConversationClosedError as exc:
-                pop_loop(conversation_id)
-                raise KeyError(conversation_id) from exc
-            except Exception:
-                with contextlib.suppress(Exception):
-                    from monitor_data.db.mongodb import get_mongodb_client
+            tokens: asyncio.Queue[Any] = asyncio.Queue()
+            outcome: dict[str, Any] = {}
 
-                    get_mongodb_client().get_collection("conversations").update_one(
-                        {"conversation_id": conversation_id},
-                        {"$set": {"turns": list(getattr(loop.state, "turns", []) or [])}},
+            async def _on_reply_token(delta: str) -> None:
+                tokens.put_nowait(delta)
+
+            async def _run_step() -> None:
+                try:
+                    outcome["responses"] = await loop.step(
+                        text,
+                        defer_memory_writes=True,
+                        token_callback=_on_reply_token,
                     )
-                raise
-            finally:
-                if include_cross_incarnation and getattr(loop, "state", None) is not None:
-                    loop.state.include_cross_incarnation = False
+                except BaseException as exc:  # noqa: BLE001  # reason: re-raised on the consumer side, not swallowed
+                    outcome["error"] = exc
+                finally:
+                    # Always reset the transient flag, even if step() raised.
+                    if include_cross_incarnation and getattr(loop, "state", None) is not None:
+                        loop.state.include_cross_incarnation = False
+                    tokens.put_nowait(_STREAM_END)
 
-            reply = responses[0] if responses else {}
-            reply_text = str(reply.get("text") or "")
+            step_task = asyncio.create_task(_run_step())
+            streamed_parts: list[str] = []
             try:
-                for chunk in _stream_chunks(reply_text):
-                    yield {"type": "token", "text": chunk}
+                while True:
+                    item = await tokens.get()
+                    if item is _STREAM_END:
+                        break
+                    streamed_parts.append(item)
+                    yield {"type": "token", "text": item}
+
+                error = outcome.get("error")
+                if isinstance(error, ConversationClosedError):
+                    pop_loop(conversation_id)
+                    raise KeyError(conversation_id) from error
+                if error is not None:
+                    with contextlib.suppress(Exception):
+                        from monitor_data.db.mongodb import get_mongodb_client
+
+                        get_mongodb_client().get_collection("conversations").update_one(
+                            {"conversation_id": conversation_id},
+                            {"$set": {"turns": list(getattr(loop.state, "turns", []) or [])}},
+                        )
+                    raise error
+
+                responses = outcome.get("responses") or []
+                reply = responses[0] if responses else {}
+                reply_text = str(reply.get("text") or "")
+                if not streamed_parts and reply_text:
+                    # Nothing streamed live (the model could not stream, or the
+                    # structured reply carried no reply field): replay the
+                    # completed reply as chunks — the pre-streaming behavior.
+                    for chunk in _stream_chunks(reply_text):
+                        yield {"type": "token", "text": chunk}
+                elif reply_text and "".join(streamed_parts) != reply_text:
+                    # Streamed prefix and the authoritative reply diverged
+                    # (a mid-stream fallback regenerated it). The "done" text
+                    # is the source of truth; never silent.
+                    log.warning("conversation_stream_text_mismatch", conversation_id=conversation_id)
                 yield {
                     "type": "done",
                     "conversation_id": conversation_id,
@@ -954,31 +1001,56 @@ async def send_message_stream(
                     "relationship_snapshot": reply.get("relationship_snapshot", {}),
                 }
             finally:
-                # Memory writes happen after the stream completes. A flush
-                # failure is recorded — never silently dropped.
-                try:
-                    await loop.flush_memory_writes()
-                except Exception as exc:  # noqa: BLE001  # reason: recorded below, then the stream still finishes
-                    log.warning("conversation_memory_flush_failed", conversation_id=conversation_id, exc_info=True)
-                    from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
-                    from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
-
-                    await RoleplayErrorRecorder.record(
-                        source=RoleplayErrorSource.CHARACTER_CONVERSATION,
-                        category=RoleplayErrorCategory.UNKNOWN,
-                        message=str(exc),
-                        fatal=False,
-                        conversation_id=conversation_id,
-                    )
-                await _persist_outbox(conversation_id, loop)
-                if getattr(loop, "_closed", False) is True:
-                    pop_loop(conversation_id)
+                if not step_task.done():
+                    # Client disconnect mid-stream: stop generation. A reply
+                    # that never completed buffers no memory writes, so a
+                    # half reply is never remembered.
+                    step_task.cancel()
+                if "responses" in outcome:
+                    # The exchange completed as a whole — remember it, even if
+                    # the consumer stopped early. When the generator is being
+                    # torn down mid-await, finish the bookkeeping detached so
+                    # the flush cannot be cut off halfway.
+                    try:
+                        await _finalize_stream_turn(conversation_id, loop)
+                    except asyncio.CancelledError:
+                        asyncio.create_task(_finalize_stream_turn(conversation_id, loop))
+                        raise
 
     return _generator()
 
 
+async def _finalize_stream_turn(conversation_id: str, loop: Any) -> None:
+    """Post-stream bookkeeping: flush deferred memory writes, persist outbox.
+
+    Memory writes happen after the stream completes. A flush failure is
+    recorded — never silently dropped.
+    """
+    try:
+        await loop.flush_memory_writes()
+    except Exception as exc:  # noqa: BLE001  # reason: recorded below, then the stream still finishes
+        log.warning("conversation_memory_flush_failed", conversation_id=conversation_id, exc_info=True)
+        from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+        from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.CHARACTER_CONVERSATION,
+            category=RoleplayErrorCategory.UNKNOWN,
+            message=str(exc),
+            fatal=False,
+            conversation_id=conversation_id,
+        )
+    await _persist_outbox(conversation_id, loop)
+    if getattr(loop, "_closed", False) is True:
+        pop_loop(conversation_id)
+
+
 def _stream_chunks(text: str) -> list[str]:
-    """Split a generated reply into small chunks for token-style streaming."""
+    """Split a completed reply into small chunks for fallback replay.
+
+    Used when the model cannot stream: the reply is delivered in word chunks
+    exactly as the pre-streaming behavior did.
+    """
     if not text:
         return []
     words = text.split(" ")
