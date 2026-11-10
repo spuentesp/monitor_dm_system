@@ -61,6 +61,7 @@ describe("PrepToTablePanel (CF-7)", () => {
       },
       committed_thread_ids: ["t-1"],
       staged_proposal_ids: ["p-1"],
+      staging_errors: ["p-2: store down"],
     });
     const user = userEvent.setup();
     renderPanel("u-1");
@@ -89,6 +90,8 @@ describe("PrepToTablePanel (CF-7)", () => {
     // The saved bundle becomes "tonight's table".
     expect(await screen.findByText("Tonight's table")).toBeInTheDocument();
     expect(await screen.findByText("saved as thread")).toBeInTheDocument();
+    // A rejected staging is surfaced, never silent.
+    expect(screen.getByText("Not staged: p-2: store down")).toBeInTheDocument();
   });
 
   it("loads a previously saved bundle for tonight", async () => {

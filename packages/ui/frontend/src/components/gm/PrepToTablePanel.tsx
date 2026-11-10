@@ -32,6 +32,7 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
   const [notesSummary, setNotesSummary] = useState("");
   const [tonight, setTonight] = useState<GmPrepBundle | null>(null);
   const [savedInfo, setSavedInfo] = useState<string | null>(null);
+  const [stagingErrors, setStagingErrors] = useState<string[]>([]);
 
   const { data: storiesData } = useQuery({
     queryKey: ["universe-stories", universeId],
@@ -74,6 +75,7 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
       setThreads(data.threads.map((t) => ({ ...t, included: true })));
       setNotesSummary(data.notes_summary);
       setSavedInfo(null);
+      setStagingErrors([]);
     },
   });
 
@@ -88,6 +90,7 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
       }),
     onSuccess: (data) => {
       setTonight(data.bundle);
+      setStagingErrors(data.staging_errors ?? []);
       setSavedInfo(
         `Saved ${data.committed_thread_ids.length} thread(s); ` +
           `${data.staged_proposal_ids.length} new NPC/location proposal(s) staged for review.`,
@@ -264,6 +267,11 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
               <p className="text-[10px] text-red-400">Saving failed — nothing was lost, try again.</p>
             )}
             {savedInfo && <p className="text-[10px] text-emerald-400">{savedInfo}</p>}
+            {stagingErrors.map((e, i) => (
+              <p key={i} className="text-[10px] text-red-400">
+                Not staged: {e}
+              </p>
+            ))}
           </section>
         )}
 

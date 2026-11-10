@@ -20,9 +20,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_agents.gm_table import (
-    ComplicationSuggestions,
     GmTableAgent,
-    NameSuggestions,
     PartyKnowledgeAnswer,
     PrepExtraction,
     RulesAnswer,
@@ -697,6 +695,7 @@ class PrepCommitResponse(BaseModel):
     bundle: GmPrepBundleResponse
     committed_thread_ids: list[str] = Field(default_factory=list)
     staged_proposal_ids: list[str] = Field(default_factory=list)
+    staging_errors: list[str] = Field(default_factory=list)
 
 
 class PrepBundleGetResponse(BaseModel):
@@ -880,8 +879,9 @@ async def prep_commit(
         committed_thread_ids.append(thread_id)
         threads.append(item.model_copy(update={"thread_id": thread_id}))
 
-    def _stage_entities() -> tuple[list[str], None]:
+    def _stage_entities() -> tuple[list[str], list[str]]:
         ids: list[str] = []
+        errs: list[str] = []
         proposals: list[tuple[str, str, str]] = [
             (
                 npc.name,
@@ -918,25 +918,31 @@ async def prep_commit(
                 ids.append(str(proposal.proposal_id))
             except Exception as exc:  # noqa: BLE001  # reason: one rejected staging must not lose the bundle (in prep_commit)
                 log.warning("prep_entity_staging_failed", name=name, error=str(exc))
-        return ids, None
+                errs.append(f"{name[:80]}: {exc}")
+        return ids, errs
 
-    staged_proposal_ids, _ = await asyncio.to_thread(_stage_entities)
+    staged_proposal_ids, staging_errors = await asyncio.to_thread(_stage_entities)
 
-    bundle = await asyncio.to_thread(
-        mongodb_upsert_gm_prep_bundle,
-        GmPrepBundleUpsert(
-            universe_id=req.universe_id,
-            story_id=req.story_id,
-            npcs=req.npcs,
-            locations=req.locations,
-            threads=threads,
-            source=f"prep_bundle:{bundle_id}",
-        ),
-    )
+    try:
+        bundle = await asyncio.to_thread(
+            mongodb_upsert_gm_prep_bundle,
+            GmPrepBundleUpsert(
+                universe_id=req.universe_id,
+                story_id=req.story_id,
+                npcs=req.npcs,
+                locations=req.locations,
+                threads=threads,
+                source=f"prep_bundle:{bundle_id}",
+            ),
+        )
+    except Exception as exc:
+        log.warning("prep_bundle_save_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to save the prep bundle: {exc}") from exc
     return PrepCommitResponse(
         bundle=bundle,
         committed_thread_ids=committed_thread_ids,
         staged_proposal_ids=staged_proposal_ids,
+        staging_errors=staging_errors,
     )
 
 
@@ -1099,17 +1105,17 @@ async def lookup_improvise(
     agent = light_table_agent()
     try:
         if req.kind == "name":
-            result: NameSuggestions | ComplicationSuggestions = await agent.suggest_names(
+            names = await agent.suggest_names(
                 universe_id=req.universe_id,
                 context=req.context,
                 count=req.count,
             )
             return ImproviseResponse(
                 kind="name",
-                suggestions=list(result.names),
-                rationale=result.rationale,
+                suggestions=list(names.names),
+                rationale=names.rationale,
             )
-        result = await agent.suggest_complications(
+        complications = await agent.suggest_complications(
             universe_id=req.universe_id,
             context=req.context,
             count=req.count,
@@ -1117,8 +1123,8 @@ async def lookup_improvise(
         )
         return ImproviseResponse(
             kind="complication",
-            suggestions=list(result.complications),
-            rationale=result.rationale,
+            suggestions=list(complications.complications),
+            rationale=complications.rationale,
         )
     except Exception as exc:
         log.warning("improvise_failed", universe_id=str(req.universe_id), error=str(exc))

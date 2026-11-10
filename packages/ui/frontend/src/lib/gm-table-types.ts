@@ -43,6 +43,7 @@ export interface PrepCommitResponse {
   bundle: GmPrepBundle;
   committed_thread_ids: string[];
   staged_proposal_ids: string[];
+  staging_errors: string[];
 }
 
 export interface PrepBundleGetResponse {

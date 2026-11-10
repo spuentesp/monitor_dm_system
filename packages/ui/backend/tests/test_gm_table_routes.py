@@ -150,6 +150,7 @@ class TestPrepRoutes:
         body = resp.json()
         assert body["committed_thread_ids"] == [str(thread_uuid)]
         assert body["staged_proposal_ids"] == [str(pid) for pid in proposal_ids]
+        assert body["staging_errors"] == []
 
         # Real callee 1: plot thread created with the reviewed thread's fields.
         plot_thread = mock_thread.call_args.args[0]
@@ -173,6 +174,48 @@ class TestPrepRoutes:
         assert upsert.universe_id == universe_id
         assert upsert.story_id == story_id
         assert upsert.threads[0].thread_id == str(thread_uuid)
+
+    def test_prep_commit_surfaces_staging_errors_without_losing_the_bundle(self):
+        """One rejected staging must not lose the bundle — and must not be silent."""
+        universe_id = uuid4()
+        story_id = uuid4()
+        bundle = GmPrepBundleResponse(universe_id=universe_id, story_id=story_id, updated_at=datetime.now(UTC))
+        with (
+            patch("monitor_ui.routers.gm_tools.mongodb_create_proposed_change", side_effect=RuntimeError("store down")),
+            patch(
+                "monitor_ui.routers.gm_tools.mongodb_upsert_gm_prep_bundle",
+                return_value=bundle,
+            ) as mock_bundle,
+        ):
+            resp = client.post(
+                "/api/gm/prep/commit",
+                json={
+                    "universe_id": str(universe_id),
+                    "story_id": str(story_id),
+                    "npcs": [{"name": "The guild master"}],
+                    "threads": [],
+                },
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["staged_proposal_ids"] == []
+        assert len(body["staging_errors"]) == 1
+        assert "The guild master" in body["staging_errors"][0]
+        assert mock_bundle.call_count == 1
+
+    def test_prep_commit_bundle_save_failure_is_a_clean_500(self):
+        universe_id = uuid4()
+        story_id = uuid4()
+        with patch(
+            "monitor_ui.routers.gm_tools.mongodb_upsert_gm_prep_bundle",
+            side_effect=RuntimeError("store down"),
+        ):
+            resp = client.post(
+                "/api/gm/prep/commit",
+                json={"universe_id": str(universe_id), "story_id": str(story_id), "threads": []},
+            )
+        assert resp.status_code == 500
 
     def test_prep_get_reads_bundle_with_expected_args(self):
         universe_id = uuid4()

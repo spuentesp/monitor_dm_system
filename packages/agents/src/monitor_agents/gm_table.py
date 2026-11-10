@@ -26,7 +26,7 @@ caller (the router turns them into 500s): nothing here silently degrades.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -534,11 +534,11 @@ class GmTableAgent(BaseAgent):
         )
 
 
-# Backwards-friendly alias: LIGHT-tier instance factory for on-demand improv.
+# LIGHT-tier instance factory for on-demand improv (names, complications).
 def light_table_agent() -> GmTableAgent:
     """A LIGHT-tier GmTableAgent for on-demand improv (names, complications)."""
-    return GmTableAgent(agent_type="GmTableLightAgent", agent_id="gm-table-light", tier=ModelRole.LIGHT)
-
-
-# Re-export so the router can type its responses against one import.
-TableImproviseKind = Literal["name", "complication"]
+    return GmTableAgent(
+        agent_type="GmTableLightAgent",
+        agent_id="gm-table-light",
+        tier=ModelRole.LIGHT,
+    )
