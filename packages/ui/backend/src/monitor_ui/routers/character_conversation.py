@@ -1301,12 +1301,15 @@ def carry_memories_to_incarnation(
     if not char:
         raise ValueError(f"Character {character_id} not found")
     source_ids = [eid for eid in _character_entity_ids(char) if eid != str(entity_id)]
+    if not source_ids:
+        # Graduating in place (same incarnation): its memories are already
+        # bound to this entity — nothing to carry.
+        return 0
     coll = get_mongodb_client().get_collection("character_memories")
-    query: dict[str, Any] = {"metadata.conversation_id": {"$exists": True}}
-    if source_ids:
-        query["entity_id"] = {"$in": source_ids}
-    else:
-        query["entity_id"] = str(entity_id)
+    query: dict[str, Any] = {
+        "entity_id": {"$in": source_ids},
+        "metadata.conversation_id": {"$exists": True},
+    }
     existing_copies = {
         str(m.get("metadata", {}).get("graduated_from", ""))
         for m in coll.find(

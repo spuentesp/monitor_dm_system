@@ -461,3 +461,7 @@ class TestMemoryServiceWiring:
             patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
         ):
             assert cc.delete_character_memory("c-1", "m-9") is False
+
+    def test_carry_memories_is_a_noop_for_the_same_incarnation(self):
+        with patch.object(cc, "get_character", return_value={"id": "c-1", "versions": [{"entity_id": "e-1"}]}):
+            assert cc.carry_memories_to_incarnation("c-1", "e-1", _UNIVERSE_ID) == 0

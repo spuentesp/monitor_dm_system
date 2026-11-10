@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flag, Loader2, Rocket } from "lucide-react";
 import { chatApi, universesApi } from "@/lib/api";
@@ -15,7 +16,8 @@ import type { Session, StandaloneCharacter } from "@/lib/types";
  *
  * Flow: pick a universe → the guided start's ways-to-begin appear (WorldSeed
  * options + session_zero's question) → pick or describe a start → the
- * campaign session opens with the character bound.
+ * campaign session opens with the character bound and the play console is
+ * opened on it (``/play?session=…``).
  */
 export function GraduateDialog({
   character,
@@ -29,6 +31,7 @@ export function GraduateDialog({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  const router = useRouter();
   const { notify } = useNotify();
   const [universeId, setUniverseId] = useState("");
   const [prepared, setPrepared] = useState<GraduatePrepareResult | null>(null);
@@ -77,8 +80,13 @@ export function GraduateDialog({
       const session = await chatApi.createSession(
         result.session_create as Parameters<typeof chatApi.createSession>[0],
       );
-      notify("success", `Campaign started with ${character.name} — ${result.memories_carried} memories carried over.`);
+      notify(
+        "success",
+        `Campaign started with ${character.name} — ${result.memories_carried} memories carried over.`,
+      );
       onGraduated(session);
+      // Land in the play console on the new guided-start session.
+      router.push(`/play?session=${session.id}`);
     },
     onError: (e) => notify("error", `Graduation failed: ${errorMessage(e)}`),
   });

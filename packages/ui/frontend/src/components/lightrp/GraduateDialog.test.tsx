@@ -12,6 +12,11 @@ vi.mock("@/components/NotificationProvider", () => ({
   useNotify: () => ({ notify: vi.fn() }),
 }));
 
+const push = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push }),
+}));
+
 const char = {
   id: "c-1",
   name: "Wisp",
@@ -71,6 +76,7 @@ function renderDialog(onGraduated = vi.fn()) {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  push.mockClear();
   vi.spyOn(universesApi, "listUniverses").mockResolvedValue([{ id: "u-1", name: "Grey Harbour" }] as never);
 });
 
@@ -111,6 +117,8 @@ describe("GraduateDialog — start a campaign with this character", () => {
     await waitFor(() =>
       expect(createSession).toHaveBeenCalledWith(graduateResult.session_create),
     );
+    // The play console is opened on the new guided-start session.
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/play?session=sess-1"));
     await waitFor(() => expect(onGraduated).toHaveBeenCalledWith({ id: "sess-1" }));
   });
 });

@@ -843,10 +843,11 @@ async def close_session(state: ConversationState) -> dict[str, Any]:
 
     # Safety net: memory writes deferred for streaming are flushed before the
     # session closes, so an unstreamed close still leaves the recall intact.
+    # Cleared only after a successful flush — a failure keeps them buffered
+    # (retry beats silent loss) and propagates.
     if state.deferred_memory_writes:
-        flushed = list(state.deferred_memory_writes)
+        await _flush_memory_writes(list(state.deferred_memory_writes))
         state.deferred_memory_writes = []
-        await _flush_memory_writes(flushed)
 
     if state.stage_canon_proposals:
         # Distill session-level episodic memories and stage them alongside the
@@ -1093,13 +1094,15 @@ class ConversationLoop:
 
         Returns the number of writes flushed. Called by streaming send paths
         after the reply's stream completes; ``close_session`` also flushes any
-        leftovers as a safety net.
+        leftovers as a safety net. The buffer is cleared only after a
+        successful flush — a failure keeps the writes for a retry instead of
+        silently dropping them.
         """
         if not self.state.deferred_memory_writes:
             return 0
         calls = list(self.state.deferred_memory_writes)
-        self.state.deferred_memory_writes = []
         flushed = await _flush_memory_writes(calls)
+        self.state.deferred_memory_writes = []
         return flushed
 
     async def finish(self) -> list[dict[str, Any]]:

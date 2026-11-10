@@ -75,7 +75,10 @@ export function CharacterChat({
       convRef.current = initialConversation.conversation_id;
       setConversationId(initialConversation.conversation_id);
       setMessages([{ id: "opening", role: "char", text: initialConversation.opening }]);
-      return;
+      return () => {
+        const cid = convRef.current;
+        if (cid) entitiesApi.endCharacterConversation(character.id, cid).catch(() => {});
+      };
     }
     let active = true;
     setStarting(true);
