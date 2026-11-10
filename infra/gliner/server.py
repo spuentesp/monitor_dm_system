@@ -16,7 +16,7 @@ from gliner import GLiNER
 from pydantic import BaseModel
 
 MODEL_DIR = "/model"
-MODEL_NAME = os.getenv("GLINER_MODEL", "knowledgator/gliner-base-v0.1")
+MODEL_NAME = os.getenv("GLINER_MODEL", "urchade/gliner_base")
 MAX_LENGTH = int(os.getenv("GLINER_MAX_LENGTH", "384"))
 
 _load_path = MODEL_DIR if os.path.isdir(MODEL_DIR) else MODEL_NAME
