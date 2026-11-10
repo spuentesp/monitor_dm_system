@@ -1203,7 +1203,7 @@ async def update_session(
         session["roll_model"] = body.roll_model
     if body is not None and body.archived is not None:
         session["archived"] = body.archived
-    if body is not None and body.speaker_character_id is not None:
+    if body is not None and body.speaker_character_id:
         session["speaker_character_id"] = body.speaker_character_id
         # The switch takes effect immediately: rebuild the cached SceneLoop
         # on the next turn so it runs as the new actor (same seam as the IC
