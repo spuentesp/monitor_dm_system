@@ -74,16 +74,16 @@ services:
     restart: unless-stopped
 
   # MinIO - Binary Storage (PDFs, images, etc.)
+  # quay.io/minio/minio cannot be pulled anonymously (401 on every tag — the
+  # failure Weekly Integration hit in CI) and docker.io/minio/minio no longer
+  # exists. bitnamilegacy/minio is the MinIO server build on Docker Hub; its
+  # data dir is /bitnami/minio/data (server runs as uid 1001, gid 0) and it
+  # ships without the embedded web console — the S3 API on :9000 is what
+  # MONITOR uses. Override with MINIO_IMAGE to use a mirror. The CI integration
+  # job does not start this service: it runs with STORAGE_BACKEND=folder
+  # (.github/workflows/nightly-integration.yml).
   minio:
-    # quay.io/minio/minio cannot be pulled from this network (401 UNAUTHORIZED on
-    # every tag — the same failure Weekly Integration hits in CI), and the
-    # docker.io/minio/minio repository no longer exists. bitnamilegacy/minio is
-    # the MinIO server build on Docker Hub; its data dir is
-    # /bitnami/minio/data (server runs as uid 1001, gid 0) and it ships without
-    # the embedded web console — the S3 API on :9000 is what MONITOR uses.
-    # NOTE: Phase 1 task 2 swaps the MinIO image for CI — reconcile this line
-    # with that change.
-    image: bitnamilegacy/minio:latest
+    image: ${MINIO_IMAGE:-bitnamilegacy/minio:latest}
     container_name: monitor-minio
     ports:
       - "9000:9000"  # S3 API

@@ -9,6 +9,14 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # Object storage runs on the local-folder backend on CI. The MinIO image
+      # cannot be pulled on a GitHub runner: quay.io denies anonymous pulls of
+      # quay.io/minio/minio (HTTP 401; the anonymous token carries no pull
+      # actions) and the Docker Hub repo minio/minio no longer exists. The
+      # data-layer supports folder mode natively (monitor_data.db.minio,
+      # _LOCAL_BACKENDS) and the e2e suite already runs the same way.
+      STORAGE_BACKEND: "folder"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -20,11 +28,18 @@ jobs:
         run: |
           cp env.example .env
           cp env.example infra/.env || true
+          # Keep .env in agreement with the job-level STORAGE_BACKEND=folder.
+          sed -i 's/^STORAGE_BACKEND=.*/STORAGE_BACKEND=folder/' .env
+          if [ -f infra/.env ]; then
+            sed -i 's/^STORAGE_BACKEND=.*/STORAGE_BACKEND=folder/' infra/.env
+          fi
 
       - name: Start data services
         run: |
+          # minio is intentionally not started: its image cannot be pulled
+          # anonymously (see the STORAGE_BACKEND job comment above).
           docker compose --env-file .env -f infra/docker-compose.yml up -d \
-            neo4j mongodb qdrant minio redis postgres
+            neo4j mongodb qdrant redis postgres
           # Wait for health
           for i in $(seq 1 30); do
             unhealthy=$(docker ps --format '{{.Names}} {{.Status}}' | grep -cE 'starting|unhealthy' || true)
