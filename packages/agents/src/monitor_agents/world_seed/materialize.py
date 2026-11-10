@@ -99,6 +99,19 @@ def situation_brief(session: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def situation_prompt_block(session: dict[str, Any]) -> str:
+    """The starting situation as one prompt block, or ``""``.
+
+    Single renderer for every opening prompt (join task 12): the pre-play
+    finalize and the cold-open path used to hand-build this block with
+    drifting wording.
+    """
+    brief = situation_brief(session)
+    if not brief:
+        return ""
+    return "STARTING SITUATION (established state — narrate this, invent nothing that contradicts it):\n" + brief
+
+
 # ─── proposal staging ────────────────────────────────────────────────────────
 
 

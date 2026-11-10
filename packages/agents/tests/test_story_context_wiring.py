@@ -256,7 +256,13 @@ class TestLoadContextContinuity:
 
     @pytest.mark.asyncio
     async def test_the_ledger_reaches_the_established_facts(self):
-        """The GM and the Narrator read the campaign's history as facts."""
+        """The GM reads the campaign's history as facts — once.
+
+        Join task 12: the ledger's one-liners travel on the GM's
+        established-facts channel (``source_profile``); the Narrator reads
+        the same history from the story state's CAMPAIGN LEDGER block
+        instead, so the campaign's history is never injected twice.
+        """
         from monitor_agents.loops.scene_loop import SceneState, load_context
 
         context = {
@@ -286,8 +292,42 @@ class TestLoadContextContinuity:
             state = SceneState(scene_id=uuid4(), story_id=uuid4())
             result = await load_context(state)
 
-        assert "Scene 1: They took the ferry across the black water." in result["established_facts"]
+        # The GM channel carries the ledger one-liner...
+        assert "Scene 1: They took the ferry across the black water." in result["source_profile"]["established_facts"]
         assert "The ferry sank with everyone aboard." in result["established_facts"]
+        # ...and the shared established facts (the Narrator's channel) do not
+        # repeat it — the Narrator reads the ledger from the story state.
+        assert "Scene 1: They took the ferry across the black water." not in result["established_facts"]
+
+    @pytest.mark.asyncio
+    async def test_a_canon_statement_is_not_repeated_on_later_turns(self):
+        """The carried facts channel de-duplicates the canon re-fetch."""
+        from monitor_agents.loops.scene_loop import SceneState, load_context
+
+        context = {
+            "story_ledger": [],
+            "facts": [{"id": "f1", "statement": "The ferry sank with everyone aboard."}],
+        }
+
+        with (
+            patch(
+                "monitor_agents.loops.scene_loop._load_story_state",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "monitor_agents.context_assembly.agent.ContextAssembly.assemble",
+                new_callable=AsyncMock,
+                return_value=context,
+            ),
+        ):
+            state = SceneState(
+                scene_id=uuid4(),
+                story_id=uuid4(),
+                established_facts=["The ferry sank with everyone aboard."],
+            )
+            result = await load_context(state)
+
+        assert result["established_facts"].count("The ferry sank with everyone aboard.") == 1
 
     @pytest.mark.asyncio
     async def test_the_ledger_travels_on_the_story_state(self):

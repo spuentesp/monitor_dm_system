@@ -12,6 +12,7 @@ from monitor_agents.world_seed.materialize import (
     prepare_starting_situation,
     resolve_chosen_start,
     situation_brief,
+    situation_prompt_block,
 )
 from monitor_agents.world_seed.models import (
     StartOption,
@@ -35,4 +36,5 @@ __all__ = [
     "prepare_starting_situation",
     "resolve_chosen_start",
     "situation_brief",
+    "situation_prompt_block",
 ]

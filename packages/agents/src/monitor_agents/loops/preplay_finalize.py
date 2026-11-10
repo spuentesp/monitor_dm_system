@@ -13,7 +13,7 @@ from monitor_agents.loops.session_bootstrap import bootstrap_story_scene_with_st
 from monitor_agents.loops.preplay_support import ensure_start_options
 from monitor_agents.narrator.agent import Narrator
 from monitor_agents.story_agreements import StoryAgreements
-from monitor_agents.world_seed import resolve_chosen_start, situation_brief
+from monitor_agents.world_seed import resolve_chosen_start, situation_brief, situation_prompt_block
 
 log = structlog.get_logger()
 
@@ -174,10 +174,11 @@ async def finalize_preplay(
     character = session.get("character_summary") or {}
     context_text = _opening_context(intro, character, agreements)
     brief = situation_brief(session)
-    if brief:
-        context_text += (
-            "\n\nSTARTING SITUATION (established state — narrate this, invent nothing that contradicts it):\n" + brief
-        )
+    situation_block = situation_prompt_block(session)
+    if situation_block:
+        # One shared renderer (join task 12) — the same block the cold-open
+        # path uses, never a drifting hand-built copy.
+        context_text += "\n\n" + situation_block
 
     narrative = ""
     module_intro = await _module_intro_text(session)
@@ -248,21 +249,13 @@ async def finalize_preplay(
 async def _module_intro_text(session: dict[str, Any]) -> str:
     """The session pack's authored verbatim opening, or ``""``.
 
-    Same contract as ``chat_opening._fetch_module_intro`` (G-2): only a
-    substantive read-aloud intro (>40 chars) counts.
+    Delegates to the shared ``preplay_support.fetch_module_intro`` (join
+    task 12) — same contract as ``chat_opening._fetch_module_intro`` (G-2):
+    only a substantive read-aloud intro (>40 chars) counts.
     """
-    pack_id_raw = session.get("pack_id")
-    if not pack_id_raw:
-        return ""
-    try:
-        from monitor_data.tools.mongodb_tools import mongodb_get_knowledge_pack
+    from monitor_agents.loops.preplay_support import fetch_module_intro
 
-        pack = await asyncio.to_thread(mongodb_get_knowledge_pack, UUID(str(pack_id_raw)))
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _module_intro_text)
-        log.debug("preplay.module_intro_fetch_failed", error=str(exc))
-        return ""
-    intro = (getattr(pack, "intro_text", None) or "").strip()
-    return intro if len(intro) > 40 else ""
+    return await fetch_module_intro(session)
 
 
 def _enforce_situation_names(narrative: str, session: dict[str, Any]) -> str:
@@ -375,8 +368,10 @@ def _opening_context(
                 f"Backstory: {character.get('backstory') or '(see actor profile)'}"
             ),
             (
+                # Join task 12: the premise is not restated here — it travels
+                # on the typed ``story_premise`` channel and the narrator
+                # renders its own PLAYER-STATED PREMISE block from it.
                 "STORY AGREEMENTS:\n"
-                f"Premise: {agreements.story_premise}\n"
                 f"Themes wanted: {themes}\n"
                 f"Character role: {agreements.pc_role}\n"
                 f"Pacing: {agreements.pacing}"

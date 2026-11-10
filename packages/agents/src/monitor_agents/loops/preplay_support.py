@@ -164,6 +164,28 @@ def session_facts_block(session: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+async def fetch_module_intro(session: dict[str, Any]) -> str:
+    """The session pack's authored verbatim opening, or ``""``.
+
+    One implementation of the G-2 contract (join task 12): only a
+    substantive read-aloud intro (>40 chars) counts. Shared by the pre-play
+    finalize and the chat-opening cold-open path, which used to carry a copy
+    each.
+    """
+    pack_id_raw = session.get("pack_id")
+    if not pack_id_raw:
+        return ""
+    try:
+        from monitor_data.tools.mongodb_tools import mongodb_get_knowledge_pack
+
+        pack = await asyncio.to_thread(mongodb_get_knowledge_pack, uuid.UUID(str(pack_id_raw)))
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in fetch_module_intro)
+        log.debug("module_intro_fetch_failed", error=str(exc))
+        return ""
+    intro = (getattr(pack, "intro_text", None) or "").strip()
+    return intro if len(intro) > 40 else ""
+
+
 # ---------------------------------------------------------------------------
 # Director notes — player-established facts asserted OOC
 # ---------------------------------------------------------------------------

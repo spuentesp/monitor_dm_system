@@ -157,10 +157,12 @@ class TestNarrateNode:
         proposals = result["pending_proposals"]
         fact = next(p for p in proposals if p["change_type"] == "fact")
         entity = next(p for p in proposals if p["change_type"] == "ENTITY")
-        # Task 8: facts written in play carry the cast witnesses (Task 8).
+        # Task 8: facts written in play carry the cast witnesses.
         assert set(fact["witnesses"]) == {PC1, NPC1}
         assert set(fact["content"]["witnesses"]) == {PC1, NPC1}
-        assert set(fact["content"]["properties"]["witnesses"]) == {PC1, NPC1}
+        # Join task 12: no third shadow copy inside properties — the typed
+        # witnesses field persists end to end (join task 5).
+        assert "witnesses" not in (fact["content"].get("properties") or {})
         # Non-fact proposals are left alone.
         assert "witnesses" not in entity
 

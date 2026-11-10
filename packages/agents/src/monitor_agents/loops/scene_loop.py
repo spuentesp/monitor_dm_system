@@ -732,9 +732,15 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 — best-effort, see comment above
         logger.debug("load_context: durable turn count fetch failed: %s", exc)
 
-    # The ledger and the canon reach the GM and the Narrator as established
-    # facts: the ledger's one-line history and the canon's current
-    # statements, oldest first.
+    # The ledger and the canon reach the GM and the Narrator exactly once
+    # each (join task 12). The ledger's one-line history travels on the GM's
+    # established-facts channel (``source_profile`` — the resolver forwards
+    # it to GMAgent, the GM's only history channel), while the Narrator reads
+    # the ledger from the story state's CAMPAIGN LEDGER block: injecting the
+    # one-liners into the shared established facts too repeated the
+    # campaign's history in the narrator's prompt. The canon's current
+    # statements go to both. Everything is de-duplicated against what the
+    # carried channel already holds, so a fact is never repeated per turn.
     ledger_lines = [
         f"Scene {entry.get('scene_index', '?')}: {str(entry.get('summary') or '').strip()}"
         for entry in context.get("story_ledger", []) or []
@@ -746,13 +752,22 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         if isinstance(fact, dict) and str(fact.get("statement") or "").strip()
     ][-8:]
 
+    source_profile = dict(context.get("source_profile", {}) or {})
+    prior_sp_facts = [f for f in source_profile.get("established_facts") or [] if isinstance(f, str)]
+    source_profile["established_facts"] = [
+        *prior_sp_facts,
+        *[line for line in ledger_lines if line not in prior_sp_facts],
+    ]
+    prior_facts = [f for f in state.established_facts if f not in state.director_notes]
+    known = {*state.director_notes, *prior_facts}
+
     updates: dict[str, Any] = {
         "entity_context": context.get("entities", []),
         "memory_context": context.get("memories", []),
         "lorebook_context": context.get("lorebook_entries", []),
         "previous_turns": context.get("turns", []),
         "game_context": context.get("game_system", {}),
-        "source_profile": context.get("source_profile", {}),
+        "source_profile": source_profile,
         "working_state": working_state_dict,
         "gm_profile": gm_profile,
         "universe_id": universe_id,
@@ -765,9 +780,8 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         "scene_foreshadowing_open": open_foreshadowing,
         "established_facts": [
             *state.director_notes,
-            *[fact for fact in state.established_facts if fact not in state.director_notes],
-            *ledger_lines,
-            *canon_statements,
+            *prior_facts,
+            *[stmt for stmt in canon_statements if stmt not in known],
         ],
     }
 
@@ -1003,7 +1017,10 @@ async def narrate(state: SceneState) -> dict[str, Any]:
                 p["content"]["universe_id"] = str(state.universe_id)
     # Task 8: facts/events established in play carry the cast as witnesses.
     # Stamped on the proposal (which the ProposedChange document stores
-    # verbatim) and inside content/properties for the commit path.
+    # verbatim) and inside content (the commit path's payload). The typed
+    # ``witnesses`` field persists end to end now (join task 5), so the old
+    # third carrier inside ``properties`` is gone — one field, two document
+    # surfaces, no shadow copies.
     for p in proposals:
         change_type = str(p.get("change_type") or "").lower()
         if change_type not in {"fact", "event", "lore_fact"}:
@@ -1012,11 +1029,6 @@ async def narrate(state: SceneState) -> dict[str, Any]:
         content = p.get("content")
         if isinstance(content, dict):
             content["witnesses"] = list(witness_ids)
-            props = content.get("properties")
-            if not isinstance(props, dict):
-                props = {}
-                content["properties"] = props
-            props["witnesses"] = list(witness_ids)
 
     narrative_text = result.get("narrative_text", "")
     minutes = result.get("minutes_elapsed", 0)
