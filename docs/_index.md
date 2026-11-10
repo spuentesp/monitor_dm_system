@@ -50,6 +50,7 @@ Welcome to the MONITOR Agent Documentation. This structure is designed to be hig
 - [Visual Identity](./4_ontology/visual_identity.md): Structured, canon-aware appearance description — anchor shapes, precedence, incarnation isolation, and the CanonKeeper boundary.
 
 ## 5. Infrastructure (DevOps & Env)
+- [Local Setup (clone → first turn)](./SETUP_LOCAL.md): Bring up the dev stack, providers/tiers, the active model pair, and reach a narrated turn.
 - [Database Cluster](./5_infrastructure/database_cluster.md): The docker-compose setup.
 - [Observability](./5_infrastructure/observability.md): Structlog and tracing.
 - [Lain MCP Proxy](./5_infrastructure/lain_mcp_proxy.md): How Lain integrates.
