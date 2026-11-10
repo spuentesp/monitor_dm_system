@@ -145,6 +145,12 @@ async def _load_story_state(state: SceneState) -> StoryState | None:
     Narrator sees. A story with no checkpoint yet keeps the state it was
     given.
     """
+    if state.universe_id is None:
+        # No universe to anchor the checkpoint read on — a scene without one
+        # keeps the story state it was given instead of reading a foreign
+        # story's checkpoint.
+        logger.debug("Scene %s has no universe; skipping the story checkpoint read", state.scene_id)
+        return None
     try:
         from monitor_agents.loops.story_loop import StoryLoop
 

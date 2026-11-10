@@ -1027,7 +1027,7 @@ class ContextAssembly(BaseAgent):
         facts = [fact for fact in payload if isinstance(fact, dict)]
         current = get_current_facts(facts, check_time)
         self._cache_set_json(cache_key, current, ttl=self._ttl(short=True))
-        return cast(list[dict[str, Any]], current)
+        return current
 
     async def _search_memories(
         self,
