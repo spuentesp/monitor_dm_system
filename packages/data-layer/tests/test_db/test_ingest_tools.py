@@ -120,7 +120,9 @@ def test_front_matter_and_section_bounds_are_exact():
 
     front, one, two = sections[0], sections[1], sections[2]
 
-    assert front.heading_path == ["(front matter)"]
+    # The pages before the first bookmark belong to no chapter, so the
+    # book-tree pipeline files them under its untitled section.
+    assert front.heading_path == ["(untitled)"]
     assert front.depth == 0
     assert (front.page_start, front.page_end) == (0, 1)
     assert "Body of page 0" in front.text
