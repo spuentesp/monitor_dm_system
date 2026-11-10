@@ -208,7 +208,6 @@ class TestStoryProgression:
         monkeypatch.setattr(story_loop, "finalize_story", finalize)
 
         loop = story_loop.StoryLoop(uuid4(), uuid4())
-        loop.call_tool = AsyncMock(return_value=[])
 
         result = await loop.complete_current_scene(uuid4(), {"scene_complete": True})
 
@@ -226,7 +225,6 @@ class TestStoryProgression:
         monkeypatch.setattr(story_loop, "finalize_story", finalize)
 
         loop = story_loop.StoryLoop(uuid4(), uuid4())
-        loop.call_tool = AsyncMock(return_value=[])
 
         results = []
         for _ in range(5):
@@ -245,7 +243,6 @@ class TestStoryProgression:
         monkeypatch.setattr(story_loop, "transition_scene", AsyncMock(return_value={"current_scene_id": uuid4()}))
 
         loop = story_loop.StoryLoop(uuid4(), uuid4())
-        loop.call_tool = AsyncMock(return_value=[])
 
         first = await loop.complete_current_scene(uuid4(), {"total_minutes_passed": 10})
         second = await loop.complete_current_scene(first["current_scene_id"], {"total_minutes_passed": 20})
@@ -265,7 +262,6 @@ class TestStoryProgression:
         monkeypatch.setattr(story_loop, "finalize_story", finalize)
 
         loop = story_loop.StoryLoop(uuid4(), uuid4())
-        loop.call_tool = AsyncMock(return_value=[])
 
         result = await loop.complete_current_scene(uuid4(), {"story_complete": True})
 
@@ -282,7 +278,6 @@ class TestStoryProgression:
         monkeypatch.setattr(story_loop, "finalize_story", AsyncMock())
 
         loop = story_loop.StoryLoop(uuid4(), uuid4())
-        loop.call_tool = AsyncMock(return_value=[])
 
         for _ in range(5):
             await loop.complete_current_scene(uuid4(), {"scene_complete": True})

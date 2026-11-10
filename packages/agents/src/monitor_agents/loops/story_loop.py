@@ -14,6 +14,7 @@ Flow: init_story → [scene_loop per scene] → finalize_story
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -22,9 +23,11 @@ from uuid import UUID
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.graph import END, StateGraph
 from monitor_data.config import settings
+from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 from pydantic import BaseModel, Field
 
 from monitor_agents.agent_factory import get_agent_factory
+from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
 from monitor_agents.utils.db_readers import (
     mongodb_create_scene,
     mongodb_create_story_outline,
@@ -34,6 +37,14 @@ from monitor_agents.utils.db_readers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The data-layer server reports a refused or failed tool as text.
+_TOOL_ERROR_PREFIXES = ("Authorization error:", "Validation error:", "Error executing tool:")
+
+
+class AgendaTickError(RuntimeError):
+    """The NPC agenda tick did not go through."""
+
 
 # =============================================================================
 # STATE SCHEMA
@@ -343,6 +354,49 @@ async def _create_scene(
     return scene_id  # type: ignore[return-value]
 
 
+async def _tick_npc_agendas(universe_id: UUID) -> list[str]:
+    """Advance the off-screen NPC agendas of one universe.
+
+    ``neo4j_tick_agendas`` is a shared Neo4j write tool: the authority matrix
+    in ``monitor_data.middleware.auth`` names ``StoryLoop`` among the agents
+    allowed to call it, so the tick goes through the data-layer server — the
+    same client every other tool call in this layer uses — under the story
+    loop's own identity.
+
+    Args:
+        universe_id: The universe whose NPCs move on.
+
+    Returns:
+        The agenda moves the tool reported.
+
+    Raises:
+        AgendaTickError: The tool reported an authorization, validation or
+            execution error, or answered with something other than a list of
+            moves.
+    """
+    from monitor_data.server import call_tool as server_call_tool
+
+    contents = await server_call_tool(
+        "neo4j_tick_agendas",
+        {"universe_id": str(universe_id), "agent_type": "StoryLoop"},
+    )
+    if not contents:
+        raise AgendaTickError("neo4j_tick_agendas returned no result")
+
+    text = contents[0].text
+    if text.startswith(_TOOL_ERROR_PREFIXES):
+        raise AgendaTickError(f"neo4j_tick_agendas failed: {text}")
+
+    try:
+        moves = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise AgendaTickError(f"neo4j_tick_agendas answered with no JSON: {text}") from exc
+
+    if not isinstance(moves, list):
+        raise AgendaTickError(f"neo4j_tick_agendas answered with {type(moves).__name__}, not a list of moves")
+    return [str(move) for move in moves]
+
+
 # =============================================================================
 # PUBLIC API
 # =============================================================================
@@ -497,25 +551,27 @@ class StoryLoop:
             arc_update = await evaluate_arc(run_state)
             run_state = run_state.model_copy(update=arc_update)
 
-            # P-22: NPC Agenda Tick — advance off-screen NPC agendas
+            # NPC Agenda Tick (ST-1) — advance off-screen NPC agendas
             agenda_moves: list[str] = []
             try:
-                agenda_result = await self.call_tool(
-                    "neo4j_tick_agendas",
-                    {"universe_id": str(self.universe_id)},
+                agenda_moves = await _tick_npc_agendas(self.universe_id)
+            except AgendaTickError as exc:
+                # A failed tick must not cost the player their scene
+                # transition, but it must not vanish either: the error is
+                # recorded so it can be looked up afterwards.
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.STORY_LOOP,
+                    category=RoleplayErrorCategory.NPC_AGENDA_TICK_FAILED,
+                    message=str(exc),
+                    universe_id=self.universe_id,
+                    story_id=self.story_id,
                 )
-                if isinstance(agenda_result, list):
-                    agenda_moves = agenda_result
-                elif isinstance(agenda_result, dict):
-                    agenda_moves = agenda_result.get("moves", [])
-                if agenda_moves:
-                    logger.info(
-                        "NPC agenda tick: %d moves for universe %s",
-                        len(agenda_moves),
-                        self.universe_id,
-                    )
-            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in complete_current_scene)
-                logger.warning("NPC agenda tick failed", exc_info=True)
+            if agenda_moves:
+                logger.info(
+                    "NPC agenda tick: %d moves for universe %s",
+                    len(agenda_moves),
+                    self.universe_id,
+                )
 
             # P-21: Progression Phase
             # Trigger progression if we are in resolution phase or a downtime scene just ended
