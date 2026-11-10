@@ -455,6 +455,47 @@ class TestArcFromEvents:
         assert update["active_threads"] == ["The drowned road"]
         assert "The sealed vault" in update["completed_threads"]
 
+    @pytest.mark.asyncio
+    async def test_a_closed_thread_is_not_reopened_by_an_advanced_verdict(self, monkeypatch, tool_server):
+        """The record decides that a thread is closed, not the model."""
+        from monitor_agents.story.story import StoryArcModule
+
+        monkeypatch.setattr(
+            "monitor_data.server.call_tool",
+            FakeToolServer(
+                {
+                    "neo4j_list_plot_threads": {
+                        "threads": [
+                            {"id": "t1", "title": "The drowned road", "status": "active"},
+                            {"id": "t2", "title": "The sealed vault", "status": "resolved"},
+                        ]
+                    }
+                }
+            ),
+        )
+
+        def forward(self, **kwargs):
+            return SimpleNamespace(
+                arc_phase="rising_action",
+                tension=0.4,
+                advanced_threads=json.dumps(["The sealed vault"]),
+                closed_threads=json.dumps([]),
+                story_complete=False,
+                reasoning="because",
+            )
+
+        monkeypatch.setattr(StoryArcModule, "forward", forward)
+        monkeypatch.setattr(
+            StoryAgent,
+            "_plan_next_scene",
+            AsyncMock(return_value={"next_scene_type": "exploration", "plot_hook": "a hook"}),
+        )
+
+        agent = StoryAgent(agent_id="arc-resolved")
+        update = await agent.evaluate_arc(_state(scenes_completed=2))
+
+        assert update["active_threads"] == ["The drowned road"]
+
 
 class TestInGameTime:
     @pytest.mark.asyncio

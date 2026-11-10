@@ -621,12 +621,10 @@ class StoryAgent(BaseAgent):
         story has never heard of is still recorded as done.
         """
         open_titles: list[str] = []
-        known_titles: set[str] = set()
         for thread in plot_threads:
             title = str(thread.get("title") or "").strip()
             if not title:
                 continue
-            known_titles.add(title.lower())
             status = str(thread.get("status") or "open").strip().lower()
             if status in _CLOSED_THREAD_STATUSES:
                 continue
@@ -634,6 +632,7 @@ class StoryAgent(BaseAgent):
 
         closed_keys = {item.lower() for item in closed if item}
         active_threads = [title for title in open_titles if title.lower() not in closed_keys]
+        open_keys = {title.lower() for title in active_threads}
 
         completed_threads = list(state.completed_threads)
         for item in closed:
@@ -643,14 +642,16 @@ class StoryAgent(BaseAgent):
             if name not in completed_threads:
                 completed_threads.append(name)
 
-        # A thread the model reports as advanced stays open.
+        # A thread the model reports as advanced stays open. A thread the
+        # record already calls closed stays closed: the record decides, the
+        # model only says what moved.
         for item in advanced:
             name = item.strip()
             if not name:
                 continue
-            if name.lower() in {title.lower() for title in completed_threads}:
+            if name.lower() in closed_keys:
                 continue
-            if name not in active_threads and name.lower() in known_titles:
+            if name not in active_threads and name.lower() in open_keys:
                 active_threads.append(name)
 
         return active_threads, completed_threads
