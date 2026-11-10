@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from monitor_data.schemas.character_templates import (
@@ -11,6 +12,8 @@ from monitor_data.schemas.character_templates import (
     CharacterTemplateResponse,
 )
 from monitor_ui.main import app
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 client = TestClient(app)
 

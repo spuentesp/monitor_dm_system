@@ -410,8 +410,11 @@ async def update_story_thread(
     story_id: UUID,
     thread_id: UUID,
     body: ThreadActionRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> ThreadOut:
     """CF-3: resolve, dismiss, or annotate a graph-tracked plot thread."""
+    await require_story_owner(db, principal, story_id)
     from monitor_data.schemas.base import PlotThreadStatus
     from monitor_data.schemas.story_outlines import PlotThreadUpdate
     from monitor_data.tools.neo4j_tools import neo4j_get_plot_thread, neo4j_update_plot_thread

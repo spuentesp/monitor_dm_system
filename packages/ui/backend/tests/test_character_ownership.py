@@ -49,7 +49,12 @@ class FakeCharactersCollection:
         self.docs: list[dict] = []
 
     def _match(self, doc: dict, query: dict) -> bool:  # type: ignore[no-untyped-def]
-        return all(doc.get(k) == v for k, v in query.items())
+        def _ok(k: str, v: object) -> bool:
+            if isinstance(v, dict) and "$ne" in v:
+                return doc.get(k) != v["$ne"]
+            return doc.get(k) == v
+
+        return all(_ok(k, v) for k, v in query.items())
 
     def find_one(self, query: dict, *a, **k):  # type: ignore[no-untyped-def]
         for d in self.docs:

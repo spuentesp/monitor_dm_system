@@ -52,10 +52,18 @@ def _to_response(doc: dict[str, Any]) -> CharacterTemplateResponse:
     )
 
 
+def _owned(query: dict[str, Any], owner_id: str | None) -> dict[str, Any]:
+    """Add the owner predicate to a query (``None`` = unscoped: local mode/internal)."""
+    if owner_id is not None:
+        query["owner_id"] = owner_id
+    return query
+
+
 def mongodb_create_character_template(
     params: CharacterTemplateCreate,
+    owner_id: str | None = None,
 ) -> CharacterTemplateResponse:
-    """Create a portable character template."""
+    """Create a portable character template, stamped with ``owner_id`` when given."""
     now = datetime.now(UTC)
     template_id = str(uuid4())
     doc = params.model_dump()
@@ -64,6 +72,7 @@ def mongodb_create_character_template(
             "id": template_id,
             "template_id": template_id,
             "is_template": True,
+            "owner_id": owner_id,
             # Mirror the portrait onto the character field so any
             # character-oriented reader still finds it.
             "avatar_url": params.portrait_url,
@@ -76,17 +85,20 @@ def mongodb_create_character_template(
     return _to_response(doc)
 
 
-def mongodb_get_character_template(template_id: UUID | str) -> CharacterTemplateResponse | None:
-    """Fetch one character template."""
-    doc = _collection().find_one({"id": str(template_id), **TEMPLATE_MARKER})
+def mongodb_get_character_template(
+    template_id: UUID | str, owner_id: str | None = None
+) -> CharacterTemplateResponse | None:
+    """Fetch one character template (owner-predicated when ``owner_id`` is given)."""
+    doc = _collection().find_one(_owned({"id": str(template_id), **TEMPLATE_MARKER}, owner_id))
     return _to_response(doc) if doc else None
 
 
 def mongodb_list_character_templates(
     filters: CharacterTemplateFilter,
+    owner_id: str | None = None,
 ) -> CharacterTemplateListResponse:
     """List character templates, most recently updated first."""
-    query: dict[str, Any] = dict(TEMPLATE_MARKER)
+    query: dict[str, Any] = _owned(dict(TEMPLATE_MARKER), owner_id)
     if filters.name_contains:
         query["name"] = {"$regex": filters.name_contains, "$options": "i"}
     coll = _collection()
@@ -104,23 +116,30 @@ def mongodb_list_character_templates(
 def mongodb_update_character_template(
     template_id: UUID | str,
     params: CharacterTemplateUpdate,
+    owner_id: str | None = None,
 ) -> CharacterTemplateResponse | None:
     """Update a character template. Only the provided fields change."""
     updates = params.model_dump(exclude_unset=True, exclude_none=True)
     if "portrait_url" in params.model_fields_set:
         updates["portrait_url"] = params.portrait_url
     if not updates:
-        return mongodb_get_character_template(template_id)
+        return mongodb_get_character_template(template_id, owner_id)
     if "portrait_url" in updates:
         updates["avatar_url"] = updates["portrait_url"]
     updates["updated_at"] = datetime.now(UTC)
-    _collection().update_one({"id": str(template_id), **TEMPLATE_MARKER}, {"$set": updates})
-    return mongodb_get_character_template(template_id)
+    _collection().update_one(
+        _owned({"id": str(template_id), **TEMPLATE_MARKER}, owner_id), {"$set": updates}
+    )
+    return mongodb_get_character_template(template_id, owner_id)
 
 
-def mongodb_delete_character_template(template_id: UUID | str) -> bool:
+def mongodb_delete_character_template(
+    template_id: UUID | str, owner_id: str | None = None
+) -> bool:
     """Delete a character template. Returns True when a document was removed."""
-    result = _collection().delete_one({"id": str(template_id), **TEMPLATE_MARKER})
+    result = _collection().delete_one(
+        _owned({"id": str(template_id), **TEMPLATE_MARKER}, owner_id)
+    )
     return bool(getattr(result, "deleted_count", 0))
 
 
