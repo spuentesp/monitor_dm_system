@@ -11,6 +11,7 @@ reach the model.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
@@ -76,23 +77,21 @@ async def _run_guard(db, principal) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Cross-component: the guard charges the real usage recorder
+# Cross-component: the guard is check-only — calls are counted per model call
+# (monitor_data.usage), never per HTTP request
 # ---------------------------------------------------------------------------
 
 
-class TestGuardRecordsUsage:
+class TestGuardIsCheckOnly:
     @pytest.mark.asyncio
-    async def test_guard_records_one_call_with_expected_arguments(self, fake_db: FakePostgres) -> None:
+    async def test_guard_never_records_usage(self, fake_db: FakePostgres) -> None:
         uid = uuid4()
         spy = AsyncMock(side_effect=fake_db.usage_record)
         fake_db.usage_record = spy  # type: ignore[method-assign]
         await _run_guard(fake_db, _principal(uid))
-        spy.assert_awaited_once()
-        args, kwargs = spy.await_args
-        assert args == (uid,)
-        assert kwargs == {"calls": 1}
+        spy.assert_not_awaited()
         usage = await fake_db.usage_get(uid)
-        assert usage["calls"] == 1
+        assert usage["calls"] == 0
 
     @pytest.mark.asyncio
     async def test_no_caps_configured_never_rejects(self, fake_db: FakePostgres) -> None:
@@ -106,11 +105,14 @@ class TestGuardRecordsUsage:
 
 class TestCaps:
     @pytest.mark.asyncio
-    async def test_call_cap_blocks_after_n_calls(self, monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres) -> None:
+    async def test_call_cap_blocks_at_the_recorded_cap(
+        self, monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres
+    ) -> None:
         monkeypatch.setenv(auth_mod.QUOTA_CALL_CAP_ENV, "2")
         uid = uuid4()
-        for _ in range(2):
-            await _run_guard(fake_db, _principal(uid))
+        await fake_db.usage_record(uid, calls=1)
+        await _run_guard(fake_db, _principal(uid))  # 1 < 2 — allowed
+        await fake_db.usage_record(uid, calls=1)
         with pytest.raises(HTTPException) as exc:
             await _run_guard(fake_db, _principal(uid))
         assert exc.value.status_code == 429
@@ -121,7 +123,7 @@ class TestCaps:
     async def test_other_users_are_unaffected(self, monkeypatch: pytest.MonkeyPatch, fake_db: FakePostgres) -> None:
         monkeypatch.setenv(auth_mod.QUOTA_CALL_CAP_ENV, "1")
         a, b = uuid4(), uuid4()
-        await _run_guard(fake_db, _principal(a))
+        await fake_db.usage_record(a, calls=1)  # A is at the cap
         with pytest.raises(HTTPException):
             await _run_guard(fake_db, _principal(a))
         # B is under their own cap and is not affected by A's exhaustion.
@@ -156,8 +158,9 @@ class TestCaps:
         monkeypatch.setenv(auth_mod.QUOTA_CALL_CAP_ENV, "1")
         uid = uuid4()
         await fake_db.usage_limit_set(uid, daily_token_cap=None, daily_call_cap=3, exempt=False)
-        for _ in range(3):
-            await _run_guard(fake_db, _principal(uid))
+        await fake_db.usage_record(uid, calls=2)
+        await _run_guard(fake_db, _principal(uid))  # override 3 > env 1
+        await fake_db.usage_record(uid, calls=1)
         with pytest.raises(HTTPException):
             await _run_guard(fake_db, _principal(uid))
 
@@ -183,7 +186,7 @@ class TestCaps:
 
 class TestQuotaOverHttp:
     def test_at_call_cap_gets_429_and_other_user_is_unaffected(
-        self, monkeypatch: pytest.MonkeyPatch, client: TestClient
+        self, monkeypatch: pytest.MonkeyPatch, client: TestClient, fake_db: FakePostgres
     ) -> None:
         monkeypatch.setenv(auth_mod.QUOTA_CALL_CAP_ENV, "1")
         # Keep the handler model-free: the guard runs before it, and the
@@ -192,7 +195,7 @@ class TestQuotaOverHttp:
             "monitor_ui.routers.character_conversation.draft_card",
             AsyncMock(return_value={"name": "Detective"}),
         )
-        _signup(client, "a@example.com", "alice")
+        me = _signup(client, "a@example.com", "alice")
         client_b = TestClient(client.app)
         _signup(client_b, "b@example.com", "bob")
 
@@ -202,6 +205,9 @@ class TestQuotaOverHttp:
         first = client.post(path, json=payload, headers=_csrf(client))
         assert first.status_code == 200, first.text
 
+        # A has now spent their daily call budget (counted per model call by
+        # the LLM runtime; seeded here because the handler is mocked).
+        asyncio.run(fake_db.usage_record(UUID(me["id"]), calls=1))
         second = client.post(path, json=payload, headers=_csrf(client))
         assert second.status_code == 429, second.text
         assert "Daily model-call limit" in second.json()["detail"]
