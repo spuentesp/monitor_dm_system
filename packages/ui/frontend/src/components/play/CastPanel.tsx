@@ -15,11 +15,11 @@ interface CastPanelProps {
   controlledCharacterIds: string[];
   /** The session's current speaker character id. */
   speakerCharacterId: string | null;
-  /** Speaker picked in the panel but not yet applied by a sent message. */
+  /** Optimistic speaker marker until the session refetch confirms the switch. */
   pendingSpeakerId?: string | null;
   /** Universe scope for the GM-controlled NPC list. */
   universeId?: string | null;
-  /** Called when the user clicks one of their characters: it speaks next. */
+  /** Called when the user clicks one of their characters: switch immediately. */
   onSwitchSpeaker: (id: string, name: string) => void;
 }
 
@@ -56,9 +56,10 @@ export function filterCastNpcs(
 
 /**
  * Cast panel for the play console: user characters first (speaker marked,
- * clicking one makes it the speaker for the next turn), then GM-controlled
- * NPCs. Backed by the same roster the scene loop uses (`controlled_character_ids`
- * on the session).
+ * clicking one switches the speaker immediately via
+ * SessionPatch.speaker_character_id), then GM-controlled NPCs. Backed by the
+ * same roster the scene loop uses (`controlled_character_ids` on the
+ * session).
  */
 export function CastPanel({
   controlledCharacterIds,

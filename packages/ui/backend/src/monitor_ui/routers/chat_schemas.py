@@ -182,6 +182,10 @@ class SessionPatch(BaseModel):
     story_id: str | None = None
     chat_mode: str | None = None
     roll_model: str | None = None
+    # P-16 / join Task 7: switch the active speaker immediately (the cast
+    # panel), instead of waiting for the next sent IC message. Ownership-
+    # checked like the other controlled-character paths.
+    speaker_character_id: str | None = None
     # P3.3 — archive flag for gm_assistant recordings.
     archived: bool | None = None
 

@@ -221,10 +221,13 @@ export default function PlayConsole() {
   // world default must not hijack normal "resume last session" visits.
   const [showSetup, setShowSetup] = useState(() => Boolean(urlUniverseId && !requestedSessionId));
   const [selectedCharacter, setSelectedCharacter] = useState<StandaloneCharacter | null>(null);
-  // Phase 4 (Task 5): speaker picked in the cast panel. Applied on the next
-  // sent message via sendOptions.character_id — POST /chat/{id}/send with an
-  // IC character_id sets session.speaker_character_id and invalidates the
-  // cached SceneLoop, so the switch takes effect on that turn.
+  // Phase 4 (Task 5) / join Task 7: speaker picked in the cast panel. The
+  // switch is applied IMMEDIATELY — PATCH /chat/{id} with
+  // SessionPatch.speaker_character_id (ownership-checked server-side; the
+  // backend invalidates the cached SceneLoop so the very next turn runs as
+  // the new actor). castSpeaker is the optimistic local marker until the
+  // session refetch confirms it; the next sent message still carries it as
+  // IC character_id as a belt-and-braces seam.
   const [castSpeaker, setCastSpeaker] = useState<{ id: string; name: string } | null>(null);
   const [chatMode, setChatMode] = useState<"ic" | "ooc">("ic");
   const [showRecap, setShowRecap] = useState(false);
@@ -326,6 +329,14 @@ export default function PlayConsole() {
     mutationFn: ({ roll_model }: { roll_model: string }) =>
       chatApi.patchSession(activeSessionId!, { roll_model }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["play-sessions"] }),
+  });
+
+  // [P-16] Cast panel speaker switch: SessionPatch.speaker_character_id makes
+  // the switch immediate (join Task 7) — no waiting for the next message.
+  const switchSpeaker = useMutation({
+    mutationFn: ({ id }: { id: string }) =>
+      chatApi.patchSession(activeSessionId!, { speaker_character_id: id }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: PLAY_KEYS.sessions }),
   });
 
   // [G-1](c) Skip-to-play: jump from Session Zero / char creation straight
@@ -859,7 +870,10 @@ export default function PlayConsole() {
               speakerCharacterId={activeSession.speaker_character_id ?? null}
               pendingSpeakerId={castSpeaker?.id ?? null}
               universeId={activeSession.universe_id ?? null}
-              onSwitchSpeaker={(id, name) => setCastSpeaker({ id, name })}
+              onSwitchSpeaker={(id, name) => {
+                setCastSpeaker({ id, name });
+                switchSpeaker.mutate({ id });
+              }}
             />
           )}
 

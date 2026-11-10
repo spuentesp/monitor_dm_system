@@ -260,6 +260,7 @@ export const chatApi = {
       scene_id?: string;
       story_id?: string;
       roll_model?: string;
+      speaker_character_id?: string | null;
       archived?: boolean;
     },
   ) =>
