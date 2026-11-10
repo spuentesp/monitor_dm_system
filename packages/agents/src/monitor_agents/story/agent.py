@@ -383,7 +383,7 @@ class StoryAgent(BaseAgent):
         back to a model estimate.
         """
         try:
-            from monitor_agents import world_seed  # type: ignore[attr-defined]
+            from monitor_agents import world_seed
         except ImportError:
             return None
 

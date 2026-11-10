@@ -497,7 +497,10 @@ async def _pc_name(session: dict[str, Any], universe_id: str) -> str | None:
     try:
         from monitor_data.tools.neo4j_tools.entities import neo4j_get_entity
 
-        entity = await asyncio.to_thread(neo4j_get_entity, _uuid(entity_id))
+        entity_uuid = _uuid(entity_id)
+        if entity_uuid is None:
+            return None
+        entity = await asyncio.to_thread(neo4j_get_entity, entity_uuid)
         return (getattr(entity, "name", None) or "").strip() or None
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _pc_name)
         logger.debug("world_seed: pc name resolve failed: %s", exc)

@@ -348,11 +348,11 @@ class WorldSeed(BaseAgent):
                 if all(npc.name != filler.name for npc in npcs):
                     npcs.append(filler)
             threads = [thread for thread in option.threads if thread.title][:MAX_THREADS]
-            for filler in filler_threads:
+            for thread_filler in filler_threads:
                 if len(threads) >= MIN_THREADS:
                     break
-                if all(thread.title != filler.title for thread in threads):
-                    threads.append(filler)
+                if all(thread.title != thread_filler.title for thread in threads):
+                    threads.append(thread_filler)
             if len(threads) < MIN_THREADS:
                 # Guarantee the 2-3 opening threads the brief pins, derived
                 # from the option's own hook and summary when nothing else is

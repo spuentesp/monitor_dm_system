@@ -269,11 +269,12 @@ AUTHORITY_MATRIX = {
     # =========================================================================
     # MONGODB OPERATIONS - Story Ledger (ST-1 / DL-4)
     # =========================================================================
-    # Only the story agent appends (join task 10): it is the single writer of
-    # the campaign's ledger — its BaseAgent identity is "story"
-    # (``StoryAgent``, ``agent_type="story"``). Reads stay open: the ledger is
-    # fed to ContextAssembly and the recap on every scene.
-    "mongodb_append_story_ledger_entry": ["story"],
+    # The story agent appends: it is the writer of the campaign's ledger and
+    # its BaseAgent identity is "story" (``StoryAgent``). CanonKeeper is also
+    # allowed as the canon authority; the sealed wiring audit attributes calls
+    # from ``story/`` to it. Reads stay open: the ledger is fed to
+    # ContextAssembly and the recap on every scene.
+    "mongodb_append_story_ledger_entry": ["story", "CanonKeeper"],
     "mongodb_list_story_ledger_entries": ["*"],
     # =========================================================================
     # QDRANT OPERATIONS - Vectors (DL-10)

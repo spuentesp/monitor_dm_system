@@ -50,7 +50,7 @@ async def gather_universe_material(
     await asyncio.gather(
         _load_universe(uid, material),
         _load_graph_content(uid, material),
-        _load_pack_content(uid, material, [_uuid(p) for p in (pack_ids or []) if _uuid(p)]),
+        _load_pack_content(uid, material, [pid for p in (pack_ids or []) if (pid := _uuid(p)) is not None]),
     )
     return material
 

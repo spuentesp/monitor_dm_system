@@ -301,8 +301,10 @@ def _template_opening(session: dict[str, Any], brief: str, agreements: StoryAgre
     Reached when the LLM opening fails — the opening still names a location
     and the NPCs that exist as instances, and ends on a prompt to act.
     """
-    materialized = session.get("materialized_start") if isinstance(session.get("materialized_start"), dict) else {}
-    start_option = session.get("start_option") if isinstance(session.get("start_option"), dict) else {}
+    raw_materialized = session.get("materialized_start")
+    materialized: dict[str, Any] = raw_materialized if isinstance(raw_materialized, dict) else {}
+    raw_start_option = session.get("start_option")
+    start_option: dict[str, Any] = raw_start_option if isinstance(raw_start_option, dict) else {}
     name = session.get("speaker_label") or "Your character"
     location = str(materialized.get("location") or start_option.get("location") or "").strip()
     npcs = materialized.get("npcs") or start_option.get("npcs") or []

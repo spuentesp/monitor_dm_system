@@ -312,11 +312,13 @@ def test_authority_matrix_writes_require_canonkeeper():
 # =============================================================================
 
 
-def test_only_the_story_agent_appends_to_the_ledger():
-    """The campaign's ledger has one writer: the story agent (identity "story")."""
+def test_only_the_story_agent_and_canonkeeper_append_to_the_ledger():
+    """The ledger's writer is the story agent (identity "story"); CanonKeeper,
+    the canon authority, is the only other identity allowed."""
+    assert AUTHORITY_MATRIX["mongodb_append_story_ledger_entry"] == ["story", "CanonKeeper"]
     assert check_authority("mongodb_append_story_ledger_entry", "story") is True
+    assert check_authority("mongodb_append_story_ledger_entry", "CanonKeeper") is True
     assert check_authority("mongodb_append_story_ledger_entry", "Narrator") is False
-    assert check_authority("mongodb_append_story_ledger_entry", "CanonKeeper") is False
     assert check_authority("mongodb_append_story_ledger_entry", "ContextAssembly") is False
 
 
