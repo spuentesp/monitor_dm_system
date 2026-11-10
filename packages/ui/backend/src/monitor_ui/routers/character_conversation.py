@@ -35,6 +35,7 @@ import structlog
 
 from .character_storage import (
     add_version,
+    create_character,
     delete_version,
     get_character,
     get_version,
@@ -479,6 +480,7 @@ async def start_conversation(
     universe_id: str | None = None,
     *,
     persona_character_id: str | None = None,
+    preset: str = "light",
 ) -> dict[str, Any]:
     """Expand-if-needed, open a DIRECT ConversationLoop, return opening + id.
 
@@ -487,12 +489,19 @@ async def start_conversation(
     create an additional incarnation for that universe on the fly.
 
     persona_character_id binds a persona card (is_ooc_persona=true): its
-    name resolves {{user}} in rendered card text.
+    name resolves {{user}} in rendered card text and its name + description
+    enter the prompt as the player's persona.
+
+    preset names the LightPreset configuration over the loop ("light" by
+    default: no dice, no GM verdict, no canonization prompts).
     """
     from monitor_agents.loops.conversation_loop import (
         ConversationLoop,
         ConversationMode,
+        get_preset,
     )
+
+    resolved_preset = get_preset(preset)
 
     char = get_character(character_id)
     if not char:
@@ -527,6 +536,8 @@ async def start_conversation(
         lorebook_character_ids=[character_id],
         player_persona=persona_text,
         character_card=render_character_card(char, user_name),
+        player_name=user_name,
+        preset=resolved_preset,
     )
     conversation_id = str(loop.state.conversation_id)
     _cache_loop(conversation_id, loop)
@@ -538,10 +549,20 @@ async def start_conversation(
 
             get_mongodb_client().get_collection("conversations").update_one(
                 {"conversation_id": conversation_id},
-                {"$set": {"player_persona": persona_text}},
+                {"$set": {"player_persona": persona_text, "player_name": user_name or ""}},
             )
         except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in start_conversation)
             log.warning("conversation_persona_persist_failed", exc_info=True)
+    # Stamp the preset so a resumed loop keeps the same configuration.
+    try:
+        from monitor_data.db.mongodb import get_mongodb_client
+
+        get_mongodb_client().get_collection("conversations").update_one(
+            {"conversation_id": conversation_id},
+            {"$set": {"preset": resolved_preset.name}},
+        )
+    except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in start_conversation)
+        log.warning("conversation_preset_persist_failed", exc_info=True)
     # Stamp last_chatted_at on the incarnation so the roster can surface
     # "recently used" versions.
     try:
@@ -566,6 +587,7 @@ async def start_conversation(
         "universe_id": str(backing["universe_id"]),
         "version_id": str(backing["version_id"]),
         "opening": opening,
+        "preset": resolved_preset.name,
     }
 
 
@@ -712,6 +734,24 @@ async def resume_conversation(
     loop.state.lorebook_overrides = dict(doc.get("lorebook_overrides") or {})
     # Restore the bound persona so the voice prompt keeps using it.
     loop.state.player_persona = str(doc.get("player_persona") or "")
+    stored_name = str(doc.get("player_name") or "").strip()
+    if stored_name:
+        loop.state.player_name = stored_name
+    elif loop.state.player_persona:
+        loop.state.player_name = loop.state.player_persona.split(" — ", 1)[0].strip()
+    # Restore the preset configuration (light RP: tier, canonization policy).
+    preset_name = str(doc.get("preset") or "").strip()
+    if preset_name:
+        try:
+            from monitor_agents.loops.conversation_loop import get_preset
+
+            preset = get_preset(preset_name)
+        except KeyError:
+            log.warning("conversation_resume_unknown_preset", preset=preset_name)
+        else:
+            loop.state.preset_name = preset.name
+            loop.state.model_tier = preset.model_tier
+            loop.state.stage_canon_proposals = preset.stage_canon_proposals
     char = get_character(character_id)
     if char:
         # player_persona is "name — description" (or just the name), as start_conversation built it.
@@ -719,6 +759,80 @@ async def resume_conversation(
         loop.state.character_card = render_character_card(char, user_name)
     _cache_loop(conversation_id, loop)
     return loop
+
+
+async def _resolve_loop(conversation_id: str, character_id: str | None) -> Any:
+    """Return the live loop for this conversation, rebuilding it if needed.
+
+    Loops are process-local, so a backend restart orphans active sessions.
+    When the loop is missing and character_id is provided (or derivable from
+    the conversation's client_session), the loop is rebuilt from the persisted
+    MongoDB transcript (resume). Raises KeyError when no loop can be found.
+    """
+    cached = _LOOPS.get(conversation_id)
+    if cached is not None and not _loop_matches_character(cached, character_id):
+        raise KeyError(conversation_id)
+    if cached is not None:
+        return cached
+
+    resolved_char_id = character_id
+    if not resolved_char_id:
+        with contextlib.suppress(Exception):
+            from monitor_data.db.mongodb import get_mongodb_client
+
+            doc = (
+                get_mongodb_client()
+                .get_collection("conversations")
+                .find_one(
+                    {"conversation_id": conversation_id},
+                    {"client_session": 1},
+                )
+            )
+            if isinstance(doc, dict):
+                cs = doc.get("client_session")
+                if isinstance(cs, dict) and cs.get("character_id"):
+                    resolved_char_id = str(cs["character_id"])
+    if resolved_char_id:
+        loop = await resume_conversation(resolved_char_id, conversation_id)
+        if loop is not None:
+            return loop
+    raise KeyError(conversation_id)
+
+
+async def _persist_outbox(conversation_id: str, loop: Any) -> None:
+    """Durable outbox: persist accumulated proposals onto the conversation doc.
+
+    Runs after every turn so a mid-session crash doesn't lose them (they used
+    to live only in loop memory until close). Restored on resume.
+    """
+    try:
+        from monitor_data.db.mongodb import get_mongodb_client
+
+        outbox = (
+            [] if getattr(loop, "_closed", False) is True else list(getattr(loop.state, "pending_proposals", []) or [])
+        )
+        get_mongodb_client().get_collection("conversations").update_one(
+            {"conversation_id": conversation_id},
+            {
+                "$set": {
+                    "pending_proposals": outbox,
+                    # Per-conversation lorebook switches from the character's directives.
+                    "lorebook_overrides": dict(getattr(loop.state, "lorebook_overrides", {}) or {}),
+                }
+            },
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _persist_outbox)
+        log.warning("conversation_proposals_persist_failed", conversation_id=conversation_id, exc_info=True)
+        from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+        from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.CHARACTER_CONVERSATION,
+            category=RoleplayErrorCategory.UNKNOWN,
+            message=str(exc),
+            fatal=False,
+            conversation_id=conversation_id,
+        )
 
 
 async def send_message(
@@ -739,33 +853,7 @@ async def send_message(
     from monitor_agents.loops.conversation_loop import ConversationClosedError
 
     async with _get_conversation_lock(conversation_id):
-        cached = _LOOPS.get(conversation_id)
-        if cached is not None and not _loop_matches_character(cached, character_id):
-            raise KeyError(conversation_id)
-
-        loop = cached
-        if loop is None:
-            resolved_char_id = character_id
-            if not resolved_char_id:
-                with contextlib.suppress(Exception):
-                    from monitor_data.db.mongodb import get_mongodb_client
-
-                    doc = (
-                        get_mongodb_client()
-                        .get_collection("conversations")
-                        .find_one(
-                            {"conversation_id": conversation_id},
-                            {"client_session": 1},
-                        )
-                    )
-                    if isinstance(doc, dict):
-                        cs = doc.get("client_session")
-                        if isinstance(cs, dict) and cs.get("character_id"):
-                            resolved_char_id = str(cs["character_id"])
-            if resolved_char_id:
-                loop = await resume_conversation(resolved_char_id, conversation_id)
-        if loop is None:
-            raise KeyError(conversation_id)
+        loop = await _resolve_loop(conversation_id, character_id)
 
         # The loop's state.universe_id is the incarnation's universe; we forward
         # the cross-incarnation flag by setting a transient attribute on the
@@ -792,39 +880,7 @@ async def send_message(
             if include_cross_incarnation and getattr(loop, "state", None) is not None:
                 loop.state.include_cross_incarnation = False
 
-        # Durable outbox: persist accumulated proposals onto the conversation doc
-        # after every turn so a mid-session crash doesn't lose them (they used to
-        # live only in loop memory until close). Restored on resume.
-        try:
-            from monitor_data.db.mongodb import get_mongodb_client
-
-            outbox = (
-                []
-                if getattr(loop, "_closed", False) is True
-                else list(getattr(loop.state, "pending_proposals", []) or [])
-            )
-            get_mongodb_client().get_collection("conversations").update_one(
-                {"conversation_id": conversation_id},
-                {
-                    "$set": {
-                        "pending_proposals": outbox,
-                        # Per-conversation lorebook switches from the character's directives.
-                        "lorebook_overrides": dict(getattr(loop.state, "lorebook_overrides", {}) or {}),
-                    }
-                },
-            )
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in send_message)
-            log.warning("conversation_proposals_persist_failed", conversation_id=conversation_id, exc_info=True)
-            from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
-            from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
-
-            await RoleplayErrorRecorder.record(
-                source=RoleplayErrorSource.CHARACTER_CONVERSATION,
-                category=RoleplayErrorCategory.UNKNOWN,
-                message=str(exc),
-                fatal=False,
-                conversation_id=conversation_id,
-            )
+        await _persist_outbox(conversation_id, loop)
 
         if getattr(loop, "_closed", False) is True:
             pop_loop(conversation_id)
@@ -835,6 +891,101 @@ async def send_message(
             "emotional_state": reply.get("emotional_state"),
             "relationship_snapshot": reply.get("relationship_snapshot", {}),
         }
+
+
+async def send_message_stream(
+    conversation_id: str,
+    text: str,
+    include_cross_incarnation: bool = False,
+    character_id: str | None = None,
+) -> Any:
+    """Yield the reply to one player line as it streams, then persist.
+
+    Streaming send path (Phase 7): the loop's NPC memory writes for this turn
+    are deferred and flushed after the final chunk — "memory writes happen
+    after the stream completes". The outbox bookkeeping runs at the end too.
+
+    Yields typed events: ``{"type": "token", "text": ...}`` per chunk of the
+    reply, then one ``{"type": "done", ...}`` carrying the emotional /
+    relationship read. Always ends by flushing deferred memory writes, even
+    when the consumer stops early — the exchange happened, so the character
+    must remember it.
+
+    Raises KeyError up front when the conversation is unknown/inactive, and
+    propagates generation errors before the first chunk.
+    """
+    from monitor_agents.loops.conversation_loop import ConversationClosedError
+
+    async def _generator() -> Any:
+        async with _get_conversation_lock(conversation_id):
+            loop = await _resolve_loop(conversation_id, character_id)
+
+            if include_cross_incarnation and getattr(loop, "state", None) is not None:
+                loop.state.include_cross_incarnation = True
+
+            try:
+                responses = await loop.step(text, defer_memory_writes=True)
+            except ConversationClosedError as exc:
+                pop_loop(conversation_id)
+                raise KeyError(conversation_id) from exc
+            except Exception:
+                with contextlib.suppress(Exception):
+                    from monitor_data.db.mongodb import get_mongodb_client
+
+                    get_mongodb_client().get_collection("conversations").update_one(
+                        {"conversation_id": conversation_id},
+                        {"$set": {"turns": list(getattr(loop.state, "turns", []) or [])}},
+                    )
+                raise
+            finally:
+                if include_cross_incarnation and getattr(loop, "state", None) is not None:
+                    loop.state.include_cross_incarnation = False
+
+            reply = responses[0] if responses else {}
+            reply_text = str(reply.get("text") or "")
+            try:
+                for chunk in _stream_chunks(reply_text):
+                    yield {"type": "token", "text": chunk}
+                yield {
+                    "type": "done",
+                    "conversation_id": conversation_id,
+                    "text": reply_text,
+                    "emotional_state": reply.get("emotional_state"),
+                    "relationship_snapshot": reply.get("relationship_snapshot", {}),
+                }
+            finally:
+                # Memory writes happen after the stream completes. A flush
+                # failure is recorded — never silently dropped.
+                try:
+                    await loop.flush_memory_writes()
+                except Exception as exc:  # noqa: BLE001  # reason: recorded below, then the stream still finishes
+                    log.warning("conversation_memory_flush_failed", conversation_id=conversation_id, exc_info=True)
+                    from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+                    from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+                    await RoleplayErrorRecorder.record(
+                        source=RoleplayErrorSource.CHARACTER_CONVERSATION,
+                        category=RoleplayErrorCategory.UNKNOWN,
+                        message=str(exc),
+                        fatal=False,
+                        conversation_id=conversation_id,
+                    )
+                await _persist_outbox(conversation_id, loop)
+                if getattr(loop, "_closed", False) is True:
+                    pop_loop(conversation_id)
+
+    return _generator()
+
+
+def _stream_chunks(text: str) -> list[str]:
+    """Split a generated reply into small chunks for token-style streaming."""
+    if not text:
+        return []
+    words = text.split(" ")
+    chunks: list[str] = []
+    for i, word in enumerate(words):
+        chunks.append(word if i == len(words) - 1 else word + " ")
+    return chunks
 
 
 async def redistill_conversation(character_id: str, conversation_id: str, *, force: bool = False) -> dict[str, Any]:
@@ -957,3 +1108,407 @@ def list_conversations(entity_id: str, limit: int = 20) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+# ---------------------------------------------------------------------------
+# "What this character remembers about you" (Phase 7, task 5)
+# ---------------------------------------------------------------------------
+
+
+def _character_entity_ids(char: dict[str, Any]) -> list[str]:
+    """Every entity id this character has incarnated as (any universe)."""
+    ids: list[str] = []
+    if char.get("entity_id"):
+        ids.append(str(char["entity_id"]))
+    for version in char.get("versions") or []:
+        eid = str(version.get("entity_id") or "")
+        if eid and eid not in ids:
+            ids.append(eid)
+    return ids
+
+
+def list_memories_about_you(
+    character_id: str,
+    *,
+    universe_id: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """What this character remembers about the user, newest first.
+
+    A memory is "about you" when it was written during a conversation with
+    the player (``metadata.conversation_id`` is set — the shape
+    ``NPCVoice._write_npc_memory`` writes). Scoped to the character's
+    incarnations; pass universe_id to narrow to one incarnation.
+    """
+    char = get_character(character_id)
+    if not char:
+        raise ValueError(f"Character {character_id} not found")
+    entity_ids = _character_entity_ids(char)
+    if not entity_ids:
+        return {"memories": [], "total": 0}
+
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    coll = get_mongodb_client().get_collection("character_memories")
+    query: dict[str, Any] = {
+        "entity_id": {"$in": entity_ids},
+        "metadata.conversation_id": {"$exists": True},
+    }
+    if universe_id:
+        query["universe_id"] = str(universe_id)
+    total = coll.count_documents(query)
+    cursor = coll.find(query).sort("created_at", -1).limit(max(1, min(int(limit), 100)))
+    memories = [
+        {
+            "id": str(m.get("memory_id", "")),
+            "text": m.get("text", ""),
+            "importance": m.get("importance", 0.0),
+            "entity_id": str(m.get("entity_id", "")),
+            "universe_id": str(m.get("universe_id", "")),
+            "conversation_id": str((m.get("metadata") or {}).get("conversation_id", "")),
+            "created_at": m["created_at"].isoformat()
+            if hasattr(m.get("created_at"), "isoformat")
+            else str(m.get("created_at", "")),
+        }
+        for m in cursor
+    ]
+    return {"memories": memories, "total": total}
+
+
+def delete_character_memory(character_id: str, memory_id: str) -> bool:
+    """Delete one memory this character holds (view + recall forget it).
+
+    Verifies the memory belongs to one of the character's incarnations first,
+    then deletes the MongoDB document and its Qdrant vector so neither the
+    view nor semantic recall can surface it again.
+    """
+    import uuid as _uuid
+
+    char = get_character(character_id)
+    if not char:
+        raise ValueError(f"Character {character_id} not found")
+    entity_ids = _character_entity_ids(char)
+
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    coll = get_mongodb_client().get_collection("character_memories")
+    doc = coll.find_one({"memory_id": str(memory_id)})
+    if not doc or str(doc.get("entity_id", "")) not in entity_ids:
+        return False
+
+    from monitor_data.tools.mongodb_tools.memories import mongodb_delete_memory
+
+    deleted = mongodb_delete_memory(_uuid.UUID(str(memory_id)))
+    if deleted:
+        # Caller-owned vector cleanup (mongodb_delete_memory's contract):
+        # without it, semantic recall would keep surfacing a ghost hit.
+        try:
+            from monitor_data.schemas.vectors import VectorDeleteRequest
+            from monitor_data.tools.qdrant_tools import qdrant_delete
+
+            qdrant_delete(VectorDeleteRequest(collection="memories", id=_uuid.UUID(str(memory_id))))
+        except Exception:  # noqa: BLE001  # reason: the Mongo doc is gone; recall hydrates from it and skips textless hits
+            log.warning("memory_vector_delete_failed", memory_id=memory_id, exc_info=True)
+        _increment_memory_count(character_id, delta=-1)
+    return deleted
+
+
+def _increment_memory_count(character_id: str, delta: int) -> None:
+    """Keep the character doc's memory_count roughly in sync (display only)."""
+    try:
+        from monitor_data.db.mongodb import get_mongodb_client
+
+        get_mongodb_client().get_collection("characters").update_one(
+            {"id": character_id},
+            {"$max": {"memory_count": 0}, "$inc": {"memory_count": delta}},
+        )
+    except Exception:  # noqa: BLE001  # reason: counter is display-only
+        log.debug("memory_count_update_failed", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# One-click start with a universe character (Phase 7, task 1)
+# ---------------------------------------------------------------------------
+
+
+async def start_universe_character_chat(
+    entity_id: str,
+    *,
+    persona_character_id: str | None = None,
+    owner_id: str | None = None,
+) -> dict[str, Any]:
+    """One action: open a chat with any character in a universe.
+
+    Finds (or creates) the standalone card linked to this universe NPC and
+    opens a DIRECT conversation on the SAME entity — no duplicate
+    incarnation, no interview, no mode choice. The card's first_message (when
+    the NPC has one) is the opening line.
+    """
+    import uuid as _uuid
+
+    from monitor_data.tools.neo4j_tools.entities import neo4j_get_entity
+
+    entity = neo4j_get_entity(_uuid.UUID(entity_id))
+    if entity is None:
+        raise ValueError(f"Character entity {entity_id} not found")
+    entity_dict = entity.model_dump() if hasattr(entity, "model_dump") else dict(entity)
+    etype = str(entity_dict.get("entity_type", "")).lower()
+    if etype not in ("character", "npc", "pc", "monster"):
+        raise ValueError(f"Entity {entity_id} is not a character (entity_type={etype!r})")
+    universe_id = str(entity_dict.get("universe_id") or "")
+    if not universe_id:
+        raise ValueError(f"Entity {entity_id} has no universe to chat in")
+
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    coll = get_mongodb_client().get_collection("characters")
+    char = coll.find_one({"$or": [{"entity_id": str(entity_id)}, {"versions.entity_id": str(entity_id)}]})
+    if char is None:
+        name = str(entity_dict.get("name") or "Unknown")
+        char = create_character(
+            {
+                "name": name[:200],
+                "description": str(entity_dict.get("description") or ""),
+                "personality": str(entity_dict.get("properties", {}).get("personality") or ""),
+                "gm_notes": str(entity_dict.get("properties", {}).get("gm_notes") or ""),
+                "entity_id": str(entity_id),
+                "source_universe_id": universe_id,
+                "owner_id": owner_id,
+            }
+        )
+        log.info("universe_character_card_created", entity_id=entity_id, character_id=char["id"])
+
+    result = await start_conversation(
+        str(char["id"]),
+        universe_id=universe_id,
+        persona_character_id=persona_character_id,
+        preset="light",
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Graduate a light chat into a guided-start campaign (Phase 7, task 6)
+# ---------------------------------------------------------------------------
+
+_GRADUATE_MEMORY_CARRY_LIMIT = 50
+
+
+def carry_memories_to_incarnation(
+    character_id: str,
+    entity_id: str,
+    universe_id: str,
+    *,
+    limit: int = _GRADUATE_MEMORY_CARRY_LIMIT,
+) -> int:
+    """Copy the character's conversation memories into one incarnation.
+
+    Graduation hands the character's memories to the campaign: every "about
+    you" memory from other incarnations is copied to (entity_id, universe_id)
+    so the campaign's incarnation recalls them. Idempotent — each copy is
+    stamped ``metadata.graduated_from`` with the source memory id and skipped
+    on re-graduation. Returns how many memories were carried.
+    """
+    import uuid as _uuid
+
+    from monitor_data.db.mongodb import get_mongodb_client
+    from monitor_data.schemas.memories import MemoryCreate
+    from monitor_data.tools.mongodb_tools.memories import mongodb_create_memory
+
+    char = get_character(character_id)
+    if not char:
+        raise ValueError(f"Character {character_id} not found")
+    source_ids = [eid for eid in _character_entity_ids(char) if eid != str(entity_id)]
+    if not source_ids:
+        # Graduating in place (same incarnation): its memories are already
+        # bound to this entity — nothing to carry.
+        return 0
+    coll = get_mongodb_client().get_collection("character_memories")
+    query: dict[str, Any] = {
+        "entity_id": {"$in": source_ids},
+        "metadata.conversation_id": {"$exists": True},
+    }
+    existing_copies = {
+        str(m.get("metadata", {}).get("graduated_from", ""))
+        for m in coll.find(
+            {"entity_id": str(entity_id), "metadata.graduated_from": {"$exists": True}},
+            {"metadata.graduated_from": 1},
+        )
+    }
+    carried = 0
+    for mem in coll.find(query).sort("created_at", -1).limit(max(1, limit)):
+        source_memory_id = str(mem.get("memory_id", ""))
+        if not source_memory_id or source_memory_id in existing_copies:
+            continue
+        metadata = dict(mem.get("metadata") or {})
+        metadata["graduated_from"] = source_memory_id
+        metadata["graduated_to_universe"] = str(universe_id)
+        try:
+            mongodb_create_memory(
+                MemoryCreate(
+                    universe_id=_uuid.UUID(str(universe_id)),
+                    entity_id=_uuid.UUID(str(entity_id)),
+                    text=str(mem.get("text") or " ")[:5000] or " ",
+                    importance=float(mem.get("importance", 0.5) or 0.5),
+                    emotional_valence=float(mem.get("emotional_valence", 0.0) or 0.0),
+                    certainty=float(mem.get("certainty", 1.0) or 1.0),
+                    metadata=metadata,
+                )
+            )
+            carried += 1
+        except Exception:  # noqa: BLE001  # reason: one bad memory must not block the rest
+            log.warning("memory_carry_failed", memory_id=source_memory_id, exc_info=True)
+    _increment_memory_count(character_id, delta=carried)
+    return carried
+
+
+async def graduate_prepare(
+    character_id: str,
+    *,
+    universe_id: str | None = None,
+    tone: str | None = None,
+) -> dict[str, Any]:
+    """Step 1 of graduation: incarnation + the guided start's opening question.
+
+    Calls the Phase 2 guided-start entry points — ``WorldSeed`` for 2-4
+    concrete ways to begin and ``session_zero.ask_start_options_question`` for
+    the question that presents them — so the light chat hands off to the same
+    guided start a new campaign gets.
+    """
+    char = get_character(character_id)
+    if not char:
+        raise ValueError(f"Character {character_id} not found")
+    target_universe = (
+        str(universe_id)
+        if universe_id
+        else str(char.get("default_universe_id") or char.get("source_universe_id") or "")
+    ) or None
+    backing = await ensure_character_backed(character_id, universe_id=target_universe)
+
+    from monitor_agents.session_zero import ask_start_options_question
+    from monitor_agents.world_seed import WorldSeed
+
+    start_options: list[dict[str, Any]] = []
+    seed_source = "none"
+    try:
+        seed_result = await WorldSeed().generate_start_options(
+            universe_id=str(backing["universe_id"]),
+            system_name=None,
+            tone=tone,
+        )
+        start_options = [option.chip_dict() for option in seed_result.options]
+        seed_source = seed_result.source
+    except Exception as exc:  # noqa: BLE001  # reason: recorded; the graduate flow continues without options
+        log.warning("graduate_start_options_failed", exc_info=True)
+        from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+        from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.CHARACTER_CONVERSATION,
+            category=RoleplayErrorCategory.LLM,
+            message=f"graduate start options failed: {exc}",
+            fatal=False,
+            conversation_id=None,
+        )
+
+    question_text = "How would you like this story to begin?"
+    suggested_answers: list[str] = []
+    if start_options:
+        question = await ask_start_options_question(
+            system_name=str(char.get("name") or ""),
+            tone=tone or "dramatic",
+            start_options=start_options,
+            world_material=str(char.get("description") or "")[:2000],
+        )
+        question_text = str(question.question_text)
+        suggested_answers = [str(a) for a in question.suggested_answers]
+
+    return {
+        "character_id": character_id,
+        "universe_id": str(backing["universe_id"]),
+        "entity_id": str(backing["entity_id"]),
+        "version_id": str(backing["version_id"]),
+        "start_options": start_options,
+        "start_options_source": seed_source,
+        "question": question_text,
+        "suggested_answers": suggested_answers,
+    }
+
+
+async def graduate_to_campaign(
+    character_id: str,
+    *,
+    universe_id: str | None = None,
+    persona_character_id: str | None = None,
+    start_answer: str = "",
+    start_options: list[dict[str, Any]] | None = None,
+    question_text: str = "",
+    tone: str | None = None,
+) -> dict[str, Any]:
+    """Step 2 of graduation: carry everything and hand off to the guided start.
+
+    Resolves the player's start choice via ``session_zero.resolve_start_choice``,
+    carries the character's memories into the chosen universe's incarnation,
+    and returns the exact guided-start session payload (for ``POST /api/chat``)
+    with the character, persona and chosen start in hand.
+    """
+    char = get_character(character_id)
+    if not char:
+        raise ValueError(f"Character {character_id} not found")
+    if persona_character_id:
+        persona = get_character(persona_character_id)
+        if not persona:
+            raise ValueError(f"Persona {persona_character_id} not found")
+        if not persona.get("is_ooc_persona"):
+            raise ValueError(f"Character {persona_character_id} is not a persona (is_ooc_persona=false)")
+
+    target_universe = (
+        str(universe_id)
+        if universe_id
+        else str(char.get("default_universe_id") or char.get("source_universe_id") or "")
+    ) or None
+    backing = await ensure_character_backed(character_id, universe_id=target_universe)
+
+    from monitor_agents.session_zero import resolve_start_choice
+
+    options = [o for o in (start_options or []) if isinstance(o, dict)]
+    choice = await resolve_start_choice(
+        question_text=question_text or "How would you like this story to begin?",
+        options=options,
+        answer=start_answer or "surprise me",
+    )
+
+    memories_carried = await asyncio.to_thread(
+        carry_memories_to_incarnation,
+        character_id,
+        str(backing["entity_id"]),
+        str(backing["universe_id"]),
+    )
+
+    premise = (choice.free_answer or "").strip()
+    if not premise and choice.option_id:
+        picked = next((o for o in options if str(o.get("option_id")) == str(choice.option_id)), None)
+        if picked:
+            premise = str(picked.get("summary") or picked.get("hook") or picked.get("title") or "")
+    if not premise:
+        premise = f"A campaign with {char['name']}."
+
+    session_create = {
+        "title": f"{char['name']} — new campaign",
+        "mode": "autonomous_gm",
+        "universe_id": str(backing["universe_id"]),
+        "selected_character_id": character_id,
+        "persona_id": persona_character_id,
+        "story_premise": premise,
+        "tone": tone or "dramatic",
+    }
+    return {
+        "character_id": character_id,
+        "universe_id": str(backing["universe_id"]),
+        "entity_id": str(backing["entity_id"]),
+        "version_id": str(backing["version_id"]),
+        "chosen": choice.model_dump(mode="json"),
+        "story_premise": premise,
+        "memories_carried": memories_carried,
+        "session_create": session_create,
+    }

@@ -40,6 +40,7 @@ from monitor_ui.routers import (
     image_gen,
     ingest,
     jobs_health,
+    light_rp,
     llm_mgmt,
     lorebook,
     modes,
@@ -384,6 +385,9 @@ def create_app() -> FastAPI:
     app.include_router(openai_compat.router, prefix="/api", tags=["openai-compat"])
     # Character → canon promotion (light-RP history → ProposedChange batch).
     app.include_router(character_promotion.router, prefix="/api/entities", tags=["character-promotion"])
+    # Light RP (Phase 7): one-click start, streaming send, memories view,
+    # graduate-to-campaign. Mounted beside entities for the same URL family.
+    app.include_router(light_rp.router, prefix="/api/entities", tags=["light-rp"])
 
     @app.get("/api/health")
     # reason: FastAPI route handler returns dict but response_model is absent; FastAPI/Pydantic v2 returns Any for the inferred response without an Annotated[] response_model

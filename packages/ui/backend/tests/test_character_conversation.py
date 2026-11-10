@@ -1014,11 +1014,15 @@ class TestCardMacros:
             asyncio.run(cc.start_conversation("char-1", persona_character_id="persona-1"))
 
         assert mock_start.await_args.kwargs["player_persona"] == "Kael — a wandering sellsword"
-        assert any(
-            c.args[0] == {"conversation_id": "conv-pt"}
-            and c.args[1] == {"$set": {"player_persona": "Kael — a wandering sellsword"}}
+        persona_updates = [
+            c
             for c in mongo.get_collection.return_value.update_one.call_args_list
-        )
+            if "player_persona" in ((c.args[1] if len(c.args) > 1 else {}).get("$set") or {})
+        ]
+        assert persona_updates, "persona must be persisted for resume"
+        assert persona_updates[0].args[0] == {"conversation_id": "conv-pt"}
+        assert persona_updates[0].args[1]["$set"]["player_persona"] == "Kael — a wandering sellsword"
+        assert persona_updates[0].args[1]["$set"]["player_name"] == "Kael"
 
     def test_no_persona_skips_persistence(self):
         from uuid import uuid4

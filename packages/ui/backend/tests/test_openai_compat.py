@@ -1,7 +1,7 @@
 """HTTP-shape tests for the OpenAI-compatible /v1/chat/completions endpoint.
 
-Covers: non-stream plain, stream plain, session non-stream, session error
-paths, and the relevant rejection messages.
+Covers: non-stream plain, stream plain, session non-stream, session stream,
+session error paths, and the relevant rejection messages.
 """
 
 from __future__ import annotations
@@ -292,20 +292,44 @@ def test_session_requires_user_message():
     assert resp.status_code == 400
 
 
-def test_session_stream_true_rejected():
+def test_session_stream_true_emits_sse_chunks():
+    async def _stream(*args, **kwargs):
+        yield {"type": "token", "text": "Well "}
+        yield {"type": "token", "text": "met."}
+        yield {
+            "type": "done",
+            "conversation_id": "conv-abc",
+            "text": "Well met.",
+            "emotional_state": "calm",
+            "relationship_snapshot": {"trust": 0.1},
+        }
+
     with (
-        patch("monitor_ui.routers.character_conversation.send_message", new=AsyncMock()),
+        patch(
+            "monitor_ui.routers.character_conversation.send_message_stream",
+            new=AsyncMock(return_value=_stream()),
+        ) as fake_stream,
     ):
-        resp = client.post(
+        with client.stream(
+            "POST",
             "/api/v1/chat/completions",
             json={
                 "messages": [{"role": "user", "content": "hi"}],
                 "character_id": "char-1",
+                "monitor_session_id": "conv-abc",
                 "stream": True,
             },
-        )
-    assert resp.status_code == 400
-    assert "session" in resp.json()["detail"].lower()
+        ) as resp:
+            assert resp.status_code == 200
+            assert resp.headers["content-type"].startswith("text/event-stream")
+            assert resp.headers["x-monitor-session-id"] == "conv-abc"
+            body = resp.read().decode()
+
+    fake_stream.assert_awaited_once()
+    chunks = _sse_chunks(body)
+    text = "".join(c["choices"][0]["delta"].get("content", "") for c in chunks)
+    assert text == "Well met."
+    assert body.strip().endswith("data: [DONE]")
 
 
 def test_session_with_character_id_opens_and_sends():
