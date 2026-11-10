@@ -20,7 +20,6 @@ from monitor_ui.routers.chat_loops import (
     _generate_scene_summary,
     run_ooc_turn,
     _SCENE_LOOPS,
-    _STORY_STATES,
     _CONVERSATION_LOOPS,
 )
 import sys
@@ -29,11 +28,9 @@ import sys
 @pytest.fixture(autouse=True)
 def reset_caches():
     _SCENE_LOOPS.clear()
-    _STORY_STATES.clear()
     _CONVERSATION_LOOPS.clear()
     yield
     _SCENE_LOOPS.clear()
-    _STORY_STATES.clear()
     _CONVERSATION_LOOPS.clear()
 
 
@@ -58,13 +55,11 @@ def test_scene_loop_signature():
 
 def test_build_story_state_dict():
     session = {"universe_id": "u1", "story_premise": "cool story"}
-    _STORY_STATES["s1"] = {"active_threads": 5}
     res = _build_story_state_dict(session, story_id="s1")
     assert res is not None
     assert res["story_id"] == "s1"
     assert res["universe_id"] == "u1"
     assert res["story_premise"] == "cool story"
-    assert res["active_threads"] == 5
 
     res_none = _build_story_state_dict({}, story_id="s1")
     assert res_none is None
@@ -584,7 +579,7 @@ async def test_run_scene_turn_callbacks(mock_resolve, MockSO):
     # Intercept callbacks and test them
     def side_effect(state_dict):
         cbs = state_dict["callbacks"]
-        cbs.set_story_state_cache("st1", {"a": 1})
+        assert hasattr(cbs, "get_story_state")
         return ("scene out", {"m": 1})
 
     mock_so.run.side_effect = side_effect
@@ -605,7 +600,7 @@ async def test_run_scene_turn_callbacks(mock_resolve, MockSO):
         gsr_available=True,
     )
     assert resp == "scene out"
-    assert _STORY_STATES["st1"] == {"a": 1}
+    assert meta == {"m": 1}
 
 
 @pytest.mark.asyncio

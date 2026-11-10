@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -204,6 +204,127 @@ def get_active_facts(
             active_facts.append(fact)
 
     return active_facts
+
+
+def exclude_superseded_facts(
+    facts: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Drop the facts that a newer fact has replaced.
+
+    A fact is superseded when a later fact points at it with ``replaces``,
+    when its own status says so, or when its canon level was retconned.
+
+    Args:
+        facts: Sequence of fact dicts.
+
+    Returns:
+        The facts that are still the current version of themselves.
+    """
+    replaced_ids = {str(fact.get("replaces")) for fact in facts if fact.get("replaces") is not None}
+
+    current: list[dict[str, Any]] = []
+    for fact in facts:
+        fact_id = str(fact.get("id")) if fact.get("id") is not None else ""
+        status = str(fact.get("status") or "").strip().lower()
+        canon_level = str(fact.get("canon_level") or "").strip().lower()
+        if fact_id and fact_id in replaced_ids:
+            continue
+        if status in {"superseded", "retconned"}:
+            continue
+        if canon_level == "retconned":
+            continue
+        current.append(fact)
+
+    return current
+
+
+def _fact_time_key(fact: dict[str, Any]) -> tuple[int, datetime]:
+    """Sort key for a fact's in-world time. Facts without a time come first."""
+    raw = fact.get("time_ref")
+    if raw is None:
+        return (0, datetime.min.replace(tzinfo=UTC))
+    if isinstance(raw, datetime):
+        parsed = raw
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            return (0, datetime.min.replace(tzinfo=UTC))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return (1, parsed)
+
+
+def order_facts_by_time(
+    facts: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Order facts by their in-world time, oldest first.
+
+    Facts that carry no time are standing facts of the world; they come
+    before the dated ones.
+
+    Args:
+        facts: Sequence of fact dicts.
+
+    Returns:
+        The facts in chronological order.
+    """
+    return sorted(facts, key=_fact_time_key)
+
+
+def get_current_facts(
+    facts: Sequence[dict[str, Any]],
+    check_time: datetime,
+) -> list[dict[str, Any]]:
+    """
+    The facts that hold at a point in time, in chronological order.
+
+    Superseded versions are dropped, facts that are not valid yet (or no
+    longer valid) are dropped, and what remains is ordered by ``time_ref``.
+
+    Args:
+        facts: Sequence of fact dicts.
+        check_time: The time to judge the facts at.
+
+    Returns:
+        The facts that are current at check_time, oldest first.
+    """
+    current = [_with_datetime_time_ref(fact) for fact in exclude_superseded_facts(facts)]
+    identified = [fact for fact in current if _is_uuid(fact.get("id"))]
+    anonymous = [fact for fact in current if not _is_uuid(fact.get("id"))]
+    valid = get_active_facts(identified, check_time)
+    return order_facts_by_time([*valid, *anonymous])
+
+
+def _is_uuid(value: Any) -> bool:
+    """True when a value can be read as a UUID."""
+    if value is None:
+        return False
+    try:
+        UUID(str(value))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _with_datetime_time_ref(fact: dict[str, Any]) -> dict[str, Any]:
+    """Return the fact with its ``time_ref`` as a datetime.
+
+    Facts arrive from the tools as JSON, so their timestamps are strings;
+    the validity check needs real datetimes.
+    """
+    raw = fact.get("time_ref")
+    if raw is None or isinstance(raw, datetime):
+        return fact
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return fact
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return {**fact, "time_ref": parsed}
 
 
 # =============================================================================

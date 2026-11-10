@@ -263,12 +263,54 @@ def _npc_state_block(
     return "\n\nNPC STATE (use these in dialogue; do not contradict):\n" + "\n".join(rows) + "\n"
 
 
-def _opening_recap_block(text: str | None, *, max_chars: int = 120) -> str:
-    """Render the LAST SCENE line. Empty when no text."""
+def _opening_recap_block(text: str | None, *, max_chars: int | None = None) -> str:
+    """Render the LAST SCENE line. Empty when no text.
+
+    The recap is the previous scene's summary; it is shown in full, so the
+    GM knows what happened last time instead of a fragment of it. Callers
+    that need a hard limit can still pass ``max_chars``.
+    """
     if not text:
         return ""
-    truncated = str(text).strip().replace("\n", " ")[:max_chars]
-    return f"\n\nLAST SCENE: {truncated}"
+    collapsed = str(text).strip().replace("\n", " ")
+    if max_chars is not None:
+        collapsed = collapsed[:max_chars]
+    return f"\n\nLAST SCENE: {collapsed}"
+
+
+def _story_ledger_block(
+    ledger_entries: Any,
+    *,
+    max_entries: int = 6,
+    max_chars: int = 600,
+) -> str:
+    """Render the campaign's ledger as a labeled narrator block.
+
+    The ledger is the campaign's memory: one entry per finished scene. It is
+    rendered on every turn of a scene, so the GM knows what happened in the
+    scenes before this one.
+    """
+    if not isinstance(ledger_entries, list) or not ledger_entries:
+        return ""
+    rows: list[str] = []
+    for entry in ledger_entries[-max_entries:]:
+        if not isinstance(entry, dict):
+            continue
+        summary = " ".join(str(entry.get("summary") or "").split())
+        if not summary:
+            continue
+        index = entry.get("scene_index", "?")
+        rows.append(f"- Scene {index}: {summary[:max_chars]}")
+        questions = entry.get("open_questions") or []
+        if isinstance(questions, list) and questions:
+            listed = "; ".join(str(question) for question in questions[:3])
+            rows.append(f"  Still open: {listed}")
+    if not rows:
+        return ""
+    return (
+        "\n\nCAMPAIGN LEDGER (what happened in earlier scenes — stay consistent "
+        "with it, do not recap it verbatim):\n" + "\n".join(rows) + "\n"
+    )
 
 
 def _foreshadowing_block(open_items: Any, *, turns_count: int, cap: int = 5, max_chars: int = 200) -> str:
@@ -668,6 +710,10 @@ class Narrator(BaseAgent):
                 f"- Active Threads: {threads_str}\n"
             )
             profile_context += story_block
+
+            # The campaign's ledger: what happened in the scenes before this
+            # one. It is rendered on every turn, not only on the opening one.
+            profile_context += _story_ledger_block(getattr(story_state, "ledger_entries", None))
 
         # Inject established facts for continuity (prevents name/setting drift)
         established_facts = context.get("established_facts")

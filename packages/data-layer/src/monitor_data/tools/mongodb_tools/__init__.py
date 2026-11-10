@@ -362,8 +362,10 @@ from monitor_data.tools.mongodb_tools.snapshots import (
 from monitor_data.tools.mongodb_tools.stories import (
     _calculate_pacing_metrics,
     _convert_story_outline_doc_to_response,
+    mongodb_append_story_ledger_entry,
     mongodb_create_story_outline,
     mongodb_get_story_outline,
+    mongodb_list_story_ledger_entries,
     mongodb_update_story_outline,
 )
 
@@ -459,6 +461,8 @@ __all__ = [
     "mongodb_create_story_outline",
     "mongodb_get_story_outline",
     "mongodb_update_story_outline",
+    "mongodb_append_story_ledger_entry",
+    "mongodb_list_story_ledger_entries",
     # Combat
     "_convert_combat_doc_to_response",
     "mongodb_create_combat",

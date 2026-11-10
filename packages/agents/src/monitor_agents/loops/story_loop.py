@@ -62,6 +62,13 @@ class StoryState(BaseModel):
         default_factory=lambda: datetime(1000, 1, 1, 12, 0, tzinfo=UTC),
         description="The current absolute time within the fictional world.",
     )
+    in_game_time_source: str | None = Field(
+        default=None,
+        description=(
+            "Where the in-game time came from ('story', 'world_seed', 'model', 'fallback'). "
+            "None means the story has not been given a time yet."
+        ),
+    )
     world_ticks: int = Field(default=0, description="Total number of regional/global simulation steps.")
     last_scene_duration_minutes: int = Field(default=0, description="Minutes passed in the last scene.")
 
@@ -82,12 +89,26 @@ class StoryState(BaseModel):
     scenes: list[UUID] = Field(default_factory=list)
     current_scene_id: UUID | None = None
     scenes_completed: int = 0
-    # How many scenes the arc runs before it resolves. The arc spends the
-    # last three on the climax, the falling action and the resolution.
+    # How many scenes the arc runs before it resolves. This is an upper
+    # bound on the campaign's length, not the thing that drives the arc:
+    # the arc moves when the ledger says it moved.
     scene_budget: int = Field(
         default=5,
         ge=3,
-        description="Number of scenes in the story arc before it resolves.",
+        description="Maximum number of scenes in the story arc before it resolves.",
+    )
+
+    # The story's ledger: one entry per finished scene, oldest first. It is
+    # the campaign's memory and the input the arc is judged from.
+    ledger_entries: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Ledger entries, one per finished scene, oldest first.",
+    )
+    # What the world did between scenes (NPC agenda moves). The next scene's
+    # hook may pick these up.
+    world_moves: list[str] = Field(
+        default_factory=list,
+        description="Off-screen moves the world made since the last scene ended.",
     )
 
     # Flow control
@@ -397,6 +418,49 @@ async def _tick_npc_agendas(universe_id: UUID) -> list[str]:
     return [str(move) for move in moves]
 
 
+async def _read_scene_turns(scene_id: UUID, limit: int = 100) -> list[dict[str, Any]]:
+    """Read the turns of a scene from MongoDB, oldest first.
+
+    A scene with no readable transcript yields an empty list: the ledger
+    still gets an entry, it just has nothing to summarise.
+    """
+    from monitor_data.tools.mongodb_tools.scenes import mongodb_get_recent_turns
+
+    try:
+        turns = await run_sync_read(mongodb_get_recent_turns, scene_id, limit)  # type: ignore[var-annotated]
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _read_scene_turns)
+        logger.warning("Could not read the turns of scene %s: %s", scene_id, exc)
+        return []
+    if not isinstance(turns, list):
+        return []
+    return [turn for turn in turns if isinstance(turn, dict)]
+
+
+def _derive_scene_xp(
+    outcome: dict[str, Any],
+    *,
+    arc_label: str | None,
+    state_changes: int = 0,
+) -> int:
+    """The experience a finished scene is worth (P-21).
+
+    The value comes from the scene that was played — how long it ran, how
+    many turns it took, what it changed in the world and how the arc stood
+    when it ended — not from a fixed number. The XP is offered to the
+    player; nothing is applied until the player chooses.
+    """
+    minutes = int(outcome.get("total_minutes_passed") or 0)
+    turns = int(outcome.get("turns_count") or 0)
+
+    xp = 1  # the scene happened
+    xp += minutes // 120  # every two hours of play
+    xp += turns // 4  # every four turns
+    xp += min(2, state_changes // 2)  # for what the scene changed in the world
+    if arc_label in {"climax", "resolution"}:
+        xp += 2  # the arc's hardest scenes are worth the most
+    return max(1, xp)
+
+
 # =============================================================================
 # PUBLIC API
 # =============================================================================
@@ -427,8 +491,36 @@ class StoryLoop:
                 story_id=self.story_id,
                 universe_id=self.universe_id,
             )
+            initial = await self._seed_in_game_time(initial)
             result = await compiled.ainvoke(initial.model_dump(), config=config)
             return result
+
+    async def load_checkpoint_state(self) -> dict[str, Any]:
+        """Read the story's persisted state without running the graph.
+
+        The story's state lives in the MongoDB checkpoint, so a backend
+        restart changes nothing the Narrator sees. This is the read-only
+        view of that checkpoint: it never bootstraps a story.
+        """
+        with MongoDBSaver.from_conn_string(settings.mongodb_uri) as checkpointer:
+            compiled = self._graph.compile(checkpointer=checkpointer)
+            thread_id = f"story-{self.story_id}"
+            config = {"configurable": {"thread_id": thread_id}}
+            snapshot = await compiled.aget_state(config)  # type: ignore[arg-type]
+            return dict(snapshot.values) if snapshot.values else {}
+
+    async def _seed_in_game_time(self, state: StoryState) -> StoryState:
+        """Give a story its in-game clock, once.
+
+        The clock comes from the world (the story's own date, the world seed
+        or a model estimate), not from a fixed year.
+        """
+        if state.in_game_time_source is not None:
+            return state
+        factory = get_agent_factory()
+        agent = factory.create_story_agent()
+        start_time, source = await agent.seed_in_game_time(state.universe_id, state.story_id)
+        return state.model_copy(update={"in_game_time": start_time, "in_game_time_source": source})
 
     async def plan_next_scene(self, state: StoryState) -> dict:
         """Thin wrapper for external callers to plan the next scene beat."""
@@ -473,7 +565,7 @@ class StoryLoop:
         """
         Mark the current scene as completed and advance the story graph.
 
-        Flow: run_scene → evaluate_arc → (transition/create_next | finalize_story)
+        Flow: run_scene → ledger → evaluate_arc → (transition/create_next | finalize_story)
 
         Called by the CLI/UI after SceneLoop.finalize() returns.  Creates the
         next scene (or finalizes the story) based on arc evaluation.
@@ -507,6 +599,7 @@ class StoryLoop:
             previous_history = list(state_values.get("scenes_history", []))
             previous_threads = list(state_values.get("active_threads", []))
             previous_completed = list(state_values.get("completed_threads", []))
+            previous_ledger = list(state_values.get("ledger_entries", []))
             # A story that already resolved stays resolved.
             story_complete = force_complete or bool(state_values.get("story_complete", False))
 
@@ -523,19 +616,15 @@ class StoryLoop:
                     "scenes_history": previous_history,
                     "active_threads": previous_threads,
                     "completed_threads": previous_completed,
+                    "ledger_entries": previous_ledger,
                 }
             )
 
-            if story_complete:
-                await finalize_story(run_state)
-                await compiled.aupdate_state(
-                    config,  # type: ignore[arg-type]
-                    run_state.model_dump(),
-                    as_node="init_story",
-                )
-                return {"story_complete": True, "completed_scene_id": scene_id}
+            # A story that has never been given a clock gets one now.
+            run_state = await self._seed_in_game_time(run_state)
 
-            # Step 1: Run world simulation
+            # Step 1: Run world simulation (advances the in-game clock)
+            scene_start_time = run_state.in_game_time
             world_update: dict[str, Any] = {}
             try:
                 world_update = await simulate_world_advance(run_state)
@@ -546,12 +635,11 @@ class StoryLoop:
                     scene_id,
                     exc_info=True,
                 )
+            scene_end_time = run_state.in_game_time
+            if scene_end_time <= scene_start_time:
+                scene_end_time = scene_start_time + timedelta(minutes=duration)
 
-            # Step 2: Evaluate arc
-            arc_update = await evaluate_arc(run_state)
-            run_state = run_state.model_copy(update=arc_update)
-
-            # NPC Agenda Tick (ST-1) — advance off-screen NPC agendas
+            # Step 2: NPC Agenda Tick (ST-1) — the world moves between scenes
             agenda_moves: list[str] = []
             try:
                 agenda_moves = await _tick_npc_agendas(self.universe_id)
@@ -572,6 +660,37 @@ class StoryLoop:
                     len(agenda_moves),
                     self.universe_id,
                 )
+            run_state = run_state.model_copy(update={"world_moves": agenda_moves})
+
+            # Step 3: The ledger entry for the scene that just ended. It is
+            # written before the arc is judged, because the arc is judged
+            # from the ledger.
+            ledger_entry = await self._write_ledger_entry(
+                run_state,
+                scene_id=scene_id,
+                agenda_moves=agenda_moves,
+                start_time=scene_start_time,
+                end_time=scene_end_time,
+            )
+            if ledger_entry:
+                run_state = run_state.model_copy(update={"ledger_entries": [*run_state.ledger_entries, ledger_entry]})
+
+            if story_complete:
+                await finalize_story(run_state)
+                await compiled.aupdate_state(
+                    config,  # type: ignore[arg-type]
+                    run_state.model_dump(),
+                    as_node="init_story",
+                )
+                return {
+                    **run_state.model_dump(),
+                    "agenda_moves": agenda_moves,
+                    "completed_scene_id": scene_id,
+                }
+
+            # Step 4: Evaluate arc
+            arc_update = await evaluate_arc(run_state)
+            run_state = run_state.model_copy(update=arc_update)
 
             # P-21: Progression Phase
             # Trigger progression if we are in resolution phase or a downtime scene just ended
@@ -583,10 +702,19 @@ class StoryLoop:
                 pc_id = (outcome or {}).get("actor_id")
                 if pc_id:
                     prog_loop = ProgressionLoop(entity_id=UUID(str(pc_id)), universe_id=self.universe_id)
-                    # For now, we just start it and get the options.
-                    # Real implementation would wait for user selection.
-                    prog_res = await prog_loop.start(available_xp=5)  # Default 5 XP for now
-                    progression_update = {"progression_options": prog_res}
+                    # The XP comes from the scene that was played, and nothing
+                    # is applied until the player picks an upgrade.
+                    available_xp = _derive_scene_xp(
+                        outcome or {},
+                        arc_label=arc_update.get("arc_label"),
+                        state_changes=len(ledger_entry.get("state_changes") or []),
+                    )
+                    prog_res = await prog_loop.start(available_xp=available_xp)
+                    progression_update = {
+                        "progression_options": prog_res,
+                        "available_xp": available_xp,
+                        "progression_pending": True,
+                    }
 
             if arc_update.get("story_complete"):
                 await finalize_story(run_state)
@@ -598,10 +726,11 @@ class StoryLoop:
                 return {
                     **run_state.model_dump(),
                     **progression_update,
+                    "agenda_moves": agenda_moves,
                     "completed_scene_id": scene_id,
                 }
 
-            # Step 3: Create next scene via transition
+            # Step 5: Create next scene via transition
             transition_update = await transition_scene(run_state)
             checkpoint_state = {**run_state.model_dump(), **transition_update}
             await compiled.aupdate_state(
@@ -615,6 +744,33 @@ class StoryLoop:
                 "agenda_moves": agenda_moves,
                 "completed_scene_id": scene_id,
             }
+
+    async def _write_ledger_entry(
+        self,
+        state: StoryState,
+        *,
+        scene_id: UUID,
+        agenda_moves: list[str],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> dict[str, Any]:
+        """Write the ledger entry for a scene that just ended.
+
+        The scene's transcript is read from MongoDB so the entry describes
+        what was actually played. A ledger that cannot be written is recorded
+        as an error and the campaign carries on without it.
+        """
+        factory = get_agent_factory()
+        agent = factory.create_story_agent()
+        turns = await _read_scene_turns(scene_id)
+        return await agent.write_ledger_entry(
+            state,
+            scene_id=scene_id,
+            scene_turns=turns,
+            agenda_moves=agenda_moves,
+            start_time=start_time,
+            end_time=end_time,
+        )
 
     async def create_flashback(
         self,

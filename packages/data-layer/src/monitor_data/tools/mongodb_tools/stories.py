@@ -2,11 +2,15 @@
 
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.db.neo4j import get_neo4j_client
 from monitor_data.schemas.base import BeatStatus
+from monitor_data.schemas.stories import (
+    StoryLedgerEntry,
+    StoryLedgerEntryCreate,
+)
 from monitor_data.schemas.story_outlines import (
     BranchingPoint,
     MysteryClue,
@@ -17,6 +21,10 @@ from monitor_data.schemas.story_outlines import (
     StoryOutlineResponse,
     StoryOutlineUpdate,
 )
+
+# The ledger is append-only: every finished scene adds one entry and nothing
+# is ever rewritten, so the campaign's memory cannot be lost by a later write.
+STORY_LEDGER_COLLECTION = "story_ledger"
 
 # =============================================================================
 # STORY OUTLINE OPERATIONS (DL-6)
@@ -358,3 +366,104 @@ def mongodb_update_story_outline(story_id: UUID, params: StoryOutlineUpdate) -> 
         raise ValueError(f"Story outline {story_id} not found after update")
 
     return updated
+
+
+# =============================================================================
+# STORY LEDGER OPERATIONS (DL-4 / ST-1)
+# =============================================================================
+
+
+def _ledger_doc_to_entry(doc: dict[str, Any]) -> StoryLedgerEntry:
+    """Convert a ledger document from MongoDB to a StoryLedgerEntry."""
+    return StoryLedgerEntry(
+        entry_id=UUID(doc["entry_id"]),
+        sequence=int(doc.get("sequence", 1)),
+        story_id=UUID(doc["story_id"]),
+        universe_id=UUID(doc["universe_id"]) if doc.get("universe_id") else None,
+        scene_id=UUID(doc["scene_id"]),
+        scene_index=int(doc.get("scene_index", 0)),
+        summary=doc.get("summary", ""),
+        state_changes=doc.get("state_changes", []) or [],
+        open_questions=doc.get("open_questions", []) or [],
+        start_time=doc.get("start_time"),
+        end_time=doc.get("end_time"),
+        world_moves=doc.get("world_moves", []) or [],
+        arc_label=doc.get("arc_label"),
+        tension_score=doc.get("tension_score"),
+        created_at=doc["created_at"],
+    )
+
+
+def mongodb_append_story_ledger_entry(params: StoryLedgerEntryCreate) -> StoryLedgerEntry:
+    """
+    Append one entry to a story's ledger (DL-4 / ST-1).
+
+    Authority: StoryLoop
+    Use Case: ST-1, P-8
+
+    The ledger is append-only: an entry is inserted, never updated and never
+    removed, so a campaign keeps every scene it has ever played.
+
+    Args:
+        params: The ledger entry to append.
+
+    Returns:
+        The stored entry, including its 1-based position in the ledger.
+    """
+    client = get_mongodb_client()
+    ledger = client.get_collection(STORY_LEDGER_COLLECTION)
+
+    entry_id = uuid4()
+    created_at = datetime.now(UTC)
+    sequence = ledger.count_documents({"story_id": str(params.story_id)}) + 1
+
+    doc = {
+        "entry_id": str(entry_id),
+        "sequence": sequence,
+        "story_id": str(params.story_id),
+        "universe_id": str(params.universe_id) if params.universe_id else None,
+        "scene_id": str(params.scene_id),
+        "scene_index": params.scene_index,
+        "summary": params.summary,
+        "state_changes": [change.model_dump(mode="json") for change in params.state_changes],
+        "open_questions": list(params.open_questions),
+        "start_time": params.start_time,
+        "end_time": params.end_time,
+        "world_moves": list(params.world_moves),
+        "arc_label": params.arc_label,
+        "tension_score": params.tension_score,
+        "created_at": created_at,
+    }
+
+    ledger.insert_one(doc)
+
+    return _ledger_doc_to_entry(doc)
+
+
+def mongodb_list_story_ledger_entries(
+    story_id: UUID,
+    limit: int = 50,
+) -> list[StoryLedgerEntry]:
+    """
+    List a story's ledger entries, oldest first (DL-4 / ST-1).
+
+    Authority: All agents
+    Use Case: ST-1, P-8
+
+    Args:
+        story_id: The story whose ledger is read.
+        limit: Maximum number of entries returned (the newest are kept when
+            there are more).
+
+    Returns:
+        The ledger entries in the order they were written.
+    """
+    client = get_mongodb_client()
+    ledger = client.get_collection(STORY_LEDGER_COLLECTION)
+
+    docs = list(ledger.find({"story_id": str(story_id)}))
+    docs.sort(key=lambda doc: int(doc.get("sequence", 0)))
+    if limit > 0:
+        docs = docs[-limit:]
+
+    return [_ledger_doc_to_entry(doc) for doc in docs]
