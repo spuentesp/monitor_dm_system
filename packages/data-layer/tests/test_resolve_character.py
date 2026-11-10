@@ -144,3 +144,52 @@ class TestResolveCharacterFallback:
 
         assert result["source"] == "entity"
         assert result["name"] == "Orc"
+
+
+class TestResolveCharacterNeo4jMatchKey:
+    """The Neo4j lookup must match Entity nodes on ``id``.
+
+    Entity nodes store their key as ``id`` (neo4j_create_entity writes
+    ``{"id": ...}``; neo4j_get_entity matches ``{id: $id}``). The old query
+    matched ``{entity_id: $id}`` and therefore never found a world entity.
+    """
+
+    @patch("monitor_data.tools.mongodb_tools.characters.get_neo4j_client")
+    @patch("monitor_data.tools.mongodb_tools.characters.mongodb_get_character")
+    def test_query_matches_entity_nodes_on_id(self, mock_get, mock_neo):
+        entity_id = str(uuid4())
+        mock_get.return_value = None
+        mock_client = MagicMock()
+        mock_client.execute_read.return_value = [{"e": _make_entity(entity_id, "Goblin")}]
+        mock_neo.return_value = mock_client
+
+        mongodb_resolve_character(entity_id)
+
+        query, params = mock_client.execute_read.call_args.args
+        assert "{id: $id}" in query, query
+        assert "{entity_id: $id}" not in query, query
+        assert params == {"id": entity_id}
+
+    @patch("monitor_data.tools.mongodb_tools.characters.get_neo4j_client")
+    @patch("monitor_data.tools.mongodb_tools.characters.mongodb_get_character")
+    def test_resolves_a_node_that_stores_only_id(self, mock_get, mock_neo):
+        """A node shaped like real graph rows (``id``, no ``entity_id``) resolves."""
+        entity_id = str(uuid4())
+        mock_get.return_value = None
+        node = {
+            "id": entity_id,
+            "name": "World NPC",
+            "description": "Lives in the graph",
+            "state_tags": ["npc"],
+            "properties": '{"role": "npc"}',
+        }
+        mock_client = MagicMock()
+        mock_client.execute_read.return_value = [{"e": node}]
+        mock_neo.return_value = mock_client
+
+        result = mongodb_resolve_character(entity_id)
+
+        assert result["source"] == "entity"
+        assert result["id"] == entity_id
+        assert result["name"] == "World NPC"
+        assert result["role"] == "npc"
