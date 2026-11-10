@@ -24,6 +24,7 @@ from monitor_ui.ownership import (
     require_scene_owner,
     require_story_owner,
     require_universe_owner,
+    resource_route_guard,
 )
 from pydantic import BaseModel
 
@@ -32,10 +33,10 @@ from .ingest_shared import db_op
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 # Mounted at /api (not /api/stories) for scene-scoped routes.
-scenes_router = APIRouter()
+scenes_router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 # ─── Browse schemas (T-072) ───────────────────────────────────

@@ -40,6 +40,7 @@ from monitor_ui.ownership import (
     require_scene_owner,
     require_story_owner,
     require_universe_owner,
+    resource_route_guard,
 )
 from monitor_agents.dspy_runtime import stream_callback_var
 from monitor_agents.loops.preplay_finalize import finalize_preplay
@@ -143,7 +144,11 @@ from .chat_ws import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
+# The chat WebSocket lives on its own router: HTTP guard dependencies are
+# injected with Request and would close a handshake with an HTTP status, so
+# the socket keeps its route-level get_current_ws_principal dependency.
+ws_router = APIRouter()
 
 # ---------------------------------------------------------------------------
 # Optional layer imports (graceful degradation)
@@ -1377,7 +1382,7 @@ async def skip_preplay(session_id: str, principal: Principal = Depends(get_curre
 # ---------------------------------------------------------------------------
 
 
-@router.websocket("/ws/{session_id}", dependencies=[Depends(get_current_ws_principal)])
+@ws_router.websocket("/ws/{session_id}", dependencies=[Depends(get_current_ws_principal)])
 async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
     # Authenticate and authorize BEFORE accept(): no frame is read, no
     # subscriber registered, nothing persisted until both pass.

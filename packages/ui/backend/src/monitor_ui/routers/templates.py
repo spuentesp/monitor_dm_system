@@ -34,7 +34,7 @@ from monitor_data.schemas.entity_templates import (  # type: ignore
 )
 from monitor_data.tools.mongodb_tools.random_tables import mongodb_roll_on_table
 from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
-from monitor_ui.ownership import owned_world_ids, require_template_owner, require_universe_owner
+from monitor_ui.ownership import owned_world_ids, require_template_owner, require_universe_owner, resource_route_guard
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.tools.mongodb_tools.templates import (
     mongodb_create_entity_template,
@@ -46,7 +46,7 @@ from monitor_data.tools.mongodb_tools.templates import (
 )
 
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ Rules (plan D4):
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from uuid import UUID
 
@@ -245,7 +246,12 @@ async def require_character_scope(db: PostgresClient, principal: Principal, char
 
 
 async def require_ingestion_job_owner(db: PostgresClient, principal: Principal, job_id: str) -> None:
-    """Ingestion jobs inherit ownership through their universe."""
+    """Ingestion jobs are tenancy-checked by creator or owning universe.
+
+    Fail closed: the job must exist and either ``owner_id`` is the caller or
+    the job's universe resolves to a universe the caller owns. A foreign or
+    missing job gets the generic 404.
+    """
     if _is_local_mode(principal):
         return
     from monitor_data.tools.mongodb_tools import mongodb_get_ingestion_job
@@ -253,7 +259,34 @@ async def require_ingestion_job_owner(db: PostgresClient, principal: Principal, 
     job = mongodb_get_ingestion_job(UUID(str(job_id)))
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+    if getattr(job, "owner_id", None) == str(principal.user_id):
+        return
     await require_universe_owner(db, principal, job.universe_id)
+
+
+async def require_ingest_source_owner(db: PostgresClient, principal: Principal, source_id: str) -> None:
+    """Ingest sources are job-backed or doc-backed and must belong to the caller.
+
+    Mirrors the strict creator check ``ingest._require_source_owner`` uses.
+    """
+    if _is_local_mode(principal):
+        return
+    from monitor_data.schemas.ingestion_jobs import IngestionJobFilter
+    from monitor_data.tools.mongodb_tools import mongodb_list_documents, mongodb_list_ingestion_jobs
+
+    uid = _uuid_or_404(source_id)
+    res = await asyncio.to_thread(
+        mongodb_list_ingestion_jobs,
+        IngestionJobFilter(source_id=UUID(uid), limit=1, sort_order="desc"),
+    )
+    if res.jobs:
+        if getattr(res.jobs[0], "owner_id", None) != str(principal.user_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+        return
+    docs = await asyncio.to_thread(mongodb_list_documents)
+    doc = next((d for d in docs if str(getattr(d, "source_id", None)) == uid), None)
+    if doc is None or getattr(doc, "owner_id", None) != str(principal.user_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
 
 
 async def require_pack_owner(db: PostgresClient, principal: Principal, pack_id: str) -> None:
@@ -332,17 +365,28 @@ async def require_lorebook_entry_owner(db: PostgresClient, principal: Principal,
 
 
 async def require_template_owner(db: PostgresClient, principal: Principal, template_id: str | UUID) -> Any:
-    """Entity templates belong to their universe. Returns the template in
-    enforced mode, None in local mode (caller falls back to a direct load)."""
+    """Templates: entity templates belong to their universe; character
+    templates (G-6, ``character_templates`` collection) are owner-predicated
+    rootless docs. Returns the template in enforced mode, None in local mode
+    (caller falls back to a direct load). Foreign/missing -> 404.
+    """
     if _is_local_mode(principal):
         return None
     from monitor_data.tools.mongodb_tools.templates import mongodb_get_entity_template
 
-    template = mongodb_get_entity_template(UUID(str(template_id)))
-    if template is None:
+    try:
+        template = mongodb_get_entity_template(UUID(str(template_id)))
+    except (ValueError, TypeError):
+        template = None
+    if template is not None:
+        await require_universe_owner(db, principal, template.universe_id)
+        return template
+    from monitor_data.tools.mongodb_tools.character_templates import mongodb_get_character_template
+
+    character_template = mongodb_get_character_template(str(template_id), owner_id=str(principal.user_id))
+    if character_template is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
-    await require_universe_owner(db, principal, template.universe_id)
-    return template
+    return character_template
 
 
 async def require_asset_id_owner(db: PostgresClient, principal: Principal, asset_id: str) -> None:
@@ -549,6 +593,8 @@ _SCOPE_RESOLVERS: dict[str, Callable[..., Awaitable[Any]]] = {
     "story_id": require_story_owner,
     "character_id": require_playable_character,
     "ingestion_job_id": require_ingestion_job_owner,
+    "job_id": require_ingestion_job_owner,
+    "source_id": require_ingest_source_owner,
     "proposal_id": require_proposal_owner,
     "pack_id": require_pack_owner,
     "party_id": require_party_owner,
@@ -556,6 +602,7 @@ _SCOPE_RESOLVERS: dict[str, Callable[..., Awaitable[Any]]] = {
     "template_id": require_template_owner,
     "asset_id": require_asset_id_owner,
     "collection_id": require_collection_owner,
+    "mv_id": require_multiverse_owner,
 }
 
 

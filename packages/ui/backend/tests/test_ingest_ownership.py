@@ -2,7 +2,10 @@
 
 Ingestion jobs and documents are rootless Mongo records carrying ``owner_id``,
 stamped at upload; reads/actions are owner-scoped with generic 404s.
-Hermetic: FakePostgres + patched Mongo tools at the router namespace.
+Hermetic: FakePostgres + patched Mongo tools at the router namespace AND at
+the data-layer namespace (the router-level ``resource_route_guard`` resolves
+job/source ownership through ``monitor_ui.ownership``, which imports the
+tools from their source module).
 """
 
 from __future__ import annotations
@@ -127,6 +130,9 @@ class TestIngestAuthz:
         foreign_job = _job(uuid4(), uuid4(), uuid4(), str(uuid4()))
         jobs = {str(my_job.job_id): my_job, str(foreign_job.job_id): foreign_job}
         monkeypatch.setattr(ingest_mod, "mongodb_get_ingestion_job", lambda uid: jobs.get(str(uid)))
+        monkeypatch.setattr(
+            "monitor_data.tools.mongodb_tools.mongodb_get_ingestion_job", lambda uid: jobs.get(str(uid))
+        )
         monkeypatch.setattr(ingest_mod, "_job_to_dict", lambda j: {"id": str(j.job_id)})
 
         assert client.get(f"/api/ingest/jobs/{my_job.job_id}").status_code == 200
@@ -159,6 +165,8 @@ class TestIngestAuthz:
 
         monkeypatch.setattr(ingest_mod, "mongodb_list_ingestion_jobs", fake_list_jobs)
         monkeypatch.setattr(ingest_mod, "mongodb_list_documents", lambda *a, **k: [])
+        monkeypatch.setattr("monitor_data.tools.mongodb_tools.mongodb_list_ingestion_jobs", fake_list_jobs)
+        monkeypatch.setattr("monitor_data.tools.mongodb_tools.mongodb_list_documents", lambda *a, **k: [])
 
         client_b = TestClient(app, raise_server_exceptions=False)
         _signup(client_b, "b@example.com", "bob")

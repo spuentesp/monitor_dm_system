@@ -32,10 +32,11 @@ from monitor_data.tools.mongodb_tools.character_templates import (
 )
 
 from monitor_ui.auth import Principal, get_current_user, is_local_mode
+from monitor_ui.ownership import resource_route_guard
 
 # Every route requires authentication; templates are per-owner (the same
 # ``owner_id`` field characters use). Foreign and missing ids both 404.
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 def _owner(principal: Principal) -> str | None:
@@ -91,9 +92,7 @@ async def update_character_template(
 
 
 @router.delete("/templates/{template_id}", status_code=204)
-async def delete_character_template(
-    template_id: str, principal: Principal = Depends(get_current_user)
-) -> None:
+async def delete_character_template(template_id: str, principal: Principal = Depends(get_current_user)) -> None:
     """Delete a character template."""
     if not mongodb_delete_character_template(template_id, owner_id=_owner(principal)):
         raise HTTPException(status_code=404, detail="Character template not found")

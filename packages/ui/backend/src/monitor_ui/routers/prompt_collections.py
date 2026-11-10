@@ -29,7 +29,7 @@ from monitor_data.schemas.prompt_collections import (
     PromptCollectionVersionResponse,
 )
 from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin, is_local_mode
-from monitor_ui.ownership import require_collection_owner, require_universe_owner
+from monitor_ui.ownership import require_collection_owner, require_universe_owner, resource_route_guard
 from monitor_data.tools.mongodb_tools.prompt_collections import (
     mongodb_create_prompt_collection,
     mongodb_delete_prompt_collection,
@@ -42,7 +42,7 @@ from monitor_data.tools.mongodb_tools.prompt_collections import (
 )
 
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 @router.post("/prompt-collections", response_model=PromptCollectionResponse, status_code=201)
