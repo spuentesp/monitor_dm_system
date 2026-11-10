@@ -21,6 +21,44 @@ log = structlog.get_logger()
 DIRECTOR_NOTES_CAP = 20
 
 
+async def _ensure_persona_link(session: dict[str, Any]) -> None:
+    """Guarantee the persona-to-incarnation link on the bound character (join Task 3).
+
+    Phase 4's cast reads ``source_persona_id`` off the incarnation record
+    (its character sheet). The incarnation writes in the pre-play flow pass
+    the link; this covers the sessions that bind a pre-existing incarnation,
+    stamping the link when the record lacks it. The record is written once
+    at finalize — never overwritten when a link already exists. Failures
+    are logged and never block the opening.
+    """
+    persona_id = session.get("persona_id")
+    entity_id = session.get("character_id")
+    if not persona_id or not entity_id:
+        return
+    try:
+        from monitor_data.schemas.character_sheets import CharacterSheetFilter, CharacterSheetUpdate
+        from monitor_data.tools.mongodb_tools import (
+            mongodb_list_character_sheets,
+            mongodb_update_character_sheet,
+        )
+
+        listing = await asyncio.to_thread(
+            mongodb_list_character_sheets,
+            CharacterSheetFilter(entity_id=UUID(str(entity_id))),
+        )
+        sheets = getattr(listing, "sheets", None) or []
+        for sheet in sheets:
+            if getattr(sheet, "source_persona_id", None):
+                continue  # an existing link wins — never overwrite it
+            await asyncio.to_thread(
+                mongodb_update_character_sheet,
+                getattr(sheet, "sheet_id"),
+                CharacterSheetUpdate(source_persona_id=str(persona_id)),
+            )
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _ensure_persona_link)
+        log.warning("preplay.persona_link_write_failed", error=str(exc))
+
+
 async def seed_canon_from_session_zero(session: dict[str, Any]) -> None:
     """One-time: turn Session-Zero outcomes into retrievable canon.
 
@@ -129,6 +167,7 @@ async def finalize_preplay(
         raise RuntimeError(bootstrap_error or "Story/scene bootstrap did not return IDs.")
 
     await seed_canon_from_session_zero(session)
+    await _ensure_persona_link(session)
 
     gm_profile = await _load_gm_profile(session.get("gm_profile_id"))
     intro = session.get("session_intro") or {}

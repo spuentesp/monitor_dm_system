@@ -686,6 +686,8 @@ async def handle_char_creation(state: PreplayState) -> dict[str, Any]:
         "sheet": sheet_md or str(char),
         "tags": ["pc", "generated"],
         "source": "character_creation_loop",
+        # The persona this incarnation is from (join Task 3) — shown in the cast.
+        "source_persona_id": session.get("persona_id"),
     }
     saved = persist_session_character(
         session,
@@ -798,6 +800,8 @@ def _persist_narrative_character(
         "sheet": summary.get("backstory") or concept,
         "tags": ["pc", "narrative_only"],
         "source": "narrative_only",
+        # The persona this incarnation is from (join Task 3) — shown in the cast.
+        "source_persona_id": session.get("persona_id"),
     }
     return persist_session_character(
         session,
