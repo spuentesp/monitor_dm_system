@@ -15,6 +15,8 @@ from monitor_agents.extraction.memory_extraction import MemoryExtractor
 from monitor_agents.extraction.narrative_entity_extraction import (
     NarrativeEntityExtractionModule,
 )
+from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
 logger = logging.getLogger(__name__)
 
@@ -195,27 +197,110 @@ class ExtractionAgent(BaseAgent):
         narrative_text: str | None,
         actor_context: dict[str, Any] | None,
         resolution: dict[str, Any] | None,
+        cast: list[dict[str, Any]] | None = None,
+        scene_id: UUID | None = None,
+        universe_id: UUID | None = None,
     ) -> dict[str, Any]:
         """
-        Task 4: Extract salient character memories from the narrative prose.
+        Task 4/6: Extract salient character memories from the narrative prose.
+
+        With ``cast`` (Phase 4 Task 6), runs ``MemoryExtractor`` once per
+        character present — user-controlled AND GM-controlled, not only the
+        speaker — from that character's point of view, and tags every memory
+        with its owner (``entity_id``), ``universe_id``, and ``witnesses``
+        (the cast present when the memory formed, Task 8).
+
+        Without ``cast``, keeps the legacy single-actor behavior and output
+        contract exactly.
         """
-        if not narrative_text or not actor_context:
+        if not narrative_text or (not actor_context and not cast):
             return {"memories_to_persist": []}
 
-        actor_name = actor_context.get("name") or "the character"
+        resolution_text = str(resolution.get("success_level") if resolution else "narrative")
         extractor = MemoryExtractor()
-        try:
-            memories = await anyio.to_thread.run_sync(
-                extractor.forward,
-                narrative_text,
-                str(resolution.get("success_level") if resolution else "narrative"),
-                actor_name,
-            )
-        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in extract_memories)
-            logger.warning("Memory extraction failed", exc_info=True)
-            return {"memories_to_persist": []}
 
-        return {"memories_to_persist": memories}
+        if not cast:
+            # Legacy single-actor path — output contract unchanged.
+            actor_name = actor_context.get("name") or "the character"  # type: ignore[union-attr]
+            try:
+                memories = await anyio.to_thread.run_sync(
+                    extractor.forward,
+                    narrative_text,
+                    resolution_text,
+                    actor_name,
+                )
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in extract_memories)
+                logger.warning("Memory extraction failed", exc_info=True)
+                return {"memories_to_persist": []}
+            return {"memories_to_persist": memories}
+
+        # Phase 4 (Task 6): one extraction per present character, typed,
+        # from each one's point of view, with provenance tags.
+        witnesses = [str(m.get("entity_id")) for m in cast if m.get("entity_id")]
+        targets = [m for m in cast if m.get("entity_id") and m.get("name")]
+
+        memories_out: list[dict[str, Any]] = []
+        for member in targets:
+            actor_name = str(member.get("name") or "the character")
+            try:
+                result = await anyio.to_thread.run_sync(
+                    extractor.forward_typed,
+                    narrative_text,
+                    resolution_text,
+                    actor_name,
+                )
+            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in extract_memories)
+                logger.warning("Memory extraction failed for %s", actor_name, exc_info=True)
+                continue
+            if not result.parse_ok:
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.SCENE_LOOP,
+                    category=RoleplayErrorCategory.UNKNOWN,
+                    message=f"memory_extraction_json_parse_failed for {actor_name}: {result.error}",
+                    fatal=False,
+                    scene_id=scene_id,
+                    universe_id=universe_id,
+                )
+                continue
+            member_entity = member.get("entity_id")
+            for memory in result.as_dicts():
+                memory["entity_id"] = str(member_entity) if member_entity else None
+                memory["universe_id"] = str(universe_id) if universe_id else None
+                memory["witnesses"] = list(witnesses)
+                memories_out.append(memory)
+
+        return {"memories_to_persist": memories_out}
+
+    async def extract_scene_memories(
+        self,
+        transcript: str,
+        cast: list[dict[str, Any]],
+        resolution: dict[str, Any] | None = None,
+        scene_id: UUID | None = None,
+        story_id: UUID | None = None,
+        universe_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        """
+        Scene-end extraction (Phase 4 Task 6): one ``MemoryExtractor`` call
+        per cast member over the whole scene transcript, from that member's
+        point of view, persisted under its ``entity_id`` and ``universe_id``.
+
+        The live graph's per-turn ``extract_memories`` node already extracts
+        for every present character on every turn; this helper is the
+        once-per-scene summary pass. It is called from the scene-end
+        choreography (``complete_current_scene``) — see the Phase 4 report
+        for the exact wiring the scene-end owner must add.
+        """
+        if not transcript or not cast:
+            return {"memories_to_persist": []}
+        return await self.extract_memories(
+            narrative_text=transcript,
+            actor_context=None,
+            resolution=resolution,
+            cast=cast,
+            scene_id=scene_id,
+            universe_id=universe_id,
+        )
 
     async def extract_facts(
         self,
