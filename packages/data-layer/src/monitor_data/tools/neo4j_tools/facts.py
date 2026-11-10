@@ -204,6 +204,7 @@ def neo4j_create_fact(params: FactCreate) -> FactResponse:
         status: $status,
         created_at: datetime($created_at),
         replaces: $replaces,
+        witnesses: $witnesses,
         properties: $properties
     })
     CREATE (u)-[:HAS_FACT]->(f)
@@ -228,6 +229,9 @@ def neo4j_create_fact(params: FactCreate) -> FactResponse:
             "status": params.status.value,
             "created_at": created_at.isoformat(),
             "replaces": str(params.replaces) if params.replaces else None,
+            # Who was present when this fact formed (Task 8) — an array
+            # property so the who-knows-what filter can read it back.
+            "witnesses": [str(w) for w in (params.witnesses or [])],
             "properties": _serialize_properties(params.properties),
         },
     )
@@ -358,6 +362,7 @@ def neo4j_get_fact(fact_id: UUID) -> FactResponse | None:
         created_at=_to_native_datetime(f["created_at"]),
         replaces=UUID(f["replaces"]) if f.get("replaces") else None,
         properties=_deserialize_properties(f.get("properties")),
+        witnesses=[UUID(str(w)) for w in (f.get("witnesses") or [])],
         entity_ids=[UUID(eid) for eid in record["entity_ids"] if eid],
         source_ids=[UUID(sid) for sid in record["source_ids"] if sid],
         snippet_ids=[],  # Snippets not stored in Neo4j
@@ -479,6 +484,7 @@ def neo4j_list_facts(filters: FactFilter | None = None) -> list[FactResponse]:
                 created_at=_to_native_datetime(f["created_at"]),
                 replaces=UUID(f["replaces"]) if f.get("replaces") else None,
                 properties=_deserialize_properties(f.get("properties")),
+                witnesses=[UUID(str(w)) for w in (f.get("witnesses") or [])],
                 entity_ids=[UUID(eid) for eid in record["entity_ids"] if eid],
                 source_ids=[UUID(sid) for sid in record["source_ids"] if sid],
                 snippet_ids=[],

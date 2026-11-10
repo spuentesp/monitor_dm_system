@@ -139,6 +139,9 @@ def mongodb_create_memory(params: MemoryCreate) -> MemoryResponse:
         "emotional_valence": params.emotional_valence,
         "importance": params.importance,
         "certainty": params.certainty,
+        # Who was present when the memory formed (Task 8) — stored alongside
+        # the metadata carrier so the who-knows-what filter can read it back.
+        "witnesses": [str(w) for w in params.witnesses],
         "metadata": params.metadata,
         "created_at": now,
         "last_accessed": now,
@@ -192,6 +195,7 @@ def mongodb_create_memory(params: MemoryCreate) -> MemoryResponse:
         emotional_valence=params.emotional_valence,
         importance=params.importance,
         certainty=params.certainty,
+        witnesses=list(params.witnesses),
         metadata=params.metadata,
         created_at=now,
         last_accessed=now,
@@ -239,6 +243,7 @@ def mongodb_get_memory(memory_id: UUID) -> MemoryResponse:
         emotional_valence=result["emotional_valence"],
         importance=result["importance"],
         certainty=result["certainty"],
+        witnesses=[UUID(str(w)) for w in (result.get("witnesses") or [])],
         metadata=result["metadata"],
         created_at=result["created_at"],
         last_accessed=result["last_accessed"],
@@ -300,6 +305,7 @@ def mongodb_list_memories(params: MemoryFilter) -> MemoryListResponse:
             emotional_valence=mem_doc["emotional_valence"],
             importance=mem_doc["importance"],
             certainty=mem_doc["certainty"],
+            witnesses=[UUID(str(w)) for w in (mem_doc.get("witnesses") or [])],
             metadata=mem_doc["metadata"],
             created_at=mem_doc["created_at"],
             last_accessed=mem_doc["last_accessed"],

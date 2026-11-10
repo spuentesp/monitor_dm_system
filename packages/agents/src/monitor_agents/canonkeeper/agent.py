@@ -3028,6 +3028,11 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                     "authority": "source",
                     "source_ids": source_id_strs,
                     "time_ref": payload.get("time_ref") or proposal.get("time_ref"),
+                    # Who-knows-what (Phase 4 Task 8): the witness record and
+                    # the proposal's properties must reach the Fact node —
+                    # they are what the NPC fact filter reads back.
+                    "witnesses": payload.get("witnesses") or proposal.get("witnesses") or [],
+                    "properties": payload.get("properties"),
                 }
             },
         )
