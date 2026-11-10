@@ -150,7 +150,11 @@ class StoryLedgerEntryCreate(BaseModel):
         default_factory=list,
         description="What the world did between scenes (NPC agenda moves)",
     )
-    arc_label: str | None = Field(default=None, max_length=50, description="Arc phase after the scene")
+    arc_label: str | None = Field(
+        default=None,
+        max_length=50,
+        description="Arc phase the scene was played in",
+    )
     tension_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
