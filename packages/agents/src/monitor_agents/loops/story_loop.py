@@ -14,6 +14,7 @@ Flow: init_story → [scene_loop per scene] → finalize_story
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -22,9 +23,11 @@ from uuid import UUID
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.graph import END, StateGraph
 from monitor_data.config import settings
+from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 from pydantic import BaseModel, Field
 
 from monitor_agents.agent_factory import get_agent_factory
+from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
 from monitor_agents.utils.db_readers import (
     mongodb_create_scene,
     mongodb_create_story_outline,
@@ -34,6 +37,14 @@ from monitor_agents.utils.db_readers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The data-layer server reports a refused or failed tool as text.
+_TOOL_ERROR_PREFIXES = ("Authorization error:", "Validation error:", "Error executing tool:")
+
+
+class AgendaTickError(RuntimeError):
+    """The NPC agenda tick did not go through."""
+
 
 # =============================================================================
 # STATE SCHEMA
@@ -71,6 +82,13 @@ class StoryState(BaseModel):
     scenes: list[UUID] = Field(default_factory=list)
     current_scene_id: UUID | None = None
     scenes_completed: int = 0
+    # How many scenes the arc runs before it resolves. The arc spends the
+    # last three on the climax, the falling action and the resolution.
+    scene_budget: int = Field(
+        default=5,
+        ge=3,
+        description="Number of scenes in the story arc before it resolves.",
+    )
 
     # Flow control
     story_complete: bool = False
@@ -336,6 +354,49 @@ async def _create_scene(
     return scene_id  # type: ignore[return-value]
 
 
+async def _tick_npc_agendas(universe_id: UUID) -> list[str]:
+    """Advance the off-screen NPC agendas of one universe.
+
+    ``neo4j_tick_agendas`` is a shared Neo4j write tool: the authority matrix
+    in ``monitor_data.middleware.auth`` names ``StoryLoop`` among the agents
+    allowed to call it, so the tick goes through the data-layer server — the
+    same client every other tool call in this layer uses — under the story
+    loop's own identity.
+
+    Args:
+        universe_id: The universe whose NPCs move on.
+
+    Returns:
+        The agenda moves the tool reported.
+
+    Raises:
+        AgendaTickError: The tool reported an authorization, validation or
+            execution error, or answered with something other than a list of
+            moves.
+    """
+    from monitor_data.server import call_tool as server_call_tool
+
+    contents = await server_call_tool(
+        "neo4j_tick_agendas",
+        {"universe_id": str(universe_id), "agent_type": "StoryLoop"},
+    )
+    if not contents:
+        raise AgendaTickError("neo4j_tick_agendas returned no result")
+
+    text = contents[0].text
+    if text.startswith(_TOOL_ERROR_PREFIXES):
+        raise AgendaTickError(f"neo4j_tick_agendas failed: {text}")
+
+    try:
+        moves = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise AgendaTickError(f"neo4j_tick_agendas answered with no JSON: {text}") from exc
+
+    if not isinstance(moves, list):
+        raise AgendaTickError(f"neo4j_tick_agendas answered with {type(moves).__name__}, not a list of moves")
+    return [str(move) for move in moves]
+
+
 # =============================================================================
 # PUBLIC API
 # =============================================================================
@@ -356,9 +417,12 @@ class StoryLoop:
             thread_id = f"story-{self.story_id}"
             config = {"configurable": {"thread_id": thread_id}}
 
+            # A story already under way keeps the state it checkpointed —
+            # re-running the graph here would reset it.
             snapshot = await compiled.aget_state(config)  # type: ignore[arg-type]
             if snapshot.values:
                 return dict(snapshot.values)
+
             initial = StoryState(
                 story_id=self.story_id,
                 universe_id=self.universe_id,
@@ -376,6 +440,8 @@ class StoryLoop:
             story_id=self.story_id,
             universe_id=self.universe_id,
             story_complete=story_complete,
+            # The scene this call follows has been played.
+            scenes_completed=1,
         )
         if story_complete:
             await finalize_story(state)
@@ -419,6 +485,8 @@ class StoryLoop:
         Returns:
             Updated StoryState dict.
         """
+        # A finished scene advances the story; the story itself ends when its
+        # arc resolves, or when the caller says so outright.
         force_complete = bool((outcome or {}).get("story_complete", False))
         duration = int((outcome or {}).get("total_minutes_passed") or 0)
 
@@ -427,15 +495,20 @@ class StoryLoop:
             thread_id = f"story-{self.story_id}"
             config = {"configurable": {"thread_id": thread_id}}
 
-            # Load current checkpoint state
+            # Load current checkpoint state. A read failure must not pass for
+            # "no story yet" — that would silently restart the campaign and
+            # overwrite its checkpoint.
             current = await compiled.aget_state(config)  # type: ignore[arg-type]
             state_values = dict(current.values) if current.values else {}
 
-            # Build state with scene completion context
+            # Build state with scene completion context, keeping every other
+            # checkpointed field (in-game time, agreements, player pitch).
             previous_scenes = list(state_values.get("scenes", []))
             previous_history = list(state_values.get("scenes_history", []))
             previous_threads = list(state_values.get("active_threads", []))
             previous_completed = list(state_values.get("completed_threads", []))
+            # A story that already resolved stays resolved.
+            story_complete = force_complete or bool(state_values.get("story_complete", False))
 
             run_state = StoryState.model_validate(
                 {
@@ -443,7 +516,7 @@ class StoryLoop:
                     "story_id": self.story_id,
                     "universe_id": self.universe_id,
                     "current_scene_id": scene_id,
-                    "story_complete": force_complete,
+                    "story_complete": story_complete,
                     "last_scene_duration_minutes": duration,
                     "scenes": previous_scenes,
                     "scenes_completed": state_values.get("scenes_completed", 0) + 1,
@@ -453,9 +526,13 @@ class StoryLoop:
                 }
             )
 
-            if force_complete:
+            if story_complete:
                 await finalize_story(run_state)
-                await compiled.aupdate_state(config, run_state.model_dump(), as_node="init_story")  # type: ignore[arg-type]
+                await compiled.aupdate_state(
+                    config,  # type: ignore[arg-type]
+                    run_state.model_dump(),
+                    as_node="init_story",
+                )
                 return {"story_complete": True, "completed_scene_id": scene_id}
 
             # Step 1: Run world simulation
@@ -474,25 +551,27 @@ class StoryLoop:
             arc_update = await evaluate_arc(run_state)
             run_state = run_state.model_copy(update=arc_update)
 
-            # P-22: NPC Agenda Tick — advance off-screen NPC agendas
+            # NPC Agenda Tick (ST-1) — advance off-screen NPC agendas
             agenda_moves: list[str] = []
             try:
-                agenda_result = await self.call_tool(
-                    "neo4j_tick_agendas",
-                    {"universe_id": str(self.universe_id)},
+                agenda_moves = await _tick_npc_agendas(self.universe_id)
+            except AgendaTickError as exc:
+                # A failed tick must not cost the player their scene
+                # transition, but it must not vanish either: the error is
+                # recorded so it can be looked up afterwards.
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.STORY_LOOP,
+                    category=RoleplayErrorCategory.NPC_AGENDA_TICK_FAILED,
+                    message=str(exc),
+                    universe_id=self.universe_id,
+                    story_id=self.story_id,
                 )
-                if isinstance(agenda_result, list):
-                    agenda_moves = agenda_result
-                elif isinstance(agenda_result, dict):
-                    agenda_moves = agenda_result.get("moves", [])
-                if agenda_moves:
-                    logger.info(
-                        "NPC agenda tick: %d moves for universe %s",
-                        len(agenda_moves),
-                        self.universe_id,
-                    )
-            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in complete_current_scene)
-                logger.warning("NPC agenda tick failed", exc_info=True)
+            if agenda_moves:
+                logger.info(
+                    "NPC agenda tick: %d moves for universe %s",
+                    len(agenda_moves),
+                    self.universe_id,
+                )
 
             # P-21: Progression Phase
             # Trigger progression if we are in resolution phase or a downtime scene just ended
@@ -511,7 +590,11 @@ class StoryLoop:
 
             if arc_update.get("story_complete"):
                 await finalize_story(run_state)
-                await compiled.aupdate_state(config, run_state.model_dump(), as_node="init_story")  # type: ignore[arg-type]
+                await compiled.aupdate_state(
+                    config,  # type: ignore[arg-type]
+                    run_state.model_dump(),
+                    as_node="init_story",
+                )
                 return {
                     **run_state.model_dump(),
                     **progression_update,
@@ -521,7 +604,11 @@ class StoryLoop:
             # Step 3: Create next scene via transition
             transition_update = await transition_scene(run_state)
             checkpoint_state = {**run_state.model_dump(), **transition_update}
-            await compiled.aupdate_state(config, checkpoint_state, as_node="init_story")  # type: ignore[arg-type]
+            await compiled.aupdate_state(
+                config,  # type: ignore[arg-type]
+                checkpoint_state,
+                as_node="init_story",
+            )
             return {
                 **checkpoint_state,
                 **progression_update,

@@ -33,6 +33,7 @@ class RoleplayErrorSource(StrEnum):
     """Which subsystem raised the error — the call-site identity, not a guess."""
 
     SCENE_LOOP = "scene_loop"
+    STORY_LOOP = "story_loop"
     GM_AGENT = "gm_agent"
     RESOLVER = "resolver"
     NARRATOR = "narrator"
@@ -52,6 +53,7 @@ class RoleplayErrorCategory(StrEnum):
     SCENE_BOOTSTRAP_FAILED = "scene_bootstrap_failed"
     MEMORY_PERSIST_NOT_FOUND = "memory_persist_not_found"
     NEO4J_SCHEMA_DRIFT = "neo4j_schema_drift"
+    NPC_AGENDA_TICK_FAILED = "npc_agenda_tick_failed"
     COMMIT_DISPATCHER_UNKNOWN_TYPE = "commit_dispatcher_unknown_type"
     CANONKEEPER_MISSING_UNIVERSE_ID = "canonkeeper_missing_universe_id"
     CANONKEEPER_WRITE_FAILED = "canonkeeper_write_failed"

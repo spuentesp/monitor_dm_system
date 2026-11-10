@@ -102,6 +102,68 @@ def test_bookmarks_preserve_unbookmarked_front_matter():
     assert "Chapter text" in sections[1].text
 
 
+def test_front_matter_and_section_bounds_are_exact():
+    """The pages a section claims are exactly the pages it holds.
+
+    Front matter runs up to the page before the first bookmark; each
+    bookmark section runs up to the page before the next one starts. A page
+    that belongs to no bookmark is still covered by the front matter.
+    """
+    doc = fitz.open()
+    for number in range(4):
+        doc.new_page().insert_text((72, 72), f"Body of page {number}")
+    doc.set_toc([[1, "Chapter One", 3], [1, "Chapter Two", 4]])
+    data = doc.tobytes()
+    doc.close()
+
+    sections = extract_pdf_structure(data)
+
+    front, one, two = sections[0], sections[1], sections[2]
+
+    # The pages before the first bookmark belong to no chapter, so the
+    # book-tree pipeline files them under its untitled section.
+    assert front.heading_path == ["(untitled)"]
+    assert front.depth == 0
+    assert (front.page_start, front.page_end) == (0, 1)
+    assert "Body of page 0" in front.text
+    assert "Body of page 1" in front.text
+    assert "Body of page 2" not in front.text
+
+    assert one.heading_path == ["Chapter One"]
+    assert (one.page_start, one.page_end) == (2, 2)
+    assert "Body of page 2" in one.text
+    assert "Body of page 3" not in one.text
+
+    assert two.heading_path == ["Chapter Two"]
+    assert (two.page_start, two.page_end) == (3, 3)
+    assert "Body of page 3" in two.text
+
+
+def test_front_matter_spans_every_page_before_the_first_bookmark():
+    """Three pages of front matter are three pages, not one or two."""
+    doc = fitz.open()
+    for number in range(5):
+        doc.new_page().insert_text((72, 72), f"Body of page {number}")
+    doc.set_toc([[1, "Chapter One", 4], [1, "Chapter Two", 5]])
+    data = doc.tobytes()
+    doc.close()
+
+    sections = extract_pdf_structure(data)
+
+    front, one, two = sections[0], sections[1], sections[2]
+
+    assert (front.page_start, front.page_end) == (0, 2)
+    for number in range(3):
+        assert f"Body of page {number}" in front.text
+    assert "Body of page 3" not in front.text
+
+    assert (one.page_start, one.page_end) == (3, 3)
+    assert "Body of page 3" in one.text
+
+    assert (two.page_start, two.page_end) == (4, 4)
+    assert "Body of page 4" in two.text
+
+
 # [G-8](d) — extract_pdf_structure wraps an in-memory SHA-256 LRU.
 # Tests pin (a) cache hit on identical bytes (b) mutation isolation
 # (c) cache miss on different bytes (d) LRU eviction at 5th distinct PDF.
