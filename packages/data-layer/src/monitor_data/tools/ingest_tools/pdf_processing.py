@@ -77,9 +77,7 @@ def _open_pdf(pdf_bytes: bytes) -> fitz.Document:
         raise PdfExtractionError("The file is empty (0 bytes).")
     try:
         if len(pdf_bytes) > _PDF_STREAM_BUDGET_BYTES:
-            tmp = tempfile.NamedTemporaryFile(
-                suffix=".pdf", delete=False
-            )
+            tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
             try:
                 tmp.write(pdf_bytes)
                 tmp.flush()

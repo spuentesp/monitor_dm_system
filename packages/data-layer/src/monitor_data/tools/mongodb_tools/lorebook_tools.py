@@ -273,9 +273,7 @@ def _entry_matches(
         return True
     entry_case = entry.case_sensitive if entry.case_sensitive is not None else case_sensitive
     entry_whole = entry.match_whole_words if entry.match_whole_words is not None else whole_words
-    return any(
-        _keyword_matcher(kw, text, entry_case, entry_whole) for kw in entry.keywords
-    )
+    return any(_keyword_matcher(kw, text, entry_case, entry_whole) for kw in entry.keywords)
 
 
 def _secondary_matches(
@@ -290,10 +288,7 @@ def _secondary_matches(
 
     entry_case = entry.case_sensitive if entry.case_sensitive is not None else case_sensitive
     entry_whole = entry.match_whole_words if entry.match_whole_words is not None else whole_words
-    matches = [
-        _keyword_matcher(kw, text, entry_case, entry_whole)
-        for kw in entry.secondary_keywords
-    ]
+    matches = [_keyword_matcher(kw, text, entry_case, entry_whole) for kw in entry.secondary_keywords]
     logic = int(entry.selective_logic or SelectiveLogic.AND_ANY)
 
     if logic == SelectiveLogic.AND_ANY:
@@ -480,9 +475,7 @@ def mongodb_scan_lorebook(
                 matched = _entry_matches(entry, current_scan_text, config.case_sensitive, config.match_whole_words)
 
             if matched and entry.selective:
-                matched = _secondary_matches(
-                    entry, current_scan_text, config.case_sensitive, config.match_whole_words
-                )
+                matched = _secondary_matches(entry, current_scan_text, config.case_sensitive, config.match_whole_words)
 
             if matched and entry.use_probability and entry.probability < 100:
                 matched = rng.random() * 100 < entry.probability

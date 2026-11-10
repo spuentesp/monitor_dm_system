@@ -84,11 +84,11 @@ class TestStorageNode:
 
     def test_inactive_deployed_node(self):
         node = StorageNode(
-            backend=StorageBackend.OPENSEARCH,
-            technology="OpenSearch 2.11",
+            backend=StorageBackend.MINIO,
+            technology="MinIO",
             description="Unused backend",
-            docker_service="opensearch",
-            default_port=9200,
+            docker_service="minio",
+            default_port=9000,
             is_deployed=True,
             is_active=False,
         )
@@ -166,7 +166,7 @@ class TestDataTopology:
 
     def test_get_node_not_found(self):
         topo = DataTopology(storage_nodes=[self._make_node(StorageBackend.NEO4J)])
-        assert topo.get_node(StorageBackend.OPENSEARCH) is None
+        assert topo.get_node(StorageBackend.QDRANT) is None
 
     def test_edges_from(self):
         topo = DataTopology(
@@ -221,7 +221,7 @@ class TestDataTopology:
 
 
 class TestMonitorTopology:
-    def test_all_six_backends_present(self):
+    def test_all_five_backends_present(self):
         backends = {n.backend for n in MONITOR_TOPOLOGY.storage_nodes}
         assert backends == {
             StorageBackend.NEO4J,
@@ -229,17 +229,13 @@ class TestMonitorTopology:
             StorageBackend.QDRANT,
             StorageBackend.MINIO,
             StorageBackend.POSTGRES,
-            StorageBackend.OPENSEARCH,
         }
 
-    def test_exactly_six_nodes(self):
-        assert len(MONITOR_TOPOLOGY.storage_nodes) == 6
+    def test_exactly_five_nodes(self):
+        assert len(MONITOR_TOPOLOGY.storage_nodes) == 5
 
-    def test_opensearch_is_inactive(self):
-        node = MONITOR_TOPOLOGY.get_node(StorageBackend.OPENSEARCH)
-        assert node is not None
-        assert node.is_deployed is True
-        assert node.is_active is False
+    def test_all_backends_active(self):
+        assert all(n.is_active for n in MONITOR_TOPOLOGY.storage_nodes)
 
     def test_neo4j_is_active(self):
         node = MONITOR_TOPOLOGY.get_node(StorageBackend.NEO4J)
@@ -265,11 +261,6 @@ class TestMonitorTopology:
         node = MONITOR_TOPOLOGY.get_node(StorageBackend.POSTGRES)
         assert node is not None
         assert len(node.collections) == 13
-
-    def test_opensearch_has_no_collections(self):
-        node = MONITOR_TOPOLOGY.get_node(StorageBackend.OPENSEARCH)
-        assert node is not None
-        assert len(node.collections) == 0
 
     def test_at_least_one_edge(self):
         assert len(MONITOR_TOPOLOGY.data_edges) > 0
@@ -354,14 +345,9 @@ class TestMonitorTopology:
 
 
 class TestGapReport:
-    def test_opensearch_gap_reported(self):
+    def test_no_inactive_backend_gap(self):
         gaps = gap_report(MONITOR_TOPOLOGY)
-        opensearch_gaps = [g for g in gaps if "opensearch" in g.lower()]
-        assert len(opensearch_gaps) > 0
-
-    def test_backend_inactive_tag_present(self):
-        gaps = gap_report(MONITOR_TOPOLOGY)
-        assert any("[BACKEND_INACTIVE]" in g for g in gaps)
+        assert not any("[BACKEND_INACTIVE]" in g for g in gaps)
 
     def test_no_mcp_tools_tag_present(self):
         gaps = gap_report(MONITOR_TOPOLOGY)
@@ -417,11 +403,11 @@ class TestGapReport:
         topo = DataTopology(
             storage_nodes=[
                 StorageNode(
-                    backend=StorageBackend.OPENSEARCH,
-                    technology="OpenSearch",
+                    backend=StorageBackend.MINIO,
+                    technology="MinIO",
                     description="unused",
-                    docker_service="opensearch",
-                    default_port=9200,
+                    docker_service="minio",
+                    default_port=9000,
                     is_deployed=True,
                     is_active=False,
                 )

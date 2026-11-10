@@ -17,7 +17,7 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_agents.ingestion.capture_insights import CaptureInsight, CaptureInsightAgent
 from monitor_agents.plot_hooks import (
@@ -27,6 +27,7 @@ from monitor_agents.plot_hooks import (
     PlotHookAgent,
     SessionPrep,
 )
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.base import Authority, ProposalType
 from monitor_data.schemas.proposed_changes import (
     Evidence,
@@ -38,9 +39,11 @@ from monitor_data.tools.mongodb_tools import (
     mongodb_list_proposed_changes,
 )
 from monitor_data.utils.dice import roll_dice
+from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.ownership import require_universe_owner
 from pydantic import BaseModel, Field
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 log = structlog.get_logger()
 
 # Bounds for the /gm/roll endpoint. ``roll_dice`` enforces no upper cap, so an
@@ -203,8 +206,13 @@ class CaptureInsightsResponse(CaptureInsight):
 
 
 @router.post("/gm/hooks", response_model=SuggestHooksResponse)
-async def suggest_hooks(req: SuggestHooksRequest) -> SuggestHooksResponse:
+async def suggest_hooks(
+    req: SuggestHooksRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> SuggestHooksResponse:
     """Suggest narrative hooks based on open plot threads and recent events."""
+    await require_universe_owner(db, principal, req.universe_id)
     agent = PlotHookAgent()
     try:
         hooks = await agent.suggest_hooks(
@@ -220,8 +228,11 @@ async def suggest_hooks(req: SuggestHooksRequest) -> SuggestHooksResponse:
 @router.post("/gm/contradictions", response_model=DetectContradictionsResponse)
 async def detect_contradictions(
     req: DetectContradictionsRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> DetectContradictionsResponse:
     """Detect contradictions in the canon for a given universe."""
+    await require_universe_owner(db, principal, req.universe_id)
     agent = PlotHookAgent()
     try:
         contradictions = await agent.detect_contradictions(
@@ -237,8 +248,13 @@ async def detect_contradictions(
 
 
 @router.post("/gm/session-prep", response_model=SessionPrepResponse)
-async def generate_session_prep(req: SessionPrepRequest) -> SessionPrepResponse:
+async def generate_session_prep(
+    req: SessionPrepRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> SessionPrepResponse:
     """Generate session preparation materials for the GM."""
+    await require_universe_owner(db, principal, req.universe_id)
     agent = PlotHookAgent()
     try:
         prep = await agent.generate_session_prep(
@@ -252,8 +268,13 @@ async def generate_session_prep(req: SessionPrepRequest) -> SessionPrepResponse:
 
 
 @router.post("/gm/handouts", response_model=GenerateHandoutResponse)
-async def generate_handout(req: GenerateHandoutRequest) -> GenerateHandoutResponse:
+async def generate_handout(
+    req: GenerateHandoutRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> GenerateHandoutResponse:
     """Generate a player handout from world data."""
+    await require_universe_owner(db, principal, req.universe_id)
     agent = PlotHookAgent()
     try:
         handout = await agent.generate_handout(
@@ -306,6 +327,8 @@ async def roll_gm_dice(req: RollDiceRequest) -> RollDiceResponse:
 )
 async def check_capture_contradiction(
     req: CaptureContradictionCheckRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> CaptureContradictionCheckResponse:
     """Advisory live contradiction check for a Session Recorder entry (CF-1).
 
@@ -313,6 +336,7 @@ async def check_capture_contradiction(
     never writes to Neo4j. Returns an alert only when the entry collides
     with established canon.
     """
+    await require_universe_owner(db, principal, req.universe_id)
     agent = CanonKeeper()
     try:
         result = await agent.check_live_entry(
@@ -422,7 +446,11 @@ async def _create_capture_proposals(
 
 
 @router.post("/gm/capture/insights", response_model=CaptureInsightsResponse)
-async def capture_entry_insights(req: CaptureInsightsRequest) -> CaptureInsightsResponse:
+async def capture_entry_insights(
+    req: CaptureInsightsRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> CaptureInsightsResponse:
     """Per-entry capture insights for the Session Recorder (CF-1, P1.2).
 
     Analyzes the entry for participants, locations, and candidate facts. When
@@ -430,6 +458,7 @@ async def capture_entry_insights(req: CaptureInsightsRequest) -> CaptureInsights
     pending story-scoped FACT proposal for the CF-8 review queue, tagged with
     the entry text as evidence.
     """
+    await require_universe_owner(db, principal, req.universe_id)
     agent = CaptureInsightAgent()
     try:
         insight = await agent.analyze_entry(
@@ -453,13 +482,18 @@ async def capture_entry_insights(req: CaptureInsightsRequest) -> CaptureInsights
 
 
 @router.post("/gm/contradictions/resolve", response_model=ResolveContradictionResponse)
-async def resolve_contradiction(req: ResolveContradictionRequest) -> ResolveContradictionResponse:
+async def resolve_contradiction(
+    req: ResolveContradictionRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ResolveContradictionResponse:
     """Record a CF-5 contradiction resolution as a pending canon proposal.
 
     Resolutions are intentionally staged as ProposedChange items rather than
     direct Neo4j writes: CanonKeeper remains the only writer, and the GM can
     review the resolution in the CF-8 queue before it becomes canon.
     """
+    await require_universe_owner(db, principal, req.universe_id)
     resolution_source = f"contradiction_resolution:{uuid4()}"
     content = {
         "statement": req.explanation.strip(),

@@ -1080,9 +1080,6 @@ def neo4j_search_entities(
     matches = [
         e.model_dump(mode="json")
         for e in resp.entities
-        if not q_lower
-        or q_lower in e.name.lower()
-        or q_lower in (e.description or "").lower()
+        if not q_lower or q_lower in e.name.lower() or q_lower in (e.description or "").lower()
     ]
     return matches
-

@@ -32,7 +32,6 @@ dependencies = [
     "motor>=3.3",            # REPLACES pymongo — async MongoDB driver
     "qdrant-client>=1.7",    # AsyncQdrantClient built-in
     "aiobotocore>=2.7",      # REPLACES minio SDK for async S3/MinIO
-    "opensearch-py>=2.4",    # AsyncOpenSearch built-in
     # MCP and API
     "mcp[cli]>=1.2.0",
     "anthropic>=0.39",
@@ -52,6 +51,8 @@ dependencies = [
     "httpx>=0.27",             # async URI fetching in Indexer agent
     # Reliability
     "tenacity>=8.2",           # retry logic for DB ops
+    # Authentication (multi-tenancy)
+    "argon2-cffi>=24",        # Argon2id password hashing for user accounts
     # Relational DB (app config, settings, LLM providers)
     "asyncpg>=0.29",           # async PostgreSQL driver
     # Runtime cache / pub-sub

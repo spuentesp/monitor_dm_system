@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
 from monitor_ui.main import app
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 
 client = TestClient(app)
 

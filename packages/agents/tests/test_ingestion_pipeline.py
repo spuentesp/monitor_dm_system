@@ -38,6 +38,7 @@ async def test_ingest_failure_preserves_source_and_uploaded_object(monkeypatch):
     source_id = uuid4()
     doc_id = uuid4()
     job_id = uuid4()
+    created_jobs = []
 
     monkeypatch.setattr("monitor_agents.ingestion.agent.get_minio_client", lambda: fake_minio)
     monkeypatch.setattr(
@@ -73,10 +74,43 @@ async def test_ingest_failure_preserves_source_and_uploaded_object(monkeypatch):
             universe_id=uuid4(),
             pack_name="Broken Source",
             pack_type=KnowledgePackType.SETTING_SUPPLEMENT,
+            on_job_created=created_jobs.append,
         )
 
+    assert created_jobs == [job_id]
     assert deleted_sources == []
     assert fake_minio.deleted_keys == []
+
+
+@pytest.mark.asyncio
+async def test_duplicate_ingest_reports_created_job(monkeypatch):
+    pipeline = IngestionPipeline(agent_id="test-duplicate-callback")
+    job_id = uuid4()
+    existing = SimpleNamespace(
+        source_id=uuid4(), doc_id=uuid4(), extraction_status=ExtractionStatus.COMPLETED
+    )
+    monkeypatch.setattr(
+        "monitor_agents.ingestion.agent.mongodb_find_document_by_filename",
+        lambda *_args, **_kwargs: existing,
+    )
+    monkeypatch.setattr(
+        "monitor_agents.ingestion.agent.mongodb_create_ingestion_job",
+        lambda *_args, **_kwargs: SimpleNamespace(job_id=job_id),
+    )
+    monkeypatch.setattr(
+        "monitor_agents.ingestion.agent.mongodb_update_ingestion_job",
+        lambda *_args, **_kwargs: SimpleNamespace(job_id=job_id),
+    )
+    created_jobs = []
+    await pipeline.ingest_file(
+        file_bytes=b"duplicate",
+        filename="duplicate.pdf",
+        source_title="Duplicate",
+        universe_id=uuid4(),
+        pack_name="Duplicate",
+        on_job_created=created_jobs.append,
+    )
+    assert created_jobs == [job_id]
 
 
 @pytest.mark.asyncio

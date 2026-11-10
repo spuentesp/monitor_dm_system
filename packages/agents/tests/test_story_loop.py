@@ -263,7 +263,7 @@ class TestRunSceneNode:
 class TestTransitionSceneNode:
     @pytest.mark.asyncio
     async def test_transition_creates_next_scene(self):
-        """transition_scene creates a new scene and increments counter."""
+        """Creating the next scene does not count it as completed."""
         (StoryState, *_) = _import_story_loop()
         scene0 = uuid4()
         state = StoryState(
@@ -285,7 +285,7 @@ class TestTransitionSceneNode:
 
         assert result["current_scene_id"] == new_scene_id
         assert new_scene_id in result["scenes"]
-        assert result["scenes_completed"] == 2
+        assert result["scenes_completed"] == 1
 
     @pytest.mark.asyncio
     async def test_transition_noop_when_story_complete(self):

@@ -389,9 +389,7 @@ def test_list_generated_assets_supports_offset_and_limit(fake_mongo: _FakeMongoC
             _sample_asset(minio_key=f"generated/{index}.png", character_id=f"char-{index}")
         )
 
-    result = asset_tools.mongodb_list_generated_assets(
-        GeneratedAssetFilter(limit=1, offset=1)
-    )
+    result = asset_tools.mongodb_list_generated_assets(GeneratedAssetFilter(limit=1, offset=1))
 
     assert len(result) == 1
     assert result[0].minio_key in {"generated/0.png", "generated/1.png", "generated/2.png"}
@@ -423,9 +421,7 @@ def test_list_explicit_rejected_filter_still_matches_rejected(fake_mongo: _FakeM
     dropped = asset_tools.mongodb_create_generated_asset(_sample_asset(minio_key="generated/dropped.png"))
     asset_tools.mongodb_reject_generated_asset(dropped.asset_id, rejected_by="operator")
 
-    result = asset_tools.mongodb_list_generated_assets(
-        GeneratedAssetFilter(approval_status=ApprovalStatus.REJECTED)
-    )
+    result = asset_tools.mongodb_list_generated_assets(GeneratedAssetFilter(approval_status=ApprovalStatus.REJECTED))
 
     assert [asset.minio_key for asset in result] == ["generated/dropped.png"]
 

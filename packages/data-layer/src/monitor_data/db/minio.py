@@ -16,6 +16,7 @@ is active.
 """
 
 import logging
+import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -230,6 +231,53 @@ class MinIOClient:
                 )
                 return local_path.read_bytes()
             raise
+
+    async def list_keys(self, prefix: str = "", bucket: str | None = None) -> list[str]:
+        """List object keys under a prefix (both S3 and local-folder backends)."""
+        target = bucket or self._bucket
+        if self._uses_local_storage():
+            root = self._local_bucket_root(target)
+            if not root.exists():
+                return []
+            base = root / prefix if prefix else root
+            return [str(p.relative_to(root)) for p in sorted(base.rglob("*")) if p.is_file()] if base.exists() else []
+        async with self._s3() as client:
+            keys: list[str] = []
+            paginator = client.get_paginator("list_objects_v2")
+            async for page in paginator.paginate(Bucket=target, Prefix=prefix):
+                for obj in page.get("Contents", []):
+                    keys.append(obj["Key"])
+            return keys
+
+    async def copy_object(self, src_key: str, dst_key: str, bucket: str | None = None) -> None:
+        """Copy one object within a bucket (S3 CopyObject / local file copy)."""
+        target = bucket or self._bucket
+        if self._uses_local_storage():
+            src = self._local_object_path(src_key, target)
+            dst = self._local_object_path(dst_key, target)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dst)
+            return
+        async with self._s3() as client:
+            await client.copy_object(
+                Bucket=target,
+                Key=dst_key,
+                CopySource=f"{target}/{src_key}",
+            )
+
+    async def copy_prefix(self, src_prefix: str, dst_prefix: str, bucket: str | None = None) -> dict[str, Any]:
+        """Copy every object under src_prefix to dst_prefix — used when forking a world.
+
+        Returns {"src_prefix", "dst_prefix", "copied"}.
+        """
+        target = bucket or self._bucket
+        src_prefix = (src_prefix or "").lstrip("/")
+        dst_prefix = (dst_prefix or "").lstrip("/")
+        keys = await self.list_keys(prefix=src_prefix, bucket=target)
+        for key in keys:
+            suffix = key[len(src_prefix) :] if src_prefix else key
+            await self.copy_object(key, f"{dst_prefix}{suffix}" if dst_prefix else suffix, bucket=target)
+        return {"src_prefix": src_prefix, "dst_prefix": dst_prefix, "copied": len(keys)}
 
     @retry(**DB_RETRY)
     async def delete(self, key: str, bucket: str | None = None) -> None:

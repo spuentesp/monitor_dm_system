@@ -857,6 +857,8 @@ class _InboundWebSocket:
         self._frames = [json.dumps(frame) for frame in frames]
         self.accepted = False
         self.sent: list[dict[str, object]] = []
+        self.headers: dict[str, str] = {}
+        self.cookies: dict[str, str] = {}
 
     async def accept(self) -> None:
         self.accepted = True
@@ -868,6 +870,9 @@ class _InboundWebSocket:
 
     async def send_text(self, raw: str) -> None:
         self.sent.append(json.loads(raw))
+
+    async def close(self, code: int = 1000) -> None:
+        self.closed_with = code
 
 
 @pytest.mark.asyncio

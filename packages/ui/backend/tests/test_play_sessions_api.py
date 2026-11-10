@@ -13,6 +13,9 @@ from monitor_data.schemas.play_sessions import (
     PlaySessionResponse,
 )
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
+
 # =============================================================================
 # FIXTURES
 # =============================================================================

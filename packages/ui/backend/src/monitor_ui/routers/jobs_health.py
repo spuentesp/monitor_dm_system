@@ -20,11 +20,13 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 
+from monitor_ui.auth import require_admin
+
 # reason: in-function lazy import of IngestionStatus would create a circular import with monitor_ui.main; suppress until the dependency is restructured
 from monitor_data.schemas.ingestion_jobs import IngestionStatus  # type: ignore
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/jobs", tags=["ingestion-jobs"])
+router = APIRouter(prefix="/jobs", tags=["ingestion-jobs"], dependencies=[Depends(require_admin)])
 
 
 class WatchdogHealth(BaseModel):

@@ -12,10 +12,10 @@ IMPORTS FROM: data-layer only
 from __future__ import annotations
 
 import random
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 # reason: monitor_data.schemas.entity_templates module is a recent addition that hasn't published py.typed metadata; suppress the unresolved-attribute errors at import time
 from monitor_data.schemas.entity_templates import (  # type: ignore
@@ -33,6 +33,9 @@ from monitor_data.schemas.entity_templates import (  # type: ignore
     VariableProperty,
 )
 from monitor_data.tools.mongodb_tools.random_tables import mongodb_roll_on_table
+from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
+from monitor_ui.ownership import owned_world_ids, require_template_owner, require_universe_owner
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.tools.mongodb_tools.templates import (
     mongodb_create_entity_template,
     mongodb_delete_entity_template,
@@ -42,7 +45,8 @@ from monitor_data.tools.mongodb_tools.templates import (
     mongodb_update_entity_template,
 )
 
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # ---------------------------------------------------------------------------
@@ -51,8 +55,13 @@ router = APIRouter()
 
 
 @router.post("/templates", response_model=EntityTemplateResponse, status_code=201)
-async def create_template(body: EntityTemplateCreate) -> EntityTemplateResponse:
-    """Create a new entity template."""
+async def create_template(
+    body: EntityTemplateCreate,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> EntityTemplateResponse:
+    """Create a new entity template (caller must own the target universe)."""
+    await require_universe_owner(db, principal, body.universe_id)
     result = mongodb_create_entity_template(body)
     if not result:
         raise HTTPException(status_code=500, detail="Failed to create template")
@@ -60,12 +69,18 @@ async def create_template(body: EntityTemplateCreate) -> EntityTemplateResponse:
 
 
 @router.get("/templates/{template_id}", response_model=EntityTemplateResponse)
-async def get_template(template_id: UUID) -> EntityTemplateResponse:
-    """Get a specific entity template by ID."""
-    result = mongodb_get_entity_template(template_id)
-    if not result:
+async def get_template(
+    template_id: UUID,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> EntityTemplateResponse:
+    """Get a specific entity template by ID (universe owner only)."""
+    template = await require_template_owner(db, principal, template_id)
+    if template is None:
+        template = mongodb_get_entity_template(template_id)
+    if not template:
         raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
-    return result
+    return cast("EntityTemplateResponse", template)
 
 
 @router.get("/templates", response_model=EntityTemplateListResponse)
@@ -75,10 +90,17 @@ async def list_templates(
     parent_template_id: UUID | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> EntityTemplateListResponse:
-    """List entity templates with optional filtering."""
+    """List entity templates. With universe_id the caller must own it;
+    otherwise the list is scoped to the caller's universes (empty set -> empty)."""
+    if universe_id is not None:
+        await require_universe_owner(db, principal, universe_id)
+    owned_w = await owned_world_ids(db, principal)
     filters = EntityTemplateFilter(
         universe_id=universe_id,
+        universe_ids=[UUID(i) for i in owned_w] if owned_w is not None else None,
         entity_type=entity_type,
         parent_template_id=parent_template_id,
         limit=limit,
@@ -91,8 +113,11 @@ async def list_templates(
 async def update_template(
     template_id: UUID,
     body: EntityTemplateUpdate,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> EntityTemplateResponse:
-    """Update an existing entity template."""
+    """Update an existing entity template (universe owner only)."""
+    await require_template_owner(db, principal, template_id)
     try:
         return mongodb_update_entity_template(template_id, body)
     except ValueError as exc:
@@ -100,8 +125,13 @@ async def update_template(
 
 
 @router.delete("/templates/{template_id}", status_code=204)
-async def delete_template(template_id: UUID) -> None:
-    """Delete an entity template."""
+async def delete_template(
+    template_id: UUID,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> None:
+    """Delete an entity template (universe owner only)."""
+    await require_template_owner(db, principal, template_id)
     deleted = mongodb_delete_entity_template(template_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
@@ -228,6 +258,8 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 async def instantiate_template(
     template_id: UUID,
     body: InstantiateEntityRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> InstantiateEntityResponse:
     """Resolve a template into a populated entity create-payload.
 
@@ -242,7 +274,9 @@ async def instantiate_template(
             status_code=400,
             detail="Body template_id does not match path template_id",
         )
-    template = mongodb_get_entity_template(template_id)
+    template = await require_template_owner(db, principal, template_id)
+    if template is None:
+        template = mongodb_get_entity_template(template_id)
     if not template:
         raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
 
@@ -289,8 +323,14 @@ async def instantiate_template(
     "/templates/{template_id}/increment-usage",
     response_model=EntityTemplateResponse,
 )
-async def increment_template_usage(template_id: UUID) -> EntityTemplateResponse:
+async def increment_template_usage(
+    template_id: UUID,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> EntityTemplateResponse:
     """Manually bump a template's usage_count (e.g. out-of-band instantiation)."""
+    if not is_local_mode(principal):
+        await require_template_owner(db, principal, template_id)
     template = mongodb_get_entity_template(template_id)
     if not template:
         raise HTTPException(status_code=404, detail=f"Template {template_id} not found")

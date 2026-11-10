@@ -93,6 +93,9 @@ class StoryFilter(BaseModel):
     """Filter parameters for listing stories."""
 
     universe_id: UUID | None = None
+    # Ownership allowlist (server-derived from the Postgres registry);
+    # applied in Cypher BEFORE pagination, ANDed with universe_id.
+    universe_ids: list[UUID] | None = None
     story_type: StoryType | None = None
     status: StoryStatus | None = None
     limit: int = Field(default=50, ge=1, le=1000)

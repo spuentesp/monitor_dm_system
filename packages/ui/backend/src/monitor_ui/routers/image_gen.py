@@ -56,7 +56,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import RedirectResponse
 from monitor_agents.image_context import CanonicalVisualContext, assemble_image_context
 from monitor_data.db.minio import MinIOClient, get_minio_client
@@ -101,6 +101,8 @@ from monitor_ui.image_budget import (
 
 from .character_storage import get_character
 from .chat_persistence import db_load_messages
+from monitor_data.db.postgres import PostgresClient
+from monitor_ui.auth import Principal, get_current_user, get_postgres
 
 log = structlog.get_logger()
 
@@ -342,12 +344,8 @@ def _session_agreements_from_doc(session: dict[str, Any]) -> tuple[tuple[str, ..
     raw = session.get("story_agreements")
     if not isinstance(raw, dict):
         return (), ()
-    lines = tuple(
-        str(item).strip() for item in (raw.get("lines") or []) if str(item).strip()
-    )
-    veils = tuple(
-        str(item).strip() for item in (raw.get("veils") or []) if str(item).strip()
-    )
+    lines = tuple(str(item).strip() for item in (raw.get("lines") or []) if str(item).strip())
+    veils = tuple(str(item).strip() for item in (raw.get("veils") or []) if str(item).strip())
     return lines, veils
 
 
@@ -570,7 +568,9 @@ async def _portrait_agreements(char: dict[str, Any]) -> tuple[tuple[str, ...], t
 
 
 @router.post("/portrait", response_model=PortraitResponse)
-async def generate_portrait(body: PortraitRequest) -> PortraitResponse:
+async def generate_portrait(
+    body: PortraitRequest, principal: Principal = Depends(get_current_user)
+) -> PortraitResponse:
     """Generate a portrait and record it as a PENDING asset.
 
     The avatar is never mutated here — approving the asset with
@@ -678,7 +678,9 @@ async def generate_portrait(body: PortraitRequest) -> PortraitResponse:
 
 
 @router.post("/scene", response_model=SceneResponse)
-async def generate_scene_image(body: SceneRequest) -> SceneResponse:
+async def generate_scene_image(
+    body: SceneRequest, principal: Principal = Depends(get_current_user), db: PostgresClient = Depends(get_postgres)
+) -> SceneResponse:
     """Generate a scene illustration from the last N messages of a chat."""
     if not body.conversation_id and not body.session_id:
         raise HTTPException(
@@ -706,9 +708,7 @@ async def generate_scene_image(body: SceneRequest) -> SceneResponse:
         scene_scope_key = str(source.scene_id)
     else:
         scene_scope_key = None
-    conversation_scope_key = (
-        str(source.conversation_id) if source.conversation_id else source.scope
-    )
+    conversation_scope_key = str(source.conversation_id) if source.conversation_id else source.scope
     actor_hour_scope_key = body.character_id
 
     reserved: list[tuple[BudgetScope, str, str | None]] = []
@@ -842,7 +842,7 @@ async def generate_scene_image(body: SceneRequest) -> SceneResponse:
 
 
 @router.get("/avatar/{character_id}")
-async def character_avatar(character_id: str) -> RedirectResponse:
+async def character_avatar(character_id: str, principal: Principal = Depends(get_current_user)) -> RedirectResponse:
     """Redirect to a fresh presigned URL for the character's avatar image."""
     char = get_character(character_id)
     if not char:

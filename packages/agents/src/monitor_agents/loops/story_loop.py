@@ -356,6 +356,9 @@ class StoryLoop:
             thread_id = f"story-{self.story_id}"
             config = {"configurable": {"thread_id": thread_id}}
 
+            snapshot = await compiled.aget_state(config)  # type: ignore[arg-type]
+            if snapshot.values:
+                return dict(snapshot.values)
             initial = StoryState(
                 story_id=self.story_id,
                 universe_id=self.universe_id,
@@ -416,7 +419,7 @@ class StoryLoop:
         Returns:
             Updated StoryState dict.
         """
-        force_complete = bool((outcome or {}).get("scene_complete", False))
+        force_complete = bool((outcome or {}).get("story_complete", False))
         duration = int((outcome or {}).get("total_minutes_passed") or 0)
 
         with MongoDBSaver.from_conn_string(settings.mongodb_uri) as checkpointer:
@@ -425,11 +428,8 @@ class StoryLoop:
             config = {"configurable": {"thread_id": thread_id}}
 
             # Load current checkpoint state
-            try:
-                current = await compiled.aget_state(config)  # type: ignore[arg-type]
-                state_values = dict(current.values) if current.values else {}
-            except Exception:  # noqa: BLE001  # reason: falls back to `{}` on failure (in complete_current_scene)
-                state_values = {}
+            current = await compiled.aget_state(config)  # type: ignore[arg-type]
+            state_values = dict(current.values) if current.values else {}
 
             # Build state with scene completion context
             previous_scenes = list(state_values.get("scenes", []))
@@ -437,24 +437,25 @@ class StoryLoop:
             previous_threads = list(state_values.get("active_threads", []))
             previous_completed = list(state_values.get("completed_threads", []))
 
-            run_state = StoryState(
-                story_id=self.story_id,
-                universe_id=self.universe_id,
-                current_scene_id=scene_id,
-                story_complete=force_complete,
-                last_scene_duration_minutes=duration,
-                scenes=previous_scenes,
-                scenes_completed=state_values.get("scenes_completed", 0) + 1,
-                scenes_history=previous_history,
-                world_tone=state_values.get("world_tone", "dramatic"),
-                arc_label=state_values.get("arc_label", "rising_action"),
-                tension_score=float(state_values.get("tension_score", 0.3)),
-                active_threads=previous_threads,
-                completed_threads=previous_completed,
+            run_state = StoryState.model_validate(
+                {
+                    **state_values,
+                    "story_id": self.story_id,
+                    "universe_id": self.universe_id,
+                    "current_scene_id": scene_id,
+                    "story_complete": force_complete,
+                    "last_scene_duration_minutes": duration,
+                    "scenes": previous_scenes,
+                    "scenes_completed": state_values.get("scenes_completed", 0) + 1,
+                    "scenes_history": previous_history,
+                    "active_threads": previous_threads,
+                    "completed_threads": previous_completed,
+                }
             )
 
             if force_complete:
                 await finalize_story(run_state)
+                await compiled.aupdate_state(config, run_state.model_dump(), as_node="init_story")  # type: ignore[arg-type]
                 return {"story_complete": True, "completed_scene_id": scene_id}
 
             # Step 1: Run world simulation
@@ -510,6 +511,7 @@ class StoryLoop:
 
             if arc_update.get("story_complete"):
                 await finalize_story(run_state)
+                await compiled.aupdate_state(config, run_state.model_dump(), as_node="init_story")  # type: ignore[arg-type]
                 return {
                     **run_state.model_dump(),
                     **progression_update,
@@ -518,9 +520,10 @@ class StoryLoop:
 
             # Step 3: Create next scene via transition
             transition_update = await transition_scene(run_state)
+            checkpoint_state = {**run_state.model_dump(), **transition_update}
+            await compiled.aupdate_state(config, checkpoint_state, as_node="init_story")  # type: ignore[arg-type]
             return {
-                **run_state.model_dump(),
-                **transition_update,
+                **checkpoint_state,
                 **progression_update,
                 "agenda_moves": agenda_moves,
                 "completed_scene_id": scene_id,

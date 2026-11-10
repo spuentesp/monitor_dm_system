@@ -21,26 +21,28 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from monitor_agents.ingestion import session_ingest as _session_ingest
 from monitor_data.db import mongodb as _mongodb
 from monitor_data.schemas.base import Authority, ProposalType, ProposalStatus
 
+from monitor_ui.auth import Principal, get_current_user
+from monitor_ui.ownership import require_character_owner
+
 from . import character_storage as _character_storage
 
 logger = structlog.get_logger()
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 class PromotionRequest(BaseModel):
     conversation_id: str | None = Field(
         default=None,
         description=(
-            "Conversation to promote. If omitted, the most recent active "
-            "conversation for this character is used."
+            "Conversation to promote. If omitted, the most recent active conversation for this character is used."
         ),
     )
     context: str | None = Field(
@@ -79,9 +81,7 @@ def _find_target_conversation(character_id: str, conversation_id: str | None) ->
     if conversation_id:
         doc = coll.find_one({"conversation_id": conversation_id})
         if not doc:
-            raise HTTPException(
-                status_code=404, detail=f"Conversation {conversation_id} not found."
-            )
+            raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found.")
         return doc  # type: ignore[no-any-return]
     active = coll.find_one(
         {"status": "active", "lorebook_character_ids": character_id},
@@ -101,7 +101,9 @@ def _find_target_conversation(character_id: str, conversation_id: str | None) ->
     response_model=PromotionPreview,
 )
 async def promote_character(
-    character_id: str, body: PromotionRequest | None = None
+    character_id: str,
+    body: PromotionRequest | None = None,
+    principal: Principal = Depends(get_current_user),
 ) -> PromotionPreview:
     """Promote a light-RP character's conversation history to ProposedChanges.
 
@@ -113,6 +115,7 @@ async def promote_character(
     ``content`` for the diff view to look up.
     """
     body = body or PromotionRequest()
+    await require_character_owner(principal, character_id)
     char = _character_storage.get_character(character_id)
     if not char:
         raise HTTPException(status_code=404, detail=f"Character {character_id} not found.")

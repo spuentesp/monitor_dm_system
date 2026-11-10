@@ -267,10 +267,7 @@ def _sorted_facts(context: Any) -> list[tuple[str, str]]:
     # an explicit status or canon_level, the prompt layer honours them here.
     filtered = [
         (fact_id, statement)
-        for fact_id, statement, _fact in (
-            (fid, stmt, fact)
-            for (fid, stmt), fact in zip(parts, raw or ())
-        )
+        for fact_id, statement, _fact in ((fid, stmt, fact) for (fid, stmt), fact in zip(parts, raw or ()))
         if _fact_is_eligible(_fact)
     ]
     return sorted(filtered, key=lambda pair: (pair[0], pair[1]))

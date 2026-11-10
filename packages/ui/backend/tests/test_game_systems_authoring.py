@@ -8,6 +8,9 @@ motor query matched on a UUID object against a string field and could never
 hit).
 """
 
+import pytest
+
+
 from datetime import UTC, datetime
 from unittest.mock import patch
 from uuid import uuid4
@@ -21,6 +24,8 @@ from monitor_data.schemas.game_systems import (
 )
 
 from monitor_ui.main import app
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 client = TestClient(app)
 

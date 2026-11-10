@@ -54,9 +54,7 @@ def mongodb_create_foreshadowing(params: ForeshadowingCreate) -> ForeshadowingRe
     return _doc_to_response(doc)
 
 
-def mongodb_list_open_foreshadowing(
-    scene_id: UUID, story_id: UUID, *, limit: int = 5
-) -> list[ForeshadowingResponse]:
+def mongodb_list_open_foreshadowing(scene_id: UUID, story_id: UUID, *, limit: int = 5) -> list[ForeshadowingResponse]:
     """Return open plant/payoff items for the given scene+story, newest first."""
     mongo_client = get_mongodb_client()
     coll = mongo_client["scene_foreshadowing"]
@@ -74,9 +72,7 @@ def mongodb_list_open_foreshadowing(
     return [_doc_to_response(d) for d in docs[:limit]]
 
 
-def mongodb_mark_foreshadowing_paid(
-    foreshadowing_id: UUID, *, paid_at_turn: int
-) -> ForeshadowingResponse | None:
+def mongodb_mark_foreshadowing_paid(foreshadowing_id: UUID, *, paid_at_turn: int) -> ForeshadowingResponse | None:
     """Mark an open item as paid; returns the updated response (or None if missing)."""
     mongo_client = get_mongodb_client()
     coll = mongo_client["scene_foreshadowing"]

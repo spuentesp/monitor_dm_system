@@ -125,9 +125,7 @@ class TestValidAnchors:
         """Incarnation identities may also carry an entity_id."""
         universe = uuid4()
         entity = uuid4()
-        ident = VisualIdentityCreate(
-            **_base_payload(universe_id=universe, entity_id=entity)
-        )
+        ident = VisualIdentityCreate(**_base_payload(universe_id=universe, entity_id=entity))
         assert ident.character_id == "char-1"
         assert ident.universe_id == universe
         assert ident.entity_id == entity
@@ -184,50 +182,22 @@ class TestAnchorValidation:
 
 class TestStatusTransitions:
     def test_draft_to_approved(self) -> None:
-        assert (
-            transition_visual_identity_status(
-                VisualIdentityStatus.DRAFT, VisualIdentityStatus.APPROVED
-            )
-            is True
-        )
+        assert transition_visual_identity_status(VisualIdentityStatus.DRAFT, VisualIdentityStatus.APPROVED) is True
 
     def test_approved_to_superseded(self) -> None:
-        assert (
-            transition_visual_identity_status(
-                VisualIdentityStatus.APPROVED, VisualIdentityStatus.SUPERSEDED
-            )
-            is True
-        )
+        assert transition_visual_identity_status(VisualIdentityStatus.APPROVED, VisualIdentityStatus.SUPERSEDED) is True
 
     def test_draft_to_superseded_is_invalid(self) -> None:
-        assert (
-            transition_visual_identity_status(
-                VisualIdentityStatus.DRAFT, VisualIdentityStatus.SUPERSEDED
-            )
-            is False
-        )
+        assert transition_visual_identity_status(VisualIdentityStatus.DRAFT, VisualIdentityStatus.SUPERSEDED) is False
 
     def test_superseded_to_anything_is_invalid(self) -> None:
         assert (
-            transition_visual_identity_status(
-                VisualIdentityStatus.SUPERSEDED, VisualIdentityStatus.APPROVED
-            )
-            is False
+            transition_visual_identity_status(VisualIdentityStatus.SUPERSEDED, VisualIdentityStatus.APPROVED) is False
         )
-        assert (
-            transition_visual_identity_status(
-                VisualIdentityStatus.SUPERSEDED, VisualIdentityStatus.DRAFT
-            )
-            is False
-        )
+        assert transition_visual_identity_status(VisualIdentityStatus.SUPERSEDED, VisualIdentityStatus.DRAFT) is False
 
     def test_self_transition_is_invalid(self) -> None:
-        assert (
-            transition_visual_identity_status(
-                VisualIdentityStatus.DRAFT, VisualIdentityStatus.DRAFT
-            )
-            is False
-        )
+        assert transition_visual_identity_status(VisualIdentityStatus.DRAFT, VisualIdentityStatus.DRAFT) is False
 
 
 # =============================================================================

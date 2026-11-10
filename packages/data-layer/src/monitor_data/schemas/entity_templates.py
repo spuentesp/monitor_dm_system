@@ -209,6 +209,9 @@ class EntityTemplateFilter(BaseModel):
     """Filter for listing entity templates."""
 
     universe_id: UUID | None = None
+    # Ownership allowlist (caller's owned worlds); applied in Mongo BEFORE
+    # skip/limit. Empty list matches nothing — never an unscoped fallback.
+    universe_ids: list[UUID] | None = None
     entity_type: EntityType | None = None
     parent_template_id: UUID | None = None
     limit: int = Field(default=50, ge=1, le=200)

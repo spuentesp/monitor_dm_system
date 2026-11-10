@@ -256,9 +256,7 @@ class _RecordingAdapter:
         return self._caps
 
     async def generate_image(self, prompt: str, *, aspect_ratio: str = "1:1") -> bytes:
-        return await self.generate_image_structured(
-            ImageGenerationInput(prompt=prompt, aspect_ratio=aspect_ratio)
-        )
+        return await self.generate_image_structured(ImageGenerationInput(prompt=prompt, aspect_ratio=aspect_ratio))
 
     async def generate_image_structured(self, input: ImageGenerationInput) -> bytes:
         self.received.append(input)

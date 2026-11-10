@@ -571,23 +571,25 @@ async def find_client_conversation(character_id: str, persona_id: str | None, fi
     from monitor_data.db.mongodb import get_mongodb_client
 
     def _find() -> dict[str, Any] | None:
-        return get_mongodb_client().get_collection("conversations").find_one(
-            {
-                "status": "active",
-                "client_session.character_id": character_id,
-                "client_session.persona_character_id": persona_id,
-                "client_session.fingerprints": fingerprint,
-            },
-            {"conversation_id": 1, "turns": 1},
-            sort=[("updated_at", -1)],
+        return (
+            get_mongodb_client()
+            .get_collection("conversations")
+            .find_one(
+                {
+                    "status": "active",
+                    "client_session.character_id": character_id,
+                    "client_session.persona_character_id": persona_id,
+                    "client_session.fingerprints": fingerprint,
+                },
+                {"conversation_id": 1, "turns": 1},
+                sort=[("updated_at", -1)],
+            )
         )
 
     doc = await asyncio.to_thread(_find)
     if not doc:
         return None
-    player_turns = sum(
-        1 for t in (doc.get("turns") or []) if isinstance(t, dict) and t.get("speaker_role") == "player"
-    )
+    player_turns = sum(1 for t in (doc.get("turns") or []) if isinstance(t, dict) and t.get("speaker_role") == "player")
     if player_turns >= 100:
         return None
     return str(doc["conversation_id"])
@@ -730,9 +732,13 @@ async def send_message(
                 with contextlib.suppress(Exception):
                     from monitor_data.db.mongodb import get_mongodb_client
 
-                    doc = get_mongodb_client().get_collection("conversations").find_one(
-                        {"conversation_id": conversation_id},
-                        {"client_session": 1},
+                    doc = (
+                        get_mongodb_client()
+                        .get_collection("conversations")
+                        .find_one(
+                            {"conversation_id": conversation_id},
+                            {"client_session": 1},
+                        )
                     )
                     if isinstance(doc, dict):
                         cs = doc.get("client_session")

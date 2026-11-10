@@ -9,6 +9,9 @@ All MongoDB tool functions are patched at the router module boundary,
 mirroring the ``test_entities_crud.py`` style.
 """
 
+import pytest
+
+
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -18,6 +21,8 @@ from monitor_data.schemas.entity_templates import (
 )
 
 from monitor_ui.main import app
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 client = TestClient(app)
 

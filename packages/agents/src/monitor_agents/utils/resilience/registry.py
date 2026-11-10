@@ -1,7 +1,7 @@
 """Process-wide circuit breaker registry for MONITOR services.
 
 Provides named circuit breakers for each external service
-(Neo4j, MongoDB, Qdrant, OpenSearch, Postgres, LLM) so that
+(Neo4j, MongoDB, Qdrant, Postgres, LLM) so that
 agents can opt-in to resilience on a per-service basis.
 
 Usage:
@@ -25,7 +25,6 @@ _SERVICE_DEFAULTS: dict[str, dict[str, float]] = {
     "neo4j": {"failure_threshold": 3, "reset_timeout": 30.0},
     "mongodb": {"failure_threshold": 5, "reset_timeout": 20.0},
     "qdrant": {"failure_threshold": 3, "reset_timeout": 30.0},
-    "opensearch": {"failure_threshold": 3, "reset_timeout": 30.0},
     "postgres": {"failure_threshold": 3, "reset_timeout": 30.0},
     "llm": {"failure_threshold": 5, "reset_timeout": 15.0},
     "mcp": {"failure_threshold": 5, "reset_timeout": 15.0},

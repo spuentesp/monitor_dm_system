@@ -125,6 +125,9 @@ class RandomTableFilter(BaseModel):
     """Filter for listing random tables."""
 
     universe_id: UUID | None = None
+    # Ownership allowlist (caller's owned worlds); applied in Mongo BEFORE
+    # skip/limit. Empty list matches nothing — never an unscoped fallback.
+    universe_ids: list[UUID] | None = None
     table_type: RandomTableType | None = None
     game_system_id: UUID | None = None
     limit: int = Field(default=50, ge=1, le=200)

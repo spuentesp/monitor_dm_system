@@ -17,7 +17,8 @@ Falls back with an empty graph if Neo4j is unreachable.
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.entities import EntityFilter
 from monitor_data.schemas.relationships import RelationshipFilter
 from monitor_data.schemas.universe import UniverseFilter
@@ -29,8 +30,10 @@ from monitor_data.tools.neo4j_tools import (
     neo4j_list_relationships,
     neo4j_list_universes,
 )
+from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.ownership import owned_multiverse_ids, owned_world_ids, require_universe_owner
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 # ─── Entity type → graph kind ─────────────────────────────────
 
@@ -68,6 +71,8 @@ def _tier_layout(
 
 @router.get("/world")
 async def get_world_graph(
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
     multiverse_id: UUID | None = Query(None, description="Scope to a single setting"),
     universe_id: UUID | None = Query(None, description="Scope to a single universe"),
     entity_types: str | None = Query(None, description="Comma-separated entity types"),
@@ -88,12 +93,26 @@ async def get_world_graph(
     try:
         neo4j_ensure_omniverse()
 
-        multiverses = neo4j_list_multiverses()
+        # Ownership scope (plan D4): owned-ID predicates are applied in the
+        # storage query BEFORE any pagination; an empty owned set yields an
+        # empty graph, never an unscoped fallback. None = local mode.
+        owned_mv = await owned_multiverse_ids(db, principal)
+        owned_w = await owned_world_ids(db, principal)
+        if universe_id is not None:
+            await require_universe_owner(db, principal, universe_id)
+        if multiverse_id is not None:
+            from monitor_ui.ownership import require_multiverse_owner
+
+            await require_multiverse_owner(db, principal, multiverse_id)
+
+        multiverses = neo4j_list_multiverses(ids=[UUID(i) for i in owned_mv] if owned_mv is not None else None)
 
         # ── Scope universes at the DB level ─────────────────────
-        universe_filter = UniverseFilter(limit=500)
+        universe_filter = UniverseFilter(limit=500, ids=[UUID(i) for i in owned_w] if owned_w is not None else None)
         if multiverse_id:
-            universe_filter = UniverseFilter(multiverse_id=multiverse_id, limit=500)
+            universe_filter = UniverseFilter(
+                multiverse_id=multiverse_id, limit=500, ids=[UUID(i) for i in owned_w] if owned_w is not None else None
+            )
         universes = neo4j_list_universes(universe_filter)
 
         # ── Narrow multiverses to only those with visible universes
@@ -114,24 +133,24 @@ async def get_world_graph(
             allowed_entity_types = {t.strip().lower() for t in entity_types.split(",") if t.strip()}
 
         # ── Load entities (scoped to visible universes) ─────────
-        entity_filter = EntityFilter(limit=500)
-        if universe_id:
-            entity_filter = EntityFilter(universe_id=universe_id, limit=500)
-        elif multiverse_id and universes:
-            # Load entities only for universes in this multiverse
-            # Query per-universe to stay scoped (avoids fetching all)
-            entity_filter = EntityFilter(universe_id=universes[0].id, limit=500)
+        # Always per-universe so the ownership scope above holds even when
+        # no explicit filter was given.
+        entities_r = neo4j_list_entities(EntityFilter(limit=1))
+        entities_r.entities = []
+        for u in universes:
+            if universe_id and str(u.id) != str(universe_id):
+                continue
+            extra = neo4j_list_entities(EntityFilter(universe_id=u.id, limit=500))
+            entities_r.entities.extend(extra.entities)
 
-        entities_r = neo4j_list_entities(entity_filter)
-
-        # If multiverse filter is set and there are multiple universes,
-        # fetch entities for the remaining universes too
-        if multiverse_id and len(universes) > 1:
-            for u in universes[1:]:
-                extra = neo4j_list_entities(EntityFilter(universe_id=u.id, limit=500))
-                entities_r.entities.extend(extra.entities)
-
+        visible_entity_ids = {str(e.id) for e in entities_r.entities}
         rels_r = neo4j_list_relationships(RelationshipFilter(limit=1000))
+        # Relationships are kept only between visible (owned) entities.
+        rels_r.relationships = [
+            r
+            for r in rels_r.relationships
+            if str(r.from_entity_id) in visible_entity_ids and str(r.to_entity_id) in visible_entity_ids
+        ]
 
         # If scoping to a specific entity, collect only its neighbors
         related_entity_ids: set[str] | None = None
@@ -145,6 +164,8 @@ async def get_world_graph(
                     related_entity_ids.add(to_id)
                 elif to_id == rt_str:
                     related_entity_ids.add(from_id)
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report (in get_world_graph)
         return {"nodes": [], "edges": [], "error": str(exc)}
 
@@ -309,6 +330,8 @@ async def get_world_graph(
 @router.get("/universes/{universe_id}/graph")
 async def get_universe_graph(
     universe_id: UUID,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
     depth: int = Query(default=1, ge=1, le=5, description="Traversal depth (1-5)"),
     entity_types: str | None = Query(default=None, description="Comma-separated entity types to include"),
     rel_types: str | None = Query(default=None, description="Comma-separated relationship types to include"),
@@ -324,6 +347,7 @@ async def get_universe_graph(
     This is the primary Q-11 endpoint for the graph explorer UI.
     """
     try:
+        await require_universe_owner(db, principal, universe_id)
         # ── Load universe ───────────────────────────────────────
         universe_filter = UniverseFilter(id=universe_id, limit=1)
         universes = neo4j_list_universes(universe_filter)
@@ -360,6 +384,8 @@ async def get_universe_graph(
         if allowed_rel_types:
             filtered_rels = [r for r in filtered_rels if r.rel_type and r.rel_type.lower() in allowed_rel_types]
 
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report (in get_universe_graph)
         return {"nodes": [], "edges": [], "error": str(exc)}
 
@@ -453,6 +479,8 @@ async def get_universe_graph(
 async def get_entity_ego_graph(
     entity_id: UUID,
     universe_id: UUID,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
     depth: int = Query(default=1, ge=1, le=3, description="Neighbour depth (1-3)"),
     # reason: return annotation `-> dict` is the bare generic missing type parameters; FastAPI handler builds heterogeneous keys (`error`, `nodes`, `edges`, `central_entity_id`, `depth`, `entity_types`, `rel_types`) so the response shape is intentionally untyped
 ) -> dict:  # type: ignore
@@ -466,6 +494,7 @@ async def get_entity_ego_graph(
     Maximum depth is 3 to keep response bounded.
     """
     try:
+        await require_universe_owner(db, principal, universe_id)
         # Load the central entity
         entity_filter = EntityFilter(id=entity_id, universe_id=universe_id, limit=1)
         entities_r = neo4j_list_entities(entity_filter)
@@ -480,6 +509,8 @@ async def get_entity_ego_graph(
         # Load all relationships in this universe
         rels_r = neo4j_list_relationships(RelationshipFilter(universe_id=universe_id, limit=1000))
 
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: records error in diagnostic report (in get_entity_ego_graph)
         return {"nodes": [], "edges": [], "error": str(exc)}
 

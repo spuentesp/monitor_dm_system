@@ -17,6 +17,7 @@ from uuid import UUID
 from qdrant_client.models import (
     FieldCondition,
     Filter,
+    MatchAny,
     MatchText,
     MatchValue,
     PointStruct,
@@ -188,6 +189,18 @@ def _build_qdrant_filter(filter_params: VectorFilter) -> Filter | None:
                     match=MatchValue(value=str(value) if isinstance(value, UUID) else value),
                 )
             )
+
+    # Multi-tenant scope allowlist: MatchAny on universe_id. Server-added by
+    # the UI backend from the Postgres ownership registry; web callers cannot
+    # remove or widen it because the route never accepts raw custom filters
+    # for this field.
+    if filter_params.universe_ids is not None:  # empty allowlist matches nothing (D4)
+        must_conditions.append(
+            FieldCondition(
+                key="universe_id",
+                match=MatchAny(any=[str(u) for u in filter_params.universe_ids]),
+            )
+        )
 
     if filter_params.is_archetype is not None:
         must_conditions.append(
@@ -834,3 +847,54 @@ def qdrant_scroll(
         for p in (points or [])
     ]
 
+
+def qdrant_clone_collection(src_collection: str, dst_collection: str, batch_size: int = 256) -> dict[str, Any]:
+    """Clone a Qdrant collection (vectors + payloads) — used when forking a world.
+
+    The destination is (re)created with the same vector config as the source,
+    then all points are streamed over via scroll in batches. Points keep their
+    ids, so re-running overwrites rather than duplicates.
+
+    Args:
+        src_collection: Source collection name.
+        dst_collection: Destination collection name.
+        batch_size: Scroll/upsert batch size (clamped to 16..1024).
+
+    Returns:
+        Dict with src/dst names and the number of points copied.
+    """
+    from qdrant_client.models import PointStruct
+
+    safe_batch = max(16, min(int(batch_size), 1024))
+    qdrant = get_qdrant_client()
+
+    async def _clone() -> dict[str, Any]:
+        client = qdrant.get_client()
+        info = await client.get_collection(src_collection)
+        vectors_config = info.config.params.vectors
+        if await client.collection_exists(dst_collection):
+            await client.delete_collection(dst_collection)
+        await client.create_collection(collection_name=dst_collection, vectors_config=vectors_config)
+        await qdrant._ensure_payload_indexes(dst_collection)
+
+        total = 0
+        offset = None
+        while True:
+            points, offset = await client.scroll(
+                collection_name=src_collection,
+                limit=safe_batch,
+                offset=offset,
+                with_vectors=True,
+                with_payload=True,
+            )
+            if points:
+                await client.upsert(
+                    collection_name=dst_collection,
+                    points=[PointStruct(id=p.id, vector=p.vector, payload=p.payload or {}) for p in points],
+                )
+                total += len(points)
+            if offset is None:
+                break
+        return {"src_collection": src_collection, "dst_collection": dst_collection, "points_copied": total}
+
+    return dict(run_sync(_clone()))

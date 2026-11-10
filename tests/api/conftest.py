@@ -18,6 +18,113 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_db_singletons(monkeypatch: pytest.MonkeyPatch):
+    import pkgutil
+    """tests/api builds full apps whose lifespan and routes resolve the real
+    DB singletons. Swap every singleton for the in-memory fakes and force
+    local auth mode so no test ever opens a real socket."""
+    from monitor_data.db import mongodb as _mongo_mod
+    from monitor_data.db import neo4j as _neo4j_mod
+    from monitor_data.db import postgres as _pg_mod
+    from monitor_data.db import qdrant as _qdrant_mod
+    from monitor_data.db import redis as _redis_mod
+    from tests.mocks.db.mongo import FakeMongoClient
+    from tests.mocks.db.neo4j import FakeNeo4jClient  # type: ignore[attr-defined]
+    from tests.mocks.db.qdrant import FakeQdrantClient  # type: ignore[attr-defined]
+    from tests.mocks.db.redis import FakeRedisClient  # type: ignore[attr-defined]
+
+    import monitor_ui.auth as _auth_mod
+
+    _backend_tests = (
+        Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "tests"
+    )
+    sys.path.insert(0, str(_backend_tests))
+    from fake_postgres import FakePostgres
+
+    _fake_mongo = FakeMongoClient()
+    _fake_mongo.get_collection = _fake_mongo.get_database().get_collection  # type: ignore[method-assign]
+    _fake_pg = FakePostgres()
+    monkeypatch.setattr(_mongo_mod, "get_mongodb_client", lambda: _fake_mongo)
+    monkeypatch.setattr(_pg_mod, "get_postgres_client", lambda: _fake_pg)
+    monkeypatch.setattr(_auth_mod, "get_postgres_client", lambda: _fake_pg)
+    monkeypatch.setattr(_neo4j_mod, "get_neo4j_client", lambda: FakeNeo4jClient())
+    monkeypatch.setattr(_qdrant_mod, "get_qdrant_client", lambda: FakeQdrantClient())
+    monkeypatch.setattr(_redis_mod, "get_redis_client", lambda: FakeRedisClient())
+
+    # Tool modules bind the client getters at import time; re-point those too.
+    import monitor_data.tools as _tools_pkg
+
+    _all_mods = list(pkgutil.iter_modules(_tools_pkg.__path__, prefix="monitor_data.tools."))
+    for _mod_info in _all_mods:
+        try:  # noqa: S112
+            _mod = __import__(_mod_info.name, fromlist=["*"])
+        except Exception:
+            continue
+        if hasattr(_mod, "get_mongodb_client"):
+            monkeypatch.setattr(_mod, "get_mongodb_client", lambda: _fake_mongo)
+        if hasattr(_mod, "get_neo4j_client"):
+            monkeypatch.setattr(_mod, "get_neo4j_client", lambda: FakeNeo4jClient())
+        if hasattr(_mod, "get_qdrant_client"):
+            monkeypatch.setattr(_mod, "get_qdrant_client", lambda: FakeQdrantClient())
+        if hasattr(_mod, "get_redis_client"):
+            monkeypatch.setattr(_mod, "get_redis_client", lambda: FakeRedisClient())
+    for _sub in ("mongodb_tools", "neo4j_tools", "ingest_tools", "plot_thread_tools", "temporal_tools"):
+        try:  # noqa: S112
+            _submod = __import__(f"monitor_data.tools.{_sub}", fromlist=["*"])
+        except Exception:
+            continue
+        for _mi in pkgutil.iter_modules(_submod.__path__, prefix=f"monitor_data.tools.{_sub}."):
+            try:  # noqa: S112
+                _m = __import__(_mi.name, fromlist=["*"])
+            except Exception:
+                continue
+            if hasattr(_m, "get_mongodb_client"):
+                monkeypatch.setattr(_m, "get_mongodb_client", lambda: _fake_mongo)
+            if hasattr(_m, "get_neo4j_client"):
+                monkeypatch.setattr(_m, "get_neo4j_client", lambda: FakeNeo4jClient())
+            if hasattr(_m, "get_qdrant_client"):
+                monkeypatch.setattr(_m, "get_qdrant_client", lambda: FakeQdrantClient())
+            if hasattr(_m, "get_redis_client"):
+                monkeypatch.setattr(_m, "get_redis_client", lambda: FakeRedisClient())
+    monkeypatch.setenv("MONITOR_AUTH_DISABLED", "true")
+    from monitor_ui.config import get_settings
+
+    get_settings.cache_clear()
+
+    # Ownership checks: tests/api covers behavior, not authz (that lives in
+    # packages/ui/backend/tests). In local mode every require_* passes, so
+    # override them on the singleton app and patch direct-call references.
+    import monitor_ui.ownership as _own
+    from monitor_ui.main import app as _ui_app
+    from monitor_ui.routers import chat as _chat_mod
+
+    async def _allow(*args, **kwargs):  # type: ignore[no-untyped-def]
+        from uuid import uuid4 as _u4
+
+        return {"id": str(_u4()), "owner_id": str(_u4())}
+
+    _override_fns = [getattr(_own, n) for n in dir(_own) if n.startswith("require_")]
+    for _fn in _override_fns:
+        _ui_app.dependency_overrides[_fn] = _allow
+    # Direct (non-Depends) call sites: re-point every router module's bound
+    # require_* references at the passthrough.
+    import monitor_ui.routers as _routers_pkg
+    import pkgutil
+
+    for _mod_info in pkgutil.iter_modules(_routers_pkg.__path__):
+        _mod = __import__(f"monitor_ui.routers.{_mod_info.name}", fromlist=["*"])
+        for _n in dir(_mod):
+            if _n.startswith("require_"):
+                monkeypatch.setattr(_mod, _n, _allow)
+
+    yield
+
+    for _fn in _override_fns:
+        _ui_app.dependency_overrides.pop(_fn, None)
+    get_settings.cache_clear()
+
+
 def _add_backend_to_path() -> None:
     """Ensure the monitor_ui package is importable."""
     backend_src = (
@@ -154,5 +261,41 @@ def ui_client() -> Generator[TestClient, None, None]:
     app.include_router(chat_router.router, prefix="/api/chat", tags=["chat"])
     app.include_router(modes_router.router, prefix="/api/modes", tags=["modes"])
 
-    with TestClient(app) as client:
-        yield client
+    # Hermetic: auth resolves to a fixed local principal and Postgres/Mongo
+    # are the in-memory fakes, so no request ever opens a real socket.
+    from unittest.mock import patch as _mock_patch
+    from uuid import uuid4
+
+    from fastapi import HTTPException
+
+    from monitor_ui.auth import Principal, get_current_user, get_postgres
+    from tests.mocks.db.mongo import FakeMongoClient
+    backend_tests = (
+        Path(__file__).resolve().parents[2] / "packages" / "ui" / "backend" / "tests"
+    )
+    sys.path.insert(0, str(backend_tests))
+    from fake_postgres import FakePostgres
+
+    _fake_pg = FakePostgres()
+    _fake_mongo = FakeMongoClient()
+    _fake_mongo.get_collection = _fake_mongo.get_database().get_collection  # type: ignore[method-assign]
+    app.dependency_overrides[get_current_user] = lambda: Principal(
+        user_id=uuid4(), is_admin=True, via="local"
+    )
+    app.dependency_overrides[get_postgres] = lambda: _fake_pg
+
+    async def _passthrough_session_owner(principal, session_id: str):  # type: ignore[no-untyped-def]
+        chat_router._ensure_sessions_loaded()
+        session = chat_router._SESSIONS.get(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        return session
+
+    import monitor_ui.auth as _auth_mod
+
+    with _mock_patch("monitor_data.db.mongodb.get_mongodb_client", lambda: _fake_mongo), _mock_patch.object(
+        chat_router, "require_chat_session_owner", _passthrough_session_owner
+    ), _mock_patch.object(_auth_mod, "get_postgres_client", lambda: _fake_pg):
+        with TestClient(app) as client:
+            yield client
+    app.dependency_overrides.clear()

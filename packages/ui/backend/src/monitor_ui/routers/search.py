@@ -19,13 +19,17 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.vectors import (
     VectorFilter,
     VectorSearchRequest,
 )
 from monitor_data.tools.qdrant_tools import qdrant_search
 from pydantic import BaseModel, Field
+
+from monitor_ui.auth import Principal, get_current_user, get_postgres
+from monitor_ui.ownership import owned_world_ids, require_universe_owner
 
 router = APIRouter()
 
@@ -105,7 +109,11 @@ def _embed_query_text(query_text: str) -> list[float]:
 @router.get("/search", response_model=SemanticSearchResponse)
 async def semantic_search(
     q: str = Query(..., min_length=1, max_length=500, description="Search query text"),
-    universe_id: UUID | None = Query(default=None, description="Scope search to a specific universe"),
+    universe_id: UUID | None = Query(
+        default=None,
+        description="Scope search to a specific OWNED universe (404 if foreign). "
+        "Omit to search across all of the caller's universes — never unscoped.",
+    ),
     entity_type: str | None = Query(
         default=None,
         description="Filter entities by type: character | faction | location | object | concept | organization",
@@ -122,15 +130,17 @@ async def semantic_search(
     score_threshold: float | None = Query(
         default=None, ge=0.0, le=1.0, description="Minimum similarity score threshold"
     ),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> SemanticSearchResponse:
     """
     Perform semantic search across all canon collections.
 
-    Searches entities, scenes, snippets, and knowledge collections by
-    embedding the query text and finding the nearest vectors in Qdrant.
-
-    Returns merged + ranked results from all collections with metadata
-    extracted from the payload.
+    Multi-tenancy: the search is ALWAYS owner-scoped. With ``universe_id`` the
+    universe must belong to the caller (foreign/missing → 404). Without it,
+    the query is scoped to the caller's owned universes via a server-added
+    Qdrant ``MatchAny`` predicate — an unscoped cross-tenant read is
+    impossible, and an empty owned set returns zero results.
     """
 
     # Default collections
@@ -140,11 +150,26 @@ async def semantic_search(
         if c.strip() in ("entities", "scenes", "snippets", "knowledge")
     ]
 
-    # Build the filter
+    # Build the filter — ownership predicate is server-derived, never from
+    # the request body, and applied inside Qdrant (no post-hoc filtering).
     vector_filter = None
-    filter_params = {}
-    if universe_id:
+    filter_params: dict[str, Any] = {}
+    if universe_id is not None:
+        await require_universe_owner(db, principal, universe_id)
         filter_params["universe_id"] = str(universe_id)
+    else:
+        owned = await owned_world_ids(db, principal)
+        if owned is not None:
+            # None → auth-disabled local mode (unscoped by design).
+            # Empty list → caller owns nothing → zero results, no fallback.
+            if not owned:
+                return SemanticSearchResponse(
+                    query=q,
+                    collections_searched=target_collections,
+                    total_results=0,
+                    results=[],
+                )
+            filter_params["universe_ids"] = [UUID(i) for i in owned]
     if entity_type:
         filter_params["entity_type"] = entity_type
     if canon_level:
@@ -222,13 +247,17 @@ async def universe_search(
     ),
     limit: int = Query(default=10, ge=1, le=100),
     score_threshold: float | None = Query(default=None, ge=0.0, le=1.0),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> SemanticSearchResponse:
     """
-    Search within a specific universe.
+    Search within a specific universe the caller owns (foreign → 404).
 
     Convenience endpoint that always scopes to universe_id and defaults
     to searching entities and knowledge collections.
     """
+
+    await require_universe_owner(db, principal, universe_id)
 
     target_collections = [
         c.strip()

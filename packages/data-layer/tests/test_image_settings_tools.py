@@ -136,9 +136,7 @@ def test_get_returns_env_defaults_when_mongo_singleton_absent(
     assert settings.image_suggestions_enabled is True
 
 
-def test_get_merges_mongo_overrides_over_env_defaults(
-    fake_mongo: _FakeMongoClient, env_settings: Settings
-) -> None:
+def test_get_merges_mongo_overrides_over_env_defaults(fake_mongo: _FakeMongoClient, env_settings: Settings) -> None:
     """Per-field: every Mongo value overrides the env default."""
     fake_mongo.get_collection("image_generation_settings").insert_one(
         {
@@ -163,9 +161,7 @@ def test_get_merges_mongo_overrides_over_env_defaults(
 # ---------------------------------------------------------------------------
 
 
-def test_update_creates_singleton_when_absent(
-    fake_mongo: _FakeMongoClient, env_settings: Settings
-) -> None:
+def test_update_creates_singleton_when_absent(fake_mongo: _FakeMongoClient, env_settings: Settings) -> None:
     params = ImageGenerationSettings(
         image_moderation_mode="lines_and_veils",
         image_max_per_scene=2,
@@ -185,13 +181,9 @@ def test_update_creates_singleton_when_absent(
     assert coll.docs[0]["image_suggestions_enabled"] is False
 
 
-def test_update_partial_merges_with_existing_singleton(
-    fake_mongo: _FakeMongoClient, env_settings: Settings
-) -> None:
+def test_update_partial_merges_with_existing_singleton(fake_mongo: _FakeMongoClient, env_settings: Settings) -> None:
     """Updating only a subset of fields leaves the rest of the document alone."""
-    image_settings_tools.mongodb_update_image_generation_settings(
-        ImageGenerationSettings(image_max_per_scene=20)
-    )
+    image_settings_tools.mongodb_update_image_generation_settings(ImageGenerationSettings(image_max_per_scene=20))
     image_settings_tools.mongodb_update_image_generation_settings(
         ImageGenerationSettings(image_suggestions_enabled=False)
     )
@@ -205,9 +197,7 @@ def test_update_partial_merges_with_existing_singleton(
     # defaults for anything the singleton never wrote.
 
 
-def test_update_rejects_out_of_range_value(
-    fake_mongo: _FakeMongoClient, env_settings: Settings
-) -> None:
+def test_update_rejects_out_of_range_value(fake_mongo: _FakeMongoClient, env_settings: Settings) -> None:
     """Pydantic ge/le bounds reject invalid update payloads at validation time."""
     with pytest.raises(ValueError):
         ImageGenerationSettings(image_max_per_scene=200)  # > 100
@@ -221,9 +211,7 @@ def test_update_rejects_out_of_range_value(
     assert fake_mongo.get_collection("image_generation_settings").docs == []
 
 
-def test_get_returns_what_update_wrote(
-    fake_mongo: _FakeMongoClient, env_settings: Settings
-) -> None:
+def test_get_returns_what_update_wrote(fake_mongo: _FakeMongoClient, env_settings: Settings) -> None:
     """Round-trip: write updates, then read with merge returns the merged values."""
     image_settings_tools.mongodb_update_image_generation_settings(
         ImageGenerationSettings(
@@ -243,12 +231,8 @@ def test_get_returns_what_update_wrote(
     assert settings.image_max_per_actor_hour == 12
 
 
-def test_update_then_clear_uses_env_defaults(
-    fake_mongo: _FakeMongoClient, env_settings: Settings
-) -> None:
-    image_settings_tools.mongodb_update_image_generation_settings(
-        ImageGenerationSettings(image_max_per_scene=42)
-    )
+def test_update_then_clear_uses_env_defaults(fake_mongo: _FakeMongoClient, env_settings: Settings) -> None:
+    image_settings_tools.mongodb_update_image_generation_settings(ImageGenerationSettings(image_max_per_scene=42))
     fake_mongo.get_collection("image_generation_settings").delete_one({"_id": "global"})
 
     settings = image_settings_tools.mongodb_get_image_generation_settings()

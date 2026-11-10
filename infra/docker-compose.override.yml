@@ -19,11 +19,6 @@ services:
       - NEO4J_server_memory_heap_max__size=512m
       - NEO4J_server_memory_pagecache_size=256m
 
-  opensearch:
-    environment:
-      # Lower memory for dev
-      - OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx256m
-
   # ── DEV-ONLY: Admin tools ────────────────────────────────────────────────
 
   # Mongo Express — quick MongoDB browser UI

@@ -442,6 +442,116 @@ def cli_tester() -> _CliTester:
     return _CliTester()
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_ui_db_singletons(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest):
+    """tests/ builds full FastAPI apps whose routes resolve the real DB
+    singletons (now including Postgres auth). Swap every singleton for the
+    in-memory fakes and force local auth mode so unit/contract tests never
+    open a real socket. Skipped for integration/e2e tests (they get network).
+    """
+    _node = request.node
+    if "integration" in _node.keywords or "e2e" in _node.keywords:
+        yield
+        return
+    import pkgutil
+    import sys
+    from pathlib import Path as _Path
+
+    from monitor_data.db import mongodb as _mongo_mod
+    from monitor_data.db import neo4j as _neo4j_mod
+    from monitor_data.db import postgres as _pg_mod
+    from monitor_data.db import qdrant as _qdrant_mod
+    from monitor_data.db import redis as _redis_mod
+    from tests.mocks.db.mongo import FakeMongoClient
+    from tests.mocks.db.neo4j import FakeNeo4jClient  # type: ignore[attr-defined]
+    from tests.mocks.db.qdrant import FakeQdrantClient  # type: ignore[attr-defined]
+    from tests.mocks.db.redis import FakeRedisClient  # type: ignore[attr-defined]
+
+    _backend_tests = _Path(__file__).resolve().parents[1] / "packages" / "ui" / "backend" / "tests"
+    if str(_backend_tests) not in sys.path:
+        sys.path.insert(0, str(_backend_tests))
+    from fake_postgres import FakePostgres
+
+    import monitor_ui.auth as _auth_mod
+
+    _fake_mongo = FakeMongoClient()
+    _fake_mongo.get_collection = _fake_mongo.get_database().get_collection  # type: ignore[method-assign]
+    _fake_pg = FakePostgres()
+    monkeypatch.setattr(_mongo_mod, "get_mongodb_client", lambda: _fake_mongo)
+    monkeypatch.setattr(_pg_mod, "get_postgres_client", lambda: _fake_pg)
+    monkeypatch.setattr(_auth_mod, "get_postgres_client", lambda: _fake_pg)
+    monkeypatch.setattr(_neo4j_mod, "get_neo4j_client", lambda: FakeNeo4jClient())
+    monkeypatch.setattr(_qdrant_mod, "get_qdrant_client", lambda: FakeQdrantClient())
+    monkeypatch.setattr(_redis_mod, "get_redis_client", lambda: FakeRedisClient())
+
+    import monitor_data.tools as _tools_pkg
+
+    _mods = list(pkgutil.iter_modules(_tools_pkg.__path__, prefix="monitor_data.tools."))
+    for _sub in ("mongodb_tools", "neo4j_tools", "ingest_tools", "plot_thread_tools", "temporal_tools"):
+        try:
+            _submod = __import__(f"monitor_data.tools.{_sub}", fromlist=["*"])
+            _mods += list(pkgutil.iter_modules(_submod.__path__, prefix=f"monitor_data.tools.{_sub}."))
+        except Exception:
+            continue
+    for _mi in _mods:
+        try:
+            _m = __import__(_mi.name, fromlist=["*"])
+        except Exception:
+            continue
+        if hasattr(_m, "get_mongodb_client"):
+            monkeypatch.setattr(_m, "get_mongodb_client", lambda: _fake_mongo)
+        if hasattr(_m, "get_neo4j_client"):
+            monkeypatch.setattr(_m, "get_neo4j_client", lambda: FakeNeo4jClient())
+        if hasattr(_m, "get_qdrant_client"):
+            monkeypatch.setattr(_m, "get_qdrant_client", lambda: FakeQdrantClient())
+        if hasattr(_m, "get_redis_client"):
+            monkeypatch.setattr(_m, "get_redis_client", lambda: FakeRedisClient())
+
+    monkeypatch.setenv("MONITOR_AUTH_DISABLED", "true")
+    from monitor_ui.config import get_settings
+
+    get_settings.cache_clear()
+
+    import monitor_ui.ownership as _own
+    from monitor_ui.main import app as _ui_app
+
+    async def _allow(*args, **kwargs):  # type: ignore[no-untyped-def]
+        from uuid import uuid4 as _u4
+
+        return {"id": str(_u4()), "owner_id": str(_u4())}
+
+    _override_fns = [getattr(_own, n) for n in dir(_own) if n.startswith("require_")]
+    for _fn in _override_fns:
+        _ui_app.dependency_overrides[_fn] = _allow
+    import monitor_ui.routers as _routers_pkg
+
+    for _rmi in pkgutil.iter_modules(_routers_pkg.__path__):
+        try:
+            _rmod = __import__(f"monitor_ui.routers.{_rmi.name}", fromlist=["*"])
+        except Exception:
+            continue
+        for _n in dir(_rmod):
+            if _n.startswith("require_"):
+                monkeypatch.setattr(_rmod, _n, _allow)
+        # Routers bind DB client getters at import time; re-point them too.
+        if hasattr(_rmod, "get_postgres_client"):
+            monkeypatch.setattr(_rmod, "get_postgres_client", lambda: _fake_pg)
+        if hasattr(_rmod, "get_mongodb_client"):
+            monkeypatch.setattr(_rmod, "get_mongodb_client", lambda: _fake_mongo)
+        if hasattr(_rmod, "get_neo4j_client"):
+            monkeypatch.setattr(_rmod, "get_neo4j_client", lambda: FakeNeo4jClient())
+        if hasattr(_rmod, "get_qdrant_client"):
+            monkeypatch.setattr(_rmod, "get_qdrant_client", lambda: FakeQdrantClient())
+        if hasattr(_rmod, "get_redis_client"):
+            monkeypatch.setattr(_rmod, "get_redis_client", lambda: FakeRedisClient())
+
+    yield
+
+    for _fn in _override_fns:
+        _ui_app.dependency_overrides.pop(_fn, None)
+    get_settings.cache_clear()
+
+
 @pytest.fixture
 def sandbox_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     """

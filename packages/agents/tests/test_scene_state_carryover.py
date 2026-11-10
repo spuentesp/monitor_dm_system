@@ -522,7 +522,11 @@ async def test_multi_turn_combat_carries_round_and_hp_and_persists_deltas(world:
         ]
         assert len(combat_persist_calls) == 1
         assert combat_persist_calls[0].kwargs["resource_deltas"][0]["delta"] == -3
-        assert combat_persist_calls[0].kwargs.get("only_resource_deltas") is True
+        # Combat is resolved inside the graph, so the normal turn write includes
+        # the combat delta rather than requiring a second resource-only write.
+        assert persist_ws.await_count == 1
+        assert combat_persist_calls[0].kwargs["user_input"] == "I slash the brigand"
+        assert combat_persist_calls[0].kwargs.get("only_resource_deltas") is not True
 
         # Turn 2 resumes Round 2 with Brigand at 4 HP; Hero deals 6 -> Brigand drops to 0 and combat ends!
         t2 = await loop.run("I finish the brigand")

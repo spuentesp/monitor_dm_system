@@ -106,7 +106,9 @@ def test_system_binding_when_no_universe_match():
 
     def fake_list(filt):
         if filt.system_id is not None:
-            return PromptCollectionListResponse(collections=[_collection(name="System SZ")], total=1, limit=50, offset=0)
+            return PromptCollectionListResponse(
+                collections=[_collection(name="System SZ")], total=1, limit=50, offset=0
+            )
         return PromptCollectionListResponse(collections=[], total=0, limit=50, offset=0)
 
     with (

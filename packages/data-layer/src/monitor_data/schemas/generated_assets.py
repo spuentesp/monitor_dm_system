@@ -137,6 +137,7 @@ class GeneratedAsset(BaseModel):
     character_id: str | None = None
     entity_id: UUID | None = None
     universe_id: UUID | None = None
+    universe_ids: list[UUID] | None = None  # ownership allowlist, applied before pagination
     story_id: UUID | None = None
     scene_id: UUID | None = None
     conversation_id: UUID | None = None
@@ -170,6 +171,7 @@ class GeneratedAssetFilter(BaseModel):
     character_id: str | None = None
     entity_id: UUID | None = None
     universe_id: UUID | None = None
+    universe_ids: list[UUID] | None = None  # ownership allowlist, applied before pagination
     story_id: UUID | None = None
     scene_id: UUID | None = None
     conversation_id: UUID | None = None

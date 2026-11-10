@@ -54,7 +54,6 @@ _HERMETIC_ENV = {
     "MINIO_ENDPOINT": "127.0.0.1:1",
     "MINIO_ACCESS_KEY": "test-access",
     "MINIO_SECRET_KEY": "test-secret",
-    "OPENSEARCH_URI": "http://127.0.0.1:1",
     "REDIS_URL": "redis://127.0.0.1:1/0",
     "REDIS_ENABLED": "false",
     # Keep unit tests off optional services

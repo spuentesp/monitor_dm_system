@@ -7,6 +7,9 @@ pending check, and that the manual/marker guards behave correctly.
 
 from __future__ import annotations
 
+import pytest
+
+
 from unittest.mock import patch
 
 from monitor_agents.loops.scene_orchestrator_support import (
@@ -15,6 +18,8 @@ from monitor_agents.loops.scene_orchestrator_support import (
     _resolved_roll_from_pending,
     _server_roll_from_pending,
 )
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 _GRADED = {
     "critical_success",

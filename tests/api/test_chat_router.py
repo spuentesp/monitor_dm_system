@@ -143,9 +143,10 @@ class TestSessionCRUD:
         assert len(list_resp.json()) == 0
 
     def test_delete_nonexistent_is_idempotent(self, ui_client: TestClient) -> None:
-        """DELETE /api/chat/{sid} is idempotent — unknown sessions still 204."""
+        """DELETE /api/chat/{sid}: missing sessions 404 (auth-era ownership rule:
+        foreign or missing IDs return an identical 404)."""
         response = ui_client.delete("/api/chat/nonexistent")
-        assert response.status_code == 204
+        assert response.status_code == 404
 
 
 class TestMessageSend:
@@ -245,7 +246,6 @@ class TestSessionEdgeCases:
     def test_messages_endpoint_unknown_session_empty(
         self, ui_client: TestClient
     ) -> None:
-        """GET /api/chat/{sid}/messages returns an empty list for unknown sessions."""
+        """GET /api/chat/{sid}/messages: unknown sessions 404 (auth-era ownership rule)."""
         response = ui_client.get("/api/chat/nonexistent/messages")
-        assert response.status_code == 200
-        assert response.json() == []
+        assert response.status_code == 404

@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_data.schemas.base import ProposalStatus, ProposalType
 from monitor_data.schemas.proposed_changes import (
@@ -32,17 +32,28 @@ from monitor_data.schemas.proposed_changes import (
     ProposedChangeResponse,
     ProposedChangeUpdate,
 )
+from monitor_data.db.postgres import PostgresClient
 from monitor_data.tools.mongodb_tools import (
     mongodb_defer_proposed_change,
     mongodb_edit_proposed_change,
+    mongodb_get_ingestion_job,
     mongodb_list_proposed_changes,
     mongodb_update_proposed_change,
+)
+from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
+from monitor_ui.ownership import (
+    require_proposal_owner,
+    require_scene_owner,
+    require_story_owner,
+    require_universe_owner,
+    resource_route_guard,
 )
 from pydantic import BaseModel, Field
 
 from .ingest_shared import db_op, validate_uuid
 
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(resource_route_guard)])
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +474,11 @@ async def commit_accepted_by_ingest(ingestion_job_id: str) -> dict[str, Any]:
 
 
 @router.post("/canon-review/verdicts", response_model=BatchVerdictResponse)
-async def apply_verdicts(body: BatchVerdictRequest) -> BatchVerdictResponse:
+async def apply_verdicts(
+    body: BatchVerdictRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> BatchVerdictResponse:
     """Apply a batch of accept/reject decisions in one call.
 
     Each item is processed independently; failures for one item do not
@@ -480,6 +495,7 @@ async def apply_verdicts(body: BatchVerdictRequest) -> BatchVerdictResponse:
                 status_code=400,
                 detail=f"Decision for {item.proposal_id} must be ACCEPTED or REJECTED",
             )
+        await require_proposal_owner(db, principal, item.proposal_id)
 
     results: list[ProposedChangeResponse] = []
     errors: list[BatchVerdictError] = []
@@ -591,7 +607,11 @@ def _by_filter_token(body: VerdictByFilterRequest, ids: list[str]) -> str:
 
 
 @router.post("/canon-review/verdicts/by-filter", response_model=VerdictByFilterResponse)
-async def apply_verdicts_by_filter(body: VerdictByFilterRequest) -> VerdictByFilterResponse:
+async def apply_verdicts_by_filter(
+    body: VerdictByFilterRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> VerdictByFilterResponse:
     """Preview then execute a verdict over every proposal matching a filter.
 
     Two-phase flow:
@@ -608,6 +628,24 @@ async def apply_verdicts_by_filter(body: VerdictByFilterRequest) -> VerdictByFil
     """
     if body.decision not in (ProposalStatus.ACCEPTED, ProposalStatus.REJECTED):
         raise HTTPException(status_code=400, detail="decision must be ACCEPTED or REJECTED")
+
+    # A by-filter verdict must be anchored to an owned scene/story/job —
+    # an unscoped filter would sweep every tenant's proposals. Local
+    # auth-disabled mode bypasses (the local admin owns everything).
+    if not is_local_mode(principal):
+        if body.scene_id is not None:
+            await require_scene_owner(db, principal, body.scene_id)
+        if body.story_id is not None:
+            await require_story_owner(db, principal, body.story_id)
+        if body.source and body.source.startswith("ingestion_job:"):
+            job = mongodb_get_ingestion_job(validate_uuid(body.source.split(":", 1)[1], "ingestion_job_id"))
+            if job is None:
+                raise HTTPException(status_code=404, detail="Not found")
+            await require_universe_owner(db, principal, job.universe_id)
+        if body.scene_id is None and body.story_id is None and not body.source:
+            raise HTTPException(
+                status_code=400, detail="by-filter verdicts require a scene_id, story_id, or source scope"
+            )
 
     matches = _matching_proposals(body)
     ids = [str(p.proposal_id) for p in matches]

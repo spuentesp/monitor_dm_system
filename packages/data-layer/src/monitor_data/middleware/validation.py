@@ -109,14 +109,16 @@ def validate_tool_input(tool_name: str, tool_function: Callable[..., Any], argum
             consumed_keys: set[str] = {param_name}
 
             if param_name not in arguments:
-                if param_name == "params" and "updates" in arguments and isinstance(arguments["updates"], (dict, BaseModel)):
+                if (
+                    param_name == "params"
+                    and "updates" in arguments
+                    and isinstance(arguments["updates"], (dict, BaseModel))
+                ):
                     param_value = arguments["updates"]
                     consumed_keys.add("updates")
                 else:
                     remaining_args = {k: v for k, v in arguments.items() if k not in other_hints}
-                    if remaining_args and (
-                        bool(set(remaining_args.keys()) & model_field_names) or not other_hints
-                    ):
+                    if remaining_args and (bool(set(remaining_args.keys()) & model_field_names) or not other_hints):
                         # Filter out unknown extra keys if at least one known model field is present
                         # unless the model allows extra fields
                         model_cfg = getattr(param_schema, "model_config", {}) or {}
@@ -124,9 +126,7 @@ def validate_tool_input(tool_name: str, tool_function: Callable[..., Any], argum
                         if allows_extra or not (set(remaining_args.keys()) & model_field_names):
                             param_value = remaining_args
                         else:
-                            param_value = {
-                                k: v for k, v in remaining_args.items() if k in model_field_names
-                            }
+                            param_value = {k: v for k, v in remaining_args.items() if k in model_field_names}
                         consumed_keys.update(remaining_args.keys())
                     else:
                         # Check if the parameter has a default value

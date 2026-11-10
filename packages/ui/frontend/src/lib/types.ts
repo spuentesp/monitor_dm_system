@@ -359,8 +359,7 @@ export type DBType =
   | "neo4j"
   | "mongodb"
   | "qdrant"
-  | "minio"
-  | "opensearch";
+  | "minio";
 
 export interface DatabaseStatus {
   name: string;

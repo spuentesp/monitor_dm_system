@@ -15,6 +15,9 @@ from fastapi.testclient import TestClient
 
 from monitor_ui.main import app
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
+
 client = TestClient(app)
 
 
@@ -156,10 +159,7 @@ def test_import_charx_binds_icon_as_avatar(fake_create):
         "data": {
             "name": "Rin",
             "description": "A fox.",
-            "assets": [
-                {"type": "icon", "name": "main", "ext": "png",
-                 "uri": "embeded://assets/icon/main.png"}
-            ],
+            "assets": [{"type": "icon", "name": "main", "ext": "png", "uri": "embeded://assets/icon/main.png"}],
         },
     }
     raw = _charx_bytes(card, {"assets/icon/main.png": png_icon})
@@ -167,9 +167,7 @@ def test_import_charx_binds_icon_as_avatar(fake_create):
     fake_minio = MagicMock()
     fake_minio.upload = AsyncMock()
 
-    with fake_create as mock_create_doc, patch(
-        "monitor_data.db.minio.get_minio_client", return_value=fake_minio
-    ):
+    with fake_create as mock_create_doc, patch("monitor_data.db.minio.get_minio_client", return_value=fake_minio):
         resp = client.post(
             "/api/entities/characters/import-card",
             files={"file": ("rin.charx", raw, "application/zip")},
@@ -196,9 +194,7 @@ def test_import_charx_without_icon_still_imports(fake_create):
     fake_minio = MagicMock()
     fake_minio.upload = AsyncMock()
 
-    with fake_create as mock_create_doc, patch(
-        "monitor_data.db.minio.get_minio_client", return_value=fake_minio
-    ):
+    with fake_create as mock_create_doc, patch("monitor_data.db.minio.get_minio_client", return_value=fake_minio):
         resp = client.post(
             "/api/entities/characters/import-card",
             files={"file": ("rin.charx", raw, "application/zip")},

@@ -69,7 +69,7 @@ import os
 import traceback
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
 from monitor_data.db.minio import get_minio_client
@@ -267,6 +267,7 @@ class IngestionPipeline(BaseAgent):
         content_type: str | None = None,
         reuse_source_id: UUID | None = None,
         reuse_doc_id: UUID | None = None,
+        on_job_created: Callable[[UUID], None] | None = None,
         analyze_timeout_seconds: int | None = None,
     ) -> IngestionJobResponse:
         """
@@ -291,6 +292,7 @@ class IngestionPipeline(BaseAgent):
             multiverse_id: Optional multiverse for auto-applying the KnowledgePack.
             auto_apply:    If True, immediately creates ProposedChanges from the pack.
             content_type:  MIME type override (auto-detected from filename if None).
+            on_job_created: Called with the persisted job ID as soon as it is created.
 
         Returns:
             IngestionJobResponse tracking pipeline progress.
@@ -369,6 +371,8 @@ class IngestionPipeline(BaseAgent):
                     processing_checklist=selected_layers,
                 ),
             )
+            if on_job_created is not None:
+                on_job_created(job.job_id)
             return await asyncio.to_thread(
                 mongodb_update_ingestion_job,
                 job.job_id,
@@ -460,6 +464,8 @@ class IngestionPipeline(BaseAgent):
                 ),
             )
             job_id = job.job_id
+            if on_job_created is not None:
+                on_job_created(job_id)
             await asyncio.to_thread(
                 mongodb_update_ingestion_job,
                 job_id,

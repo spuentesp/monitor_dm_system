@@ -27,12 +27,14 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from monitor_agents.llm_registry import LLMRegistry
 from monitor_data.db.postgres import get_postgres_client
+from monitor_ui.auth import Principal, get_current_user
+from monitor_ui.ownership import require_character_owner
 from monitor_data.schemas.llm_config import ModelRole
 
 logger = structlog.get_logger()
@@ -170,9 +172,7 @@ async def _plain_stream(body: ChatCompletionRequest) -> StreamingResponse:
                     "object": "chat.completion.chunk",
                     "created": created,
                     "model": body.model,
-                    "choices": [
-                        {"index": 0, "delta": {"content": fragment}, "finish_reason": None}
-                    ],
+                    "choices": [{"index": 0, "delta": {"content": fragment}, "finish_reason": None}],
                 }
                 yield f"data: {json.dumps(chunk)}\n\n"
         except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _event_generator)
@@ -309,19 +309,69 @@ async def _session_non_stream(body: ChatCompletionRequest) -> ChatCompletionResp
     )
 
 
+async def _require_conversation_owner(principal: Principal, conversation_id: str) -> None:
+    """A resumed conversation must belong to a character the caller owns.
+
+    The standalone-card link lives in the conversation doc's
+    ``client_session.character_id`` (same field the resume path reads).
+    """
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    try:
+        uuid.UUID(str(conversation_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found") from None
+    doc = (
+        get_mongodb_client()
+        .get_collection("conversations")
+        .find_one(
+            {"conversation_id": str(conversation_id)},
+            {"client_session": 1},
+        )
+    )
+    char_id = None
+    if isinstance(doc, dict):
+        cs = doc.get("client_session")
+        if isinstance(cs, dict):
+            char_id = cs.get("character_id")
+    if not char_id:
+        raise HTTPException(status_code=404, detail="Not found")
+    await require_character_owner(principal, str(char_id))
+
+
 # ---------------------------------------------------------------------------
 # Route
 # ---------------------------------------------------------------------------
 
 
 @router.post("/v1/chat/completions", response_model=None)
-async def chat_completions(body: ChatCompletionRequest) -> Any:
+async def chat_completions(
+    body: ChatCompletionRequest,
+    principal: Principal = Depends(get_current_user),
+) -> Any:
     """OpenAI-compatible chat completion, routed through MONITOR's LLM registry
-    or the conversation loop, depending on the request."""
+    or the conversation loop, depending on the request.
+
+    Authenticated via per-user API token (Bearer) or browser session cookie.
+    Session mode is resource-scoped: the referenced character (and, on
+    resume, the conversation's owning character) must belong to the caller,
+    else 404. Plain mode only invokes the caller's LLM quota path.
+    """
     if not body.messages:
         raise HTTPException(status_code=400, detail="messages must be a non-empty list.")
 
     if _is_session(body):
+        # Character-scoped session mode: both the target character and the
+        # persona must belong to the caller; a resumed conversation must
+        # belong to an owned character.
+        if body.character_id:
+            await require_character_owner(principal, body.character_id)
+        if body.persona_character_id:
+            await require_character_owner(principal, body.persona_character_id)
+        if body.monitor_session_id:
+            # Resume path: the conversation must belong to an owned character,
+            # even when character_id is also supplied.
+            await _require_conversation_owner(principal, body.monitor_session_id)
         return await _session_non_stream(body)
 
     if body.stream:

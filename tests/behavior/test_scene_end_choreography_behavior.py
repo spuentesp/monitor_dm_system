@@ -184,12 +184,12 @@ class TestSceneStateDefaults:
 
 class TestCompleteCurrentScene:
     @pytest.mark.asyncio
-    async def test_no_story_state_returns_empty(self):
+    async def test_no_story_state_still_marks_scene_complete(self):
         from monitor_agents.loops.scene_loop import complete_current_scene
 
         state = _make_state(story_state=None, total_minutes_passed=10)
         result = await complete_current_scene(state)
-        assert result == {}
+        assert result == {"scene_complete": True}
 
     @pytest.mark.asyncio
     async def test_advances_in_game_time(self):

@@ -107,6 +107,7 @@ def mongodb_create_ingestion_job(params: IngestionJobCreate) -> IngestionJobResp
 
     doc = {
         "job_id": str(job_id),
+        "owner_id": params.owner_id,
         "universe_id": str(params.universe_id),
         "source_id": str(params.source_id),
         "doc_id": str(params.doc_id),
@@ -336,6 +337,8 @@ def mongodb_list_ingestion_jobs(params: IngestionJobFilter) -> IngestionJobListR
         query["universe_id"] = str(params.universe_id)
     if params.source_id:
         query["source_id"] = str(params.source_id)
+    if params.owner_id:
+        query["owner_id"] = params.owner_id
     if params.status:
         query["status"] = params.status.value
 
@@ -395,3 +398,9 @@ def mongodb_delete_ingestion_job(job_id: UUID) -> bool:
 
     jobs_collection.delete_one({"job_id": str(job_id)})
     return True
+
+
+def mongodb_set_ingestion_job_owner(job_id: UUID | str, owner_id: str) -> None:
+    """Stamp the owning user on a job (called by the router at submission)."""
+    mongodb = get_mongodb_client()
+    mongodb.get_collection("ingestion_jobs").update_one({"job_id": str(job_id)}, {"$set": {"owner_id": owner_id}})

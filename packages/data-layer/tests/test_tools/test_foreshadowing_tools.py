@@ -62,8 +62,12 @@ def test_create_and_list_open(fake_mongo: _FakeMongoClient) -> None:
     story = uuid4()
     resp = mongodb_create_foreshadowing(
         ForeshadowingCreate(
-            scene_id=scene, story_id=story, kind="plant",
-            summary="The captain's eye twitches", planted_by_turn=3, target_turn=10,
+            scene_id=scene,
+            story_id=story,
+            kind="plant",
+            summary="The captain's eye twitches",
+            planted_by_turn=3,
+            target_turn=10,
         )
     )
     assert resp.summary == "The captain's eye twitches"
@@ -78,8 +82,12 @@ def test_mark_paid_removes_from_open(fake_mongo: _FakeMongoClient) -> None:
     story = uuid4()
     resp = mongodb_create_foreshadowing(
         ForeshadowingCreate(
-            scene_id=scene, story_id=story, kind="plant",
-            summary="x", planted_by_turn=0, target_turn=0,
+            scene_id=scene,
+            story_id=story,
+            kind="plant",
+            summary="x",
+            planted_by_turn=0,
+            target_turn=0,
         )
     )
     updated = mongodb_mark_foreshadowing_paid(resp.foreshadowing_id, paid_at_turn=5)
@@ -93,12 +101,10 @@ def test_list_filters_other_scenes(fake_mongo: _FakeMongoClient) -> None:
     s2 = uuid4()
     story = uuid4()
     mongodb_create_foreshadowing(
-        ForeshadowingCreate(scene_id=s1, story_id=story, kind="plant",
-                           summary="a", planted_by_turn=0, target_turn=0)
+        ForeshadowingCreate(scene_id=s1, story_id=story, kind="plant", summary="a", planted_by_turn=0, target_turn=0)
     )
     mongodb_create_foreshadowing(
-        ForeshadowingCreate(scene_id=s2, story_id=story, kind="plant",
-                           summary="b", planted_by_turn=0, target_turn=0)
+        ForeshadowingCreate(scene_id=s2, story_id=story, kind="plant", summary="b", planted_by_turn=0, target_turn=0)
     )
     assert len(mongodb_list_open_foreshadowing(s1, story, limit=5)) == 1
     assert len(mongodb_list_open_foreshadowing(s2, story, limit=5)) == 1
@@ -109,7 +115,8 @@ def test_list_caps_results(fake_mongo: _FakeMongoClient) -> None:
     story = uuid4()
     for i in range(7):
         mongodb_create_foreshadowing(
-            ForeshadowingCreate(scene_id=scene, story_id=story, kind="plant",
-                               summary=f"plant {i}", planted_by_turn=0, target_turn=0)
+            ForeshadowingCreate(
+                scene_id=scene, story_id=story, kind="plant", summary=f"plant {i}", planted_by_turn=0, target_turn=0
+            )
         )
     assert len(mongodb_list_open_foreshadowing(scene, story, limit=3)) == 3

@@ -3,7 +3,7 @@
 
 Provides:
 - CircuitBreaker: prevents cascading failures when external services
-  (Neo4j, MongoDB, Qdrant, OpenSearch, Postgres) are unhealthy.
+  (Neo4j, MongoDB, Qdrant, Postgres) are unhealthy.
 - LLMFallbackChain: graceful degradation for LLM calls.
 - with_circuit_breaker: decorator for async service calls.
 

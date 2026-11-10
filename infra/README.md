@@ -12,7 +12,6 @@ This directory contains the Docker Compose configuration for running the complet
 2. **MongoDB** - Narrative documents and proposals
 3. **Qdrant** - Vector database for semantic search
 4. **MinIO** - Binary object storage (PDFs, images)
-5. **OpenSearch** - Full-text search (optional)
 
 ---
 
@@ -53,9 +52,6 @@ All services should show `Up` status.
   - Username: `monitor`
   - Password: `<your MINIO_PASSWORD from .env>`
 
-- **OpenSearch Dashboards**: http://localhost:5601
-  - Username: `admin`
-  - Password: `<your OPENSEARCH_PASSWORD from .env>`
 
 ---
 
@@ -71,12 +67,12 @@ All services should show `Up` status.
 - `./neo4j/data`: Database files
 - `./neo4j/logs`: Log files
 - `./neo4j/import`: CSV import directory
-- `./neo4j/plugins`: APOC and GDS plugins
+- `./neo4j/plugins`: vendored GDS plugin jar (see `plugins/README.md`); APOC core ships bundled with Neo4j 5.x
 
 **Configuration:**
 - Heap: 512MB initial, 2GB max
 - Page cache: 1GB
-- Plugins: APOC, Graph Data Science
+- Plugins: APOC core (bundled), GDS 2.6.8 (vendored jar, compatible with Neo4j 5.15)
 
 **Connection String:**
 ```
@@ -152,28 +148,6 @@ http://localhost:6333
 ```
 http://localhost:9000
 ```
-
----
-
-### OpenSearch (Full-Text Search)
-
-**Ports:**
-- `9200`: REST API
-- `9600`: Performance Analyzer
-- `5601`: Dashboards UI
-
-**Volumes:**
-- `./opensearch/data`: Index data
-
-**REST API:**
-```
-https://localhost:9200
-```
-
-**Indices:**
-- `monitor-scenes` - Scene full-text search
-- `monitor-facts` - Fact full-text search
-- `monitor-snippets` - Document snippet search
 
 ---
 
@@ -255,9 +229,6 @@ curl http://localhost:6333/healthz
 
 # MinIO
 curl http://localhost:9000/minio/health/live
-
-# OpenSearch
-curl -k https://localhost:9200/_cluster/health
 ```
 
 ### Logs
@@ -290,7 +261,7 @@ docker compose logs neo4j
 ```
 
 Common issues:
-- APOC plugin mismatch → ensure plugin version matches Neo4j version
+- GDS plugin mismatch → the GDS jar version must match the Neo4j 5.15 line (use GDS 2.6.x; verify with `CALL gds.list()`)
 - Memory limits → increase heap/pagecache in .env
 
 ### MongoDB Connection Refused

@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from monitor_data.schemas.change_log import (
     ChangeLogFilter,
     ChangeLogListResponse,
@@ -18,8 +18,9 @@ from monitor_data.schemas.change_log import (
     ChangeType,
 )
 from monitor_data.tools.mongodb_tools import mongodb_list_change_log
+from monitor_ui.auth import get_current_user
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.get("/change-log", response_model=ChangeLogListResponse)

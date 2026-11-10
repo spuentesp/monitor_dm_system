@@ -386,6 +386,11 @@ async def test_cancel_job_marks_cancelled_state(monkeypatch):
         "get_mongodb_client",
         lambda: SimpleNamespace(get_collection=lambda _name: collection),
     )
+    monkeypatch.setattr(
+        ingest,
+        "mongodb_get_ingestion_job",
+        lambda uid: SimpleNamespace(job_id=str(uid), status="running", owner_id=None),
+    )
 
     response = await ingest.cancel_job(job_id)
 

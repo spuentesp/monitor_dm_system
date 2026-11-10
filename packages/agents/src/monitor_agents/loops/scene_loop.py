@@ -192,6 +192,7 @@ class SceneState(BaseModel):
 
     # Resolution from Resolver
     resolution: dict[str, Any] | None = None
+    combat_result: dict[str, Any] | None = None
     # The GMVerdict that produced this resolution — carries the GM's
     # narrative_draft. The Narrator refines this draft against the
     # outcome; None when GMAgent didn't run (oracle / narrative mode /
@@ -221,6 +222,9 @@ class SceneState(BaseModel):
 
     # Flow control
     scene_complete: bool = False
+    # Set by ``SceneLoop.finalize`` so the graph closes the scene without
+    # resolving or narrating an empty turn first.
+    finalize_requested: bool = False
     turns_count: int = 0
     max_turns: int = 50  # safety ceiling per scene
 
@@ -431,7 +435,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     try:
         entity_ids = [UUID(str(e["id"])) for e in context.get("entities", []) if isinstance(e, dict) and e.get("id")]
         if entity_ids:
-            from monitor_data.tools.mongodb_tools import mongodb_get_npc_profiles_by_entities
+            from monitor_data.tools.mongodb_tools.npc_profiles import mongodb_get_npc_profiles_by_entities
 
             profiles: list = await run_sync_read(
                 mongodb_get_npc_profiles_by_entities,
@@ -440,7 +444,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
             # Profiles don't carry a name; the entity does.
             names = {str(e.get("id")): e.get("name") for e in context.get("entities", []) if isinstance(e, dict)}
             npc_profiles = {
-                str(p.entity_id): {**p.model_dump(mode="json"), "name": names.get(str(p.entity_id))} for p in profiles
+                str(p.entity_id): {**p.model_dump(mode="json"), "name": names.get(str(p.entity_id)) or p.model_dump(mode="json").get("name")} for p in profiles
             }
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in load_context)
         logger.warning("load_context: npc profile fetch failed: %s", exc)
@@ -590,6 +594,28 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
 
 
 @_timed_node  # type: ignore[untyped-decorator]
+async def run_combat_node(state: SceneState) -> dict[str, Any]:
+    """Resolve combat before narration and turn persistence."""
+    resolution = state.resolution or {}
+    prior = state.combat_state if isinstance(state.combat_state, dict) else None
+    active = bool(prior and prior.get("combat_active"))
+    awaiting_choice = resolution.get("resolution_type") in ("propose_roll", "forced_narrative_pushback")
+    if not active and (awaiting_choice or not (resolution.get("subsystem_hint") == "combat" or resolution.get("action_type") == "combat")):
+        return {"combat_result": None}
+    result = await _run_combat(
+        scene_id=state.scene_id, story_id=state.story_id, user_input=state.user_input or "",
+        entity_context=state.entity_context, game_context=state.game_context,
+        source_profile=state.source_profile, gm_profile=state.gm_profile,
+        session_tone=state.session_tone, prior_combat_state=prior if active else None,
+        actor_id=state.actor_id,
+    )
+    return {
+        "combat_result": result,
+        "combat_state": (result or {}).get("checkpoint_state"),
+        "pending_proposals": state.pending_proposals + list((result or {}).get("pending_proposals") or []),
+    }
+
+
 async def narrate(state: SceneState) -> dict[str, Any]:
     """
     S4/S5: Narrator generates GM prose and persists the turn to MongoDB.
@@ -617,6 +643,7 @@ async def narrate(state: SceneState) -> dict[str, Any]:
             "recent_chat": state.recent_chat,
             "pacing": state.pacing,
             "npc_profiles": state.npc_profiles,
+            "combat_narrative": (state.combat_result or {}).get("narrative_text", ""),
             "scene_foreshadowing_open": state.scene_foreshadowing_open,
             # The recap opens the scene, so it only belongs on the first turn.
             "opening_recap": state.opening_recap if not state.durable_turn_count else "",
@@ -970,7 +997,7 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
             narrative_text=state.narrative_text,
             turn_id=persist_turn_id,
             pending_proposals=state.pending_proposals,
-            resource_deltas=state.resource_deltas,
+            resource_deltas=state.resource_deltas + _extract_combat_resource_deltas(state.combat_result or {}, state.entity_context),
             memories_to_persist=state.memories_to_persist,
             actor_context=state.actor_context,
             universe_id=state.universe_id,
@@ -1013,6 +1040,8 @@ async def persist_turn_artifacts(state: SceneState) -> dict[str, Any]:
     new_state_proposals = list(persistence_payload.get("pending_proposals", []))
     merged_payload = dict(persistence_payload)
     merged_payload["pending_proposals"] = state.pending_proposals + new_state_proposals
+    if state.combat_result:
+        merged_payload["resource_deltas"] = state.resource_deltas + _extract_combat_resource_deltas(state.combat_result, state.entity_context)
     if persistence_payload and state.memories_to_persist:
         merged_payload["memories_to_persist"] = []
     return {
@@ -1096,7 +1125,7 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
     """
     from datetime import timedelta
 
-    updates: dict[str, Any] = {}
+    updates: dict[str, Any] = {"scene_complete": True}
 
     # 1. Persist any remaining memories (belt-and-suspenders)
     if state.memories_to_persist and state.actor_id:
@@ -1459,6 +1488,7 @@ def build_scene_graph() -> StateGraph:
 
     graph.add_node("load_context", load_context)
     graph.add_node("resolve", resolve_action)
+    graph.add_node("run_combat", run_combat_node)
     graph.add_node("narrate", narrate)
     graph.add_node("extract_new_entities", extract_new_entities)
     graph.add_node("extract_memories", extract_memories)
@@ -1475,12 +1505,19 @@ def build_scene_graph() -> StateGraph:
     graph.set_entry_point("load_context")
 
     # Edges
-    graph.add_edge("load_context", "resolve")
+    # A finalization request closes the scene straight away — no resolve, no
+    # narration of an empty turn.
+    graph.add_conditional_edges(
+        "load_context",
+        lambda state: "complete_current_scene" if state.finalize_requested else "resolve",
+        {"complete_current_scene": "complete_current_scene", "resolve": "resolve"},
+    )
     graph.add_conditional_edges(
         "resolve",
         route_after_resolve,
-        {"narrate": "narrate", "complete_current_scene": "complete_current_scene", END: END},
+        {"narrate": "run_combat", "complete_current_scene": "complete_current_scene", END: END},
     )
+    graph.add_edge("run_combat", "narrate")
     # Fan out: three extractors run concurrently after narrate.
     graph.add_edge("narrate", "extract_new_entities")
     graph.add_edge("narrate", "extract_memories")
@@ -1653,102 +1690,6 @@ class SceneLoop:
             if result.get("turns_count", 0) >= self.max_turns:
                 result["scene_complete"] = True
 
-            # Combat delegation: if an encounter is already active or the resolution
-            # flagged combat, run/resume CombatLoop.
-            # ``subsystem_hint`` / ``action_type`` here come from the semantic
-            # action router (embeddings), not a keyword scan — no separate gate.
-            resolution = result.get("resolution") or {}
-            prior_combat = result.get("combat_state")
-            has_active_combat = isinstance(prior_combat, dict) and bool(prior_combat.get("combat_active"))
-            awaiting_roll_choice = resolution.get("resolution_type") in (
-                "propose_roll",
-                "forced_narrative_pushback",
-            )
-            if has_active_combat or (
-                not awaiting_roll_choice
-                and (
-                    resolution.get("subsystem_hint") == "combat"
-                    or resolution.get("action_type") == "combat"
-                )
-            ):
-                combat_result = await _run_combat(
-                    scene_id=self.scene_id,
-                    story_id=self.story_id,
-                    user_input=user_input,
-                    entity_context=result.get("entity_context", []),
-                    game_context=result.get("game_context", {}),
-                    source_profile=result.get("source_profile", {}),
-                    gm_profile=result.get("gm_profile"),
-                    session_tone=result.get("session_tone", "dramatic"),
-                    prior_combat_state=prior_combat if has_active_combat else None,
-                    actor_id=getattr(self, "actor_id", None),
-                )
-                if combat_result:
-                    result["narrative_text"] = (
-                        (result.get("narrative_text") or "") + "\n\n" + combat_result.get("narrative_text", "")
-                    )
-                    result["combat_result"] = combat_result
-                    next_combat_state = combat_result.get("checkpoint_state")
-                    result["combat_state"] = next_combat_state
-
-                    combat_proposals = list(combat_result.get("pending_proposals") or [])
-                    merged_proposals = list(result.get("pending_proposals") or []) + combat_proposals
-
-                    # Extract HP deltas from combat result and persist them via
-                    # PersistenceService.persist_working_state (since persist_turn_artifacts
-                    # already ran inside compiled.ainvoke before _run_combat).
-                    combat_deltas = _extract_combat_resource_deltas(combat_result, result.get("entity_context", []))
-                    if combat_deltas:
-                        existing = list(result.get("resource_deltas") or [])
-                        existing.extend(combat_deltas)
-                        result["resource_deltas"] = existing
-
-                        turn_id_raw = result.get("turn_id")
-                        combat_turn_id: UUID | None = None
-                        if isinstance(turn_id_raw, UUID):
-                            combat_turn_id = turn_id_raw
-                        elif turn_id_raw:
-                            with contextlib.suppress(ValueError, TypeError):
-                                combat_turn_id = UUID(str(turn_id_raw))
-                        try:
-                            combat_persist = await PersistenceService.persist_working_state(
-                                scene_id=self.scene_id,
-                                story_id=self.story_id,
-                                actor_id=getattr(self, "actor_id", None),
-                                entity_context=result.get("entity_context", []),
-                                game_context=result.get("game_context", {}),
-                                resolution=combat_result.get("resolution") or resolution,
-                                user_input=user_input,
-                                narrative_text=result.get("narrative_text"),
-                                turn_id=combat_turn_id,
-                                pending_proposals=[],
-                                resource_deltas=combat_deltas,
-                                memories_to_persist=[],
-                                actor_context=getattr(self, "actor_context", None),
-                                universe_id=result.get("universe_id") or getattr(self, "universe_id", None),
-                                only_resource_deltas=True,
-                            )
-                            if combat_persist.get("working_state") is not None:
-                                result["working_state"] = combat_persist["working_state"]
-                            if combat_persist.get("scene_checkpoint") is not None:
-                                result["scene_checkpoint"] = combat_persist["scene_checkpoint"]
-                            merged_proposals.extend(combat_persist.get("pending_proposals") or [])
-                        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in SceneLoop.run)
-                            logger.warning(
-                                "Combat working-state persistence failed for scene %s",
-                                self.scene_id,
-                                exc_info=True,
-                            )
-
-                    result["pending_proposals"] = merged_proposals
-                    await compiled.aupdate_state(
-                        config,  # type: ignore[arg-type]
-                        {
-                            "combat_state": next_combat_state,
-                            "pending_proposals": merged_proposals,
-                        },
-                    )
-
             return result
 
     async def finalize(self) -> None:
@@ -1771,6 +1712,7 @@ class SceneLoop:
                     "scene_id": self.scene_id,
                     "story_id": self.story_id,
                     "scene_complete": True,
+                    "finalize_requested": True,
                     "user_input": None,
                     "memories_to_persist": [],
                     "max_turns": self.max_turns,
@@ -1915,6 +1857,7 @@ async def _run_combat(
     session_tone: str = "dramatic",
     prior_combat_state: dict[str, Any] | None = None,
     actor_id: UUID | None = None,
+    previous_combat: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """
     Bootstrap or resume a CombatLoop for the current scene.
@@ -1924,6 +1867,7 @@ async def _run_combat(
     from monitor_agents.loops.combat_loop import CombatantState, CombatLoop
 
     narrative_parts: list[str] = []
+    prior_combat_state = prior_combat_state or previous_combat
 
     if isinstance(prior_combat_state, dict) and prior_combat_state.get("combat_active"):
         loop = CombatLoop.from_checkpoint_state(
@@ -2057,6 +2001,8 @@ async def _run_combat(
         "pending_proposals": list(result.get("pending_proposals") or []),
         "resolution": result.get("resolution"),
         "checkpoint_state": loop.to_checkpoint_state() if result.get("combat_active") else None,
+        "combat_state": loop.to_checkpoint_state(),
+        "starting_hp": hp_before,
     }
 
 

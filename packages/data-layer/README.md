@@ -11,8 +11,6 @@
 - Defines Pydantic schemas for all data types
 - Enforces authority rules (who can write what)
 
-> OpenSearch remains an optional infra-level service; there is not yet a first-class `monitor_data.db.opensearch` module in the current repo.
-
 ---
 
 ## Folder Structure

@@ -347,8 +347,10 @@ class TestDeathInSpaceSpec:
         assert "character" in DEATH_IN_SPACE.entity_types
         assert "item" in DEATH_IN_SPACE.entity_types
 
-    def test_core_mechanic_is_d20_under(self):
-        assert DEATH_IN_SPACE.core_mechanic.mechanic_type == OntologyMechanicType.D20_UNDER
+    def test_core_mechanic_is_d20_over(self):
+        assert DEATH_IN_SPACE.core_mechanic.mechanic_type == OntologyMechanicType.D20_OVER
+        assert "12" in DEATH_IN_SPACE.core_mechanic.roll_vs
+        assert "20" in DEATH_IN_SPACE.core_mechanic.critical_rule
 
     def test_character_fields_include_four_attributes(self):
         char = DEATH_IN_SPACE.entity_types["character"]

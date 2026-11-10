@@ -17,6 +17,8 @@ import pytest
 
 from monitor_ui.routers import character_conversation as cc
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 # ---------------------------------------------------------------------------
 # ensure_character_backed
 # ---------------------------------------------------------------------------
@@ -406,9 +408,7 @@ class TestRedistillConversation:
         mongo = MagicMock()
         coll = mongo.get_collection.return_value
         coll.find_one.return_value = self._doc(entity_id, universe_id, conv_id)
-        coll.find.return_value = [
-            {"content": {"description": "Kessa accepted the helm."}, "status": "pending"}
-        ]
+        coll.find.return_value = [{"content": {"description": "Kessa accepted the helm."}, "status": "pending"}]
 
         with (
             patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
@@ -689,10 +689,13 @@ class TestEdgeCases:
 
     def test_draft_card_propagates_errors(self):
         # If the underlying generator raises, draft_card must surface it.
-        with patch(
-            "monitor_agents.character_creator.card_draft.CardDrafter",
-            return_value=MagicMock(forward=MagicMock(side_effect=RuntimeError("no LLM"))),
-        ), pytest.raises(RuntimeError, match="no LLM"):
+        with (
+            patch(
+                "monitor_agents.character_creator.card_draft.CardDrafter",
+                return_value=MagicMock(forward=MagicMock(side_effect=RuntimeError("no LLM"))),
+            ),
+            pytest.raises(RuntimeError, match="no LLM"),
+        ):
             asyncio.run(cc.draft_card("a tavern keeper"))
 
     def test_draft_card_returns_string_fields(self):
@@ -1282,7 +1285,9 @@ class TestLightRPHardening:
             return [{"text": f"echo:{text}", "emotional_state": "calm", "relationship_snapshot": {}}]
 
         fake_loop = MagicMock()
-        fake_loop.state = SimpleNamespace(lorebook_character_ids=["char-1"], pending_proposals=[], lorebook_overrides={})
+        fake_loop.state = SimpleNamespace(
+            lorebook_character_ids=["char-1"], pending_proposals=[], lorebook_overrides={}
+        )
         fake_loop._closed = False
         fake_loop.step = AsyncMock(side_effect=slow_step)
         cc._cache_loop("conv-serial", fake_loop)
@@ -1425,4 +1430,3 @@ class TestLightRPHardening:
         assert len(loop.state.turns) == 2
         assert loop.state.turns_count == 1
         mongo.get_collection.return_value.update_one.assert_called_once()
-

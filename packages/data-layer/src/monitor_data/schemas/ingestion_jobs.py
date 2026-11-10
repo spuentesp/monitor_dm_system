@@ -111,6 +111,7 @@ class IngestionJobCreate(BaseModel):
     source_id: UUID = Field(description="References Neo4j Source node")
     doc_id: UUID = Field(description="References MongoDB documents collection")
     source_title: str = Field(default="", description="Human-readable title stored at creation to avoid Neo4j lookups")
+    owner_id: str | None = Field(default=None, description="Owning user (server-stamped, never client-supplied)")
     pipeline_stages: list[IngestionStage] = Field(
         default_factory=_standard_stages,
         description="Ordered pipeline stages to execute",
@@ -178,6 +179,7 @@ class IngestionJobResponse(BaseModel):
     universe_id: UUID
     source_id: UUID
     doc_id: UUID
+    owner_id: str | None = None
     source_title: str = ""
     status: IngestionStatus
     current_stage: IngestionStage | None = None
@@ -233,6 +235,8 @@ class IngestionJobFilter(BaseModel):
 
     universe_id: UUID | None = None
     source_id: UUID | None = None
+    # Ownership scope (server-derived from the authenticated principal).
+    owner_id: str | None = None
     status: IngestionStatus | None = None
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)

@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from monitor_data.tools.mongodb_tools import (
     mongodb_create_game_system,
     mongodb_delete_game_system,
@@ -18,9 +18,11 @@ from monitor_data.tools.mongodb_tools import (
 
 from .entities import _build_game_system_create, _build_game_system_update
 from .entities_schemas import RPGSystemCreateRequest, RPGSystemUpdateRequest
+from monitor_ui.auth import Principal, get_current_user, require_admin
+
 from .ingest_shared import db_op, validate_uuid
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # reason: bare-typed helper that accepts a Pydantic GameSystemResponse | Any and returns dict; the helper is reused from create/update endpoints where mypy can't narrow the AsyncIOMotorClient cursor's yielded element type
@@ -135,7 +137,7 @@ async def get_system_rules(
 
 
 @router.post("/systems", status_code=201)
-async def create_system(body: RPGSystemCreateRequest) -> dict[str, Any]:
+async def create_system(body: RPGSystemCreateRequest, _admin: Principal = Depends(require_admin)) -> dict[str, Any]:
     """Hand-author a game system with no source PDF.
 
     Uses the exact same builder pipeline as ``POST /api/entities/systems``
@@ -150,7 +152,9 @@ async def create_system(body: RPGSystemCreateRequest) -> dict[str, Any]:
 
 
 @router.put("/systems/{system_id}")
-async def update_system(system_id: str, body: RPGSystemUpdateRequest) -> dict[str, Any]:
+async def update_system(
+    system_id: str, body: RPGSystemUpdateRequest, _admin: Principal = Depends(require_admin)
+) -> dict[str, Any]:
     """Targeted field patch on a game system (name, rules, attributes, …)."""
     uid = validate_uuid(system_id, "system_id")
     try:
@@ -161,7 +165,7 @@ async def update_system(system_id: str, body: RPGSystemUpdateRequest) -> dict[st
 
 
 @router.delete("/systems/{system_id}", status_code=204)
-async def delete_system(system_id: str) -> None:
+async def delete_system(system_id: str, _admin: Principal = Depends(require_admin)) -> None:
     """Delete a game system. Builtin systems are rejected by the data layer."""
     uid = validate_uuid(system_id, "system_id")
     try:

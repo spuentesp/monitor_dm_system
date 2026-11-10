@@ -2,11 +2,22 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
+
 from fastapi.testclient import TestClient
 from monitor_data.schemas.base import KnowledgeTreeType
 from monitor_data.schemas.universe import MultiverseResponse, UniverseResponse
-
+from monitor_ui.auth import get_postgres
+from fake_postgres import FakePostgres
 from monitor_ui.main import app
+import pytest
+
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
+
+def _async_return(value):
+    return AsyncMock(return_value=value)
+
 
 client = TestClient(app)
 
@@ -121,8 +132,22 @@ def test_seed_universe_endpoint():
         )
 
 
+class _StubDb(FakePostgres):
+    """Postgres stub for the fork endpoint; extends FakePostgres so the
+    local-mode principal lookup (user_get_by_id/user_create) works."""
+
+
 def test_fork_universe_endpoint():
     """Fork deep-clones canon into a new universe and returns a summary (M-35)."""
+    stub_db = _StubDb()
+    app.dependency_overrides[get_postgres] = lambda: stub_db
+    try:
+        _run_fork_test()
+    finally:
+        app.dependency_overrides.pop(get_postgres, None)
+
+
+def _run_fork_test():
     with (
         patch(
             "monitor_ui.routers.universes.neo4j_get_universe",
@@ -136,7 +161,20 @@ def test_fork_universe_endpoint():
                 "relationships_cloned": 5,
             },
         ) as mock_fork,
+        # Phase 4: the fork endpoint also clones Mongo/Qdrant/MinIO data — stub it.
+        patch(
+            "monitor_ui.routers.universes.mongodb_fork_universe_data",
+            return_value={"total_copied": 0},
+        ),
+        patch(
+            "monitor_ui.routers.universes.qdrant_clone_collection",
+            return_value={"points_copied": 0},
+        ),
+        patch(
+            "monitor_ui.routers.universes.get_minio_client",
+        ) as mock_minio,
     ):
+        mock_minio.return_value.copy_prefix = _async_return({"copied": 0})
         response = client.post(
             f"/api/universes/universes/{_UNIVERSE_ID}/fork",
             json={"name": "Forked Vale"},

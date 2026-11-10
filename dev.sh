@@ -290,7 +290,7 @@ cmd_start() {
 
     # Detect which services are already healthy vs which need starting
     docker compose --env-file "$ROOT/.env" -f "$INFRA_DIR/docker-compose.yml" up -d \
-        neo4j mongodb qdrant minio postgres opensearch 2>&1 | grep -E "Started|Running|Created|Recreated" || true
+        neo4j mongodb qdrant minio postgres 2>&1 | grep -E "Started|Running|Created|Recreated" || true
 
     ok "Infrastructure up"
 

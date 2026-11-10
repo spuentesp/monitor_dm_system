@@ -6,17 +6,23 @@ Provides REST + WebSocket APIs consumed by the Next.js frontend.
 
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from monitor_data.db.postgres import get_postgres_client
 
+from monitor_ui.auth import get_optional_principal
 from monitor_ui.config import get_settings
 from monitor_ui.routers import (
+    admin,
     architect,
+    auth,
     canon_review,
     change_log,
     character_promotion,
@@ -67,6 +73,12 @@ logger = logging.getLogger(__name__)
 def _startup_runtime() -> None:
     from monitor_data.initialization.ensure_tone_builtins import ensure_tone_builtins
 
+    if get_settings().monitor_auth_disabled:
+        logger.warning(
+            "MONITOR_AUTH_DISABLED=true — authentication is DISABLED and every request "
+            "resolves to the fixed local admin account. This is a local-development "
+            "exception only; never run it on a reachable host."
+        )
     ingest.prepare_ingest_runtime()
     _recover_stale_jobs()
     ensure_tone_builtins()
@@ -255,6 +267,54 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def _csrf_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+        """Double-submit CSRF + origin check for cookie-authenticated unsafe requests.
+
+        Applies when a session cookie is present and no Bearer token is used
+        (bearer/API-token clients are not cookie-authenticated). Login and
+        signup set the cookies, so they are exempt. In auth-disabled local
+        mode there are no session cookies and this passes through.
+        """
+        settings = get_settings()
+        if settings.monitor_auth_disabled or request.method in ("GET", "HEAD", "OPTIONS"):
+            return await call_next(request)
+        has_session_cookie = settings.auth_session_cookie in request.cookies
+        has_bearer = request.headers.get("authorization", "").lower().startswith("bearer ")
+        if not (has_session_cookie and not has_bearer):
+            return await call_next(request)
+        if request.url.path in ("/api/auth/login", "/api/auth/signup"):
+            return await call_next(request)
+        allowed = settings.cors_origins_list
+        origin = request.headers.get("origin")
+        if origin is not None:
+            if origin not in allowed:
+                return JSONResponse({"detail": "Cross-origin request rejected."}, status_code=403)
+        else:
+            referer = request.headers.get("referer")
+            if referer is not None and not any(referer == o or referer.startswith(o + "/") for o in allowed):
+                return JSONResponse({"detail": "Cross-origin request rejected."}, status_code=403)
+        csrf_cookie = request.cookies.get(settings.auth_csrf_cookie, "")
+        csrf_header = request.headers.get(settings.auth_csrf_header, "")
+        if not csrf_cookie or not secrets.compare_digest(csrf_cookie, csrf_header):
+            return JSONResponse({"detail": "Missing or invalid CSRF token."}, status_code=403)
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def _security_headers_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+        """Baseline security headers on every response (API surface only)."""
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if request.url.scheme == "https":
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return response
+
+    app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+    app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
     app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
     app.include_router(modes.router, prefix="/api/modes", tags=["modes"])
     app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"])
@@ -297,8 +357,8 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     # reason: FastAPI route handler returns dict but response_model is absent; FastAPI/Pydantic v2 returns Any for the inferred response without an Annotated[] response_model
-    async def health(deep: bool = False) -> dict:  # type: ignore
-        """Liveness by default; ``?deep=true`` aggregates component health."""
+    async def health(request: Request, deep: bool = False) -> dict:  # type: ignore
+        """Liveness by default; ``?deep=true`` aggregates component health (operator-only)."""
         # reason: FastAPI/Pydantic v2 returns Any for dynamic dict-literal payload built up under conditional branches; mypy can't narrow without an explicit Pydantic model
         payload: dict = {  # type: ignore
             "status": "ok",
@@ -306,6 +366,17 @@ def create_app() -> FastAPI:
             "version": "0.1.0",
         }
         if deep:
+            # Deep component status is operator-only (plan §5.3): it discloses
+            # which databases are reachable. Liveness stays public. The Postgres
+            # client is resolved lazily so liveness never depends on the DB.
+            settings = get_settings()
+            db = get_postgres_client()
+            await db.connect()
+            principal = await get_optional_principal(request, settings, db)
+            if principal is None:
+                raise HTTPException(status_code=401, detail="Not authenticated")
+            if not principal.is_admin:
+                raise HTTPException(status_code=403, detail="Admin access required")
             try:
                 from monitor_ui.routers.databases import get_all_status
 

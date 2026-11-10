@@ -233,5 +233,9 @@ class UniverseFilter(BaseModel):
     genre: str | None = None
     is_template: bool | None = None
     alt_world_type: AltWorldType | None = None
+    # Explicit ID allowlist (e.g. the caller's owned world IDs from the
+    # Postgres registry). Applied in Cypher BEFORE SKIP/LIMIT so ownership
+    # filtering never discards rows after pagination.
+    ids: list[UUID] | None = None
     limit: int = Field(default=30, ge=1, le=1000)
     offset: int = Field(default=0, ge=0)

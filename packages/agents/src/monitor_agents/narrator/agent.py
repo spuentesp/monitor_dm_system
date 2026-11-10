@@ -430,6 +430,10 @@ class Narrator(BaseAgent):
                 story_state=story_state,
             )
 
+        combat_narrative = (context or {}).get("combat_narrative", "")
+        if combat_narrative:
+            narrative_text = f"{narrative_text}\n\n{combat_narrative}".strip()
+
         # --- Persist turn to MongoDB ---
         # OOC/meta calls (persist_turn=False) run against a synthetic scene id
         # — persisting would 404 on mongodb_append_turn and pollute the scene

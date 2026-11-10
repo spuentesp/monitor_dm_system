@@ -1,7 +1,7 @@
 """
 Databases router — health checks and statistics for all MONITOR databases.
 
-Pings Neo4j, MongoDB, Qdrant, MinIO, and OpenSearch and returns
+Pings Neo4j, MongoDB, Qdrant, and MinIO and returns
 connection status, latency, and key stats.
 """
 
@@ -13,12 +13,14 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
 from pydantic import BaseModel
 
+from monitor_ui.auth import require_admin
 from monitor_ui.config import get_settings
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 _settings = get_settings()
 
 
@@ -29,7 +31,7 @@ _settings = get_settings()
 
 class DatabaseStatus(BaseModel):
     name: str
-    db_type: str  # neo4j | mongodb | qdrant | minio | opensearch
+    db_type: str  # neo4j | mongodb | qdrant | minio
     url: str
     status: str  # online | offline | degraded
     latency_ms: float | None = None
@@ -172,22 +174,6 @@ async def _probe_minio() -> DatabaseStatus:
     )
 
 
-async def _probe_opensearch() -> DatabaseStatus:
-    url = _settings.opensearch_url
-    async with httpx.AsyncClient(timeout=4) as http:
-        resp = await http.get(url)
-        resp.raise_for_status()
-        data = resp.json()
-    return DatabaseStatus(
-        name="OpenSearch",
-        db_type="opensearch",
-        url=url,
-        status="online",
-        version=data.get("version", {}).get("number"),
-        stats={"cluster_name": data.get("cluster_name", "")},
-    )
-
-
 # ---------------------------------------------------------------------------
 # Registry — single source of truth for all probes
 # ---------------------------------------------------------------------------
@@ -197,7 +183,6 @@ _PROBES: dict[str, tuple[str, str, Callable[[], Coroutine[Any, Any, DatabaseStat
     "mongodb": ("MongoDB", _settings.mongodb_uri, _probe_mongodb),
     "qdrant": ("Qdrant", _settings.qdrant_endpoint, _probe_qdrant),
     "minio": ("MinIO", "", _probe_minio),  # url built inside probe
-    "opensearch": ("OpenSearch", _settings.opensearch_url, _probe_opensearch),
 }
 
 

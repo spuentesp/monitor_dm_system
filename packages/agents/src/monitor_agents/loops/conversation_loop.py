@@ -374,7 +374,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     conversation_id=state.conversation_id,
                     npc_id=npc_id,
                     player_said=state.current_player_input,
-                    conversation_history=prior_turns,
+                    conversation_history=[*prior_turns, *new_turns[len(state.turns):]],
                     player_entity_id=state.player_entity_id,
                     scene_id=state.scene_id,
                     story_id=state.story_id,
@@ -445,7 +445,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     conversation_id=state.conversation_id,
                     npc_id=npc_id,
                     gm_question=state.current_player_input,
-                    conversation_history=prior_turns,
+                    conversation_history=[*prior_turns, *new_turns[len(state.turns):]],
                     source_profile=state.source_profile,
                     npc_data=state.npc_contexts.get(str(npc_id)),
                 )

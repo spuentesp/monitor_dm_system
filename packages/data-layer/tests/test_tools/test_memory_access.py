@@ -25,9 +25,7 @@ class _FakeMemoriesCollection:
         ids = (query.get("memory_id") or {}).get("$in") or []
         for d in self.docs:
             if d.get("memory_id") in ids:
-                d["access_count"] = d.get("access_count", 0) + update.get("$inc", {}).get(
-                    "access_count", 0
-                )
+                d["access_count"] = d.get("access_count", 0) + update.get("$inc", {}).get("access_count", 0)
 
     def delete_many(self, query: dict):
         self.delete_calls.append(query)
@@ -35,8 +33,7 @@ class _FakeMemoriesCollection:
         kept = []
         for d in self.docs:
             scalar_match = all(
-                d.get(k) == v for k, v in query.items()
-                if not k.startswith("$") and not isinstance(v, dict)
+                d.get(k) == v for k, v in query.items() if not k.startswith("$") and not isinstance(v, dict)
             )
             if not scalar_match:
                 kept.append(d)
@@ -100,20 +97,17 @@ def test_forget_deletes_only_stale_low_value(fake_mongo: _FakeMongoClient) -> No
     story_uuid = uuid4()
     story = str(story_uuid)
     old_ts = (datetime.now(UTC) - timedelta(days=365)).isoformat()
-    fake_mongo.mem.docs.extend([
-        # stale + low importance + never recalled -> delete
-        {"memory_id": str(uuid4()), "story_id": story, "importance": 0.05,
-         "access_count": 0, "created_at": old_ts},
-        # high importance -> keep
-        {"memory_id": str(uuid4()), "story_id": story, "importance": 0.5,
-         "access_count": 0, "created_at": old_ts},
-        # recalled -> keep
-        {"memory_id": str(uuid4()), "story_id": story, "importance": 0.05,
-         "access_count": 3, "created_at": old_ts},
-    ])
-    n = mongodb_forget_stale_memories(
-        story_id=story_uuid, min_age_scenes=10, max_importance=0.1, max_access_count=0
+    fake_mongo.mem.docs.extend(
+        [
+            # stale + low importance + never recalled -> delete
+            {"memory_id": str(uuid4()), "story_id": story, "importance": 0.05, "access_count": 0, "created_at": old_ts},
+            # high importance -> keep
+            {"memory_id": str(uuid4()), "story_id": story, "importance": 0.5, "access_count": 0, "created_at": old_ts},
+            # recalled -> keep
+            {"memory_id": str(uuid4()), "story_id": story, "importance": 0.05, "access_count": 3, "created_at": old_ts},
+        ]
     )
+    n = mongodb_forget_stale_memories(story_id=story_uuid, min_age_scenes=10, max_importance=0.1, max_access_count=0)
     assert n == 1
     assert len(fake_mongo.mem.docs) == 2
 

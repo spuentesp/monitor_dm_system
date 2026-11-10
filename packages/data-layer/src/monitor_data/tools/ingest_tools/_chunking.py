@@ -292,7 +292,11 @@ def chunk_text(
     max_tokens = chunk_size
     base_metadata = dict(metadata or {})
     inherited_section_path: str | None = base_metadata.get("section_path")
-    if not inherited_section_path and isinstance(base_metadata.get("heading_path"), list) and base_metadata["heading_path"]:
+    if (
+        not inherited_section_path
+        and isinstance(base_metadata.get("heading_path"), list)
+        and base_metadata["heading_path"]
+    ):
         inherited_section_path = " > ".join(str(h) for h in base_metadata["heading_path"] if h)
     inherited_category: str | None = base_metadata.get("semantic_category")
 

@@ -54,21 +54,21 @@ class RelationshipType(StrEnum):
     # that gives, costs, or conditions an entity's capability.
     # Every TTRPG has groups, places, and powers — just called by
     # different names. These are intentional generic terms.
-    MEMBER_OF_GROUP = "MEMBER_OF_GROUP"             # entity belongs to a group
-    SUBGROUP_OF_GROUP = "SUBGROUP_OF_GROUP"         # group is a sub-group of another
-    LEADS_GROUP = "LEADS_GROUP"                     # entity leads a group
-    FOUNDED_GROUP = "FOUNDED_GROUP"                 # entity founded a group
-    CONTROLS_GROUP = "CONTROLS_GROUP"               # entity controls a group
-    ALLIED_WITH_GROUP = "ALLIED_WITH_GROUP"         # group is allied with another
-    HOSTILE_TO_GROUP = "HOSTILE_TO_GROUP"           # group is hostile to another
-    AFFECTED_BY = "AFFECTED_BY"                     # entity affected by a power/condition
-    GRANTS_POWER = "GRANTS_POWER"                   # group/role grants a power
-    PRACTICES_DISCIPLINE = "PRACTICES_DISCIPLINE"   # entity practices a power
-    LOCATED_IN_PLACE = "LOCATED_IN_PLACE"           # entity/group in a place
-    CONTAINS_PLACE = "CONTAINS_PLACE"               # place contains a sub-place
-    IS_BACKGROUND = "IS_BACKGROUND"                 # background/edge/hindrance
-    IS_TOUCHSTONE = "IS_TOUCHSTONE"                 # touchstone/conviction/tenet
-    IS_RESOURCE = "IS_RESOURCE"                     # tracked resource
+    MEMBER_OF_GROUP = "MEMBER_OF_GROUP"  # entity belongs to a group
+    SUBGROUP_OF_GROUP = "SUBGROUP_OF_GROUP"  # group is a sub-group of another
+    LEADS_GROUP = "LEADS_GROUP"  # entity leads a group
+    FOUNDED_GROUP = "FOUNDED_GROUP"  # entity founded a group
+    CONTROLS_GROUP = "CONTROLS_GROUP"  # entity controls a group
+    ALLIED_WITH_GROUP = "ALLIED_WITH_GROUP"  # group is allied with another
+    HOSTILE_TO_GROUP = "HOSTILE_TO_GROUP"  # group is hostile to another
+    AFFECTED_BY = "AFFECTED_BY"  # entity affected by a power/condition
+    GRANTS_POWER = "GRANTS_POWER"  # group/role grants a power
+    PRACTICES_DISCIPLINE = "PRACTICES_DISCIPLINE"  # entity practices a power
+    LOCATED_IN_PLACE = "LOCATED_IN_PLACE"  # entity/group in a place
+    CONTAINS_PLACE = "CONTAINS_PLACE"  # place contains a sub-place
+    IS_BACKGROUND = "IS_BACKGROUND"  # background/edge/hindrance
+    IS_TOUCHSTONE = "IS_TOUCHSTONE"  # touchstone/conviction/tenet
+    IS_RESOURCE = "IS_RESOURCE"  # tracked resource
 
 
 # === Sub-plan 1: Canonical category map for every relationship type ===

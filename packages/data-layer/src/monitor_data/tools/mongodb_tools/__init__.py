@@ -36,6 +36,7 @@ Sub-modules:
 # Tests do @patch("monitor_data.tools.mongodb_tools.get_mongodb_client")
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.db.neo4j import get_neo4j_client
+from monitor_data.tools.mongodb_tools.world_fork import mongodb_fork_universe_data
 from monitor_data.tools.mongodb_tools.change_log import (
     make_change_log_entry,
     mongodb_append_change_log,
@@ -179,6 +180,9 @@ from monitor_data.tools.mongodb_tools.knowledge_packs import (
     mongodb_get_knowledge_pack,
     mongodb_list_knowledge_packs,
     mongodb_update_knowledge_pack,
+    mongodb_pack_quality_report,
+    mongodb_publish_knowledge_pack,
+    mongodb_list_published_packs,
 )
 
 # Lorebook operations
@@ -688,4 +692,9 @@ __all__ = [
     "mongodb_get_visual_identity",
     "mongodb_list_visual_identities",
     "mongodb_update_visual_identity_status",
+    # World fork (multi-world)
+    "mongodb_fork_universe_data",
+    "mongodb_pack_quality_report",
+    "mongodb_publish_knowledge_pack",
+    "mongodb_list_published_packs",
 ]

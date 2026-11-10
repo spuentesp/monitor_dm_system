@@ -116,5 +116,10 @@ class PartyFilter(BaseModel):
 
     story_id: UUID | None = None
     status: str | None = None
+    # Single-ID lookup (ownership guard resolves a party's story).
+    party_id: UUID | None = None
+    # Ownership allowlist: parties whose story lives in one of these
+    # universes. Applied in Cypher BEFORE SKIP/LIMIT (plan D4).
+    universe_ids: list[UUID] | None = None
     limit: int = Field(default=50, ge=1, le=100)
     offset: int = Field(default=0, ge=0)

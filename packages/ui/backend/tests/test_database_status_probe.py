@@ -7,6 +7,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from monitor_ui.routers import databases
+import pytest
+
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 
 def _driver(record: dict[str, Any]) -> tuple[MagicMock, list[str]]:

@@ -74,9 +74,16 @@ def mongodb_list_random_tables(filters: RandomTableFilter) -> RandomTableListRes
     client = get_mongodb_client()
     collection = client.get_collection("random_tables")
 
-    query = {}
+    query: dict[str, Any] = {}
     if filters.universe_id:
         query["universe_id"] = str(filters.universe_id)
+    if filters.universe_ids is not None:
+        ids = [str(u) for u in filters.universe_ids]
+        query["$or"] = [
+            {"universe_id": {"$in": ids}},
+            {"universe_id": None},
+            {"universe_id": {"$exists": False}},
+        ]
     if filters.table_type:
         query["table_type"] = filters.table_type.value
     if filters.game_system_id:

@@ -29,6 +29,8 @@ import monitor_ui.routers.image_assets as image_assets
 from monitor_ui.routers import character_storage
 from monitor_ui.routers.image_assets import router
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 app = FastAPI()
 app.include_router(router, prefix="/api/image")
 client = TestClient(app)
@@ -529,10 +531,7 @@ def test_get_current_identity_status_and_card_default_only_params(
     card = _seed_identity()
     _seed_identity(universe_id=uuid4(), description="Incarnation identity.")
 
-    res = client.get(
-        f"/api/image/visual-identities/current?character_id={CHAR_ID}"
-        "&status=draft&card_default_only=true"
-    )
+    res = client.get(f"/api/image/visual-identities/current?character_id={CHAR_ID}&status=draft&card_default_only=true")
 
     assert res.status_code == 200
     assert res.json()["identity_id"] == str(card.identity_id)

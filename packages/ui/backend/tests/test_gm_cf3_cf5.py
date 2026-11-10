@@ -6,10 +6,14 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
+import pytest
+
 from fastapi.testclient import TestClient
 from monitor_agents.plot_hooks import Contradiction
 from monitor_data.schemas.base import PlotThreadStatus
 from monitor_ui.main import app
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
 
 client = TestClient(app)
 
@@ -72,8 +76,13 @@ class TestCF3ThreadActions:
 
 
 class TestCF5Contradictions:
+    @patch("monitor_ui.routers.gm_tools.require_universe_owner", new_callable=AsyncMock)
     @patch("monitor_ui.routers.gm_tools.PlotHookAgent")
-    def test_detect_contradictions_passes_scope(self, mock_agent_cls: Mock) -> None:
+    def test_detect_contradictions_passes_scope(
+        self,
+        mock_agent_cls: Mock,
+        _mock_owner: AsyncMock,
+    ) -> None:
         mock_agent = mock_agent_cls.return_value
         mock_agent.detect_contradictions = AsyncMock(return_value=[])
         story_id = uuid4()
@@ -96,8 +105,13 @@ class TestCF5Contradictions:
         assert kwargs["story_id"] == story_id
         assert kwargs["scene_id"] == scene_id
 
+    @patch("monitor_ui.routers.gm_tools.require_universe_owner", new_callable=AsyncMock)
     @patch("monitor_ui.routers.gm_tools.mongodb_create_proposed_change")
-    def test_resolution_is_staged_as_a_pending_proposal(self, mock_create: Mock) -> None:
+    def test_resolution_is_staged_as_a_pending_proposal(
+        self,
+        mock_create: Mock,
+        _mock_owner: AsyncMock,
+    ) -> None:
         proposal_id = uuid4()
         mock_create.return_value = SimpleNamespace(proposal_id=proposal_id)
         story_id = uuid4()

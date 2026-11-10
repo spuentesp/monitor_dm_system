@@ -89,7 +89,7 @@ class ValidatorType(StrEnum):
 class OntologyMechanicType(StrEnum):
     """Fundamental resolution mechanic of the system."""
 
-    D20_UNDER = "d20_under"  # roll d20 ≤ attribute (DIS, MÖRK BORG)
+    D20_UNDER = "d20_under"  # roll d20 ≤ attribute
     D20_OVER = "d20_over"  # roll d20 ≥ DC (D&D 5e)
     DICE_POOL = "dice_pool"  # count successes in pool (WoD, Shadowrun)
     PERCENTILE = "percentile"  # roll d100 ≤ skill (Call of Cthulhu)
@@ -108,7 +108,6 @@ class StorageBackend(StrEnum):
     QDRANT = "qdrant"
     MINIO = "minio"
     POSTGRES = "postgres"
-    OPENSEARCH = "opensearch"
 
 
 class RelationCardinality(StrEnum):

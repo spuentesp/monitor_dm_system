@@ -19,6 +19,8 @@ import monitor_data.tools.mongodb_tools.image_settings as image_settings_tools
 
 from monitor_ui.routers.image_assets import router
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 app = FastAPI()
 app.include_router(router, prefix="/api/image")
 client = TestClient(app)
@@ -115,9 +117,7 @@ def pinned_env(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_get_settings_returns_env_defaults_when_no_singleton(
-    fake_mongo: _FakeMongoClient, pinned_env: None
-) -> None:
+def test_get_settings_returns_env_defaults_when_no_singleton(fake_mongo: _FakeMongoClient, pinned_env: None) -> None:
     res = client.get("/api/image/settings")
     assert res.status_code == 200
     body = res.json()
@@ -130,9 +130,7 @@ def test_get_settings_returns_env_defaults_when_no_singleton(
     }
 
 
-def test_get_settings_returns_merged_view(
-    fake_mongo: _FakeMongoClient, pinned_env: None
-) -> None:
+def test_get_settings_returns_merged_view(fake_mongo: _FakeMongoClient, pinned_env: None) -> None:
     fake_mongo.get_collection("image_generation_settings").insert_one(
         {"_id": "global", "image_max_per_scene": 10, "image_suggestions_enabled": False}
     )
@@ -154,9 +152,7 @@ def test_get_settings_returns_merged_view(
 # ---------------------------------------------------------------------------
 
 
-def test_put_settings_updates_singleton_and_returns_merged_view(
-    fake_mongo: _FakeMongoClient, pinned_env: None
-) -> None:
+def test_put_settings_updates_singleton_and_returns_merged_view(fake_mongo: _FakeMongoClient, pinned_env: None) -> None:
     res = client.put(
         "/api/image/settings",
         json={"image_max_per_scene": 20, "image_suggestions_enabled": False},
@@ -167,7 +163,9 @@ def test_put_settings_updates_singleton_and_returns_merged_view(
     assert body["image_max_per_scene"] == 20
     assert body["image_suggestions_enabled"] is False
     # Untouched fields still come from env
-    assert body["image_modemode_mode" if "image_modemode_mode" in body else "image_moderation_mode"] == "provider_default"
+    assert (
+        body["image_modemode_mode" if "image_modemode_mode" in body else "image_moderation_mode"] == "provider_default"
+    )
     assert body["image_max_per_conversation"] == 8
     assert body["image_max_per_actor_hour"] == 12
 
@@ -179,9 +177,7 @@ def test_put_settings_updates_singleton_and_returns_merged_view(
     assert coll.docs[0]["image_suggestions_enabled"] is False
 
 
-def test_put_settings_round_trip_persists_changes(
-    fake_mongo: _FakeMongoClient, pinned_env: None
-) -> None:
+def test_put_settings_round_trip_persists_changes(fake_mongo: _FakeMongoClient, pinned_env: None) -> None:
     """Update then GET round-trips: the new merged view is what we'd see next time."""
     res = client.put(
         "/api/image/settings",
@@ -207,32 +203,24 @@ def test_put_settings_round_trip_persists_changes(
     assert get.json() == body
 
 
-def test_put_settings_rejects_out_of_range_value(
-    fake_mongo: _FakeMongoClient, pinned_env: None
-) -> None:
+def test_put_settings_rejects_out_of_range_value(fake_mongo: _FakeMongoClient, pinned_env: None) -> None:
     """Pydantic bounds = 422; the singleton is not written."""
     res = client.put("/api/image/settings", json={"image_max_per_scene": 200})
     assert res.status_code == 422
     assert fake_mongo.get_collection("image_generation_settings").docs == []
 
 
-def test_put_settings_rejects_negative_value(
-    fake_mongo: _FakeMongoClient, pinned_env: None
-) -> None:
+def test_put_settings_rejects_negative_value(fake_mongo: _FakeMongoClient, pinned_env: None) -> None:
     res = client.put("/api/image/settings", json={"image_max_per_actor_hour": -1})
     assert res.status_code == 422
 
 
-def test_put_settings_rejects_invalid_mode(
-    fake_mongo: _FakeMongoClient, pinned_env: None
-) -> None:
+def test_put_settings_rejects_invalid_mode(fake_mongo: _FakeMongoClient, pinned_env: None) -> None:
     res = client.put("/api/image/settings", json={"image_moderation_mode": "off"})
     assert res.status_code == 422
 
 
-def test_put_settings_partial_update_keeps_other_fields(
-    fake_mongo: _FakeMongoClient, pinned_env: None
-) -> None:
+def test_put_settings_partial_update_keeps_other_fields(fake_mongo: _FakeMongoClient, pinned_env: None) -> None:
     """A PUT with only one field leaves the rest alone."""
     client.put("/api/image/settings", json={"image_max_per_scene": 25})
     res = client.put("/api/image/settings", json={"image_suggestions_enabled": False})

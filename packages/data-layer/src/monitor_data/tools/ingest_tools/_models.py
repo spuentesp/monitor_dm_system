@@ -28,6 +28,7 @@ DEFAULT_MAX_TOKENS: int = 512
 RULEBOOK_CHUNK_SIZE: int = 1024
 DEFAULT_OVERLAP_RATIO: float = 0.10  # 10% — per LIBRARY_PLAN DL-B3
 
+
 class _FallbackEncoding:
     """Offline fallback tokenizer when tiktoken BPE cache is unavailable and sockets are blocked."""
 

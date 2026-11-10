@@ -61,7 +61,6 @@ MONITOR is a **narrative intelligence system for tabletop RPGs**. It combines a 
   │        │        │        │          │
   ▼        ▼        ▼        ▼          ▼
  Neo4j   MongoDB   Qdrant  PostgreSQL  MinIO
-                     (+ OpenSearch is provisioned in infra and remains optional)
 ```
 
 ---

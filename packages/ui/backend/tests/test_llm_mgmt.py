@@ -5,6 +5,7 @@ from fastapi import FastAPI
 import os
 
 import monitor_ui.routers.llm_mgmt as llm_mgmt_module
+
 from monitor_ui.routers.llm_mgmt import (
     router,
     _invalidate_llm_cache,
@@ -12,6 +13,9 @@ from monitor_ui.routers.llm_mgmt import (
     _resolve_model,
     _mask_key,
 )
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 
 app = FastAPI()
 app.include_router(router)
@@ -130,9 +134,17 @@ def test_list_providers_seed_with_existing_legacy(mock_postgres):
         {"id": "zai-default", "name": "legacy", "provider": "z_ai", "model": "m"},
     ]
     with patch("monitor_ui.routers.llm_mgmt.get_postgres_client", return_value=mock_postgres):
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(
+            os.environ,
+            {"MONITOR_AUTH_DISABLED": "true", "AUTH_COOKIE_SECURE": "false"},
+            clear=True,
+        ):
+            from monitor_ui.config import get_settings
+
+            get_settings.cache_clear()
             response = client.get("/providers")
             assert response.status_code == 200
+            get_settings.cache_clear()
 
 
 def test_list_providers_already_seeded(mock_postgres):

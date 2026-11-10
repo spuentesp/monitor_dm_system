@@ -18,9 +18,7 @@ class TestSubstituteCardMacros:
         assert out == f"Hi {DEFAULT_USER_NAME}"
 
     def test_case_insensitive(self):
-        out = substitute_card_macros(
-            "{{CHAR}} meets {{User}}", char_name="Elara", user_name="Kael"
-        )
+        out = substitute_card_macros("{{CHAR}} meets {{User}}", char_name="Elara", user_name="Kael")
         assert out == "Elara meets Kael"
 
     def test_inner_whitespace_tolerated(self):
@@ -32,9 +30,7 @@ class TestSubstituteCardMacros:
         assert out == "Elara greets Kael"
 
     def test_repeated_placeholders_all_replaced(self):
-        out = substitute_card_macros(
-            "{{char}} thinks about {{char}}'s past.", char_name="Elara"
-        )
+        out = substitute_card_macros("{{char}} thinks about {{char}}'s past.", char_name="Elara")
         assert out == "Elara thinks about Elara's past."
 
     def test_empty_and_plain_text_passthrough(self):

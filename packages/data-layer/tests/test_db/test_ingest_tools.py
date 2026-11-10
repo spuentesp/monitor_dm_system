@@ -71,6 +71,37 @@ def test_extract_pdf_structure_heading_path_nesting():
         assert combat_sections[0].depth >= 1
 
 
+def test_overlapping_bookmarks_preserve_text_once():
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "First page unique content.")
+    doc.new_page().insert_text((72, 72), "Second page unique content.")
+    doc.set_toc([[1, "Chapter", 1], [2, "Section", 2]])
+    data = doc.tobytes()
+    doc.close()
+
+    sections = extract_pdf_structure(data)
+    text = "\n".join(section.text for section in sections)
+    assert text.count("First page unique content.") == 1
+    assert text.count("Second page unique content.") == 1
+    assert any(section.heading_path == ["Chapter", "Section"] for section in sections)
+
+
+def test_bookmarks_preserve_unbookmarked_front_matter():
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "Unbookmarked introduction")
+    doc.new_page().insert_text((72, 72), "Chapter text")
+    doc.set_toc([[1, "Chapter", 2]])
+    data = doc.tobytes()
+    doc.close()
+
+    sections = extract_pdf_structure(data)
+
+    assert sections[0].page_start == sections[0].page_end == 0
+    assert "Unbookmarked introduction" in sections[0].text
+    assert sections[1].heading_path == ["Chapter"]
+    assert "Chapter text" in sections[1].text
+
+
 # [G-8](d) — extract_pdf_structure wraps an in-memory SHA-256 LRU.
 # Tests pin (a) cache hit on identical bytes (b) mutation isolation
 # (c) cache miss on different bytes (d) LRU eviction at 5th distinct PDF.

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -9,6 +11,9 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from monitor_ui.main import app
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 
 client = TestClient(app)
 
@@ -316,9 +321,7 @@ class TestEntityTagStripping:
     @patch("monitor_ui.routers.chat._db_save_session")
     @patch("monitor_ui.routers.chat._SESSIONS", new_callable=dict)
     @patch("monitor_ui.routers.chat._MESSAGES", new_callable=dict)
-    def test_scene_turn_response_strips_entity_tags(
-        self, _msgs, _sessions, mock_save_session, mock_save_msg
-    ):
+    def test_scene_turn_response_strips_entity_tags(self, _msgs, _sessions, mock_save_session, mock_save_msg):
         """The scene-turn chokepoint (REST + WS) must strip the tags
         before the narrative leaves chat_loops.py."""
         session_id = str(uuid4())
@@ -349,9 +352,7 @@ class TestEntityTagStripping:
     @patch("monitor_ui.routers.chat._db_save_session")
     @patch("monitor_ui.routers.chat._SESSIONS", new_callable=dict)
     @patch("monitor_ui.routers.chat._MESSAGES", new_callable=dict)
-    def test_persisted_gm_message_strips_entity_tags(
-        self, _msgs, _sessions, mock_save_session, mock_save_msg
-    ):
+    def test_persisted_gm_message_strips_entity_tags(self, _msgs, _sessions, mock_save_session, mock_save_msg):
         """The persisted canonical record must also be clean — anything
         a future code path replays (recap, scene-end digest) inherits
         the strip."""
@@ -364,8 +365,7 @@ class TestEntityTagStripping:
             patch("monitor_ui.routers.chat._run_scene_turn", new=AsyncMock()) as mock_scene,
         ):
             mock_scene.return_value = (
-                "[General Puentes](entity:anchor) salutes "
-                "[a bored bartender](entity:flavor).",
+                "[General Puentes](entity:anchor) salutes [a bored bartender](entity:flavor).",
                 {"type": "scene_turn", "phase": "active_play"},
             )
             client.post(
@@ -385,9 +385,7 @@ class TestEntityTagStripping:
     @patch("monitor_ui.routers.chat._db_save_session")
     @patch("monitor_ui.routers.chat._SESSIONS", new_callable=dict)
     @patch("monitor_ui.routers.chat._MESSAGES", new_callable=dict)
-    def test_scene_turn_with_no_tags_unchanged(
-        self, _msgs, _sessions, mock_save_session, mock_save_msg
-    ):
+    def test_scene_turn_with_no_tags_unchanged(self, _msgs, _sessions, mock_save_session, mock_save_msg):
         """Regression guard: when the GM doesn't tag any entity, the
         narrative passes through unchanged (no double-handling)."""
         session_id = str(uuid4())

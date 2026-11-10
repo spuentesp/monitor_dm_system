@@ -3,10 +3,16 @@ game system, never a hardcoded literal resource dict."""
 
 from __future__ import annotations
 
+import pytest
+
+
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from monitor_ui.routers.forge import _DEMO_PC_ATTRIBUTES, _demo_pc_properties
+
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 
 _MISTLANDS_DOC = {
     "name": "Mistlands Core",

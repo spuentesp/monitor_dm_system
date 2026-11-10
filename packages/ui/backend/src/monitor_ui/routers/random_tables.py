@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from monitor_data.schemas.random_tables import (
     RandomTableCreate,
     RandomTableFilter,
@@ -31,11 +31,15 @@ from monitor_data.tools.mongodb_tools.random_tables import (
     mongodb_roll_on_table,
     mongodb_update_random_table,
 )
+from monitor_data.db.postgres import PostgresClient
+from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin
+from monitor_ui.ownership import owned_world_ids, require_random_table_owner, require_universe_owner
 from pydantic import BaseModel
 
 from .ingest_shared import db_op, validate_uuid
 
-router = APIRouter()
+
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +79,8 @@ async def list_random_tables(
     game_system_id: str | None = Query(default=None, description="Filter by game system"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> RandomTableListResponse:
     """
     Return random tables with optional filters.
@@ -83,8 +89,12 @@ async def list_random_tables(
     - universe_id=<uuid> returns tables scoped to that universe.
     - Combine both to see all tables available in a given universe context.
     """
+    if universe_id:
+        await require_universe_owner(db, principal, universe_id)
+    owned_w = await owned_world_ids(db, principal)
     filters = RandomTableFilter(
         universe_id=validate_uuid(universe_id) if universe_id else None,
+        universe_ids=[UUID(i) for i in owned_w] if owned_w is not None else None,
         table_type=table_type,
         game_system_id=validate_uuid(game_system_id) if game_system_id else None,
         limit=limit,
@@ -95,13 +105,18 @@ async def list_random_tables(
 
 
 @router.get("/random-tables/{table_id}", response_model=RandomTableResponse)
-async def get_random_table(table_id: str) -> RandomTableResponse:
-    """Retrieve a single random table by ID."""
+async def get_random_table(
+    table_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> RandomTableResponse:
+    """Retrieve a single random table by ID (universe-scoped tables require ownership)."""
     uid = validate_uuid(table_id, "table_id")
     with db_op("Database unavailable"):
         table = mongodb_get_random_table(uid)
     if not table:
         raise HTTPException(404, "Random table not found")
+    await require_random_table_owner(db, principal, table)
     return table
 
 
@@ -147,14 +162,24 @@ class RandomTableCreateRequest(BaseModel):
 
 
 @router.post("/random-tables", status_code=201, response_model=RandomTableResponse)
-async def create_random_table(body: RandomTableCreateRequest) -> RandomTableResponse:
+async def create_random_table(
+    body: RandomTableCreateRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> RandomTableResponse:
     """
     Create a new random table.
 
     - universe_id=null → system-wide global table (available to all universes).
-    - universe_id=<uuid> → universe-specific override / extension.
+    - universe_id=<uuid> → universe-specific override / extension (caller must own it).
+    - universe_id=null → global table (admin only).
     - At least one entry is required.
     """
+    if body.universe_id:
+        await require_universe_owner(db, principal, body.universe_id)
+    else:
+        # Global tables are operator-managed.
+        await require_admin(principal)
     try:
         params = RandomTableCreate(
             name=body.name,
@@ -190,9 +215,22 @@ class RandomTableUpdateRequest(BaseModel):
 
 
 @router.put("/random-tables/{table_id}", response_model=RandomTableResponse)
-async def update_random_table(table_id: str, body: RandomTableUpdateRequest) -> RandomTableResponse:
+async def update_random_table(
+    table_id: str,
+    body: RandomTableUpdateRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> RandomTableResponse:
     """Update an existing random table (partial update — only provided fields are changed)."""
     uid = validate_uuid(table_id, "table_id")
+    with db_op("Database unavailable"):
+        existing = mongodb_get_random_table(uid)
+    if not existing:
+        raise HTTPException(404, "Random table not found")
+    if getattr(existing, "universe_id", None) is not None:
+        await require_universe_owner(db, principal, existing.universe_id)
+    else:
+        await require_admin(principal)
 
     update_kwargs: dict[str, Any] = {k: v for k, v in body.model_dump().items() if v is not None}
 
@@ -220,9 +258,21 @@ async def update_random_table(table_id: str, body: RandomTableUpdateRequest) -> 
 
 
 @router.delete("/random-tables/{table_id}", status_code=204)
-async def delete_random_table(table_id: str) -> None:
+async def delete_random_table(
+    table_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> None:
     """Permanently delete a random table."""
     uid = validate_uuid(table_id, "table_id")
+    with db_op("Database unavailable"):
+        existing = mongodb_get_random_table(uid)
+    if not existing:
+        raise HTTPException(404, "Random table not found")
+    if getattr(existing, "universe_id", None) is not None:
+        await require_universe_owner(db, principal, existing.universe_id)
+    else:
+        await require_admin(principal)
     with db_op("Database unavailable"):
         deleted = mongodb_delete_random_table(uid)
     if not deleted:
@@ -238,6 +288,8 @@ async def delete_random_table(table_id: str) -> None:
 async def roll_random_table(
     table_id: str,
     actor_id: str | None = Query(default=None, description="Actor rolling the dice"),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> dict[str, Any]:
     """
     Roll on a random table and return the result.
@@ -248,6 +300,12 @@ async def roll_random_table(
     """
     uid = validate_uuid(table_id, "table_id")
     actor_uid = validate_uuid(actor_id) if actor_id else None
+
+    with db_op("Database unavailable"):
+        table = mongodb_get_random_table(uid)
+    if not table:
+        raise HTTPException(404, "Random table not found")
+    await require_random_table_owner(db, principal, table)
 
     with db_op("Database unavailable"):
         try:

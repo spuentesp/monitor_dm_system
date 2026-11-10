@@ -21,7 +21,9 @@ from contextlib import suppress
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from monitor_ui.auth import require_admin
 from monitor_data.db.postgres import get_postgres_client
 from pydantic import BaseModel
 
@@ -40,7 +42,7 @@ def _invalidate_llm_cache() -> None:
         clear_bg_registry_cache()
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 # ---------------------------------------------------------------------------
 # Models

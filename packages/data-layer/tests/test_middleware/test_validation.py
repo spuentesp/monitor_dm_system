@@ -608,4 +608,3 @@ def test_validate_neo4j_create_entity_merges_top_level_fields_into_params():
     assert result["params"].universe_id == universe_id
     assert result["params"].entity_type.value == "character"
     assert result["params"].name == "Gandalf"
-

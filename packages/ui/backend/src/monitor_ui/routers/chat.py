@@ -20,7 +20,11 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from monitor_data.db.postgres import PostgresClient, get_postgres_client
+from monitor_ui.auth import Principal, get_current_user, get_postgres, resolve_principal, is_local_mode
+from monitor_ui.config import get_settings
+from monitor_ui.ownership import require_chat_session_owner, require_universe_owner
 from monitor_agents.dspy_runtime import stream_callback_var
 from monitor_agents.loops.preplay_finalize import finalize_preplay
 from monitor_agents.loops.preplay_orchestrator import (
@@ -264,8 +268,11 @@ def _handle_tone_command(content: str, session_id: str) -> tuple[str, dict[str, 
 
 
 @router.get("", response_model=list[Session])
-async def list_sessions() -> list[Session]:
+async def list_sessions(principal: Principal = Depends(get_current_user)) -> list[Session]:
     _ensure_sessions_loaded()
+    # Owner-scoped listing: in auth-disabled local mode the local account owns
+    # all (legacy) sessions; otherwise only sessions stamped with owner_id.
+    owner_filter = None if is_local_mode(principal) else str(principal.user_id)
     return [
         Session(
             id=sid,
@@ -301,6 +308,7 @@ async def list_sessions() -> list[Session]:
             archived=s.get("archived"),
         )
         for sid, s in _SESSIONS.items()
+        if owner_filter is None or s.get("owner_id") == owner_filter
     ]
 
 
@@ -318,7 +326,11 @@ async def list_playtest_benchmarks() -> list[dict[str, Any]]:
 
 
 @router.post("", response_model=Session, status_code=201)
-async def create_session(body: SessionCreate) -> Session:
+async def create_session(
+    body: SessionCreate,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> Session:
     sid = str(uuid.uuid4())
     now = _now()
     benchmark = _get_benchmark_config(body.benchmark_id)
@@ -353,6 +365,8 @@ async def create_session(body: SessionCreate) -> Session:
 
     universe_id = body.universe_id or body.world_id
     if universe_id:
+        # The session's universe must belong to the caller (foreign → 404).
+        await require_universe_owner(db, principal, universe_id)
         binding = _resolve_universe_system_binding(universe_id)
         if "system_id" not in provided_fields and not system_id and binding.get("system_id"):
             system_id = str(binding["system_id"])
@@ -386,6 +400,7 @@ async def create_session(body: SessionCreate) -> Session:
 
     session: dict[str, Any] = {
         "id": sid,
+        "owner_id": str(principal.user_id),
         "title": title,
         "mode": mode,
         "multiverse_id": body.multiverse_id,
@@ -550,12 +565,14 @@ async def create_session(body: SessionCreate) -> Session:
 
 
 @router.get("/{session_id}/state", response_model=SessionStateResponse)
-async def get_session_state(session_id: str) -> SessionStateResponse:
+async def get_session_state(session_id: str, principal: Principal = Depends(get_current_user)) -> SessionStateResponse:
+    await require_chat_session_owner(principal, session_id)
     return _build_session_state(session_id)
 
 
 @router.get("/{session_id}/messages", response_model=list[Message])
-async def get_messages(session_id: str) -> list[Message]:
+async def get_messages(session_id: str, principal: Principal = Depends(get_current_user)) -> list[Message]:
+    await require_chat_session_owner(principal, session_id)
     if session_id not in _MESSAGES:
         loaded = _db_load_messages(session_id)
         if loaded:
@@ -565,7 +582,8 @@ async def get_messages(session_id: str) -> list[Message]:
 
 
 @router.get("/{session_id}/recap")
-async def get_session_recap(session_id: str) -> dict[str, Any]:
+async def get_session_recap(session_id: str, principal: Principal = Depends(get_current_user)) -> dict[str, Any]:
+    await require_chat_session_owner(principal, session_id)
     """
     Generate a "Story So Far" narrative recap for the session's active story.
 
@@ -634,7 +652,8 @@ def _canon_item_label(content: dict[str, Any], change_type: str) -> str:
 
 
 @router.post("/{session_id}/wrap-up", response_model=WrapUpDigest)
-async def wrap_up_session(session_id: str) -> WrapUpDigest:
+async def wrap_up_session(session_id: str, principal: Principal = Depends(get_current_user)) -> WrapUpDigest:
+    await require_chat_session_owner(principal, session_id)
     """
     Guided end-of-session wrap-up for gm_assistant recordings (P1.3).
 
@@ -754,7 +773,10 @@ async def wrap_up_session(session_id: str) -> WrapUpDigest:
 
 
 @router.post("/{session_id}/greet", response_model=Message)
-async def greet_character(session_id: str, character_id: str) -> Message:
+async def greet_character(
+    session_id: str, character_id: str, principal: Principal = Depends(get_current_user)
+) -> Message:
+    await require_chat_session_owner(principal, session_id)
     """
     Bootstrap a session with a character greeting.
     Creates a 'character' role message using the character's first_message.
@@ -822,7 +844,8 @@ def _begin_story_intent(session: dict[str, Any], content: str) -> bool:
 
 
 @router.post("/{session_id}/begin", response_model=Message)
-async def begin_story(session_id: str) -> Message:
+async def begin_story(session_id: str, principal: Principal = Depends(get_current_user)) -> Message:
+    await require_chat_session_owner(principal, session_id)
     """Confirm Session Zero and create the first in-fiction narration once."""
     _ensure_sessions_loaded()
     session = _SESSIONS.get(session_id)
@@ -865,7 +888,8 @@ async def begin_story(session_id: str) -> Message:
 
 
 @router.post("/{session_id}/send", response_model=Message)
-async def send_message(session_id: str, body: MessageSend) -> Message:
+async def send_message(session_id: str, body: MessageSend, principal: Principal = Depends(get_current_user)) -> Message:
+    await require_chat_session_owner(principal, session_id)
     _ensure_sessions_loaded()
     if session_id not in _SESSIONS:
         from fastapi import HTTPException
@@ -1038,7 +1062,8 @@ async def send_message(session_id: str, body: MessageSend) -> Message:
 
 
 @router.delete("/{session_id}", status_code=204)
-async def delete_session(session_id: str) -> None:
+async def delete_session(session_id: str, principal: Principal = Depends(get_current_user)) -> None:
+    await require_chat_session_owner(principal, session_id)
     _ensure_sessions_loaded()
     _SESSIONS.pop(session_id, None)
     _MESSAGES.pop(session_id, None)
@@ -1070,7 +1095,9 @@ async def delete_session(session_id: str) -> None:
 async def update_session(
     session_id: str,
     body: SessionPatch | None = None,
+    principal: Principal = Depends(get_current_user),
 ) -> Session:
+    await require_chat_session_owner(principal, session_id)
     _ensure_sessions_loaded()
     session = _SESSIONS.get(session_id)
     if not session:
@@ -1130,7 +1157,8 @@ async def update_session(
 
 
 @router.post("/{session_id}/end-scene", response_model=Message)
-async def end_scene(session_id: str) -> Message:
+async def end_scene(session_id: str, principal: Principal = Depends(get_current_user)) -> Message:
+    await require_chat_session_owner(principal, session_id)
     """
     Force scene completion: canonize pending proposals, advance the story,
     and prepare the next scene for play.
@@ -1198,7 +1226,8 @@ _CHARACTER_SETUP_PHASES = frozenset({"awaiting_character", "character_interview"
 
 
 @router.post("/{session_id}/skip-preplay", response_model=Message)
-async def skip_preplay(session_id: str) -> Message:
+async def skip_preplay(session_id: str, principal: Principal = Depends(get_current_user)) -> Message:
+    await require_chat_session_owner(principal, session_id)
     """Use safe defaults for Session Zero and invoke the normal Begin path.
 
     Character selection/creation remains an invariant: a player cannot skip
@@ -1261,6 +1290,28 @@ async def skip_preplay(session_id: str) -> Message:
 
 @router.websocket("/ws/{session_id}")
 async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
+    # Authenticate and authorize BEFORE accept(): no frame is read, no
+    # subscriber registered, nothing persisted until both pass.
+    # 4401 = unauthenticated/invalid credentials, 4404 = foreign/missing session.
+    settings = get_settings()
+    db = get_postgres_client()
+    try:
+        await db.connect()
+        principal = await resolve_principal(
+            authorization=websocket.headers.get("authorization"),
+            cookies=dict(websocket.cookies),
+            settings=settings,
+            db=db,
+        )
+        await require_chat_session_owner(principal, session_id)
+    except HTTPException as exc:
+        await websocket.close(code=4401 if exc.status_code == 401 else 4404)
+        return
+    except Exception:  # noqa: BLE001  # reason: WS boundary fails closed on any unexpected error
+        logger.warning("websocket auth failed", exc_info=True)
+        await websocket.close(code=4401)
+        return
+
     await websocket.accept()
     ws_register(session_id, websocket)
     _ensure_sessions_loaded()
@@ -1292,6 +1343,21 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                 if not await _send_ws_payload(websocket, {"type": "pong"}):
                     break
                 continue
+
+            # Revalidate auth on every inbound turn-producing frame: expired or
+            # revoked sessions and banned users are cut off mid-connection.
+            try:
+                principal = await resolve_principal(
+                    authorization=websocket.headers.get("authorization"),
+                    cookies=dict(websocket.cookies),
+                    settings=settings,
+                    db=db,
+                )
+                await require_chat_session_owner(principal, session_id)
+            except HTTPException:
+                await _send_ws_payload(websocket, {"type": "error", "detail": "Not authenticated"})
+                await websocket.close(code=4401)
+                break
 
             # Reject blank normal turns at the protocol boundary so malformed
             # clients cannot trigger narration without player input.

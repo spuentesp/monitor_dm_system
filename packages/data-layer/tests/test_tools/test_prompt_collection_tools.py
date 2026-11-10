@@ -194,16 +194,12 @@ def test_list_filters_by_category_and_system(fake_mongo):
     sys_a = uuid4()
     mongodb_create_prompt_collection(_sample_create(system_id=sys_a))
     mongodb_create_prompt_collection(_sample_create(name="Other", system_id=uuid4()))
-    mongodb_create_prompt_collection(
-        _sample_create(name="CharGen", category="character_creation", system_id=sys_a)
-    )
+    mongodb_create_prompt_collection(_sample_create(name="CharGen", category="character_creation", system_id=sys_a))
 
     by_category = mongodb_list_prompt_collections(PromptCollectionFilter(category="session_zero"))
     assert by_category.total == 2
 
-    by_system = mongodb_list_prompt_collections(
-        PromptCollectionFilter(category="session_zero", system_id=sys_a)
-    )
+    by_system = mongodb_list_prompt_collections(PromptCollectionFilter(category="session_zero", system_id=sys_a))
     assert by_system.total == 1
     assert by_system.collections[0].system_id == sys_a
 

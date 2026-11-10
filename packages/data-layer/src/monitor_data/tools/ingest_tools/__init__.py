@@ -132,4 +132,3 @@ def minio_download(object_key: str) -> str:
     client = get_minio_client()
     data = run_sync(client.download(object_key))
     return base64.b64encode(data).decode("ascii")
-

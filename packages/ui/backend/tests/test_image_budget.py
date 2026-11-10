@@ -40,6 +40,8 @@ import monitor_ui.image_budget as image_budget
 import monitor_ui.routers.image_gen as image_gen
 from monitor_ui.routers.image_gen import router
 
+pytestmark = pytest.mark.usefixtures("local_auth_mode")
+
 app = FastAPI()
 app.include_router(router, prefix="/api/image")
 client = TestClient(app)
@@ -92,10 +94,7 @@ class _FakeCollection:
         return None
 
     def find(self, query: dict):
-        matched = [
-            doc for doc in self.docs
-            if all(doc.get(k) == v for k, v in query.items())
-        ]
+        matched = [doc for doc in self.docs if all(doc.get(k) == v for k, v in query.items())]
         return iter(matched)
 
     def count_documents(self, query: dict) -> int:
