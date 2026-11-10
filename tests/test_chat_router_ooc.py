@@ -272,7 +272,7 @@ async def test_scene_end_phase_transitions_in_run_end_scene(monkeypatch):
 
     # Mock StoryLoop to return a new scene
     class _FakeStoryLoop:
-        def __init__(self, story_id, universe_id):
+        def __init__(self, story_id, universe_id, owner_id=None):
             pass
 
         async def complete_current_scene(self, scene_id, outcome):
