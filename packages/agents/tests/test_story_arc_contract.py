@@ -239,6 +239,11 @@ class TestStoryProgression:
     async def test_a_story_asked_to_end_ends_at_once(self, monkeypatch, arc_judge):
         saver = MemorySaver()
         monkeypatch.setattr(story_loop.MongoDBSaver, "from_conn_string", lambda _: _saver_context(saver))
+        monkeypatch.setattr(
+            story_loop.StoryLoop,
+            "_write_ledger_entry",
+            AsyncMock(return_value={}),
+        )
         finalize = AsyncMock()
         monkeypatch.setattr(story_loop, "finalize_story", finalize)
 
@@ -248,6 +253,22 @@ class TestStoryProgression:
 
         assert result["story_complete"] is True
         finalize.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_story_asked_to_end_still_leaves_a_ledger_entry(self, monkeypatch, arc_judge):
+        """The last scene of a campaign is on record like every other."""
+        saver = MemorySaver()
+        monkeypatch.setattr(story_loop.MongoDBSaver, "from_conn_string", lambda _: _saver_context(saver))
+        ledger = AsyncMock(return_value={"scene_index": 1, "summary": "The vault opened."})
+        monkeypatch.setattr(story_loop.StoryLoop, "_write_ledger_entry", ledger)
+        monkeypatch.setattr(story_loop, "finalize_story", AsyncMock())
+
+        loop = story_loop.StoryLoop(uuid4(), uuid4())
+
+        result = await loop.complete_current_scene(uuid4(), {"story_complete": True})
+
+        ledger.assert_awaited_once()
+        assert result["ledger_entries"] == [{"scene_index": 1, "summary": "The vault opened."}]
 
 
 class TestSceneFinalize:

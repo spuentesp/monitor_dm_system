@@ -213,3 +213,15 @@ async def test_five_scene_campaign_survives_a_restart(
     # The scenes the campaign played are on record.
     scenes = _played_scenes(story_id, universe_id)
     assert len(scenes) >= 5
+
+    # The last scene's context still knows what the first scene did, even
+    # though none of it is canon: that is the ledger's job.
+    from monitor_agents.context_assembly.agent import ContextAssembly
+
+    context = await ContextAssembly().assemble(
+        scene_id=UUID(scenes[-1]["scene_id"]),
+        story_id=story_id,
+    )
+    ledger = context.get("story_ledger") or []
+    assert ledger, "the last scene's context carries no ledger"
+    assert any("vault" in str(entry.get("summary", "")).lower() for entry in ledger)

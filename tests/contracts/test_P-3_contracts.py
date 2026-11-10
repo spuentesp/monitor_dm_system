@@ -130,12 +130,16 @@ class TestContextAssemblyAssembleContract:
             patch.object(ca, "_fetch_recent_turns", new_callable=AsyncMock) as mock_turns,
             patch.object(ca, "_fetch_game_system", new_callable=AsyncMock) as mock_gs,
             patch.object(ca, "_fetch_plot_threads", new_callable=AsyncMock) as mock_threads,
+            patch.object(ca, "_fetch_story_ledger", new_callable=AsyncMock) as mock_ledger,
+            patch.object(ca, "_fetch_canon_facts", new_callable=AsyncMock) as mock_facts,
             patch.object(ca, "_cache_set_json"),
         ):
             mock_entities.return_value = [{"id": "char-1", "name": "Aldern"}]
             mock_turns.return_value = [{"type": "narrative", "content": "Opening"}]
             mock_gs.return_value = {"system": "dnd5e"}
             mock_threads.return_value = []
+            mock_ledger.return_value = []
+            mock_facts.return_value = []
             result = await ca.assemble(
                 scene_id=uuid4(),
                 story_id=uuid4(),

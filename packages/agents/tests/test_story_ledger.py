@@ -318,6 +318,23 @@ class TestArcFromEvents:
         assert update["active_threads"] == ["The drowned road"]
 
     @pytest.mark.asyncio
+    async def test_the_plot_threads_are_read_for_the_story(self, monkeypatch, tool_server, arc_model):
+        """The threads come from the story's own record in Neo4j."""
+        server = FakeToolServer(
+            {"neo4j_list_plot_threads": {"threads": [{"id": "t1", "title": "The drowned road", "status": "active"}]}}
+        )
+        monkeypatch.setattr("monitor_data.server.call_tool", server)
+
+        agent = StoryAgent(agent_id="arc-threads-call")
+        state = _state(scenes_completed=1)
+
+        await agent.evaluate_arc(state)
+
+        calls = server.calls_to("neo4j_list_plot_threads")
+        assert len(calls) == 1
+        assert calls[0]["params"]["story_id"] == str(state.story_id)
+
+    @pytest.mark.asyncio
     async def test_the_phase_is_the_models_answer_not_the_scene_count(self, monkeypatch, tool_server):
         """Two runs with different stories get different phases."""
         from monitor_agents.story.story import StoryArcModule
@@ -498,6 +515,27 @@ class TestInGameTime:
 
         assert source == "fallback"
         assert when.year == 1000
+
+    @pytest.mark.asyncio
+    async def test_the_clock_is_read_from_the_worlds_own_records(self, tool_server):
+        """The story and the universe are the records the clock comes from."""
+        tool_server.responses["neo4j_get_story"] = {}
+        tool_server.responses["neo4j_get_universe"] = {
+            "id": "u1",
+            "name": "Ashen Reach",
+            "description": "A kingdom of ash.",
+            "genre": "fantasy",
+            "tech_level": "medieval",
+        }
+
+        agent = StoryAgent(agent_id="time-reads")
+        story_id = uuid4()
+        universe_id = uuid4()
+
+        await agent.seed_in_game_time(universe_id, story_id)
+
+        assert tool_server.calls_to("neo4j_get_story")[0]["story_id"] == str(story_id)
+        assert tool_server.calls_to("neo4j_get_universe")[0]["universe_id"] == str(universe_id)
 
 
 class TestProgressionXp:

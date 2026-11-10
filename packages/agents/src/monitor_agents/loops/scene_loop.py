@@ -1309,24 +1309,33 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
 
     updates: dict[str, Any] = {"scene_complete": True}
 
+    # The scene's in-world time: what it happened at, for everything the
+    # scene writes.
+    scene_time: datetime | None = state.time_ref
+    if state.story_state and scene_time is None:
+        scene_time = state.story_state.in_game_time
+
     # 1. Persist any remaining memories (belt-and-suspenders)
     if state.memories_to_persist and state.actor_id:
         from monitor_agents.services.persistence_service import PersistenceService
 
         try:
+            memories = [
+                {**memory, "time_ref": scene_time} if scene_time is not None and isinstance(memory, dict) else memory
+                for memory in state.memories_to_persist
+            ]
             await PersistenceService.persist_memories(
                 entity_id=state.actor_id,
                 scene_id=state.scene_id,
                 story_id=state.story_id,
                 universe_id=state.universe_id,  # type: ignore[arg-type]
-                memories=state.memories_to_persist,
+                memories=memories,
             )
             updates["memories_to_persist"] = []
         except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in complete_current_scene)
             logger.warning("Failed to persist memories in complete_current_scene: %s", e)
 
     # 2. Advance story state
-    scene_time: datetime | None = state.time_ref
     if state.story_state:
         current_time = state.story_state.in_game_time
         new_time = current_time + timedelta(minutes=state.total_minutes_passed)

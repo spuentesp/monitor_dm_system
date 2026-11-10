@@ -14,8 +14,9 @@ Run:
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -349,3 +350,96 @@ class TestNarratorLedger:
         block = _opening_recap_block(recap)
 
         assert recap.strip() in block
+
+
+class TestCanonFactsInContext:
+    @pytest.mark.asyncio
+    async def test_the_canon_is_read_for_the_universe(self):
+        """The facts come from the universe the scene is played in."""
+        from monitor_agents.context_assembly.agent import ContextAssembly
+
+        agent = ContextAssembly()
+        calls: list[tuple[str, dict]] = []
+
+        async def fake_call_tool(self, name, arguments):
+            calls.append((name, arguments))
+            return []
+
+        with patch(
+            "monitor_agents.context_assembly.agent.ContextAssembly.call_tool",
+            new=fake_call_tool,
+        ):
+            facts = await agent._fetch_canon_facts(
+                "11111111-1111-1111-1111-111111111111",
+                check_time=datetime(1012, 3, 1, 12, 0, tzinfo=UTC),
+            )
+
+        assert facts == []
+        name, arguments = calls[0]
+        assert name == "neo4j_list_facts"
+        assert arguments["filters"]["universe_id"] == "11111111-1111-1111-1111-111111111111"
+        assert arguments["filters"]["status"] == "active"
+
+
+class TestRecapLedger:
+    @pytest.mark.asyncio
+    async def test_the_recap_reads_the_storys_ledger(self, monkeypatch):
+        """The story so far is built from the campaign's own memory."""
+        from monitor_agents.recap.agent import RecapAgent
+
+        seen: list[UUID] = []
+
+        class _Entry:
+            def model_dump(self, mode: str = "json") -> dict:
+                return {
+                    "scene_index": 1,
+                    "summary": "They took the ferry across the black water.",
+                    "start_time": "1012-03-01T09:00:00+00:00",
+                    "end_time": "1012-03-01T11:00:00+00:00",
+                    "open_questions": ["Who paid the ferryman?"],
+                }
+
+        def fake_list(story_id):
+            seen.append(story_id)
+            return [_Entry()]
+
+        monkeypatch.setattr(
+            "monitor_data.tools.mongodb_tools.stories.mongodb_list_story_ledger_entries",
+            fake_list,
+        )
+
+        agent = RecapAgent()
+        entries = await agent._read_ledger(uuid4())
+
+        assert len(seen) == 1
+        assert entries[0]["summary"].startswith("They took the ferry")
+
+
+class TestMemoryTimeRef:
+    @pytest.mark.asyncio
+    async def test_a_memory_records_when_it_happened(self, monkeypatch):
+        """The memory carries the scene's in-world time."""
+        from monitor_agents.services import persistence_service
+
+        created: list[object] = []
+
+        def fake_create_memory(params):
+            created.append(params)
+            return SimpleNamespace(memory_id=uuid4())
+
+        monkeypatch.setattr(
+            "monitor_data.tools.mongodb_tools.mongodb_create_memory",
+            fake_create_memory,
+        )
+
+        when = datetime(1012, 3, 1, 9, 30, tzinfo=UTC)
+        await persistence_service.PersistenceService.persist_memories(
+            entity_id=uuid4(),
+            scene_id=uuid4(),
+            story_id=uuid4(),
+            universe_id=uuid4(),
+            memories=[{"text": "The vault door is sealed.", "time_ref": when}],
+        )
+
+        assert len(created) == 1
+        assert created[0].metadata["time_ref"] == when.isoformat()

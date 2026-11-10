@@ -620,15 +620,6 @@ class StoryLoop:
                 }
             )
 
-            if story_complete:
-                await finalize_story(run_state)
-                await compiled.aupdate_state(
-                    config,  # type: ignore[arg-type]
-                    run_state.model_dump(),
-                    as_node="init_story",
-                )
-                return {"story_complete": True, "completed_scene_id": scene_id}
-
             # A story that has never been given a clock gets one now.
             run_state = await self._seed_in_game_time(run_state)
 
@@ -683,6 +674,19 @@ class StoryLoop:
             )
             if ledger_entry:
                 run_state = run_state.model_copy(update={"ledger_entries": [*run_state.ledger_entries, ledger_entry]})
+
+            if story_complete:
+                await finalize_story(run_state)
+                await compiled.aupdate_state(
+                    config,  # type: ignore[arg-type]
+                    run_state.model_dump(),
+                    as_node="init_story",
+                )
+                return {
+                    **run_state.model_dump(),
+                    "agenda_moves": agenda_moves,
+                    "completed_scene_id": scene_id,
+                }
 
             # Step 4: Evaluate arc
             arc_update = await evaluate_arc(run_state)

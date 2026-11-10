@@ -355,6 +355,9 @@ class ContextAssembly(BaseAgent):
             system_source_id or pack_id or "default",
             player_action or "",
             json.dumps(actor_context or {}, sort_keys=True, default=str),
+            # The canon is judged at this point in the world's time, so the
+            # cached context belongs to that moment only.
+            check_time.isoformat() if check_time else "now",
         )
         cached = self._cache_get_json(cache_key)
         if isinstance(cached, dict):
