@@ -46,6 +46,8 @@ from langgraph.graph import END, StateGraph
 from monitor_data.schemas.conversations import ConversationMode, ConversationStatus
 from pydantic import BaseModel, Field
 
+from monitor_agents.voice_stream import TokenCallback
+
 log = structlog.get_logger()
 
 # Re-export ConversationMode so Layer 3 (CLI) can import it from here
@@ -473,12 +475,20 @@ async def process_player_turn(state: ConversationState) -> dict[str, Any]:
     return {"turns": state.turns + [new_turn], "current_npc_responses": []}
 
 
-async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
+async def generate_npc_responses(
+    state: ConversationState,
+    token_callback: TokenCallback | None = None,
+) -> dict[str, Any]:
     """
     Generate responses from all NPCs in this session.
 
     For DIRECT mode: NPCVoice speaks as each NPC in turn.
     For ACTOR mode: NPCVoice reflects as the actor.
+
+    token_callback (Phase 7 streaming): when set, the spoken reply streams to
+    it live as the model generates. Only for 1:1 conversations — the streamed
+    reply is the whole stream, and the caller's ``done`` event carries the
+    single response. The callback is forwarded to ``respond_direct``.
 
     Write: NPC ConversationTurn(s) → MongoDB (via NPCVoice).
     """
@@ -531,6 +541,11 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
 
     from monitor_agents.llm_errors import LLMProviderUnavailable
 
+    # Streaming is for 1:1 conversations: the token stream IS the reply, and
+    # the streaming send's "done" event carries this single response.
+    if token_callback is not None and len(state.npc_ids) != 1:
+        token_callback = None
+
     succeeded = 0
     last_error: Exception | None = None
     failed_npcs: list[tuple[UUID, str]] = []
@@ -562,6 +577,7 @@ async def generate_npc_responses(state: ConversationState) -> dict[str, Any]:
                     ),
                     character_card=state.character_card,
                     parse_directives=bool(state.lorebook_character_ids),
+                    token_callback=token_callback,
                 )
                 npc_name = state.npc_contexts.get(str(npc_id), {}).get("name", str(npc_id))
                 # Lorebook output directives (@@activate / @@deactivate) are
@@ -1043,7 +1059,13 @@ class ConversationLoop:
             },
         ]
 
-    async def step(self, player_input: str, *, defer_memory_writes: bool = False) -> list[dict[str, Any]]:
+    async def step(
+        self,
+        player_input: str,
+        *,
+        defer_memory_writes: bool = False,
+        token_callback: TokenCallback | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Process one player input → return list of NPC responses.
 
@@ -1058,6 +1080,10 @@ class ConversationLoop:
                 buffered instead of executed; the caller MUST call
                 ``flush_memory_writes()`` after the reply has finished
                 streaming (Phase 7: memory writes happen after the stream).
+            token_callback: When set, the spoken reply streams to it live as
+                the model generates (1:1 conversations; see
+                ``generate_npc_responses``). The callback may receive nothing
+                when the model cannot stream.
 
         Returns:
             List of dicts: [{npc_name, text, emotional_state?, canon_insight?}]
@@ -1071,8 +1097,13 @@ class ConversationLoop:
 
         try:
             self._apply(await process_player_turn(self.state))
-            self._apply(await generate_npc_responses(self.state))
-        except Exception:
+            # The callback is forwarded only when streaming is active, so the
+            # non-streaming call shape stays exactly as before.
+            step_kwargs: dict[str, Any] = {"token_callback": token_callback} if token_callback is not None else {}
+            self._apply(await generate_npc_responses(self.state, **step_kwargs))
+        except BaseException:
+            # Includes CancelledError: a client disconnect mid-stream must not
+            # leave a half-applied turn behind.
             self.state.turns = prior_turns
             self.state.current_player_input = None
             raise

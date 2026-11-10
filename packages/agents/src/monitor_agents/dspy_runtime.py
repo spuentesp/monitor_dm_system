@@ -668,6 +668,17 @@ def get_dspy_lm(
                     # Fallback to standard (non-streaming) execution below.
                     log.debug("streaming execution failed; falling back to non-streaming", exc_info=True)
 
+            # Direct-voice live streaming (light RP). Deliberately separate
+            # from the narrator path above: the streaming machinery lives in
+            # monitor_agents.voice_stream. Returns None when streaming is
+            # unavailable — the standard call below then runs unchanged.
+            if messages and self.node_name == "npc_voice":
+                from monitor_agents.voice_stream import try_stream_voice_reply
+
+                streamed = try_stream_voice_reply(self.model, messages, {**self.kwargs, **call_kwargs})
+                if streamed is not None:
+                    return streamed
+
             return super().__call__(prompt=prompt, messages=messages, **call_kwargs)
 
     return CachedDSPyLM(_model_string_for_dspy(client), monitor_node_name=node_name, **kwargs)
