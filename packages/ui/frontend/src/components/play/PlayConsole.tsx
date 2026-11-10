@@ -35,6 +35,7 @@ import type { ImageSuggestionMeta } from "@/features/chat/types";
 import { ImageSuggestionChip } from "@/components/visual/ImageSuggestionChip";
 
 import { CharacterPanel } from "./CharacterPanel";
+import { CastPanel } from "./CastPanel";
 import { CombatPanel } from "./CombatPanel";
 import { StoryPanel } from "./StoryPanel";
 import { ChatModeToggle } from "./ChatModeToggle";
@@ -220,6 +221,11 @@ export default function PlayConsole() {
   // world default must not hijack normal "resume last session" visits.
   const [showSetup, setShowSetup] = useState(() => Boolean(urlUniverseId && !requestedSessionId));
   const [selectedCharacter, setSelectedCharacter] = useState<StandaloneCharacter | null>(null);
+  // Phase 4 (Task 5): speaker picked in the cast panel. Applied on the next
+  // sent message via sendOptions.character_id — POST /chat/{id}/send with an
+  // IC character_id sets session.speaker_character_id and invalidates the
+  // cached SceneLoop, so the switch takes effect on that turn.
+  const [castSpeaker, setCastSpeaker] = useState<{ id: string; name: string } | null>(null);
   const [chatMode, setChatMode] = useState<"ic" | "ooc">("ic");
   const [showRecap, setShowRecap] = useState(false);
   const [endingScene, setEndingScene] = useState(false);
@@ -387,9 +393,14 @@ export default function PlayConsole() {
         opts.is_ooc_persona = selectedCharacter.is_ooc_persona;
       }
     }
+    // A cast-panel speaker pick wins for IC sends: the send endpoint turns an
+    // IC character_id into the session speaker (Phase 4 Task 5).
+    if (castSpeaker && opts.chat_mode !== "ooc") {
+      opts.character_id = castSpeaker.id;
+    }
     return opts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCharacter, chatMode]);
+  }, [selectedCharacter, chatMode, castSpeaker]);
 
   const handleComposerSubmit = (text: string) => {
     const wrapped = wrapOutgoingMessageForOoc(text, {
@@ -799,6 +810,16 @@ export default function PlayConsole() {
         </div>
 
         <aside className="hidden xl:flex xl:flex-col gap-4 p-4 overflow-y-auto bg-black/10">
+          {activeSession && (
+            <CastPanel
+              controlledCharacterIds={activeSession.controlled_character_ids ?? []}
+              speakerCharacterId={activeSession.speaker_character_id ?? null}
+              pendingSpeakerId={castSpeaker?.id ?? null}
+              universeId={activeSession.universe_id ?? null}
+              onSwitchSpeaker={(id, name) => setCastSpeaker({ id, name })}
+            />
+          )}
+
           <CharacterPanel
             selectedId={selectedCharacter?.id ?? null}
             onSelect={(id, char) => setSelectedCharacter(char)}
