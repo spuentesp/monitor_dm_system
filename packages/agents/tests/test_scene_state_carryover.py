@@ -99,8 +99,30 @@ async def _fake_read(fn: Any, *_args: Any, **_kwargs: Any) -> Any:
     return []
 
 
+class _Rewinds:
+    """Stands in for the data-layer rewind, which has its own tests, and records each call."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, Any, dict[str, Any]]] = []
+        self.refuse: str | None = None
+        self.memory_ids: list[str] = []
+
+    def __call__(self, scene_id: Any, since: Any, *, working_states: Any = None) -> Any:
+        from monitor_data.tools.mongodb_tools.scene_rewind import SceneRewindRefused, SceneRewindResult
+
+        if self.refuse:
+            raise SceneRewindRefused(self.refuse)
+        self.calls.append((scene_id, since, working_states or {}))
+        return SceneRewindResult(memory_ids_removed=list(self.memory_ids))
+
+
 @pytest.fixture
-def world():
+def rewinds():
+    return _Rewinds()
+
+
+@pytest.fixture
+def world(rewinds):
     saver = InMemorySaver()
     state = _World()
 
@@ -117,7 +139,10 @@ def world():
         patch.object(sl.PersistenceService, "persist_working_state", AsyncMock(return_value={})),
         patch("monitor_agents.foreshadowing.agent.ForeshadowingAgent.propose", AsyncMock(return_value={})),
         patch.object(sl, "seed_npc_profiles_for_accepted_proposals", AsyncMock(return_value=0)),
+        patch("monitor_data.tools.mongodb_tools.scene_rewind.mongodb_rewind_scene", rewinds),
+        patch("monitor_data.tools.qdrant_tools.qdrant_delete") as qdrant_delete,
     ):
+        state.qdrant_delete = qdrant_delete  # type: ignore[attr-defined]
         yield state
 
 
@@ -460,6 +485,73 @@ async def test_backtrack_reverts_full_turn_and_steps_back_repeatedly(world: _Wor
     assert restored_zero["turns_count"] == 0
     assert restored_zero["pending_proposals"] == []
     assert "error" in await loop.backtrack()
+
+
+async def _checkpoints(loop: sl.SceneLoop) -> list[Any]:
+    with sl.MongoDBSaver.from_conn_string("") as saver:
+        compiled = loop._graph.compile(checkpointer=saver)
+        config = {"configurable": {"thread_id": str(loop.scene_id)}}
+        return [snap async for snap in compiled.aget_state_history(config)]  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_backtrack_undoes_the_turns_writes_since_the_previous_turn(world: _World, rewinds: _Rewinds) -> None:
+    from datetime import datetime
+
+    loop = _loop()
+    await loop.run("turn one")
+    turn_one_end = next(s for s in await _checkpoints(loop) if not s.next)
+    await loop.run("turn two")
+    rewinds.memory_ids = [str(uuid4())]
+
+    restored = await loop.backtrack()
+
+    ((scene_id, since, _),) = rewinds.calls
+    assert scene_id == loop.scene_id
+    assert since == datetime.fromisoformat(turn_one_end.created_at)
+    assert restored["turns_count"] == 1 and restored["undone"]["memory_ids_removed"] == rewinds.memory_ids
+    (request,) = [c.args[0] for c in world.qdrant_delete.call_args_list]  # type: ignore[attr-defined]
+    assert request.collection == "memories" and str(request.id) == rewinds.memory_ids[0]
+
+
+@pytest.mark.asyncio
+async def test_a_refused_rewind_leaves_the_turn_in_place(world: _World, rewinds: _Rewinds) -> None:
+    loop = _loop()
+    await loop.run("turn one")
+    await loop.run("turn two")
+    rewinds.refuse = "1 change(s) from this turn were already accepted into canon"
+
+    assert (await loop.backtrack()) == {"error": "1 change(s) from this turn were already accepted into canon"}
+    rewinds.refuse = None
+    # The checkpoint didn't move, so the next backtrack still undoes turn two.
+    assert (await loop.backtrack())["turns_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_database_failure_says_to_run_backtrack_again(world: _World, rewinds: _Rewinds) -> None:
+    loop = _loop()
+    await loop.run("turn one")
+    await loop.run("turn two")
+    with patch("monitor_data.tools.mongodb_tools.scene_rewind.mongodb_rewind_scene", side_effect=OSError("down")):
+        failed = await loop.backtrack()
+    assert "partly undone" in failed["error"] and "/backtrack again" in failed["error"]
+    assert (await loop.backtrack())["turns_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_backtrack_passes_the_earlier_working_state_to_restore(world: _World, rewinds: _Rewinds) -> None:
+    earlier = {"state_id": "ws-1", "current_stats": {"xp": 5}, "resources": {"HP": 9}}
+    sl.PersistenceService.persist_working_state.side_effect = [  # type: ignore[attr-defined]
+        {"working_state": earlier},
+        {"working_state": {**earlier, "resources": {"HP": 3}}},
+    ]
+    world.resolutions = [{"resolution_type": "dice"}, {"resolution_type": "dice"}]
+    loop = _loop()
+    await loop.run("turn one")
+    await loop.run("turn two")
+    await loop.backtrack()
+    ((_, _, states),) = rewinds.calls
+    assert states == {"ws-1": earlier}
 
 
 @pytest.mark.asyncio

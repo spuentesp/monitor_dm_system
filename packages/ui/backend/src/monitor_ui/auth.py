@@ -8,6 +8,9 @@ Implements Phase 2 of docs/architecture/MULTI_TENANCY_PLAN.md:
 - ``MONITOR_AUTH_DISABLED=true`` resolves every request to a fixed local
   admin account — an explicit local-development exception, never a production
   rollback mechanism.
+- ``get_current_ws_principal`` is the WebSocket counterpart of
+  ``get_current_user``: the same credentials, but a failed handshake is closed
+  with a WebSocket close code instead of an HTTP status.
 - Deny by default: no valid session/API token → 401. Missing or expired
   server-side credentials fail closed.
 - In-memory per-key rate limiting for login attempts (keyed by normalized
@@ -29,13 +32,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Request, status
+import structlog
+from fastapi import Depends, HTTPException, Request, WebSocket, WebSocketException, status
 
 from monitor_data.db.postgres import PostgresClient, get_postgres_client
 from monitor_data.schemas.users import UserResponse
 from monitor_data.security import hash_password, hash_token
 
 from monitor_ui.config import UISettings, get_settings
+
+log = structlog.get_logger()
 
 # Fixed identity for MONITOR_AUTH_DISABLED local-development mode (plan D5).
 LOCAL_USER_ID = UUID("00000000-0000-4000-8000-000000000001")
@@ -288,6 +294,38 @@ async def get_optional_principal(
         raise
 
 
+async def get_current_ws_principal(
+    websocket: WebSocket,
+    settings: UISettings = Depends(get_settings),
+    db: PostgresClient = Depends(get_postgres),
+) -> Principal:
+    """Resolve the principal for a WebSocket handshake, or close the socket.
+
+    The WebSocket surface cannot answer with an HTTP status code, so an
+    unauthenticated handshake is closed with 4401 and a rejected (non-401)
+    credential with 4404 — the codes the chat WebSocket has always used.
+
+    ``WebSocketException`` is what Starlette's exception middleware turns
+    into a clean ``websocket.close`` frame; a bare ``WebSocketDisconnect``
+    would escape the middleware and the ASGI server would answer with an
+    internal-error close instead of the code the client expects.
+    Fails closed on any unexpected error.
+    """
+    try:
+        return await resolve_principal(
+            authorization=websocket.headers.get("authorization"),
+            cookies=dict(websocket.cookies),
+            settings=settings,
+            db=db,
+        )
+    except HTTPException as exc:
+        code = 4401 if exc.status_code == status.HTTP_401_UNAUTHORIZED else 4404
+        raise WebSocketException(code=code) from None
+    except Exception as exc:  # noqa: BLE001  # reason: WS boundary fails closed on any unexpected error
+        log.warning("websocket auth failed", exc_info=True)
+        raise WebSocketException(code=4401) from exc
+
+
 async def require_admin(principal: Principal = Depends(get_current_user)) -> Principal:
     """Operator-only routes: authenticated AND admin, else 403."""
     if not principal.is_admin:
@@ -312,6 +350,7 @@ __all__ = [
     "RateLimiter",
     "client_ip",
     "get_current_user",
+    "get_current_ws_principal",
     "get_login_limiter",
     "get_signup_limiter",
     "get_optional_principal",
