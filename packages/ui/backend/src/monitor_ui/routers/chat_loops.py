@@ -13,6 +13,8 @@ import uuid
 from collections import OrderedDict
 from typing import Any
 
+from monitor_data.usage import QuotaExceededError
+
 from .chat_support import (
     as_uuid,
     is_end_conversation_command,
@@ -486,6 +488,12 @@ async def run_world_architect_turn(
         result = await loop.run(
             user_input=user_content,
             conversation_history=history,
+        )
+    except QuotaExceededError as exc:
+        logger.info("World Architect turn refused at the daily quota: %s", exc)
+        return (
+            exc.user_message,
+            {"type": "llm_provider_error", "error_class": "quota_exceeded", "error": exc.user_message},
         )
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in run_world_architect_turn)
         logger.warning("World Architect turn failed: %s", exc)

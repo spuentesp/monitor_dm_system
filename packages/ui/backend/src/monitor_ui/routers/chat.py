@@ -22,6 +22,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from monitor_data.db.postgres import PostgresClient, get_postgres_client
+from monitor_data.usage import QuotaExceededError
 from monitor_ui.auth import (
     Principal,
     get_current_user,
@@ -1721,6 +1722,19 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
                         session_game_system_doc=_session_game_system_doc,
                         gsr_available=_GSR_AVAILABLE,
                     )
+            except QuotaExceededError as exc:
+                # The acting owner is over their daily model budget: surface a
+                # readable error event instead of dropping the connection.
+                quota_payload: dict[str, Any] = {
+                    "type": "error",
+                    "message_id": gm_id,
+                    "detail": exc.user_message,
+                    "error_class": "quota_exceeded",
+                }
+                if not await _send_ws_payload(websocket, quota_payload):
+                    break
+                await fanout_event(session_id, quota_payload, exclude=websocket)
+                continue
             finally:
                 stream_callback_var.reset(token_cv)
 

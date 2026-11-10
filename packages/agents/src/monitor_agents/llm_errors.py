@@ -1,7 +1,7 @@
 """Normalized LLM error taxonomy and retryability helpers.
 
 LAYER: 2 (agents)
-IMPORTS FROM: external libraries only
+IMPORTS FROM: external libraries, monitor_data.usage (owner quota)
 CALLED BY: BaseAgent, llm_execution, analyzer
 
 This module keeps retry policy classification in one place so MONITOR does not
@@ -14,6 +14,8 @@ import asyncio
 import re
 from dataclasses import dataclass
 from enum import StrEnum
+
+from monitor_data.usage import QuotaExceededError
 
 
 class LLMErrorClass(StrEnum):
@@ -65,6 +67,10 @@ def classify_llm_error(exc: BaseException) -> LLMErrorInfo:
         return LLMErrorInfo(LLMErrorClass.CANCELLED, retryable=False, message=_message(exc))
     if isinstance(exc, TimeoutError | asyncio.TimeoutError):
         return LLMErrorInfo(LLMErrorClass.TIMEOUT, retryable=True, message=_message(exc))
+    if isinstance(exc, QuotaExceededError):
+        # The acting owner's in-process daily quota (not a provider quota):
+        # retrying cannot help before the cap resets.
+        return LLMErrorInfo(LLMErrorClass.QUOTA, retryable=False, message=_message(exc))
 
     message = _message(exc)
     lowered = message.lower()
