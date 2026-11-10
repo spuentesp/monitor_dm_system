@@ -632,10 +632,49 @@ async def narrate(state: SceneState) -> dict[str, Any]:
     S4/S5: Narrator generates GM prose and persists the turn to MongoDB.
 
     Writes: GM turn text to MongoDB (via MCP tool).
+
+    Phase 4 (Tasks 1, 7-9): builds the cast (who is who + agency rule) and
+    per-NPC scene context — recall, known facts, one-line intents — and hands
+    all of it to the Narrator. Fact/event proposals are stamped with the
+    cast's ``witnesses`` so who-knows-what can be enforced downstream.
     """
 
     factory = get_agent_factory()
     narrator = factory.create_narrator()
+
+    # Phase 4: cast + per-NPC enrichment. Failures are recorded and the turn
+    # proceeds without the enrichment — narration must not die for it.
+    from monitor_agents.cast import cast_from_state
+
+    cast = cast_from_state(state)
+    npc_memories: dict[str, Any] = {}
+    npc_facts: dict[str, Any] = {}
+    npc_intents: list[dict[str, Any]] = []
+    call_tool = getattr(narrator, "call_tool", None)
+    if call_tool is not None and cast.gm_characters():
+        try:
+            from monitor_agents.npc_voice.agent import gather_npc_scene_context
+
+            enrichment = await gather_npc_scene_context(
+                call_tool,
+                cast=cast,
+                npc_profiles=state.npc_profiles,
+                current_action=state.user_input or "",
+                universe_id=str(state.universe_id) if state.universe_id else None,
+            )
+            npc_memories = enrichment.get("npc_memories") or {}
+            npc_facts = enrichment.get("npc_facts") or {}
+            npc_intents = enrichment.get("npc_intents") or []
+        except Exception as exc:  # noqa: BLE001  # reason: recorded, turn continues without enrichment (in narrate)
+            logger.warning("narrate: NPC scene enrichment failed: %s", exc)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=f"npc_scene_enrichment_failed: {exc}",
+                fatal=False,
+                scene_id=state.scene_id,
+            )
+
     result = await narrator.narrate_turn(
         scene_id=state.scene_id,
         user_input=state.user_input,
@@ -662,6 +701,11 @@ async def narrate(state: SceneState) -> dict[str, Any]:
                 "lines": list(state.agreements_lines or []),
                 "veils": list(state.agreements_veils or []),
             },
+            # Phase 4: who is who + agency rule, per-NPC recall/facts/intents.
+            "cast": cast.model_dump(mode="json"),
+            "npc_memories": npc_memories,
+            "npc_facts": npc_facts,
+            "npc_intents": npc_intents,
         },
         game_context=state.game_context,
         session_tone=state.session_tone,
@@ -671,11 +715,28 @@ async def narrate(state: SceneState) -> dict[str, Any]:
     )
     PersistenceService.clear_scene_runtime_cache(state.scene_id)
     proposals = result.get("proposals", [])
+    witness_ids = cast.witness_ids()
     if state.universe_id:
         for p in proposals:
             p["universe_id"] = str(state.universe_id)
             if "content" in p and isinstance(p["content"], dict):
                 p["content"]["universe_id"] = str(state.universe_id)
+    # Task 8: facts/events established in play carry the cast as witnesses.
+    # Stamped on the proposal (which the ProposedChange document stores
+    # verbatim) and inside content/properties for the commit path.
+    for p in proposals:
+        change_type = str(p.get("change_type") or "").lower()
+        if change_type not in {"fact", "event", "lore_fact"}:
+            continue
+        p["witnesses"] = list(witness_ids)
+        content = p.get("content")
+        if isinstance(content, dict):
+            content["witnesses"] = list(witness_ids)
+            props = content.get("properties")
+            if not isinstance(props, dict):
+                props = {}
+                content["properties"] = props
+            props["witnesses"] = list(witness_ids)
 
     narrative_text = result.get("narrative_text", "")
     minutes = result.get("minutes_elapsed", 0)
@@ -808,14 +869,24 @@ async def extract_new_entities(state: SceneState) -> dict[str, Any]:
 
 async def extract_memories(state: SceneState) -> dict[str, Any]:
     """
-    Task 4: Extract salient character memories from the narrative prose.
+    Task 4/6: Extract salient character memories from the narrative prose.
+
+    Phase 4 (Task 6): runs once per character present — user-controlled AND
+    GM-controlled, not only the speaker — from each one's point of view,
+    tagged with its ``entity_id``, ``universe_id``, and the cast witnesses.
     """
     factory = get_agent_factory()
     agent = factory.create_extractor()
+    from monitor_agents.cast import cast_from_state
+
+    cast = cast_from_state(state)
     return await agent.extract_memories(
         narrative_text=state.narrative_text,
         actor_context=state.actor_context,
         resolution=state.resolution,
+        cast=[m.model_dump(mode="json") for m in cast.members],
+        scene_id=state.scene_id,
+        universe_id=state.universe_id,
     )
 
 
@@ -1102,30 +1173,109 @@ async def persist_memories_node(state: SceneState) -> dict[str, Any]:
     Persist extracted memories to MongoDB via mongodb_create_memory.
 
     Called after extract_memories populates state.memories_to_persist.
+
+    Phase 4 (Tasks 6, 8): each memory entry carries its owner ``entity_id``,
+    its ``universe_id``, and the ``witnesses`` cast list — so every present
+    character is persisted under its own id (not only the speaker) and the
+    who-knows-what filter can rely on the witness record.
     """
     if not state.memories_to_persist:
         return {}
 
-    if not state.actor_id:
-        logger.warning("persist_memories_node called but no actor_id in state")
+    from monitor_data.schemas.memories import MemoryCreate
+    from monitor_data.tools.mongodb_tools import mongodb_create_memory
+
+    import anyio
+
+    def _to_uuid(raw: str) -> UUID | None:
+        try:
+            return UUID(raw)
+        except (TypeError, ValueError):
+            return None
+
+    persisted = 0
+    failed: list[dict[str, Any]] = []
+    attempted = 0
+    for entry in state.memories_to_persist:
+        if not isinstance(entry, dict):
+            continue
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            # No text, no memory — malformed extractor output is dropped.
+            logger.warning("persist_memories_node: dropping memory entry without text")
+            continue
+        attempted += 1
+        owner_raw = entry.get("entity_id") or state.actor_id
+        if not owner_raw:
+            logger.warning("persist_memories_node: memory without owner (no entity_id, no actor_id)")
+            failed.append(entry)
+            continue
+        universe_raw = entry.get("universe_id") or state.universe_id
+        if not universe_raw:
+            logger.warning("persist_memories_node: memory without universe_id; skipping")
+            failed.append(entry)
+            continue
+        try:
+            owner_id = UUID(str(owner_raw))
+            universe_id = UUID(str(universe_raw))
+            witness_ids = [str(w) for w in (entry.get("witnesses") or []) if str(w).strip()]
+            raw_importance = entry.get("importance", 5)
+            try:
+                importance_float = float(raw_importance)
+            except (TypeError, ValueError):
+                importance_float = 5.0
+            importance_float = importance_float / 10.0 if importance_float > 1 else importance_float
+            try:
+                valence = float(entry.get("emotional_valence", 0.0))
+            except (TypeError, ValueError):
+                valence = 0.0
+            params = MemoryCreate(
+                universe_id=universe_id,
+                entity_id=owner_id,
+                scene_id=state.scene_id,
+                text=text,
+                importance=min(1.0, max(0.0, importance_float)),
+                emotional_valence=max(-1.0, min(1.0, valence)),
+                witnesses=[u for u in (_to_uuid(w) for w in witness_ids) if u is not None],
+                metadata={
+                    "story_id": str(state.story_id),
+                    # Witnesses also ride in metadata: today's
+                    # mongodb_create_memory persists ``metadata`` verbatim
+                    # while the typed ``witnesses`` column is not yet stored
+                    # by the write tool (see Phase 4 report).
+                    "witnesses": witness_ids,
+                    "viewpoint_entity_id": str(owner_id),
+                },
+            )
+            await anyio.to_thread.run_sync(mongodb_create_memory, params)
+            persisted += 1
+        except Exception as e:  # noqa: BLE001  # reason: boundary records and continues per memory (in persist_memories_node)
+            logger.warning("Failed to persist memory for %s: %s", owner_raw, e)
+            failed.append(entry)
+            category = (
+                RoleplayErrorCategory.MEMORY_PERSIST_NOT_FOUND
+                if isinstance(e, ValueError)
+                else RoleplayErrorCategory.UNKNOWN
+            )
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=category,
+                message=str(e),
+                fatal=False,
+                universe_id=state.universe_id,
+                story_id=state.story_id,
+                scene_id=state.scene_id,
+                entity_id=state.actor_id,
+            )
+
+    if not attempted:
+        # Nothing had a body to persist (garbage entries only) — leave the
+        # channel untouched, matching the pre-Phase-4 skip contract.
         return {}
-
-    from monitor_agents.services.persistence_service import PersistenceService
-
-    try:
-        created_ids = await PersistenceService.persist_memories(
-            entity_id=state.actor_id,
-            scene_id=state.scene_id,
-            story_id=state.story_id,
-            universe_id=state.universe_id,  # type: ignore[arg-type]
-            memories=state.memories_to_persist,
-        )
-        logger.debug("Persisted %d memories for actor %s", len(created_ids), state.actor_id)
-        return {"memories_to_persist": []}
-    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in persist_memories_node)
-        logger.warning("Failed to persist memories: %s", e)
-
-    return {}
+    logger.debug("persist_memories_node: persisted %d memories, %d failed", persisted, len(failed))
+    # Failed entries stay in state for the scene-end belt-and-suspenders
+    # persist; succeeded ones are cleared so they are never written twice.
+    return {"memories_to_persist": failed}
 
 
 async def complete_current_scene(state: SceneState) -> dict[str, Any]:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import contextlib
 import types
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -441,23 +441,35 @@ async def test_resolver_receives_the_universe(world: _World) -> None:
 @pytest.mark.asyncio
 async def test_memories_are_persisted_once_per_turn_not_duplicated_in_working_state(world: _World) -> None:
     actor_id = uuid4()
-    mem = {"memory_id": "m-1", "content": "Met the dock officer"}
+    mem = {
+        "text": "Met the dock officer",
+        "importance": 5,
+        "emotional_valence": 0.1,
+        "entity_id": str(actor_id),
+        "witnesses": [str(actor_id)],
+    }
     world.create_extractor = lambda: types.SimpleNamespace(  # type: ignore[method-assign]
         extract_new_entities=AsyncMock(return_value={}),
         extract_memories=AsyncMock(return_value={"memories_to_persist": [mem]}),
         extract_facts=world._extract_facts,
     )
-    persist_mem_mock = AsyncMock(return_value=["m-1"])
+    create_memory_mock = MagicMock(return_value=types.SimpleNamespace(memory_id=uuid4()))
     persist_ws_mock = AsyncMock(return_value={})
     loop = _loop(actor_id=actor_id)
 
     with (
-        patch.object(sl.PersistenceService, "persist_memories", persist_mem_mock),
+        patch("monitor_data.tools.mongodb_tools.mongodb_create_memory", create_memory_mock),
         patch.object(sl.PersistenceService, "persist_working_state", persist_ws_mock),
     ):
         await loop.run("I speak to the dock officer")
 
-    assert persist_mem_mock.await_count == 1
+    # Persisted exactly once per turn, under the memory's own owner, with the
+    # cast witnesses on the record (Phase 4 Tasks 6/8).
+    assert create_memory_mock.call_count == 1
+    params = create_memory_mock.call_args.args[0]
+    assert params.text == "Met the dock officer"
+    assert params.entity_id == actor_id
+    assert [str(w) for w in params.witnesses] == [str(actor_id)]
     assert persist_ws_mock.await_count == 1
     assert persist_ws_mock.await_args.kwargs["memories_to_persist"] == []
 
