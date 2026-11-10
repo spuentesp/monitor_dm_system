@@ -1,7 +1,14 @@
 # Multi-Tenancy Implementation Plan
 
-> **Status:** proposed; revised 2026-11-07 after a fresh code review. Not yet
-> implemented.
+> **Status:** core implemented and merged in PR #138 (2026-11-09): identity schema
+> and migrations (D1, D3), authentication and request security (sessions, API
+> tokens, Google OAuth, CSRF, rate limits, `MONITOR_AUTH_DISABLED` local mode),
+> deny-by-default ownership enforcement across the API and the chat WebSocket
+> (D4), and the admin console. Still open from this plan: the per-user
+> Conversatory (Phase 5), the standalone public character-card gallery (Phase 6),
+> and the idempotent pre-auth backfill tool and runbook (Phase 3, §7).
+> Adjacent hardening also open: provider API keys remain plaintext `TEXT` in
+> Postgres and there is no per-user spend quota.
 >
 > **Scope:** private per-user accounts, campaigns, characters, chats, uploaded
 > content, and preferences, plus an authenticated public character-card
@@ -10,7 +17,8 @@
 
 ## 1. Goal and release contract
 
-MONITOR currently has no end-user account or authentication model. This plan
+MONITOR had no end-user account or authentication model when this plan was
+written (both now exist — see the status line above). This plan
 adds logical multi-tenancy to the existing shared Postgres, Neo4j, MongoDB,
 Qdrant, Redis, and MinIO deployments without splitting the CLI and web
 architectures or changing CanonKeeper's authority.

@@ -6,7 +6,9 @@ layer: 0
 
 # MONITOR — Project Status
 
-> **Verified 2026-07-23** by direct code inspection (not inferred from docs or diffs).
+> **Verified 2026-11-09** against code at `216101c` (PR #138 merged); older entries keep
+> their inline verification dates (e.g. 2026-07-23). Verified by direct code inspection
+> (not inferred from docs or diffs).
 > This is the canonical status doc referenced by `CHANGELOG.md` and `conductor/plan.md`.
 > When a claim here conflicts with another doc, this doc wins — and please fix the other doc.
 
@@ -43,6 +45,40 @@ line-anchored allowlist), DST suite with tool/node invocation-topology counters,
 ~500 blind-`except` sites annotated or narrowed, and six pre-existing failures fixed
 (raw-UUID MCP args, invalid `fact_type`, CanonKeeper write-tool parity, test doubles).
 2026-11-02: strict mypy back to zero errors; CI lint scope now `packages scripts`.
+
+## Auth & multi-tenancy (PR #138, 2026-11-09)
+
+Merged as `216101c` (PR #138): accounts, sessions, Google OAuth, admin console and
+per-owner API authorization, plus the follow-up hardening (fail-closed principal
+resolution, body-ID ownership checks, CSRF on auth posts including login/signup,
+rate limits, password change, session control). Verified against code:
+
+- **Identity (Postgres)** — users, auth_sessions, api_tokens, oauth_accounts, bans,
+  email verification, per-user prefs; `multiverses.owner_id` / `worlds.owner_id`
+  ownership registry; checksummed migration runner
+  (`packages/data-layer/src/monitor_data/db/postgres.py:620`). Argon2id hashing in
+  `packages/data-layer/src/monitor_data/security.py`.
+- **Request security** — session cookie + bearer API tokens (`monitor_ui/auth.py`),
+  double-submit CSRF + origin check covering login/signup
+  (`monitor_ui/main.py:271`), rate-limited signup/login, security headers.
+  `MONITOR_AUTH_DISABLED=true` is the explicit local-development mode.
+- **Ownership enforced at the backend** — routers enforce ownership via the
+  router-level `resource_route_guard` dependency or explicit `require_*_owner`
+  calls (shared resolvers in `monitor_ui/ownership.py`): owner predicates in the
+  storage query before pagination, foreign/missing private IDs return the uniform
+  404, rootless Mongo docs carry `owner_id`, Neo4j/Qdrant inherit via `universe_id`.
+  The chat WebSocket authenticates and checks ownership before `accept()`
+  (`routers/chat.py:1337`, closes 4401/4404).
+- **Routes/UI** — `/api/auth` (signup/login/logout/me/password/tokens/Google OAuth),
+  `/api/admin` (user list, ban/unban, role, self-guards), frontend `/login` and
+  `/admin` pages.
+
+Still open after PR #138 (verified 2026-11-09): provider API keys are plaintext
+`TEXT` in Postgres (`db/postgres.py:88`); no per-user LLM spend/model quota (only
+image budgets in `monitor_ui/image_budget.py`); one shared hidden "Conversatory"
+universe (`routers/character_conversation.py:56`); and no idempotent pre-auth
+backfill tool (plan Phase 3 / §7) — pre-auth rows without `owner_id` are only
+reachable in `MONITOR_AUTH_DISABLED` local mode.
 
 ## Shipped (verified 2026-07-23)
 
@@ -207,7 +243,7 @@ line-anchored allowlist), DST suite with tool/node invocation-topology counters,
   `TestBuildTypedList.test_skip_list_records_*` and three new `job_id`
   cases in `TestSaveGameSystem`.
 
-## Not shipped / open gaps (verified 2026-07-23)
+## Not shipped / open gaps (verified 2026-07-23; renumbered 2026-11-09)
 
 Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
 
@@ -254,7 +290,7 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    per-world instantiation. (`EntityTemplate` is NPC-generation only.)
 6. **Autonomous PC (PC-Agent)** — no implementation. (The P-21 ID was reused for
    downtime/progression, which shipped.)
-8. **Ingestion residuals (partial — [G-8 (a)+(b)+(c)+(d)+(e)] shipped 2026-07-23)** —
+7. **Ingestion residuals (partial — [G-8 (a)+(b)+(c)+(d)+(e)] shipped 2026-07-23)** —
    (a)+(b): `_build_typed_list` skip events surfaced via
    `save_game_system(..., job_id=...)` → `IngestionJobUpdate.warnings`;
    powers/subsystems merge propagates `source_ref`/`formula`. (c):
@@ -269,7 +305,7 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    `is_builtin` docs) + `$set: hand_authored: True`. Dry-run by default;
    asserts the doc exists, has ≥5 steps, and titles match before
    applying.
-9. **CanonKeeper depth** — detection scoped to direct logical contradictions; no
+8. **CanonKeeper depth** — detection scoped to direct logical contradictions; no
    impossible-state-transition or implication-level checks.
 
 ## Latency
@@ -280,7 +316,7 @@ target is < 40s per turn, which current performance meets.** No active work.
 ## Deferred (formal)
 
 - Whole-repo mutation score (tooling incompatible with async stack; only the local diff check exists).
-- Autonomous PC (see gap 7).
+- Autonomous PC (see gap 6; G-7 in `GAP_REMEDIATION_PLAN.md`).
 - Latency optimization (see above).
 
 ## Doc map for status
