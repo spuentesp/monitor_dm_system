@@ -8,8 +8,9 @@ LAYER: 2 (agents)
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, TYPE_CHECKING
 from uuid import UUID
 
@@ -20,6 +21,107 @@ if TYPE_CHECKING:
     from monitor_agents.loops.story_loop import StoryState
 
 logger = logging.getLogger(__name__)
+
+# The arc phases a story moves through. The model picks one; the phase order
+# itself is a contract, not a heuristic.
+ARC_PHASES = ("rising_action", "climax", "falling_action", "resolution", "new_thread")
+
+# Plot-thread statuses that mean the thread is no longer open.
+_CLOSED_THREAD_STATUSES = {"resolved", "closed", "abandoned"}
+
+# The time a story falls back to when the world cannot say when it starts.
+# It is a placeholder, not a world date: every story that can reach the
+# world seed or the model gets a date of its own.
+_FALLBACK_IN_GAME_TIME = datetime(1000, 1, 1, 12, 0, tzinfo=UTC)
+
+
+def _parse_instant(value: Any) -> datetime | None:
+    """Read a timestamp from a model answer, a tool payload or a datetime.
+
+    Returns ``None`` for anything that is not a timestamp, so a malformed
+    answer never becomes a story's clock.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _render_ledger_for_prompt(entries: list[dict[str, Any]]) -> str:
+    """Render ledger entries as one line each, oldest first."""
+    lines: list[str] = []
+    for entry in entries:
+        summary = str(entry.get("summary") or "").strip().replace("\n", " ")
+        if not summary:
+            continue
+        lines.append(f"Scene {entry.get('scene_index', '?')}: {summary}")
+    return "\n".join(lines)
+
+
+def _render_turns_for_prompt(turns: list[dict[str, Any]]) -> str:
+    """Render the turns of a scene as ``speaker: text`` lines, oldest first."""
+    lines: list[str] = []
+    for turn in turns:
+        if not isinstance(turn, dict):
+            continue
+        speaker = str(turn.get("speaker") or turn.get("name") or "GM")
+        text = str(turn.get("text") or turn.get("content") or "").strip()
+        if not text:
+            continue
+        lines.append(f"{speaker}: {text}")
+    return "\n".join(lines)
+
+
+def _parse_json_list(raw: Any) -> list[Any]:
+    """Parse a model answer that should be a JSON list.
+
+    Models answer with a JSON array, sometimes wrapped in prose or fenced in
+    a code block. Anything that cannot be read as a list yields an empty
+    list rather than raising, so one malformed field never loses the rest of
+    the answer.
+    """
+    if isinstance(raw, list):
+        return raw
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:]
+    start = text.find("[")
+    end = text.rfind("]")
+    if start == -1 or end == -1 or end < start:
+        return []
+    try:
+        parsed = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _parse_state_changes(raw: Any) -> list[dict[str, str]]:
+    """Parse the model's state changes into ``who``/``what``/``where`` rows."""
+    changes: list[dict[str, str]] = []
+    for item in _parse_json_list(raw):
+        if not isinstance(item, dict):
+            continue
+        changes.append(
+            {
+                "who": str(item.get("who") or "").strip(),
+                "what": str(item.get("what") or "").strip(),
+                "where": str(item.get("where") or "").strip(),
+            }
+        )
+    return changes
 
 
 class StoryAgent(BaseAgent):
@@ -60,69 +162,391 @@ class StoryAgent(BaseAgent):
                     arc_label=state.arc_label,
                     active_threads=", ".join(state.active_threads),
                     recent_scenes="; ".join(recent) if recent else "None",
+                    world_moves="; ".join(state.world_moves) if state.world_moves else "None",
                 )
 
         # DSPy calls are sync, wrap in to_thread to avoid blocking the event loop
         return await asyncio.to_thread(_plan)
 
+    async def write_ledger_entry(
+        self,
+        state: StoryState,
+        *,
+        scene_id: UUID,
+        scene_turns: list[dict[str, Any]],
+        agenda_moves: list[str] | None = None,
+        start_time: datetime,
+        end_time: datetime,
+        scene_index: int | None = None,
+    ) -> dict[str, Any]:
+        """
+        Write the ledger entry for the scene that just ended (ST-1, P-8).
+
+        One STANDARD-tier call turns the scene into a 150-300 word summary, a
+        list of state changes and the questions it left open. The entry is
+        appended to the story's ledger in MongoDB — never overwritten — so the
+        campaign keeps every scene it has played.
+
+        Args:
+            state: The story state the scene belongs to.
+            scene_id: The scene that just ended.
+            scene_turns: The scene's turns, oldest first.
+            agenda_moves: What the world did while the scene was playing.
+            start_time: The scene's in-game start time.
+            end_time: The scene's in-game end time.
+            scene_index: The scene's position in the campaign.
+
+        Returns:
+            The stored ledger entry as a plain dict (empty when the entry
+            could not be written; the failure is recorded).
+        """
+        from monitor_data.schemas.roleplay_errors import (
+            RoleplayErrorCategory,
+            RoleplayErrorSource,
+        )
+        from monitor_data.schemas.stories import (
+            StoryLedgerEntryCreate,
+            StoryLedgerStateChange,
+        )
+
+        from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+        from monitor_agents.story.story import StoryLedgerModule
+
+        moves = list(agenda_moves or [])
+        turns_text = _render_turns_for_prompt(scene_turns)
+        previous_text = _render_ledger_for_prompt(list(state.ledger_entries))
+        scene_time = f"{start_time.isoformat()} -> {end_time.isoformat()}"
+
+        summary = ""
+        state_changes: list[dict[str, str]] = []
+        open_questions: list[str] = []
+
+        module = StoryLedgerModule()
+
+        def _write() -> Any:
+            return module.forward(
+                scene_turns=turns_text or "(the scene had no recorded turns)",
+                previous_ledger=previous_text or "(this is the first scene)",
+                agenda_moves="; ".join(moves) if moves else "(the world stood still)",
+                scene_time=scene_time,
+            )
+
+        try:
+            prediction = await asyncio.to_thread(_write)
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in write_ledger_entry)
+            # The ledger must not cost the player their scene transition, but
+            # the failure has to stay visible.
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.STORY_LOOP,
+                category=RoleplayErrorCategory.LLM,
+                message=f"Story ledger write failed: {exc}",
+                fatal=False,
+                universe_id=state.universe_id,
+                story_id=state.story_id,
+                scene_id=scene_id,
+            )
+            summary = self._fallback_summary(turns_text)
+        else:
+            summary = str(getattr(prediction, "summary", "") or "").strip()
+            state_changes = _parse_state_changes(getattr(prediction, "state_changes", ""))
+            open_questions = [
+                str(question).strip()
+                for question in _parse_json_list(getattr(prediction, "open_questions", ""))
+                if str(question).strip()
+            ]
+            if not summary:
+                summary = self._fallback_summary(turns_text)
+
+        params = StoryLedgerEntryCreate(
+            story_id=state.story_id,
+            universe_id=state.universe_id,
+            scene_id=scene_id,
+            scene_index=state.scenes_completed if scene_index is None else scene_index,
+            summary=summary,
+            state_changes=[StoryLedgerStateChange(**change) for change in state_changes],
+            open_questions=open_questions,
+            start_time=start_time,
+            end_time=end_time,
+            world_moves=moves,
+            arc_label=state.arc_label,
+            tension_score=state.tension_score,
+        )
+
+        try:
+            await self.call_tool(
+                "mongodb_append_story_ledger_entry",
+                {"params": params.model_dump(mode="json")},
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in write_ledger_entry)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.STORY_LOOP,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=f"Story ledger append failed: {exc}",
+                fatal=False,
+                universe_id=state.universe_id,
+                story_id=state.story_id,
+                scene_id=scene_id,
+            )
+            return {}
+
+        entry = params.model_dump(mode="json")
+        entry["summary"] = summary
+        entry["state_changes"] = state_changes
+        entry["open_questions"] = open_questions
+        logger.info(
+            "Ledger entry written for scene %s (%d change(s), %d open question(s))",
+            scene_id,
+            len(state_changes),
+            len(open_questions),
+        )
+        return entry
+
+    @staticmethod
+    def _fallback_summary(turns_text: str) -> str:
+        """Mechanical summary used when the model call fails.
+
+        It transcribes what was said — it does not judge it — so the ledger
+        keeps a record of the scene even when the model is unavailable.
+        """
+        text = " ".join(turns_text.split())
+        if not text:
+            return "The scene ended without a recorded exchange."
+        return text[:2000]
+
+    async def seed_in_game_time(self, universe_id: UUID, story_id: UUID) -> tuple[datetime, str]:
+        """Work out the in-game time a story starts on (ST-1).
+
+        The time comes from the world, in this order:
+
+        1. the story's own ``start_time_ref`` (an authored date);
+        2. the world seed, when the pre-play flow installed one;
+        3. a model estimate read from the universe itself;
+        4. a documented fallback, recorded so it can be looked up.
+
+        Returns:
+            The start time and where it came from.
+        """
+        story = await self._read_story(story_id)
+        if story:
+            authored = story.get("start_time_ref")
+            parsed = _parse_instant(authored)
+            if parsed is not None:
+                return parsed, "story"
+
+        seeded = await self._ask_world_seed(universe_id)
+        if seeded is not None:
+            return seeded, "world_seed"
+
+        estimated = await self._estimate_start_time(universe_id)
+        if estimated is not None:
+            return estimated, "model"
+
+        logger.warning(
+            "No in-game time could be read for universe %s; falling back to the default epoch",
+            universe_id,
+        )
+        return _FALLBACK_IN_GAME_TIME, "fallback"
+
+    async def _read_story(self, story_id: UUID) -> dict[str, Any] | None:
+        """Read the story's Neo4j record (read-only)."""
+        try:
+            raw = await self.call_tool("neo4j_get_story", {"story_id": str(story_id)})
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _read_story)
+            logger.warning("Could not read story %s: %s", story_id, exc)
+            return None
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                return None
+        return raw if isinstance(raw, dict) else None
+
+    async def _read_universe(self, universe_id: UUID) -> dict[str, Any] | None:
+        """Read the universe's Neo4j record (read-only)."""
+        try:
+            raw = await self.call_tool("neo4j_get_universe", {"universe_id": str(universe_id)})
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _read_universe)
+            logger.warning("Could not read universe %s: %s", universe_id, exc)
+            return None
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                return None
+        return raw if isinstance(raw, dict) else None
+
+    async def _ask_world_seed(self, universe_id: UUID) -> datetime | None:
+        """Ask the world seed for the universe's starting date.
+
+        The world seed is the pre-play flow's answer to "when does this world
+        start?". It is optional: when it is not installed, the caller falls
+        back to a model estimate.
+        """
+        try:
+            from monitor_agents import world_seed
+        except ImportError:
+            return None
+
+        estimate = getattr(world_seed, "estimate_start_time", None)
+        if callable(estimate):
+            result = estimate(universe_id)
+        else:
+            agent_cls = getattr(world_seed, "WorldSeed", None)
+            if agent_cls is None:
+                return None
+            method = getattr(agent_cls, "estimate_start_time", None)
+            if method is None:
+                return None
+            result = method(agent_cls(), universe_id)
+
+        if hasattr(result, "__await__"):
+            result = await result
+        return _parse_instant(result)
+
+    async def _estimate_start_time(self, universe_id: UUID) -> datetime | None:
+        """Ask the model for a starting date that fits the universe."""
+        from monitor_data.schemas.llm_config import ModelRole
+
+        from monitor_agents.story.story import StoryTimeSeedModule
+
+        universe = await self._read_universe(universe_id)
+        if not universe:
+            return None
+
+        module = StoryTimeSeedModule()
+
+        def _estimate() -> Any:
+            return module.forward(
+                universe_name=str(universe.get("name") or ""),
+                universe_description=str(universe.get("description") or ""),
+                genre=str(universe.get("genre") or ""),
+                tech_level=str(universe.get("tech_level") or ""),
+                role=ModelRole.STANDARD,
+            )
+
+        try:
+            prediction = await asyncio.to_thread(_estimate)
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _estimate_start_time)
+            logger.warning("Could not estimate the start time of universe %s: %s", universe_id, exc)
+            return None
+        return _parse_instant(getattr(prediction, "start_time", ""))
+
+    async def _fetch_plot_threads(self, story_id: UUID) -> list[dict[str, Any]]:
+        """Read the story's plot threads from Neo4j (read-only)."""
+        try:
+            raw = await self.call_tool(
+                "neo4j_list_plot_threads",
+                {"params": {"story_id": str(story_id), "limit": 50}},
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _fetch_plot_threads)
+            logger.warning("Could not read plot threads for story %s: %s", story_id, exc)
+            return []
+
+        payload = raw
+        if isinstance(raw, str):
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                return []
+        if isinstance(payload, dict):
+            threads = payload.get("threads") or []
+        elif isinstance(payload, list):
+            threads = payload
+        else:
+            threads = []
+        return [thread for thread in threads if isinstance(thread, dict)]
+
     async def evaluate_arc(self, state: StoryState) -> dict[str, Any]:
         """
-        Evaluate the narrative arc after each scene.
+        Evaluate the narrative arc after each scene (ST-1).
 
-        The arc contract: a story spans several scenes and ends when its arc
-        resolves. The phases run in order — rising action, the climax that
-        confronts the conflict, the falling action after it, then the
-        resolution that closes the story — and the story's scene budget
-        decides how long each phase lasts. A story therefore always reaches
-        its resolution instead of stalling, and ``scene_budget`` is what a
-        caller sets to change how long a campaign runs.
+        The arc is judged from what happened: the story's ledger (one entry
+        per finished scene) and the plot threads recorded in Neo4j. A model
+        reads both and returns the phase, the tension, the threads that moved
+        and the threads that closed.
 
-        A DSPy-powered version can override this with LLM-driven evaluation
-        in the future.
+        The scene budget stays an upper bound: a story that reaches it
+        resolves, but a story never reaches it early because a counter said
+        so.
         """
+        from monitor_data.schemas.roleplay_errors import (
+            RoleplayErrorCategory,
+            RoleplayErrorSource,
+        )
+
+        from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+        from monitor_agents.story.story import StoryArcModule
+
         scenes_done = state.scenes_completed
-        tension = state.tension_score
         budget = state.scene_budget
+        ledger_entries = list(state.ledger_entries)
+        plot_threads = await self._fetch_plot_threads(state.story_id)
 
-        # The arc runs through four phases. The budget decides how many
-        # scenes the rising action takes; the last three are the climax, the
-        # falling action and the resolution.
-        phase = min(max(scenes_done - (budget - 3), 0), 3)
-        label = ("rising_action", "climax", "falling_action", "resolution")[phase]
-        tension = (
-            min(0.9, tension + 0.15 * scenes_done),
-            min(1.0, tension + 0.1),
-            max(0.3, tension - 0.25),
-            max(0.1, tension - 0.2),
-        )[phase]
+        ledger_text = _render_ledger_for_prompt(ledger_entries) or "(no scenes have been played yet)"
+        threads_text = self._render_threads_for_prompt(plot_threads)
+        moves_text = "; ".join(state.world_moves) if state.world_moves else "(none)"
 
-        # Suggest next scene type based on arc phase
-        next_type = {
-            "rising_action": "exploration",
-            "climax": "combat",
-            "falling_action": "dialogue",
-            "resolution": "rest",
-            "new_thread": "revelation",
-        }.get(label, "action")
+        module = StoryArcModule()
 
-        # Threads open with the story and are paid off at the climax; they
-        # stay paid off after it, so the resolution arrives with nothing
-        # left open.
-        active_threads = list(state.active_threads)
-        completed_threads = list(state.completed_threads)
-        if not active_threads and scenes_done <= 1:
-            active_threads = ["central_conflict", "character_motivation"]
-        if phase >= 1:
-            completed_threads = completed_threads + active_threads
-            active_threads = []
+        def _judge() -> Any:
+            return module.forward(
+                ledger=ledger_text,
+                plot_threads=threads_text,
+                current_phase=state.arc_label,
+                current_tension=str(state.tension_score),
+                scenes_completed=str(scenes_done),
+                scene_budget=str(budget),
+                agenda_moves=moves_text,
+            )
 
-        # The story is over once the arc reaches its resolution and no thread
-        # is left open.
-        story_complete = phase >= 3 and not active_threads
+        try:
+            prediction = await asyncio.to_thread(_judge)
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in evaluate_arc)
+            # A story without an arc reading keeps running on the arc it
+            # already had; the failure is recorded so it can be looked up.
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.STORY_LOOP,
+                category=RoleplayErrorCategory.LLM,
+                message=f"Story arc evaluation failed: {exc}",
+                fatal=False,
+                universe_id=state.universe_id,
+                story_id=state.story_id,
+            )
+            label = state.arc_label if state.arc_label in ARC_PHASES else "rising_action"
+            tension = state.tension_score
+            advanced: list[str] = []
+            closed: list[str] = []
+            model_complete = False
+        else:
+            label = str(getattr(prediction, "arc_phase", "") or "").strip()
+            if label not in ARC_PHASES:
+                label = state.arc_label if state.arc_label in ARC_PHASES else "rising_action"
+            try:
+                tension = float(getattr(prediction, "tension", state.tension_score))
+            except (TypeError, ValueError):
+                tension = state.tension_score
+            tension = max(0.0, min(1.0, tension))
+            advanced = [str(item).strip() for item in _parse_json_list(getattr(prediction, "advanced_threads", ""))]
+            closed = [str(item).strip() for item in _parse_json_list(getattr(prediction, "closed_threads", ""))]
+            model_complete = bool(getattr(prediction, "story_complete", False))
+
+        active_threads, completed_threads = self._apply_thread_verdicts(
+            state,
+            plot_threads=plot_threads,
+            advanced=advanced,
+            closed=closed,
+        )
+
+        # The budget is an upper bound, not the driver: a story that has used
+        # its budget resolves whether or not the model says so.
+        story_complete = model_complete and not active_threads
+        if scenes_done >= budget:
+            label = "resolution"
+            story_complete = True
 
         # P-6: Automated Story Outlining - Call DSPy planner
         plan = await self._plan_next_scene(state)
-        next_type = plan.get("next_scene_type") or next_type
+        next_type = plan.get("next_scene_type") or self._default_scene_type(label)
         scene_hook = plan.get("plot_hook")
 
         logger.info(
@@ -157,6 +581,80 @@ class StoryAgent(BaseAgent):
             "story_complete": story_complete,
             "scenes_history": history,
         }
+
+    @staticmethod
+    def _render_threads_for_prompt(plot_threads: list[dict[str, Any]]) -> str:
+        """Render plot threads as ``title (status)`` lines for the model."""
+        lines: list[str] = []
+        for thread in plot_threads:
+            title = str(thread.get("title") or thread.get("id") or "").strip()
+            if not title:
+                continue
+            status = str(thread.get("status") or "open").strip()
+            lines.append(f"- {title} ({status})")
+        return "\n".join(lines) if lines else "(the story has no plot threads yet)"
+
+    @staticmethod
+    def _default_scene_type(label: str) -> str:
+        """The scene type that fits an arc phase when the planner is silent."""
+        return {
+            "rising_action": "exploration",
+            "climax": "combat",
+            "falling_action": "dialogue",
+            "resolution": "rest",
+            "new_thread": "revelation",
+        }.get(label, "action")
+
+    @staticmethod
+    def _apply_thread_verdicts(
+        state: StoryState,
+        *,
+        plot_threads: list[dict[str, Any]],
+        advanced: list[str],
+        closed: list[str],
+    ) -> tuple[list[str], list[str]]:
+        """Work out which threads are open and which are done.
+
+        The plot threads recorded in Neo4j are the story's real threads; the
+        model only says which of them moved and which closed. A thread the
+        model closes stops being open, and a thread the model closes that the
+        story has never heard of is still recorded as done.
+        """
+        open_titles: list[str] = []
+        for thread in plot_threads:
+            title = str(thread.get("title") or "").strip()
+            if not title:
+                continue
+            status = str(thread.get("status") or "open").strip().lower()
+            if status in _CLOSED_THREAD_STATUSES:
+                continue
+            open_titles.append(title)
+
+        closed_keys = {item.lower() for item in closed if item}
+        active_threads = [title for title in open_titles if title.lower() not in closed_keys]
+        open_keys = {title.lower() for title in active_threads}
+
+        completed_threads = list(state.completed_threads)
+        for item in closed:
+            name = item.strip()
+            if not name:
+                continue
+            if name not in completed_threads:
+                completed_threads.append(name)
+
+        # A thread the model reports as advanced stays open. A thread the
+        # record already calls closed stays closed: the record decides, the
+        # model only says what moved.
+        for item in advanced:
+            name = item.strip()
+            if not name:
+                continue
+            if name.lower() in closed_keys:
+                continue
+            if name not in active_threads and name.lower() in open_keys:
+                active_threads.append(name)
+
+        return active_threads, completed_threads
 
     def _arc_label_to_purpose(self, arc_label: str) -> str:
         """Map arc phase labels to human-readable scene purposes."""

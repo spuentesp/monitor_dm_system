@@ -267,6 +267,16 @@ AUTHORITY_MATRIX = {
     "mongodb_get_story_outline": ["*"],
     "mongodb_update_story_outline": ["WorldArchitect", "Narrator"],
     # =========================================================================
+    # MONGODB OPERATIONS - Story Ledger (ST-1 / DL-4)
+    # =========================================================================
+    # The story agent appends: it is the writer of the campaign's ledger and
+    # its BaseAgent identity is "story" (``StoryAgent``). CanonKeeper is also
+    # allowed as the canon authority; the sealed wiring audit attributes calls
+    # from ``story/`` to it. Reads stay open: the ledger is fed to
+    # ContextAssembly and the recap on every scene.
+    "mongodb_append_story_ledger_entry": ["story", "CanonKeeper"],
+    "mongodb_list_story_ledger_entries": ["*"],
+    # =========================================================================
     # QDRANT OPERATIONS - Vectors (DL-10)
     # =========================================================================
     "qdrant_upsert": ["Indexer"],

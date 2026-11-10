@@ -19,6 +19,7 @@ class RecapSignature(dspy.Signature):  # type: ignore[misc]
     1. Story Outline (beats, theme, premise)
     2. Scene Summaries (completed scenes)
     3. Significant Facts (high-magnitude events from Neo4j)
+    4. The Story Ledger (what happened in each finished scene)
 
     Your goal is to produce a compelling, cohesive summary that helps a player
     re-orient themselves when resuming a game.
@@ -31,6 +32,7 @@ class RecapSignature(dspy.Signature):  # type: ignore[misc]
     story_outline: str = dspy.InputField(desc="JSON representation of the story outline and beats")
     scene_summaries: str = dspy.InputField(desc="List of summaries from completed scenes")
     significant_facts: str = dspy.InputField(desc="Key events and facts discovered or occurred")
+    story_ledger: str = dspy.InputField(desc="One entry per finished scene: what happened and when")
     tone_context: str = dspy.InputField(desc="Narrative tone and voice guidance")
 
     recap_markdown: str = dspy.OutputField(desc="Compelling markdown summary of the story so far")
@@ -51,6 +53,7 @@ class RecapModule(dspy.Module):  # type: ignore[misc]
         scene_summaries: str,
         significant_facts: str,
         tone_context: str,
+        story_ledger: str = "",
         role: ModelRole | None = None,
     ) -> dspy.Prediction:
         with dspy_context_for("recap", role or ModelRole.STANDARD):
@@ -58,5 +61,6 @@ class RecapModule(dspy.Module):  # type: ignore[misc]
                 story_outline=story_outline,
                 scene_summaries=scene_summaries,
                 significant_facts=significant_facts,
+                story_ledger=story_ledger,
                 tone_context=tone_context,
             )

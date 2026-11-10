@@ -131,9 +131,6 @@ _CHAR_CREATION_LOOPS: OrderedDict[str, CharacterCreationLoop | None] = OrderedDi
 _SESSION_ZERO_LOOPS_MAX = 16
 _SESSION_ZERO_LOOPS: OrderedDict[str, SessionZeroLoop | None] = OrderedDict()
 
-# Cache for story states (Gap 4)
-_STORY_STATES: dict[str, dict[str, Any]] = {}
-
 
 # ---------------------------------------------------------------------------
 # Scene loop lifecycle
@@ -166,10 +163,12 @@ def scene_loop_signature(
 
 
 def _build_story_state_dict(session: dict[str, Any], *, story_id: str) -> dict[str, Any] | None:
-    """Merge the session's own ``story_premise`` with whatever arc data the
-    last StoryLoop advancement cached (``_STORY_STATES``, Gap 4), so
-    ``SceneLoop`` -- and through it, the Narrator -- can see story-level
-    context on every turn.
+    """Build the story state the scene loop starts from.
+
+    The arc itself is not cached in this process: it lives in the story's
+    MongoDB checkpoint and is read on every turn by
+    ``scene_loop.load_context``. What the session owns -- the identifiers and
+    the player's stated premise -- is added here.
 
     Previously ``SceneLoop`` never received a ``story_state`` at all on
     either the web backend or the CLI (confirmed by reading both
@@ -183,9 +182,7 @@ def _build_story_state_dict(session: dict[str, Any], *, story_id: str) -> dict[s
     universe_id = session.get("universe_id") or session.get("world_id")
     if not story_id or not universe_id:
         return None
-    story_state = dict(_STORY_STATES.get(story_id) or {})
-    story_state.setdefault("story_id", story_id)
-    story_state.setdefault("universe_id", universe_id)
+    story_state: dict[str, Any] = {"story_id": story_id, "universe_id": universe_id}
     premise = session.get("story_premise")
     if premise:
         story_state["story_premise"] = premise
@@ -218,11 +215,61 @@ def get_scene_loop(
     chat_log: list[Any] | None = None,
 ) -> Any:
     signature = scene_loop_signature(session, scene_id=scene_id, story_id=story_id)
+
+    # Phase 4 (Tasks 1, 3): refresh the scene cast on EVERY call — cached
+    # loops included — so a mid-scene speaker switch is picked up on the next
+    # turn (``scene_loop_signature`` already keys on the actor, which also
+    # rebuilds the loop). The roster comes from the session's controlled ids,
+    # with persona links and names resolved through character_resolution, and
+    # travels on the scene state — not in a process-level registry, so a
+    # backend restart between two turns changes nothing.
+    cast: Any = None
+    try:
+        from monitor_agents.cast import build_cast
+
+        from .character_resolution import (
+            resolve_character_names,
+            resolve_controlled_personas,
+        )
+
+        speaker_id = as_uuid(session.get("speaker_character_id") or session.get("character_id"))
+        controlled_ids = [str(c) for c in (session.get("controlled_character_ids") or []) if c]
+        names = resolve_character_names(controlled_ids)
+        personas = resolve_controlled_personas(controlled_ids)
+        cast = build_cast(
+            controlled_ids=controlled_ids,
+            speaker_id=speaker_id,
+            actor_context=actor_context,
+            entity_context=[{"id": cid, "name": name, "entity_type": "character"} for cid, name in names.items()],
+            personas=personas,
+            scene_id=scene_id,
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: recorded, loop falls back to the state-derived minimal cast (in get_scene_loop)
+        logger.warning("get_scene_loop: cast refresh failed: %s", exc, exc_info=True)
+        try:
+            event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            event_loop = None
+        if event_loop is not None:
+            from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+            from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+            event_loop.create_task(
+                RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.SCENE_LOOP,
+                    category=RoleplayErrorCategory.UNKNOWN,
+                    message=f"cast_refresh_failed: {exc}",
+                    fatal=False,
+                )
+            )
+
     cached = _SCENE_LOOPS.get(session_id)
     if cached and cached[0] == signature:
         _SCENE_LOOPS.move_to_end(session_id)
         if chat_log is not None:
             cached[1].chat_log = chat_log  # refresh volatile reference
+        if cast is not None:
+            cached[1].cast = cast  # the roster may have changed without the actor changing
         return cached[1]
 
     agreements_lines, agreements_veils = _session_agreements(session)
@@ -266,6 +313,9 @@ def get_scene_loop(
         chat_log=chat_log,
         # Task 7: last scene's summary becomes the next scene's opening recap.
         opening_recap=str(session.get("last_scene_summary") or ""),
+        # Phase 4 (Task 1): the scene cast, refreshed from the session on
+        # every turn so the GM and the Narrator see the current roster.
+        cast=cast,
     )
     _SCENE_LOOPS[session_id] = (signature, loop)
     _SCENE_LOOPS.move_to_end(session_id)
@@ -542,11 +592,6 @@ async def run_scene_turn(
     callbacks.session_game_system_doc = session_game_system_doc
     callbacks.gsr_available = gsr_available
     callbacks.get_story_state = get_story_state
-
-    def set_story_state_cache(story_id: str, state_data: dict[str, Any]) -> None:
-        _STORY_STATES[story_id] = state_data
-
-    callbacks.set_story_state_cache = set_story_state_cache
 
     orchestrator = SceneOrchestrator()
     state_dict = {

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from datetime import UTC, datetime
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -413,3 +413,51 @@ class TestWrapUpArtifacts:
         by_id = {s["id"]: s for s in resp.json()}
         assert by_id[sid]["recap_text"] is None
         assert by_id[sid]["wrapped_up_at"] is None
+
+
+class TestSpeakerSwitch:
+    """P-16 / join Task 7: the cast panel switches the speaker immediately."""
+
+    @patch("monitor_ui.routers.chat._db_save_session")
+    @patch("monitor_ui.routers.chat._SESSIONS", new_callable=dict)
+    @patch("monitor_ui.routers.chat._MESSAGES", new_callable=dict)
+    def test_patch_session_speaker_switches_immediately(self, _msgs, _sessions, _save):
+        session_id = str(uuid4())
+        _sessions[session_id] = _make_session(session_id, speaker_character_id=str(uuid4()))
+        _msgs[session_id] = []
+        new_speaker = str(uuid4())
+
+        with (
+            patch("monitor_ui.routers.chat.require_playable_character", AsyncMock()) as owner_check,
+            patch("monitor_ui.routers.chat._pop_scene_loop") as pop_loop,
+        ):
+            resp = client.patch(f"{BASE}/{session_id}", json={"speaker_character_id": new_speaker})
+
+        assert resp.status_code == 200
+        assert resp.json()["speaker_character_id"] == new_speaker
+        assert _sessions[session_id]["speaker_character_id"] == new_speaker
+        # Same ownership check as the other controlled-character paths.
+        assert owner_check.await_count == 1
+        assert owner_check.await_args.args[2] == new_speaker
+        # The cached SceneLoop is invalidated so the next turn runs as the
+        # new actor immediately.
+        pop_loop.assert_called_once_with(session_id)
+
+    @patch("monitor_ui.routers.chat._db_save_session")
+    @patch("monitor_ui.routers.chat._SESSIONS", new_callable=dict)
+    @patch("monitor_ui.routers.chat._MESSAGES", new_callable=dict)
+    def test_a_foreign_speaker_is_refused(self, _msgs, _sessions, _save):
+        from fastapi import HTTPException
+
+        session_id = str(uuid4())
+        _sessions[session_id] = _make_session(session_id)
+        _msgs[session_id] = []
+
+        async def _refuse(*_args, **_kwargs):
+            raise HTTPException(status_code=404, detail="Character not found")
+
+        with patch("monitor_ui.routers.chat.require_playable_character", _refuse):
+            resp = client.patch(f"{BASE}/{session_id}", json={"speaker_character_id": str(uuid4())})
+
+        assert resp.status_code == 404
+        assert _sessions[session_id]["speaker_character_id"] is None

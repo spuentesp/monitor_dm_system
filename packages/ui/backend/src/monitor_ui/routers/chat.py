@@ -1147,9 +1147,10 @@ async def update_session(
 ) -> Session:
     await require_chat_session_owner(principal, session_id)
     if body is not None:
-        selected = getattr(body, "selected_character_id", None)
-        if selected:
-            await require_playable_character(db, principal, selected)
+        if body.speaker_character_id:
+            # Same ownership check as the other controlled-character paths
+            # (session create / IC send): foreign → generic 404.
+            await require_playable_character(db, principal, body.speaker_character_id)
         if body.scene_id:
             await require_scene_owner(db, principal, body.scene_id)
         if body.story_id:
@@ -1202,6 +1203,13 @@ async def update_session(
         session["roll_model"] = body.roll_model
     if body is not None and body.archived is not None:
         session["archived"] = body.archived
+    if body is not None and body.speaker_character_id:
+        session["speaker_character_id"] = body.speaker_character_id
+        # The switch takes effect immediately: rebuild the cached SceneLoop
+        # on the next turn so it runs as the new actor (same seam as the IC
+        # send path).
+        _SESSIONS[session_id] = session
+        _pop_scene_loop(session_id)
     session["updated_at"] = _now()
     _db_save_session(session)
     return Session(**session, message_count=len(_MESSAGES.get(session_id, [])))

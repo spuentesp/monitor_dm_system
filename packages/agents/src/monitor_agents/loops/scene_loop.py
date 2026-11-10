@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import structlog
 
+import anyio
 import contextlib
 import functools
 import logging
@@ -36,6 +37,7 @@ from monitor_data.config import settings
 from pydantic import BaseModel, Field
 
 from monitor_agents.agent_factory import get_agent_factory
+from monitor_agents.cast import Cast
 
 # Pure helpers extracted into a separate module for testability
 from monitor_agents.image_suggestions import (
@@ -71,6 +73,10 @@ _CARRIED_CHANNELS = frozenset(
         "established_facts",
         "image_suggestions",
         "combat_state",
+        # Who acted in this scene so far. Accumulated by ``narrate``; the
+        # scene end needs it to tell an NPC who was there from an NPC who
+        # never got a word in.
+        "scene_actors",
     }
 )
 
@@ -131,6 +137,225 @@ def _first_location_entity(entity_context: Any) -> dict[str, Any] | None:
     return None
 
 
+async def _load_story_state(state: SceneState) -> StoryState | None:
+    """Read the story's persisted state from its MongoDB checkpoint.
+
+    The story's arc lives in the checkpoint, not in this process, so reading
+    it on every turn is what makes a backend restart change nothing the
+    Narrator sees. A story with no checkpoint yet keeps the state it was
+    given.
+    """
+    if state.universe_id is None:
+        # No universe to anchor the checkpoint read on — a scene without one
+        # keeps the story state it was given instead of reading a foreign
+        # story's checkpoint.
+        logger.debug("Scene %s has no universe; skipping the story checkpoint read", state.scene_id)
+        return None
+    try:
+        from monitor_agents.loops.story_loop import StoryLoop
+
+        loop = StoryLoop(story_id=state.story_id, universe_id=state.universe_id)
+        values = await loop.load_checkpoint_state()
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _load_story_state)
+        logger.debug("Could not read the story checkpoint for %s: %s", state.story_id, exc)
+        return None
+
+    if not values:
+        return None
+
+    try:
+        persisted = StoryState.model_validate(values)
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _load_story_state)
+        logger.debug("Story checkpoint for %s did not validate: %s", state.story_id, exc)
+        return None
+
+    # The player's stated premise belongs to the session, not to the
+    # checkpoint; keep it when the checkpoint does not carry one.
+    if state.story_state is not None and state.story_state.story_premise:
+        if not persisted.story_premise:
+            persisted = persisted.model_copy(update={"story_premise": state.story_state.story_premise})
+    return persisted
+
+
+def _is_flashback(temporal_mode: Any) -> bool:
+    """True when a scene is set outside the story's present."""
+    mode = str(getattr(temporal_mode, "value", temporal_mode) or "").strip().lower()
+    return mode in {"flashback", "flash_back", "dream", "memory"}
+
+
+def _scene_actors_with(previous: list[str] | None, actor_id: UUID | None) -> list[str]:
+    """The scene's actors so far, with this turn's actor added.
+
+    The list accumulates across the scene (it is a carried channel), so the
+    scene end can tell the characters who were present but never spoke.
+    """
+    actors = [str(a) for a in (previous or []) if str(a).strip()]
+    if actor_id is not None:
+        key = str(actor_id)
+        if key not in actors:
+            actors.append(key)
+    return actors
+
+
+def _scene_transcript(state: SceneState) -> str:
+    """The scene's prose so far: the recorded turns plus the current
+    narration — the text the scene-end memory pass reads (join Task 2)."""
+    parts: list[str] = []
+    for turn in state.previous_turns or []:
+        if not isinstance(turn, dict):
+            continue
+        text = str(turn.get("text") or "").strip()
+        if not text:
+            continue
+        speaker = str(turn.get("speaker") or "").strip()
+        parts.append(f"{speaker}: {text}" if speaker else text)
+    current = str(state.narrative_text or "").strip()
+    if current and current not in parts:
+        parts.append(current)
+    return "\n\n".join(parts)
+
+
+def _to_uuid(raw: Any) -> UUID | None:
+    try:
+        return UUID(str(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _memory_create(
+    state: SceneState,
+    entry: dict[str, Any],
+    *,
+    owner_id: UUID,
+    universe_id: UUID,
+    witness_ids: list[str],
+) -> Any:
+    """Build the ``MemoryCreate`` for one extracted memory entry.
+
+    Shared by the per-turn ``persist_memories_node`` and the scene-end pass
+    in ``complete_current_scene``, so both store the same shape: owner
+    ``entity_id``, ``universe_id``, typed ``witnesses`` plus the metadata
+    carriers, and the in-world ``time_ref``.
+    """
+    from monitor_data.schemas.memories import MemoryCreate
+
+    raw_importance = entry.get("importance", 5)
+    try:
+        importance_float = float(raw_importance)
+    except (TypeError, ValueError):
+        importance_float = 5.0
+    importance_float = importance_float / 10.0 if importance_float > 1 else importance_float
+    try:
+        valence = float(entry.get("emotional_valence", 0.0))
+    except (TypeError, ValueError):
+        valence = 0.0
+    metadata: dict[str, Any] = {
+        "story_id": str(state.story_id),
+        # Witnesses also ride in metadata: today's mongodb_create_memory
+        # persists ``metadata`` verbatim while the typed ``witnesses`` column
+        # is stored alongside it (see the Phase 4 report).
+        "witnesses": witness_ids,
+        "viewpoint_entity_id": str(owner_id),
+    }
+    # The memory records when it happened in the world's own clock (Phase 3
+    # Task 6), so it can be placed on a timeline later.
+    time_raw = entry.get("time_ref") or state.time_ref
+    if time_raw is not None:
+        metadata["time_ref"] = time_raw.isoformat() if isinstance(time_raw, datetime) else str(time_raw)
+    return MemoryCreate(
+        universe_id=universe_id,
+        entity_id=owner_id,
+        scene_id=state.scene_id,
+        text=str(entry.get("text") or "").strip(),
+        importance=min(1.0, max(0.0, importance_float)),
+        emotional_valence=max(-1.0, min(1.0, valence)),
+        witnesses=[u for u in (_to_uuid(w) for w in witness_ids) if u is not None],
+        metadata=metadata,
+    )
+
+
+def _stamp_time_ref(proposal: dict[str, Any], when: datetime) -> dict[str, Any]:
+    """Stamp a proposal with the in-world time it was made at.
+
+    CanonKeeper writes every fact and event from a proposal with this
+    ``time_ref``, so the canon carries the world's own clock. A proposal
+    that already carries a time keeps it.
+    """
+    stamped = dict(proposal)
+    stamped.setdefault("time_ref", when.isoformat())
+    for key in ("content", "payload"):
+        payload = stamped.get(key)
+        if isinstance(payload, dict):
+            copied = dict(payload)
+            copied.setdefault("time_ref", when.isoformat())
+            stamped[key] = copied
+    return stamped
+
+
+async def _validate_flashback(
+    state: SceneState,
+    *,
+    scene_time: datetime | None,
+) -> list[dict[str, Any]]:
+    """Check a flashback scene against the canon's chronology.
+
+    Returns the warnings the check raised. A scene that cannot be checked
+    (no universe, no time) raises nothing; a check that fails outright is
+    recorded and the scene still closes.
+    """
+    if state.universe_id is None or scene_time is None:
+        return []
+
+    from monitor_agents.temporal_validation import validate_scene_revision
+
+    try:
+        from monitor_agents.loops.story_loop import _read_scene_turns
+
+        turns = await _read_scene_turns(state.scene_id)
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _validate_flashback)
+        logger.debug("Could not read the turns of scene %s: %s", state.scene_id, exc)
+        turns = []
+
+    scene_text = "\n".join(
+        str(turn.get("text") or turn.get("content") or "") for turn in turns if isinstance(turn, dict)
+    ).strip()
+    if not scene_text:
+        scene_text = state.narrative_text or ""
+
+    factory = get_agent_factory()
+    canonkeeper = factory.create_canonkeeper()
+
+    try:
+        result = await validate_scene_revision(
+            scene_id=state.scene_id,
+            universe_id=state.universe_id,
+            story_id=state.story_id,
+            scene_time_ref=scene_time,
+            scene_text=scene_text,
+            proposals=list(state.pending_proposals or []),
+            canonkeeper=canonkeeper,
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _validate_flashback)
+        await RoleplayErrorRecorder.record(
+            source=RoleplayErrorSource.SCENE_LOOP,
+            category=RoleplayErrorCategory.UNKNOWN,
+            message=f"Temporal validation of flashback scene {state.scene_id} failed: {exc}",
+            fatal=False,
+            universe_id=state.universe_id,
+            story_id=state.story_id,
+            scene_id=state.scene_id,
+        )
+        return []
+
+    warnings = list(result.get("warnings") or [])
+    warnings.extend(
+        violation
+        for violation in (result.get("violations") or [])
+        if str(violation.get("severity") or "").lower() in {"warning", "info"}
+    )
+    return warnings
+
+
 class SceneState(BaseModel):
     """Typed state that flows through every scene-loop node."""
 
@@ -165,6 +390,12 @@ class SceneState(BaseModel):
     # NPC profiles fetched per scene (entity_id -> dict). Rendered by Narrator
     # into the NPC STATE block; never reset across turns.
     npc_profiles: dict[str, Any] = Field(default_factory=dict)
+    # The scene cast: who is present, who controls whom, who is speaking.
+    # Set on every turn from the session roster, so the GM and the Narrator
+    # read the same roster before and after a backend restart.
+    cast: Cast | None = None
+    # Entity ids that acted in this scene so far (accumulated across turns).
+    scene_actors: list[str] = Field(default_factory=list)
     # Open foreshadowing items for the current scene (loaded in load_context).
     scene_foreshadowing_open: list[dict[str, Any]] = Field(default_factory=list)
     # Optional one-line recap from the previous scene. Rendered once at scene
@@ -271,6 +502,9 @@ class SceneState(BaseModel):
     recent_chat: list[dict[str, Any]] = Field(default_factory=list)
     # Consistency violations detected by check_consistency node.
     consistency_violations: list[dict[str, Any]] = Field(default_factory=list)
+    # Temporal warnings raised when a flashback scene is checked against the
+    # canon's chronology before it is canonized.
+    temporal_warnings: list[dict[str, Any]] = Field(default_factory=list)
     # Active multi-turn tactical combat state carried across SceneLoop.run calls.
     combat_state: dict[str, Any] | None = None
 
@@ -366,6 +600,18 @@ async def load_context(state: SceneState) -> dict[str, Any]:
 
     factory = get_agent_factory()
     agent = factory.create_context_assembly()
+
+    # The story's own state (arc, ledger, in-game clock) is read from its
+    # MongoDB checkpoint on every turn, so a restart between two turns
+    # changes nothing the Narrator sees.
+    persisted_story_state = await _load_story_state(state)
+    story_state = persisted_story_state or state.story_state
+    in_game_time = story_state.in_game_time if story_state is not None else None
+    # A flashback keeps the time the scene was written for; every other
+    # scene runs at the story's clock.
+    if time_ref is None:
+        time_ref = in_game_time
+
     context = await agent.assemble(
         scene_id=state.scene_id,
         story_id=state.story_id,
@@ -376,6 +622,7 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         system_source_id=state.system_source_id,
         pack_id=state.pack_id,
         actor_context=state.actor_context,
+        check_time=time_ref,
     )
 
     # G3: Check token budget and compress context if needed
@@ -485,13 +732,42 @@ async def load_context(state: SceneState) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 — best-effort, see comment above
         logger.debug("load_context: durable turn count fetch failed: %s", exc)
 
-    return {
+    # The ledger and the canon reach the GM and the Narrator exactly once
+    # each (join task 12). The ledger's one-line history travels on the GM's
+    # established-facts channel (``source_profile`` — the resolver forwards
+    # it to GMAgent, the GM's only history channel), while the Narrator reads
+    # the ledger from the story state's CAMPAIGN LEDGER block: injecting the
+    # one-liners into the shared established facts too repeated the
+    # campaign's history in the narrator's prompt. The canon's current
+    # statements go to both. Everything is de-duplicated against what the
+    # carried channel already holds, so a fact is never repeated per turn.
+    ledger_lines = [
+        f"Scene {entry.get('scene_index', '?')}: {str(entry.get('summary') or '').strip()}"
+        for entry in context.get("story_ledger", []) or []
+        if isinstance(entry, dict) and str(entry.get("summary") or "").strip()
+    ]
+    canon_statements = [
+        str(fact.get("statement") or "").strip()
+        for fact in context.get("facts", []) or []
+        if isinstance(fact, dict) and str(fact.get("statement") or "").strip()
+    ][-8:]
+
+    source_profile = dict(context.get("source_profile", {}) or {})
+    prior_sp_facts = [f for f in source_profile.get("established_facts") or [] if isinstance(f, str)]
+    source_profile["established_facts"] = [
+        *prior_sp_facts,
+        *[line for line in ledger_lines if line not in prior_sp_facts],
+    ]
+    prior_facts = [f for f in state.established_facts if f not in state.director_notes]
+    known = {*state.director_notes, *prior_facts}
+
+    updates: dict[str, Any] = {
         "entity_context": context.get("entities", []),
         "memory_context": context.get("memories", []),
         "lorebook_context": context.get("lorebook_entries", []),
         "previous_turns": context.get("turns", []),
         "game_context": context.get("game_system", {}),
-        "source_profile": context.get("source_profile", {}),
+        "source_profile": source_profile,
         "working_state": working_state_dict,
         "gm_profile": gm_profile,
         "universe_id": universe_id,
@@ -504,9 +780,21 @@ async def load_context(state: SceneState) -> dict[str, Any]:
         "scene_foreshadowing_open": open_foreshadowing,
         "established_facts": [
             *state.director_notes,
-            *[fact for fact in state.established_facts if fact not in state.director_notes],
+            *prior_facts,
+            *[stmt for stmt in canon_statements if stmt not in known],
         ],
     }
+
+    # The story's ledger travels on the story state, so the Narrator reads
+    # it on every turn of the scene. The context assembly already fitted it
+    # to the budget: the last entries in full, the older ones as one line.
+    if story_state is not None:
+        ledger_entries = [entry for entry in (context.get("story_ledger") or []) if isinstance(entry, dict)]
+        updates["story_state"] = story_state.model_copy(
+            update={"ledger_entries": ledger_entries or list(story_state.ledger_entries)}
+        )
+
+    return updates
 
 
 @_timed_node  # type: ignore[untyped-decorator]
@@ -529,6 +817,8 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
 
     factory = get_agent_factory()
     resolver = factory.create_resolver()
+    from monitor_agents.cast import cast_from_state
+
     # resolve_turn returns (resolution_dict, gm_verdict) — the verdict
     # carries the GM's narrative_draft so the Narrator downstream can
     # refine it against the outcome. We pop the internal "_gm_verdict"
@@ -541,6 +831,7 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
             *state.established_facts,
             *[f for f in source_profile.get("established_facts") or [] if f not in state.established_facts],
         ]
+
     resolution, gm_verdict = await resolver.resolve_turn(
         scene_id=str(state.scene_id),
         user_input=state.user_input,
@@ -552,6 +843,9 @@ async def resolve_action(state: SceneState) -> dict[str, Any]:
             "actor_id": str(state.actor_id) if state.actor_id else None,
             "actor": state.actor_context,
             "pending_roll": state.pending_roll,
+            # Who is who (Phase 4 Task 1): the GM reads the cast so it never
+            # acts or speaks for a character the user controls.
+            "cast": cast_from_state(state).model_dump(mode="json"),
             "agreements": {
                 "lines": list(state.agreements_lines or []),
                 "veils": list(state.agreements_veils or []),
@@ -632,10 +926,49 @@ async def narrate(state: SceneState) -> dict[str, Any]:
     S4/S5: Narrator generates GM prose and persists the turn to MongoDB.
 
     Writes: GM turn text to MongoDB (via MCP tool).
+
+    Phase 4 (Tasks 1, 7-9): builds the cast (who is who + agency rule) and
+    per-NPC scene context — recall, known facts, one-line intents — and hands
+    all of it to the Narrator. Fact/event proposals are stamped with the
+    cast's ``witnesses`` so who-knows-what can be enforced downstream.
     """
 
     factory = get_agent_factory()
     narrator = factory.create_narrator()
+
+    # Phase 4: cast + per-NPC enrichment. Failures are recorded and the turn
+    # proceeds without the enrichment — narration must not die for it.
+    from monitor_agents.cast import cast_from_state
+
+    cast = cast_from_state(state)
+    npc_memories: dict[str, Any] = {}
+    npc_facts: dict[str, Any] = {}
+    npc_intents: list[dict[str, Any]] = []
+    call_tool = getattr(narrator, "call_tool", None)
+    if call_tool is not None and cast.gm_characters():
+        try:
+            from monitor_agents.npc_voice.agent import gather_npc_scene_context
+
+            enrichment = await gather_npc_scene_context(
+                call_tool,
+                cast=cast,
+                npc_profiles=state.npc_profiles,
+                current_action=state.user_input or "",
+                universe_id=str(state.universe_id) if state.universe_id else None,
+            )
+            npc_memories = enrichment.get("npc_memories") or {}
+            npc_facts = enrichment.get("npc_facts") or {}
+            npc_intents = enrichment.get("npc_intents") or []
+        except Exception as exc:  # noqa: BLE001  # reason: recorded, turn continues without enrichment (in narrate)
+            logger.warning("narrate: NPC scene enrichment failed: %s", exc)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=f"npc_scene_enrichment_failed: {exc}",
+                fatal=False,
+                scene_id=state.scene_id,
+            )
+
     result = await narrator.narrate_turn(
         scene_id=state.scene_id,
         user_input=state.user_input,
@@ -662,6 +995,11 @@ async def narrate(state: SceneState) -> dict[str, Any]:
                 "lines": list(state.agreements_lines or []),
                 "veils": list(state.agreements_veils or []),
             },
+            # Phase 4: who is who + agency rule, per-NPC recall/facts/intents.
+            "cast": cast.model_dump(mode="json"),
+            "npc_memories": npc_memories,
+            "npc_facts": npc_facts,
+            "npc_intents": npc_intents,
         },
         game_context=state.game_context,
         session_tone=state.session_tone,
@@ -671,11 +1009,26 @@ async def narrate(state: SceneState) -> dict[str, Any]:
     )
     PersistenceService.clear_scene_runtime_cache(state.scene_id)
     proposals = result.get("proposals", [])
+    witness_ids = cast.witness_ids()
     if state.universe_id:
         for p in proposals:
             p["universe_id"] = str(state.universe_id)
             if "content" in p and isinstance(p["content"], dict):
                 p["content"]["universe_id"] = str(state.universe_id)
+    # Task 8: facts/events established in play carry the cast as witnesses.
+    # Stamped on the proposal (which the ProposedChange document stores
+    # verbatim) and inside content (the commit path's payload). The typed
+    # ``witnesses`` field persists end to end now (join task 5), so the old
+    # third carrier inside ``properties`` is gone — one field, two document
+    # surfaces, no shadow copies.
+    for p in proposals:
+        change_type = str(p.get("change_type") or "").lower()
+        if change_type not in {"fact", "event", "lore_fact"}:
+            continue
+        p["witnesses"] = list(witness_ids)
+        content = p.get("content")
+        if isinstance(content, dict):
+            content["witnesses"] = list(witness_ids)
 
     narrative_text = result.get("narrative_text", "")
     minutes = result.get("minutes_elapsed", 0)
@@ -781,6 +1134,9 @@ async def narrate(state: SceneState) -> dict[str, Any]:
         "turn_id": result.get("turn_id"),
         "total_minutes_passed": state.total_minutes_passed + minutes,
         "suggested_actions": result.get("suggested_actions", []),
+        # Who acted in this scene. The scene end needs the roster of the
+        # characters who never spoke, to give them their own memory of it.
+        "scene_actors": _scene_actors_with(state.scene_actors, state.actor_id),
         "image_suggestions": [
             *[s.model_dump(mode="json") for s in state.image_suggestions],
             *[s.model_dump(mode="json") for s in new_suggestions],
@@ -808,14 +1164,26 @@ async def extract_new_entities(state: SceneState) -> dict[str, Any]:
 
 async def extract_memories(state: SceneState) -> dict[str, Any]:
     """
-    Task 4: Extract salient character memories from the narrative prose.
+    Task 4/6: Extract salient character memories from the narrative prose.
+
+    Per turn this extracts for the acting/speaking character only (join
+    Task 2 — one model call per turn, as before Phase 4). The cast members
+    who never act in the scene get their own summary memory at scene end
+    instead (``complete_current_scene``). Every memory is tagged with its
+    owner ``entity_id``, ``universe_id``, and the cast witnesses.
     """
     factory = get_agent_factory()
     agent = factory.create_extractor()
+    from monitor_agents.cast import cast_from_state
+
+    cast = cast_from_state(state)
     return await agent.extract_memories(
         narrative_text=state.narrative_text,
         actor_context=state.actor_context,
         resolution=state.resolution,
+        cast=[m.model_dump(mode="json") for m in cast.members],
+        scene_id=state.scene_id,
+        universe_id=state.universe_id,
     )
 
 
@@ -1102,30 +1470,86 @@ async def persist_memories_node(state: SceneState) -> dict[str, Any]:
     Persist extracted memories to MongoDB via mongodb_create_memory.
 
     Called after extract_memories populates state.memories_to_persist.
+
+    Phase 4 (Tasks 6, 8): each memory entry carries its owner ``entity_id``,
+    its ``universe_id``, and the ``witnesses`` cast list — so every present
+    character is persisted under its own id (not only the speaker) and the
+    who-knows-what filter can rely on the witness record.
+
+    Every memory also carries the scene's in-world ``time_ref`` (Phase 3
+    Task 6): the entry's own ``time_ref`` when it has one, else
+    ``state.time_ref`` — stored as ``metadata["time_ref"]``, the same shape
+    ``PersistenceService.persist_memories`` writes.
     """
     if not state.memories_to_persist:
         return {}
 
-    if not state.actor_id:
-        logger.warning("persist_memories_node called but no actor_id in state")
+    from monitor_data.tools.mongodb_tools import mongodb_create_memory
+
+    import anyio
+
+    persisted = 0
+    failed: list[dict[str, Any]] = []
+    attempted = 0
+    for entry in state.memories_to_persist:
+        if not isinstance(entry, dict):
+            continue
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            # No text, no memory — malformed extractor output is dropped.
+            logger.warning("persist_memories_node: dropping memory entry without text")
+            continue
+        attempted += 1
+        owner_raw = entry.get("entity_id") or state.actor_id
+        if not owner_raw:
+            logger.warning("persist_memories_node: memory without owner (no entity_id, no actor_id)")
+            failed.append(entry)
+            continue
+        universe_raw = entry.get("universe_id") or state.universe_id
+        if not universe_raw:
+            logger.warning("persist_memories_node: memory without universe_id; skipping")
+            failed.append(entry)
+            continue
+        try:
+            owner_id = UUID(str(owner_raw))
+            universe_id = UUID(str(universe_raw))
+            witness_ids = [str(w) for w in (entry.get("witnesses") or []) if str(w).strip()]
+            params = _memory_create(
+                state,
+                entry,
+                owner_id=owner_id,
+                universe_id=universe_id,
+                witness_ids=witness_ids,
+            )
+            await anyio.to_thread.run_sync(mongodb_create_memory, params)
+            persisted += 1
+        except Exception as e:  # noqa: BLE001  # reason: boundary records and continues per memory (in persist_memories_node)
+            logger.warning("Failed to persist memory for %s: %s", owner_raw, e)
+            failed.append(entry)
+            category = (
+                RoleplayErrorCategory.MEMORY_PERSIST_NOT_FOUND
+                if isinstance(e, ValueError)
+                else RoleplayErrorCategory.UNKNOWN
+            )
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=category,
+                message=str(e),
+                fatal=False,
+                universe_id=state.universe_id,
+                story_id=state.story_id,
+                scene_id=state.scene_id,
+                entity_id=state.actor_id,
+            )
+
+    if not attempted:
+        # Nothing had a body to persist (garbage entries only) — leave the
+        # channel untouched, matching the pre-Phase-4 skip contract.
         return {}
-
-    from monitor_agents.services.persistence_service import PersistenceService
-
-    try:
-        created_ids = await PersistenceService.persist_memories(
-            entity_id=state.actor_id,
-            scene_id=state.scene_id,
-            story_id=state.story_id,
-            universe_id=state.universe_id,  # type: ignore[arg-type]
-            memories=state.memories_to_persist,
-        )
-        logger.debug("Persisted %d memories for actor %s", len(created_ids), state.actor_id)
-        return {"memories_to_persist": []}
-    except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in persist_memories_node)
-        logger.warning("Failed to persist memories: %s", e)
-
-    return {}
+    logger.debug("persist_memories_node: persisted %d memories, %d failed", persisted, len(failed))
+    # Failed entries stay in state for the scene-end belt-and-suspenders
+    # persist; succeeded ones are cleared so they are never written twice.
+    return {"memories_to_persist": failed}
 
 
 async def complete_current_scene(state: SceneState) -> dict[str, Any]:
@@ -1134,28 +1558,122 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
 
     Called when scene_complete=True. Handles:
     1. Persist any remaining memories (belt-and-suspenders, should already be done)
+    1b. One scene summary memory per cast member who never acted in the
+       scene (join Task 2) — GM-controlled NPCs present and user characters
+       that never spoke
     2. Advance story state (scenes_completed++, in_game_time)
-    3. Signal scene ending (CanonKeeper.end_scene placeholder)
+    3. Stamp the scene's in-game time on the proposals, so every fact and
+       event canonized from them carries the time it happened at
+    4. Check a flashback scene against the canon's chronology
+    5. Signal scene ending (CanonKeeper.end_scene placeholder)
+
+    Both scene-end paths reach this node: the automatic path (the routing
+    after a turn completes the scene) and the explicit end-scene path
+    (``SceneLoop.finalize``). Failures in the memory pass are recorded
+    (RoleplayErrorRecorder) and never block the scene transition.
     """
     from datetime import timedelta
 
     updates: dict[str, Any] = {"scene_complete": True}
+
+    # The scene's in-world time: what it happened at, for everything the
+    # scene writes.
+    scene_time: datetime | None = state.time_ref
+    if state.story_state and scene_time is None:
+        scene_time = state.story_state.in_game_time
 
     # 1. Persist any remaining memories (belt-and-suspenders)
     if state.memories_to_persist and state.actor_id:
         from monitor_agents.services.persistence_service import PersistenceService
 
         try:
+            memories = [
+                {**memory, "time_ref": scene_time} if scene_time is not None and isinstance(memory, dict) else memory
+                for memory in state.memories_to_persist
+            ]
             await PersistenceService.persist_memories(
                 entity_id=state.actor_id,
                 scene_id=state.scene_id,
                 story_id=state.story_id,
                 universe_id=state.universe_id,  # type: ignore[arg-type]
-                memories=state.memories_to_persist,
+                memories=memories,
             )
             updates["memories_to_persist"] = []
         except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in complete_current_scene)
             logger.warning("Failed to persist memories in complete_current_scene: %s", e)
+
+    # 1b. Scene-end memory pass (join Task 2): the cast members who never
+    # acted in this scene — GM-controlled NPCs present and user characters
+    # that never spoke — get one summary memory of the scene each, from
+    # their own point of view, under their own entity id. The acting
+    # character's memories were already extracted per turn.
+    from monitor_agents.cast import cast_from_state
+
+    scene_cast = cast_from_state(state)
+    acted = {str(a) for a in (state.scene_actors or [])}
+    non_actors = [m for m in scene_cast.members if m.entity_id not in acted]
+    if non_actors:
+        scene_memories: dict[str, Any] = {}
+        try:
+            extractor = get_agent_factory().create_extractor()
+            scene_memories = await extractor.extract_scene_memories(
+                transcript=_scene_transcript(state),
+                cast=[m.model_dump(mode="json") for m in scene_cast.members],
+                scene_id=state.scene_id,
+                story_id=state.story_id,
+                universe_id=state.universe_id,
+                extract_for_ids=[m.entity_id for m in non_actors],
+            )
+        except Exception as e:  # noqa: BLE001  # reason: recorded below, the scene transition proceeds (in complete_current_scene)
+            logger.warning("Scene-end memory extraction failed (non-fatal): %s", e)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=f"scene_end_memory_extraction_failed: {e}",
+                fatal=False,
+                universe_id=getattr(state, "universe_id", None),
+                story_id=state.story_id,
+                scene_id=state.scene_id,
+                entity_id=state.actor_id,
+            )
+
+        from monitor_data.tools.mongodb_tools import mongodb_create_memory
+
+        for memory in scene_memories.get("memories_to_persist") or []:
+            if not isinstance(memory, dict) or not str(memory.get("text") or "").strip():
+                continue
+            entry = dict(memory)
+            if scene_time is not None:
+                entry.setdefault("time_ref", scene_time)
+            owner_raw = entry.get("entity_id")
+            universe_raw = entry.get("universe_id") or state.universe_id
+            if not owner_raw or not universe_raw:
+                logger.warning("scene-end memory without owner or universe; skipping")
+                continue
+            witness_ids = [str(w) for w in (entry.get("witnesses") or []) if str(w).strip()]
+            try:
+                params = _memory_create(
+                    state,
+                    entry,
+                    owner_id=UUID(str(owner_raw)),
+                    universe_id=UUID(str(universe_raw)),
+                    witness_ids=witness_ids,
+                )
+                await anyio.to_thread.run_sync(mongodb_create_memory, params)
+            except Exception as e:  # noqa: BLE001  # reason: recorded below, the remaining entries still persist (in complete_current_scene)
+                logger.warning("Scene-end memory persist failed (non-fatal): %s", e)
+                await RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.SCENE_LOOP,
+                    category=RoleplayErrorCategory.MEMORY_PERSIST_NOT_FOUND
+                    if isinstance(e, ValueError)
+                    else RoleplayErrorCategory.UNKNOWN,
+                    message=f"scene_end_memory_persist_failed: {e}",
+                    fatal=False,
+                    universe_id=getattr(state, "universe_id", None),
+                    story_id=state.story_id,
+                    scene_id=state.scene_id,
+                    entity_id=state.actor_id,
+                )
 
     # 2. Advance story state
     if state.story_state:
@@ -1166,12 +1684,30 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
             "in_game_time": new_time,
             "scenes_completed": state.story_state.scenes_completed + 1,
         }
+        if scene_time is None:
+            scene_time = new_time
 
-    # 3. Scene-end bookkeeping via CanonKeeper.end_scene()
+    # 3. Stamp the scene's in-game time on the proposals. CanonKeeper writes
+    # every fact and event canonized from them with this time_ref, so what
+    # the world learned in this scene is dated in the world's own clock.
+    if state.pending_proposals and scene_time is not None:
+        updates["pending_proposals"] = [_stamp_time_ref(proposal, scene_time) for proposal in state.pending_proposals]
+
+    # 4. A flashback is checked against the canon's chronology before it is
+    # canonized; its warnings are surfaced with the scene.
+    if _is_flashback(state.temporal_mode):
+        warnings = await _validate_flashback(state, scene_time=scene_time)
+        if warnings:
+            updates["temporal_warnings"] = warnings
+            logger.warning(
+                "Flashback scene %s has %d temporal warning(s)",
+                state.scene_id,
+                len(warnings),
+            )
+
+    # 5. Scene-end bookkeeping via CanonKeeper.end_scene()
     # Best-effort: failure here must not block scene completion.
     try:
-        from monitor_agents.agent_factory import get_agent_factory
-
         ck = get_agent_factory().create_canonkeeper()
         await ck.end_scene(
             scene_id=state.scene_id,
@@ -1192,7 +1728,7 @@ async def complete_current_scene(state: SceneState) -> dict[str, Any]:
             entity_id=state.actor_id,
         )
 
-    # 4. Downtime trigger (P-21): when the story arc reaches "resolution",
+    # 6. Downtime trigger (P-21): when the story arc reaches "resolution",
     # signal that progression options are available.
     story_state_dict = updates.get("story_state") or {}
     arc_label = story_state_dict.get("arc_label") or (state.story_state.arc_label if state.story_state else None)
@@ -1608,6 +2144,7 @@ class SceneLoop:
         ooc_exchanges: list[dict[str, Any]] | None = None,
         chat_log: list[Any] | None = None,
         opening_recap: str = "",
+        cast: Cast | None = None,
     ) -> None:
         self.scene_id = scene_id
         self.story_id = story_id
@@ -1640,6 +2177,9 @@ class SceneLoop:
         self.chat_log = chat_log
         # Optional one-line recap from the previous scene (Task 7).
         self.opening_recap = opening_recap
+        # The scene cast (who is who). Refreshed by the caller on every turn,
+        # so a mid-scene speaker switch is picked up on the next turn.
+        self.cast = cast
         # Task 9 (fix round 1): register an empty history so narrate can
         # append suggestions across calls within this process. The list is a
         # single shared object reference — narrate mutates it.
@@ -1691,6 +2231,7 @@ class SceneLoop:
                 ooc_exchanges=list(getattr(self, "ooc_exchanges", []) or []),
                 recent_chat=_chat_tail(getattr(self, "chat_log", None)),
                 opening_recap=str(getattr(self, "opening_recap", "") or ""),
+                cast=getattr(self, "cast", None),
                 resolution=resolution_override,
             )
             # Add pre-loaded gm_profile to state if available

@@ -188,12 +188,19 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
     _COMMIT_ORDER = {
         "create_axiom": 0,
         "create_entity_archetype": 1,
+        "entity": 1,
+        "character": 1,
+        "location": 1,
         "create_lore_fact": 2,
         "create_random_table": 3,
         "create_tone_profile": 3,
         "create_character_profile": 4,
         "create_generation_template": 5,
+        "create_agenda": 5,
         "entity_relationship": 6,
+        "spatial_topology": 6,
+        # Pack plot threads resolve entity names and need a story — last.
+        "create_plot_thread": 8,
     }
 
     # ------------------------------------------------------------------
@@ -3021,6 +3028,11 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                     "authority": "source",
                     "source_ids": source_id_strs,
                     "time_ref": payload.get("time_ref") or proposal.get("time_ref"),
+                    # Who-knows-what (Phase 4 Task 8): the witness record and
+                    # the proposal's properties must reach the Fact node —
+                    # they are what the NPC fact filter reads back.
+                    "witnesses": payload.get("witnesses") or proposal.get("witnesses") or [],
+                    "properties": payload.get("properties"),
                 }
             },
         )

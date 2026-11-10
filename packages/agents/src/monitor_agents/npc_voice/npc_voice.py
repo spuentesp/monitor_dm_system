@@ -163,6 +163,42 @@ class NPCActorSignature(dspy.Signature):  # type: ignore[misc]
     )
 
 
+class NPCIntentSignature(dspy.Signature):  # type: ignore[misc]
+    """
+    Decide what ONE NPC wants right now in the scene.
+
+    Read the NPC's agenda, desires and recalled memories and return a single
+    line describing what this NPC is trying to do or convey in the current
+    beat. The GM narration will honor this intent and may not contradict it.
+
+    Ground the intent ONLY in the inputs — never invent goals, knowledge or
+    relationships the agenda and memories do not support. The NPC knows only
+    what they witnessed, were told, or what is common knowledge.
+    """
+
+    # ── Inputs ──────────────────────────────────────────────────────────────
+    npc_name: str = dspy.InputField(desc="NPC's name")
+    npc_agenda: str = dspy.InputField(
+        desc="The NPC's agenda / standing goal (from their profile). Empty when none is recorded."
+    )
+    npc_desires: str = dspy.InputField(
+        desc="What the NPC wants or fears right now (desires, needs, fears from their profile)."
+    )
+    recalled_memories: str = dspy.InputField(
+        desc="JSON array of this NPC's memories relevant to the current action (their private recall)."
+    )
+    current_action: str = dspy.InputField(desc="What the player just did or said this turn")
+
+    # ── Outputs ─────────────────────────────────────────────────────────────
+    intent: str = dspy.OutputField(
+        desc=(
+            "ONE line, 3-12 words, from the NPC's own perspective: what they "
+            "want to do, say, or achieve in this beat. Example: "
+            "'steer the talk away from the missing ledger'. No preamble."
+        )
+    )
+
+
 # =============================================================================
 # MODULES
 # =============================================================================
@@ -244,4 +280,36 @@ class NPCActorModule(dspy.Module):  # type: ignore[misc]
                 profile_context=profile_context,
                 conversation_history=conversation_history,
                 gm_question=gm_question,
+            )
+
+
+class NPCIntentModule(dspy.Module):  # type: ignore[misc]
+    """
+    One-line per-NPC intent for the current beat (Phase 4, Task 9).
+
+    Predict (not ChainOfThought) — one cheap LIGHT-tier call per present NPC,
+    capped at 4 by the caller. The Narrator receives the intent and may not
+    contradict it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.decide = dspy.Predict(NPCIntentSignature)
+
+    def forward(
+        self,
+        npc_name: str,
+        npc_agenda: str,
+        npc_desires: str,
+        recalled_memories: str,
+        current_action: str,
+        role: ModelRole | None = None,
+    ) -> dspy.Prediction:
+        with dspy_context_for("npc_intent", role or ModelRole.LIGHT):
+            return self.decide(
+                npc_name=npc_name,
+                npc_agenda=npc_agenda,
+                npc_desires=npc_desires,
+                recalled_memories=recalled_memories,
+                current_action=current_action,
             )

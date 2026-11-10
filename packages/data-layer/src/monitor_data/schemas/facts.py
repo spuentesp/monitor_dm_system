@@ -73,6 +73,13 @@ class FactCreate(BaseModel):
     # Entity references
     entity_ids: list[UUID] | None = Field(default=None, description="Entity IDs this fact involves")
 
+    # Witnesses (Task 8: who-knows-what). Filled from the scene cast for
+    # facts established in play; empty for ingested lore (common knowledge).
+    witnesses: list[UUID] = Field(
+        default_factory=list,
+        description="Characters present when this fact was established (the scene cast)",
+    )
+
     # Provenance references
     source_ids: list[UUID] | None = Field(default=None, description="Source IDs supporting this fact")
     snippet_ids: list[str] | None = Field(
@@ -135,6 +142,7 @@ class FactResponse(BaseModel):
     source_ids: list[UUID] = Field(default_factory=list)
     snippet_ids: list[str] = Field(default_factory=list)
     scene_ids: list[UUID] = Field(default_factory=list)
+    witnesses: list[UUID] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

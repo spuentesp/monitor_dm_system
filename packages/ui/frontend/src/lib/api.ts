@@ -260,6 +260,7 @@ export const chatApi = {
       scene_id?: string;
       story_id?: string;
       roll_model?: string;
+      speaker_character_id?: string | null;
       archived?: boolean;
     },
   ) =>
@@ -444,9 +445,31 @@ export const ingestApi = {
       body: JSON.stringify(body),
     }),
   applyPackNewWorld: (id: string, body: { world_name: string; system_name?: string }) =>
-    req<{ pack_id: string; multiverse_id: string; universe_id: string; world_name: string; committed: number; errors: string[]; status: string }>(
+    req<{
+      pack_id: string;
+      multiverse_id: string;
+      universe_id: string;
+      world_name: string;
+      committed: number;
+      errors: string[];
+      status: string;
+      can_prepare_starting_situation?: boolean;
+    }>(
       `/ingest/packs/${id}/apply/new-world`,
       { method: "POST", body: JSON.stringify(body) },
+    ),
+  // MP-7 / join task 11: offer after apply/new-world — run the world seed
+  // against the new universe so an ingested book yields somewhere to stand.
+  prepareStartingSituation: (packId: string, universeId: string) =>
+    req<{
+      pack_id: string;
+      universe_id: string;
+      source?: string;
+      options?: Array<{ option_id?: string; title?: string; summary?: string }>;
+      materialized?: { location?: string; npcs?: Array<{ name?: string }> };
+    }>(
+      `/ingest/packs/${packId}/prepare-start`,
+      { method: "POST", body: JSON.stringify({ universe_id: universeId }) },
     ),
   applyPackExistingWorld: (packId: string, universeId: string, body: { mode?: string; auto_commit_llm?: boolean; entity_indices?: number[]; axiom_indices?: number[]; lore_indices?: number[]; resolved_conflicts?: object[] }) =>
     req<{ status: string; conflicts?: object[]; committed?: number; errors?: string[] }>(

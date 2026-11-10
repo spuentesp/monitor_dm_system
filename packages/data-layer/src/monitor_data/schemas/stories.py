@@ -113,10 +113,66 @@ class StoryListResponse(BaseModel):
     offset: int
 
 
+# =============================================================================
+# STORY LEDGER SCHEMAS (DL-4 / ST-1)
+# =============================================================================
+#
+# The ledger is the campaign's running memory: one append-only entry per
+# finished scene, holding what happened, what changed, what is still open and
+# when it happened in the world's own time. It is story-scoped runtime state
+# (never canon), so it lives in MongoDB next to the scenes, not in Neo4j.
+
+
+class StoryLedgerStateChange(BaseModel):
+    """One "who did what, where" line of a ledger entry."""
+
+    who: str = Field(default="", max_length=200, description="Who changed (character, faction, the world)")
+    what: str = Field(default="", max_length=2000, description="What changed")
+    where: str = Field(default="", max_length=200, description="Where the change happened")
+
+
+class StoryLedgerEntryCreate(BaseModel):
+    """Request to append one entry to a story's ledger."""
+
+    story_id: UUID
+    universe_id: UUID | None = None
+    scene_id: UUID
+    scene_index: int = Field(default=0, ge=0, description="Position of the scene in the campaign")
+    summary: str = Field(min_length=1, max_length=8000, description="150-300 word summary of the scene")
+    state_changes: list[StoryLedgerStateChange] = Field(
+        default_factory=list,
+        description="Who changed what, and where",
+    )
+    open_questions: list[str] = Field(default_factory=list, description="Questions the scene left open")
+    start_time: datetime = Field(description="In-game time the scene started")
+    end_time: datetime = Field(description="In-game time the scene ended")
+    world_moves: list[str] = Field(
+        default_factory=list,
+        description="What the world did between scenes (NPC agenda moves)",
+    )
+    arc_label: str | None = Field(
+        default=None,
+        max_length=50,
+        description="Arc phase the scene was played in",
+    )
+    tension_score: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class StoryLedgerEntry(StoryLedgerEntryCreate):
+    """A stored ledger entry."""
+
+    entry_id: UUID
+    sequence: int = Field(ge=1, description="1-based position of the entry in the story's ledger")
+    created_at: datetime
+
+
 # Re-export base schemas for convenience
 __all__ = [
     "StoryCreate",
     "StoryFilter",
+    "StoryLedgerEntry",
+    "StoryLedgerEntryCreate",
+    "StoryLedgerStateChange",
     "StoryListResponse",
     "StoryResponse",
     "StoryStatus",

@@ -16,7 +16,10 @@ Public modules:
 from monitor_data.tools.temporal_tools.fact_expiration import (
     batch_check_fact_validity,
     check_fact_validity,
+    exclude_superseded_facts,
     get_active_facts,
+    get_current_facts,
+    order_facts_by_time,
 )
 from monitor_data.tools.temporal_tools.scene_validation import (
     validate_scene_temporal,
@@ -25,6 +28,9 @@ from monitor_data.tools.temporal_tools.scene_validation import (
 __all__ = [
     "batch_check_fact_validity",
     "check_fact_validity",
+    "exclude_superseded_facts",
     "get_active_facts",
+    "get_current_facts",
+    "order_facts_by_time",
     "validate_scene_temporal",
 ]

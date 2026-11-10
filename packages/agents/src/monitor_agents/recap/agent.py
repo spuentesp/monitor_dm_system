@@ -7,6 +7,7 @@ Authority: MongoDB (scenes, story_outlines), Neo4j (facts)
 
 import json
 import logging
+from typing import Any
 from uuid import UUID
 
 from monitor_data.schemas.base import SceneStatus
@@ -82,6 +83,23 @@ class RecapAgent(BaseAgent):
         )
         facts_json = json.dumps(facts_list, indent=2, default=str)
 
+        # 4. The story's ledger: what happened in each finished scene.
+        ledger_entries = await self._read_ledger(story_id)
+        ledger_json = json.dumps(
+            [
+                {
+                    "scene_index": entry.get("scene_index"),
+                    "summary": entry.get("summary"),
+                    "start_time": entry.get("start_time"),
+                    "end_time": entry.get("end_time"),
+                    "open_questions": entry.get("open_questions"),
+                }
+                for entry in ledger_entries
+            ],
+            indent=2,
+            default=str,
+        )
+
         # Nothing to recap: an LLM will still produce fluent "the story hasn't
         # started yet" prose from empty inputs rather than erroring, which
         # calling code can't distinguish from a real recap by length alone.
@@ -92,14 +110,15 @@ class RecapAgent(BaseAgent):
         # has actually happened yet -- `beats` is the field real play fills
         # in (see narrator.py / story_loop.py), so it's the meaningful signal.
         has_outline_content = bool((outline_result or {}).get("beats"))
-        if not has_outline_content and not scene_summaries and not facts_list:
+        if not has_outline_content and not scene_summaries and not facts_list and not ledger_entries:
             return ""
 
-        # 4. Run LLM
+        # 5. Run LLM
         prediction = self.module.forward(
             story_outline=outline_json,
             scene_summaries=scenes_json,
             significant_facts=facts_json,
+            story_ledger=ledger_json,
             tone_context=tone_context,
             role=ModelRole.STANDARD,
         )
@@ -109,3 +128,20 @@ class RecapAgent(BaseAgent):
     async def run(self) -> None:
         """Implemented for BaseAgent compliance; usually called via generate_recap."""
         pass
+
+    async def _read_ledger(self, story_id: UUID) -> list[dict[str, Any]]:
+        """Read the story's ledger, oldest first.
+
+        A ledger that cannot be read leaves the recap with the rest of the
+        story's history.
+        """
+        from monitor_data.tools.mongodb_tools.stories import mongodb_list_story_ledger_entries
+
+        try:
+            entries = await run_sync_read(mongodb_list_story_ledger_entries, story_id)  # type: ignore[var-annotated]
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _read_ledger)
+            logger.warning("Could not read the ledger of story %s: %s", story_id, exc)
+            return []
+        if not isinstance(entries, list):
+            return []
+        return [entry.model_dump(mode="json") if hasattr(entry, "model_dump") else dict(entry) for entry in entries]

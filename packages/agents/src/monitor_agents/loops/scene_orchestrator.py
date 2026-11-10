@@ -369,6 +369,11 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
         "scene_id": scene_id,
     }
 
+    # A flashback scene is checked against the canon's chronology before it
+    # is canonized; its warnings travel with the turn.
+    if result.get("temporal_warnings"):
+        metadata["temporal_warnings"] = result["temporal_warnings"]
+
     dice_request = _dice_request_from_resolution(resolution, state.user_content)
     if dice_request:
         metadata["dice_request"] = dice_request
@@ -443,21 +448,7 @@ async def run_core_scene_loop(state: SceneOrchestratorState) -> SceneOrchestrato
                 metadata["arc_label"] = getattr(story_state, "arc_label", None)
                 metadata["tension_score"] = getattr(story_state, "tension_score", None)
                 metadata["active_threads"] = getattr(story_state, "active_threads", None)
-                if getattr(callbacks, "set_story_state_cache", None):
-                    callbacks.set_story_state_cache(
-                        story_id,
-                        {
-                            "story_id": str(getattr(story_state, "story_id", "")),
-                            "universe_id": str(getattr(story_state, "universe_id", "")),
-                            "arc_label": getattr(story_state, "arc_label", None),
-                            "tension_score": getattr(story_state, "tension_score", None),
-                            "active_threads": getattr(story_state, "active_threads", None),
-                            "completed_threads": getattr(story_state, "completed_threads", None),
-                            "in_game_time": in_game_time.isoformat() if in_game_time is not None else None,
-                            "world_ticks": getattr(story_state, "world_ticks", None),
-                            "scenes_completed": getattr(story_state, "scenes_completed", None),
-                        },
-                    )
+                metadata["in_game_time"] = in_game_time.isoformat() if in_game_time is not None else None
         except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in run_core_scene_loop)
             logger.debug("Failed to fetch story state for metadata: %s", exc)
 

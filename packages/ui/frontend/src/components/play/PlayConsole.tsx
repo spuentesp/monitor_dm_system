@@ -35,6 +35,7 @@ import type { ImageSuggestionMeta } from "@/features/chat/types";
 import { ImageSuggestionChip } from "@/components/visual/ImageSuggestionChip";
 
 import { CharacterPanel } from "./CharacterPanel";
+import { CastPanel } from "./CastPanel";
 import { CombatPanel } from "./CombatPanel";
 import { StoryPanel } from "./StoryPanel";
 import { ChatModeToggle } from "./ChatModeToggle";
@@ -220,6 +221,14 @@ export default function PlayConsole() {
   // world default must not hijack normal "resume last session" visits.
   const [showSetup, setShowSetup] = useState(() => Boolean(urlUniverseId && !requestedSessionId));
   const [selectedCharacter, setSelectedCharacter] = useState<StandaloneCharacter | null>(null);
+  // Phase 4 (Task 5) / join Task 7: speaker picked in the cast panel. The
+  // switch is applied IMMEDIATELY — PATCH /chat/{id} with
+  // SessionPatch.speaker_character_id (ownership-checked server-side; the
+  // backend invalidates the cached SceneLoop so the very next turn runs as
+  // the new actor). castSpeaker is the optimistic local marker until the
+  // session refetch confirms it; the next sent message still carries it as
+  // IC character_id as a belt-and-braces seam.
+  const [castSpeaker, setCastSpeaker] = useState<{ id: string; name: string } | null>(null);
   const [chatMode, setChatMode] = useState<"ic" | "ooc">("ic");
   const [showRecap, setShowRecap] = useState(false);
   const [endingScene, setEndingScene] = useState(false);
@@ -322,6 +331,14 @@ export default function PlayConsole() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["play-sessions"] }),
   });
 
+  // [P-16] Cast panel speaker switch: SessionPatch.speaker_character_id makes
+  // the switch immediate (join Task 7) — no waiting for the next message.
+  const switchSpeaker = useMutation({
+    mutationFn: ({ id }: { id: string }) =>
+      chatApi.patchSession(activeSessionId!, { speaker_character_id: id }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: PLAY_KEYS.sessions }),
+  });
+
   // [G-1](c) Skip-to-play: jump from Session Zero / char creation straight
   // into active_play. Disabled while pending.
   const skipPreplay = useMutation({
@@ -387,9 +404,14 @@ export default function PlayConsole() {
         opts.is_ooc_persona = selectedCharacter.is_ooc_persona;
       }
     }
+    // A cast-panel speaker pick wins for IC sends: the send endpoint turns an
+    // IC character_id into the session speaker (Phase 4 Task 5).
+    if (castSpeaker && opts.chat_mode !== "ooc") {
+      opts.character_id = castSpeaker.id;
+    }
     return opts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCharacter, chatMode]);
+  }, [selectedCharacter, chatMode, castSpeaker]);
 
   const handleComposerSubmit = (text: string) => {
     const wrapped = wrapOutgoingMessageForOoc(text, {
@@ -456,13 +478,39 @@ export default function PlayConsole() {
       ),
     [lastGmMsg, settledSuggestionIds],
   );
-  const rawSuggestions = (lastGmMsg?.metadata as { suggested_actions?: unknown } | undefined)
-    ?.suggested_actions;
-  const suggestionChips: QuickAction[] = (
-    Array.isArray(rawSuggestions)
-      ? rawSuggestions.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+  const rawMeta = (lastGmMsg?.metadata ?? {}) as {
+    suggested_actions?: unknown;
+    suggested_answers?: unknown;
+    start_options?: unknown;
+  };
+  const rawSuggestions = rawMeta.suggested_actions;
+  // Pre-play chips (guided start): the world seed's start options and the
+  // current question's suggested answers, shown the same way suggested
+  // actions work in play — tap to place in the input, then send or edit.
+  const startOptionChips: QuickAction[] = (
+    Array.isArray(rawMeta.start_options)
+      ? rawMeta.start_options.filter(
+          (o): o is { title?: string; summary?: string; hook?: string } =>
+            typeof o === "object" && o !== null && typeof (o as { title?: unknown }).title === "string",
+        )
+      : []
+  ).map((option) => ({
+    label: option.title ?? "",
+    icon: Sparkles,
+    onClick: "fill" as const,
+    text: option.title ?? "",
+    className: "hover:border-purple-500/30 hover:bg-purple-500/10",
+    title: [option.summary, option.hook].filter(Boolean).join(" — ") || "A way to begin — tap to place in the input",
+  }));
+  const suggestedAnswerChips: QuickAction[] = (
+    Array.isArray(rawMeta.suggested_answers)
+      ? rawMeta.suggested_answers.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
       : []
   )
+    // The start question's suggestions repeat the option titles — the
+    // start-option chips already show those, so only the extra ones
+    // (e.g. "Surprise me") are rendered here.
+    .filter((text) => !startOptionChips.some((chip) => chip.label === text))
     .slice(0, 3)
     .map((text) => ({
       label: text,
@@ -470,8 +518,25 @@ export default function PlayConsole() {
       onClick: "fill" as const,
       text,
       className: "hover:border-cyan-500/30 hover:bg-cyan-500/10",
-      title: "Suggested next move — tap to place in the input",
+      title: "Suggested answer — tap to place in the input",
     }));
+  const suggestionChips: QuickAction[] = [
+    ...startOptionChips,
+    ...suggestedAnswerChips,
+    ...(Array.isArray(rawSuggestions)
+      ? rawSuggestions.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+      : []
+    )
+      .slice(0, 3)
+      .map((text) => ({
+        label: text,
+        icon: Sparkles,
+        onClick: "fill" as const,
+        text,
+        className: "hover:border-cyan-500/30 hover:bg-cyan-500/10",
+        title: "Suggested next move — tap to place in the input",
+      })),
+  ];
 
   const quickActions: QuickAction[] = [
     ...suggestionChips,
@@ -799,6 +864,19 @@ export default function PlayConsole() {
         </div>
 
         <aside className="hidden xl:flex xl:flex-col gap-4 p-4 overflow-y-auto bg-black/10">
+          {activeSession && (
+            <CastPanel
+              controlledCharacterIds={activeSession.controlled_character_ids ?? []}
+              speakerCharacterId={activeSession.speaker_character_id ?? null}
+              pendingSpeakerId={castSpeaker?.id ?? null}
+              universeId={activeSession.universe_id ?? null}
+              onSwitchSpeaker={(id, name) => {
+                setCastSpeaker({ id, name });
+                switchSpeaker.mutate({ id });
+              }}
+            />
+          )}
+
           <CharacterPanel
             selectedId={selectedCharacter?.id ?? null}
             onSelect={(id, char) => setSelectedCharacter(char)}

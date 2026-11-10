@@ -150,6 +150,7 @@ def mongodb_update_character_sheet(
         "special_abilities",
         "spells_known",
         "notes",
+        "source_persona_id",
     ):
         value = getattr(params, field_name)
         if value is not None:

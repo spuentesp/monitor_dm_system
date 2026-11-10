@@ -143,6 +143,10 @@ class CharacterSheetUpdate(BaseModel):
     special_abilities: list[str] | None = None
     spells_known: list[str] | None = None
     notes: str | None = Field(None, max_length=5000)
+    source_persona_id: str | None = Field(
+        None,
+        description="Persona this incarnation is linked to (persona-to-incarnation link)",
+    )
     change_description: str | None = Field(
         None,
         max_length=500,

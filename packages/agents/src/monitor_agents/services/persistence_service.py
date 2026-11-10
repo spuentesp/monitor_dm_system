@@ -104,6 +104,12 @@ class PersistenceService:
             try:
                 raw_importance = m.get("importance", 5)
                 importance_float = float(raw_importance) / 10.0 if raw_importance > 1 else float(raw_importance)
+                # The memory records when it happened in the world's own
+                # clock, so a memory can be placed in a timeline later.
+                metadata: dict[str, Any] = {"story_id": str(story_id)}
+                time_ref = m.get("time_ref")
+                if time_ref is not None:
+                    metadata["time_ref"] = time_ref.isoformat() if isinstance(time_ref, datetime) else str(time_ref)
                 params = MemoryCreate(
                     universe_id=universe_id,
                     entity_id=entity_id,
@@ -111,7 +117,7 @@ class PersistenceService:
                     text=m["text"],
                     importance=min(1.0, max(0.0, importance_float)),
                     emotional_valence=m.get("emotional_valence", 0.0),
-                    metadata={"story_id": str(story_id)},
+                    metadata=metadata,
                 )
                 # mongodb_create_memory is a sync tool from Layer 1
                 res = await anyio.to_thread.run_sync(mongodb_create_memory, params)

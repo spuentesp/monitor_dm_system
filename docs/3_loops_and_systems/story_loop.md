@@ -17,20 +17,27 @@ between them, and finalize when the arc completes.
 A story spans several scenes. Finishing a scene advances the story to the next
 one; the story itself ends when its arc resolves.
 
-The arc runs through four phases, and the story's `scene_budget` (5 scenes by
-default) decides how many scenes each phase takes:
+Every scene that ends writes a **ledger entry**: a 150–300 word summary, the
+state changes it caused (who, what, where), the questions it left open and the
+scene's in-game start and end time. The ledger is append-only and lives in
+MongoDB; it is the campaign's memory and it is what the arc is judged from.
 
-| Phase | Scenes | What happens |
-|---|---|---|
-| `rising_action` | until `budget - 3` | Tension climbs; the story opens its plot threads. |
-| `climax` | `budget - 2` | The conflict is confronted and the plot threads are paid off. |
-| `falling_action` | `budget - 1` | The aftermath of the climax. |
-| `resolution` | `budget` | The arc resolves and the story is complete. |
+The arc moves through four phases, and a model reads the ledger and the story's
+plot threads to say which one the story is in:
 
-Because the phases are ordered, the arc always reaches its resolution — a
-story cannot stall. A caller that wants a longer or shorter campaign sets
-`scene_budget` on the `StoryState`; a caller that wants the story to end early
-passes `story_complete` in the scene outcome.
+| Phase | What happens |
+|---|---|
+| `rising_action` | Tension climbs; the story's plot threads are open. |
+| `climax` | The conflict is confronted. |
+| `falling_action` | The aftermath of the climax. |
+| `resolution` | The arc resolves and the story is complete. |
+
+The story's `scene_budget` (5 scenes by default) is an **upper bound** on the
+campaign's length, not the thing that drives the arc: a story that reaches its
+budget resolves, but a story never resolves early because a counter said so. A
+caller that wants a longer or shorter campaign sets `scene_budget` on the
+`StoryState`; a caller that wants the story to end early passes `story_complete`
+in the scene outcome.
 
 ## Nodes
 
@@ -46,8 +53,14 @@ passes `story_complete` in the scene outcome.
 
 The story state is checkpointed after every scene, so a campaign that is
 interrupted — or resumed in another process — keeps its scenes, its arc
-position and its in-game time. `StoryLoop.start_or_resume()` returns the
-checkpointed story when there is one instead of starting over.
+position, its ledger and its in-game time. `StoryLoop.start_or_resume()` returns
+the checkpointed story when there is one instead of starting over, and
+`StoryLoop.load_checkpoint_state()` reads it without running the graph.
+
+The in-game clock is seeded from the world: the story's own `start_time_ref`,
+then the world seed, then a model estimate read from the universe. The clock
+moves with the scenes, and everything a scene writes — facts, events, memories —
+carries the time it happened at.
 
 ## See Also
 - [Scene Loop](./scene_loop.md) · [Loops Index](./_index.md)

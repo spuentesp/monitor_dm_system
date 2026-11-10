@@ -19,12 +19,18 @@ from monitor_agents.loops.preplay_phases import PreplayPhase, normalize_preplay_
 from monitor_agents.loops.preplay_support import (
     _seed_answers_from_persona,
     answer_ooc_question,
+    ensure_start_options,
     is_ooc_question,
     persist_session_character,
     resolve_authored_questions,
     resolve_authored_session_zero_questions,
 )
 from monitor_agents.loops.story_agreements_loop import StoryAgreementsLoop
+from monitor_agents.session_zero import (
+    ask_start_options_question,
+    build_question_plan,
+    resolve_start_choice,
+)
 from monitor_agents.setting_intro import assemble_session_intro
 
 log = structlog.get_logger()
@@ -91,6 +97,12 @@ def _restore_loop_state(loop: Any, session: dict[str, Any] | None, stage: str) -
         current_question_index = getattr(loop._state, "question_index", None)
         if current_question_index is not None and hasattr(loop, "_current_question_index"):
             loop._current_question_index = current_question_index
+        # The guided-start plan pins max_questions on the state; keep the
+        # loop's own budget in sync so a rebuilt loop reports the same
+        # total after a backend restart.
+        restored_max = getattr(loop._state, "max_questions", None)
+        if isinstance(restored_max, int) and hasattr(loop, "_max_questions") and restored_max > 0:
+            loop._max_questions = restored_max
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _restore_loop_state)
         log.warning("preplay.checkpoint_invalid", stage=stage, error=str(exc))
     return loop
@@ -142,6 +154,8 @@ def get_character_interview_loop(
     system_context: str,
     seed_answers: list[dict[str, str]] | None = None,
     authored_questions: list[dict[str, Any]] | None = None,
+    start_options: list[dict[str, Any]] | None = None,
+    plan_total: int | None = None,
 ) -> Any:
     if session_id in _CHARACTER_INTERVIEW_LOOPS:
         return _CHARACTER_INTERVIEW_LOOPS[session_id]
@@ -157,6 +171,8 @@ def get_character_interview_loop(
             seed_answers=seed_answers,
             ask_campaign_intent=False,
             authored_questions=authored,
+            start_options=start_options,
+            plan_total=plan_total,
         )
         _restore_loop_state(loop, session, PreplayPhase.CHARACTER_INTERVIEW.value)
         _CHARACTER_INTERVIEW_LOOPS[session_id] = loop
@@ -175,6 +191,8 @@ def get_session_zero_loop(
     seed_answers: list[dict[str, str]] | None = None,
     ask_campaign_intent: bool = False,
     authored_questions: list[dict[str, Any]] | None = None,
+    start_options: list[dict[str, Any]] | None = None,
+    plan_total: int | None = None,
 ) -> Any:
     """Compatibility wrapper for the former character-focused SessionZeroLoop."""
     del ask_campaign_intent
@@ -185,6 +203,8 @@ def get_session_zero_loop(
         system_context,
         seed_answers=seed_answers,
         authored_questions=authored_questions,
+        start_options=start_options,
+        plan_total=plan_total,
     )
 
 
@@ -303,6 +323,61 @@ async def _creation_seed(session: dict[str, Any], summary: dict[str, Any]) -> di
     return seed
 
 
+def _start_option_chips(start_options: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """UI chip data for the seed's start options (structured, like suggested actions)."""
+    from monitor_agents.world_seed.models import StartOption
+
+    chips: list[dict[str, Any]] = []
+    for raw in start_options:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            chips.append(StartOption.model_validate(raw).chip_dict())
+        except Exception:  # noqa: BLE001  # reason: one malformed cached option must not break the turn (in _start_option_chips)
+            chips.append({"option_id": str(raw.get("option_id") or ""), "title": str(raw.get("title") or "")})
+    return chips
+
+
+async def _interview_setup(
+    session: dict[str, Any],
+    world_lore: list[str],
+    system_doc: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]] | None, int | None, list[dict[str, Any]]]:
+    """Build the guided-start question series for this session.
+
+    Returns ``(authored_questions, plan_total, start_options)`` — the plan as
+    authored-shaped questions (how to start, who you are, what you want; one
+    adaptive follow-up fills the last slot), the total question count, and
+    the seed's start options. Returns ``(None, None, [])`` when there is no
+    universe to seed, and the legacy question path takes over.
+    """
+    start_options = await ensure_start_options(session)
+    if not start_options:
+        return None, None, []
+
+    # The start question is model-written once and cached on the session so
+    # a rebuilt loop after a backend restart re-asks the identical question.
+    question_text = str(session.get("start_question_text") or "").strip()
+    if not question_text:
+        start_question = await ask_start_options_question(
+            system_name=session.get("system_label") or "",
+            tone=session.get("tone", "dramatic"),
+            start_options=start_options,
+            world_material="\n".join(world_lore[:6]),
+        )
+        question_text = start_question.question_text
+        session["start_question_text"] = question_text
+
+    plan_questions, plan_total = build_question_plan(
+        start_options=start_options,
+        start_question_text=question_text,
+        authored_questions=resolve_authored_questions(session, system_doc, category="session_zero"),
+        has_persona=bool(session.get("persona_id")),
+        has_premise=bool(str(session.get("story_premise") or "").strip()),
+    )
+    return plan_questions, plan_total, start_options
+
+
 async def start_character_interview(
     session_id: str,
     session: dict[str, Any],
@@ -319,13 +394,22 @@ async def start_character_interview(
     checkpoint = _checkpoint_for(session, PreplayPhase.CHARACTER_INTERVIEW.value)
     if checkpoint and checkpoint.get("answers"):
         seed_answers = None
+
+    plan_questions, plan_total, start_options = await _interview_setup(session, world_lore or [], system_doc)
+    if plan_questions is not None:
+        authored = plan_questions
+    else:
+        authored = resolve_authored_session_zero_questions(session, system_doc)
+
     loop = get_character_interview_loop(
         session_id,
         session,
         world_lore or [],
         system_context,
         seed_answers=seed_answers,
-        authored_questions=resolve_authored_session_zero_questions(session, system_doc),
+        authored_questions=authored,
+        start_options=start_options,
+        plan_total=plan_total,
     )
     if loop is None:
         return "Tell me who you will play in this story.", {
@@ -335,13 +419,18 @@ async def start_character_interview(
     result = await loop.start()
     session["phase"] = PreplayPhase.CHARACTER_INTERVIEW.value
     _save_checkpoint(session, session["phase"], loop)
-    return result.get("gm_message", "Tell me about your character."), {
+    metadata: dict[str, Any] = {
         "type": "character_interview_start",
         "phase": session["phase"],
         "question_number": result.get("question_number", 1),
         "total_questions": result.get("total_questions", DEFAULT_MAX_QUESTIONS),
         "category": result.get("category", "custom"),
     }
+    if start_options and metadata["category"] in {"start_choice", "campaign_intent"}:
+        metadata["start_options"] = _start_option_chips(start_options)
+    if result.get("suggested_answers"):
+        metadata["suggested_answers"] = list(result["suggested_answers"])
+    return result.get("gm_message", "Tell me about your character."), metadata
 
 
 async def start_story_agreements(
@@ -413,19 +502,57 @@ async def handle_ooc(state: PreplayState) -> dict[str, Any]:
     }
 
 
+async def _record_start_choice(session: dict[str, Any], result: dict[str, Any]) -> None:
+    """Resolve the answered start question into a chosen start option.
+
+    The answer may pick an option by name, ask the GM to choose ("surprise
+    me"), or describe the player's own way in (kept as free-form steering).
+    """
+    answered_category = str(result.get("answered_category") or "")
+    if answered_category not in {"start_choice", "campaign_intent"}:
+        return
+    options = [option for option in (session.get("start_options") or []) if isinstance(option, dict)]
+    if not options or session.get("chosen_start_option_id"):
+        return
+    answer = str(result.get("answered_text") or result.get("campaign_intent") or "").strip()
+    if not answer:
+        return
+    question_text = str(session.get("start_question_text") or "How do you want to begin?")
+    choice = await resolve_start_choice(question_text=question_text, options=options, answer=answer)
+    if choice.option_id:
+        session["chosen_start_option_id"] = choice.option_id
+    session["start_choice_freeform"] = choice.free_answer
+    session["start_choice_surprise"] = choice.is_surprise
+    if choice.free_answer and not str(session.get("story_premise") or "").strip():
+        session["story_premise"] = choice.free_answer
+
+
 async def handle_character_interview(state: PreplayState) -> dict[str, Any]:
     session = state.session_data
+    if state.session_id not in _CHARACTER_INTERVIEW_LOOPS:
+        plan_questions, plan_total, start_options = await _interview_setup(
+            session,
+            state.world_lore,
+            state.system_doc,
+        )
+        authored = (
+            plan_questions
+            if plan_questions is not None
+            else resolve_authored_session_zero_questions(session, state.system_doc)
+        )
+    else:
+        plan_total = None
+        authored = None
+        start_options = [option for option in (session.get("start_options") or []) if isinstance(option, dict)]
     loop = get_session_zero_loop(
         state.session_id,
         session,
         state.world_lore,
         state.system_context,
         seed_answers=None,
-        authored_questions=(
-            resolve_authored_session_zero_questions(session, state.system_doc)
-            if state.session_id not in _CHARACTER_INTERVIEW_LOOPS
-            else None
-        ),
+        authored_questions=authored,
+        start_options=start_options,
+        plan_total=plan_total,
     )
     if loop is None:
         return {
@@ -435,17 +562,23 @@ async def handle_character_interview(state: PreplayState) -> dict[str, Any]:
         }
 
     result = await loop.process_player_input(state.user_content)
+    await _record_start_choice(session, result)
     if not result.get("complete"):
         _save_checkpoint(session, PreplayPhase.CHARACTER_INTERVIEW.value, loop)
+        metadata: dict[str, Any] = {
+            "type": "character_interview_question",
+            "phase": PreplayPhase.CHARACTER_INTERVIEW.value,
+            "question_number": result.get("question_number", 0),
+            "total_questions": result.get("total_questions", DEFAULT_MAX_QUESTIONS),
+            "category": result.get("category", "custom"),
+        }
+        if result.get("suggested_answers"):
+            metadata["suggested_answers"] = list(result["suggested_answers"])
+        if start_options and metadata["category"] in {"start_choice", "campaign_intent"}:
+            metadata["start_options"] = _start_option_chips(start_options)
         return {
             "response_text": result.get("gm_message", "Tell me more."),
-            "metadata": {
-                "type": "character_interview_question",
-                "phase": PreplayPhase.CHARACTER_INTERVIEW.value,
-                "question_number": result.get("question_number", 0),
-                "total_questions": result.get("total_questions", DEFAULT_MAX_QUESTIONS),
-                "category": result.get("category", "custom"),
-            },
+            "metadata": metadata,
             "session_data": session,
             "next_step": END,
         }
@@ -553,6 +686,8 @@ async def handle_char_creation(state: PreplayState) -> dict[str, Any]:
         "sheet": sheet_md or str(char),
         "tags": ["pc", "generated"],
         "source": "character_creation_loop",
+        # The persona this incarnation is from (join Task 3) — shown in the cast.
+        "source_persona_id": session.get("persona_id"),
     }
     saved = persist_session_character(
         session,
@@ -665,6 +800,8 @@ def _persist_narrative_character(
         "sheet": summary.get("backstory") or concept,
         "tags": ["pc", "narrative_only"],
         "source": "narrative_only",
+        # The persona this incarnation is from (join Task 3) — shown in the cast.
+        "source_persona_id": session.get("persona_id"),
     }
     return persist_session_character(
         session,

@@ -9,14 +9,54 @@ from uuid import UUID
 
 import structlog
 
-from monitor_agents.loops.session_bootstrap import bootstrap_story_scene
+from monitor_agents.loops.session_bootstrap import bootstrap_story_scene_with_start
+from monitor_agents.loops.preplay_support import ensure_start_options
 from monitor_agents.narrator.agent import Narrator
 from monitor_agents.story_agreements import StoryAgreements
+from monitor_agents.world_seed import resolve_chosen_start, situation_brief, situation_prompt_block
 
 log = structlog.get_logger()
 
 
 DIRECTOR_NOTES_CAP = 20
+
+
+async def _ensure_persona_link(session: dict[str, Any]) -> None:
+    """Guarantee the persona-to-incarnation link on the bound character (join Task 3).
+
+    Phase 4's cast reads ``source_persona_id`` off the incarnation record
+    (its character sheet). The incarnation writes in the pre-play flow pass
+    the link; this covers the sessions that bind a pre-existing incarnation,
+    stamping the link when the record lacks it. The record is written once
+    at finalize — never overwritten when a link already exists. Failures
+    are logged and never block the opening.
+    """
+    persona_id = session.get("persona_id")
+    entity_id = session.get("character_id")
+    if not persona_id or not entity_id:
+        return
+    try:
+        from monitor_data.schemas.character_sheets import CharacterSheetFilter, CharacterSheetUpdate
+        from monitor_data.tools.mongodb_tools import (
+            mongodb_list_character_sheets,
+            mongodb_update_character_sheet,
+        )
+
+        listing = await asyncio.to_thread(
+            mongodb_list_character_sheets,
+            CharacterSheetFilter(entity_id=UUID(str(entity_id))),
+        )
+        sheets = getattr(listing, "sheets", None) or []
+        for sheet in sheets:
+            if getattr(sheet, "source_persona_id", None):
+                continue  # an existing link wins — never overwrite it
+            await asyncio.to_thread(
+                mongodb_update_character_sheet,
+                getattr(sheet, "sheet_id"),
+                CharacterSheetUpdate(source_persona_id=str(persona_id)),
+            )
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _ensure_persona_link)
+        log.warning("preplay.persona_link_write_failed", error=str(exc))
 
 
 async def seed_canon_from_session_zero(session: dict[str, Any]) -> None:
@@ -89,7 +129,15 @@ async def finalize_preplay(
     *,
     system_doc: dict[str, Any] | None,
 ) -> tuple[str, dict[str, Any]]:
-    """Confirm agreements, bootstrap Story/Scene, and narrate the opening."""
+    """Confirm agreements, bootstrap Story/Scene, and narrate the opening.
+
+    Phase 2 guided start: a chosen start option (or, on the skip path, the
+    seed's first option) is materialized into state as part of the
+    bootstrap, and the opening narrates that situation — where the PC is,
+    who is there, what is happening — ending on a prompt to act. The
+    existing precedence holds: authored module intro first, resume recap
+    second (see ``chat_opening.build_gm_opening``), generated opening third.
+    """
 
     if not session.get("character_id"):
         raise ValueError("A player character must be selected or created before play begins.")
@@ -97,6 +145,11 @@ async def finalize_preplay(
     raw_agreements = session.get("story_agreements")
     if not isinstance(raw_agreements, dict):
         raise ValueError("Session Zero agreements must be completed before play begins.")
+
+    # The skip path never chose a start explicitly — the first option is its
+    # documented contract, so the opening is still seeded.
+    await ensure_start_options(session)
+    resolve_chosen_start(session)
 
     agreements = StoryAgreements.model_validate(raw_agreements)
     confirmed_at = datetime.now(UTC)
@@ -107,49 +160,69 @@ async def finalize_preplay(
     if agreements.tone:
         session["tone"] = agreements.tone
 
-    story_id, scene_id, bootstrap_error = await asyncio.to_thread(
-        bootstrap_story_scene,
-        session,
-    )
+    story_id, scene_id, bootstrap_error = await bootstrap_story_scene_with_start(session)
     session["story_id"] = story_id
     session["scene_id"] = scene_id
     if not story_id or not scene_id:
         raise RuntimeError(bootstrap_error or "Story/scene bootstrap did not return IDs.")
 
     await seed_canon_from_session_zero(session)
+    await _ensure_persona_link(session)
 
     gm_profile = await _load_gm_profile(session.get("gm_profile_id"))
     intro = session.get("session_intro") or {}
     character = session.get("character_summary") or {}
     context_text = _opening_context(intro, character, agreements)
+    brief = situation_brief(session)
+    situation_block = situation_prompt_block(session)
+    if situation_block:
+        # One shared renderer (join task 12) — the same block the cold-open
+        # path uses, never a drifting hand-built copy.
+        context_text += "\n\n" + situation_block
 
-    try:
-        narrative = (
-            await Narrator().generate_opening(
-                user_input=(
-                    "(Begin the first in-fiction scene now. The character and table "
-                    "agreements are final. Establish an immediate situation and end "
-                    "with room for the player to act.)"
-                ),
-                context={
-                    "entities": [{"context": context_text}],
-                    "memories": [],
-                    "turns": [],
-                },
-                game_context=system_doc,
-                session_tone=session.get("tone", "dramatic"),
-                gm_profile=gm_profile,
-                story_premise=session.get("story_premise"),
-            )
-        ).strip()
-    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in finalize_preplay)
-        log.warning("preplay.opening_failed", error=str(exc))
-        narrative = ""
+    narrative = ""
+    module_intro = await _module_intro_text(session)
+    generated = ""
+    if not module_intro or brief:
+        # Generate when there is no authored intro, or when a materialized
+        # situation must be narrated after it (task 5). The authored module
+        # intro keeps first position either way.
+        try:
+            generated = (
+                await Narrator().generate_opening(
+                    user_input=(
+                        "(Begin the first in-fiction scene now. The character and table "
+                        "agreements are final. Narrate the starting situation — where the "
+                        "player character is, who is present, what is happening — and end "
+                        "with a clear prompt to act.)"
+                    ),
+                    context={
+                        "entities": [{"context": context_text}],
+                        "memories": [],
+                        "turns": [],
+                    },
+                    game_context=system_doc,
+                    session_tone=session.get("tone", "dramatic"),
+                    gm_profile=gm_profile,
+                    story_premise=session.get("story_premise"),
+                )
+            ).strip()
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades to the situation template (in finalize_preplay)
+            log.warning("preplay.opening_failed", error=str(exc))
+            generated = ""
+
+    if module_intro and generated:
+        narrative = f"{module_intro}\n\n{generated}"
+    elif module_intro:
+        narrative = module_intro
+    elif generated:
+        narrative = generated
 
     if not narrative:
-        name = session.get("speaker_label") or "Your character"
-        premise = agreements.story_premise or "the situation before you"
-        narrative = f"{name} stands at the threshold of {premise}. What do you do?"
+        # Deterministic opening: names the place, the people, and the hook.
+        narrative = _template_opening(session, brief, agreements)
+    else:
+        narrative = _enforce_situation_names(narrative, session)
 
     session["phase"] = "active_play"
     session["preplay_finalized_at"] = confirmed_at.isoformat()
@@ -157,7 +230,7 @@ async def finalize_preplay(
     # persisted session now carries confirmed agreements, the bound PC,
     # and the bootstrapped Story/Scene IDs.
     session.pop("preplay_checkpoint", None)
-    return narrative, {
+    metadata: dict[str, Any] = {
         "type": "gm_opening",
         "phase": "active_play",
         "preplay_finalized": True,
@@ -167,6 +240,100 @@ async def finalize_preplay(
         "session_intro": intro,
         "story_agreements": session["story_agreements"],
     }
+    materialized = session.get("materialized_start")
+    if isinstance(materialized, dict):
+        metadata["materialized_start"] = materialized
+    return narrative, metadata
+
+
+async def _module_intro_text(session: dict[str, Any]) -> str:
+    """The session pack's authored verbatim opening, or ``""``.
+
+    Delegates to the shared ``preplay_support.fetch_module_intro`` (join
+    task 12) — same contract as ``chat_opening._fetch_module_intro`` (G-2):
+    only a substantive read-aloud intro (>40 chars) counts.
+    """
+    from monitor_agents.loops.preplay_support import fetch_module_intro
+
+    return await fetch_module_intro(session)
+
+
+def _enforce_situation_names(narrative: str, session: dict[str, Any]) -> str:
+    """Guarantee the opening names the place and at least two NPCs.
+
+    The done-when pins this: the opening names a location and at least two
+    NPCs that exist as instances. When the narration glosses over them,
+    one compact closing sentence names who is here and where — and ends on
+    the prompt to act.
+    """
+    materialized = session.get("materialized_start") if isinstance(session.get("materialized_start"), dict) else {}
+    if not materialized:
+        return narrative
+    location = str(materialized.get("location") or "").strip()
+    names = [str(npc.get("name") or "").strip() for npc in (materialized.get("npcs") or []) if isinstance(npc, dict)]
+    names = [name for name in names if name]
+    lowered = (narrative or "").lower()
+    missing_location = bool(location) and location.lower() not in lowered
+    missing_names = [name for name in names if name.lower() not in lowered]
+    named_count = len(names) - len(missing_names)
+    if not missing_location and named_count >= 2:
+        return narrative
+
+    pieces: list[str] = []
+    if missing_names:
+        if len(missing_names) == 1:
+            pieces.append(f"{missing_names[0]} is here")
+        else:
+            pieces.append(f"{', '.join(missing_names[:-1])} and {missing_names[-1]} are here")
+    if missing_location and location:
+        pieces.append(f"at {location}" if pieces else f"The scene is set at {location}")
+    coda = " ".join(pieces).strip()
+    if not coda:
+        return narrative
+    coda = coda[0].upper() + coda[1:]
+    suffix = f"{coda}. What do you do?"
+    return f"{narrative.rstrip()}\n\n{suffix}" if narrative.strip() else suffix
+
+
+def _template_opening(session: dict[str, Any], brief: str, agreements: StoryAgreements) -> str:
+    """Deterministic opening naming the place, the people, and the hook.
+
+    Reached when the LLM opening fails — the opening still names a location
+    and the NPCs that exist as instances, and ends on a prompt to act.
+    """
+    raw_materialized = session.get("materialized_start")
+    materialized: dict[str, Any] = raw_materialized if isinstance(raw_materialized, dict) else {}
+    raw_start_option = session.get("start_option")
+    start_option: dict[str, Any] = raw_start_option if isinstance(raw_start_option, dict) else {}
+    name = session.get("speaker_label") or "Your character"
+    location = str(materialized.get("location") or start_option.get("location") or "").strip()
+    npcs = materialized.get("npcs") or start_option.get("npcs") or []
+    npc_names = [str(npc.get("name") or "").strip() for npc in npcs if isinstance(npc, dict)]
+    npc_names = [npc for npc in npc_names if npc]
+    hook = str(materialized.get("hook") or start_option.get("hook") or "").strip()
+
+    parts: list[str] = []
+    if location:
+        present = ""
+        if npc_names:
+            if len(npc_names) == 1:
+                present = f" with {npc_names[0]}"
+            else:
+                present = f" with {', '.join(npc_names[:-1])} and {npc_names[-1]}"
+        parts.append(f"{name} stands in {location}{present}.")
+    else:
+        parts.append(f"{name} stands at the threshold of {agreements.story_premise or 'the situation before you'}.")
+    for npc in npcs[:4]:
+        if not isinstance(npc, dict):
+            continue
+        npc_name = str(npc.get("name") or "").strip()
+        want = str(npc.get("want") or "").strip()
+        if npc_name and want:
+            parts.append(f"{npc_name} wants {want}.")
+    if hook:
+        parts.append(hook if hook.endswith((".", "!", "?")) else hook + ".")
+    parts.append("What do you do?")
+    return " ".join(parts)
 
 
 async def _load_gm_profile(profile_id: Any) -> dict[str, Any] | None:
@@ -203,8 +370,10 @@ def _opening_context(
                 f"Backstory: {character.get('backstory') or '(see actor profile)'}"
             ),
             (
+                # Join task 12: the premise is not restated here — it travels
+                # on the typed ``story_premise`` channel and the narrator
+                # renders its own PLAYER-STATED PREMISE block from it.
                 "STORY AGREEMENTS:\n"
-                f"Premise: {agreements.story_premise}\n"
                 f"Themes wanted: {themes}\n"
                 f"Character role: {agreements.pc_role}\n"
                 f"Pacing: {agreements.pacing}"
