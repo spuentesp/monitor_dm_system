@@ -664,8 +664,20 @@ class TestPersistMemoriesNode:
         story_id = uuid4()
         universe_id = uuid4()
         memories = [
-            {"memory_id": str(uuid4()), "content": "The cargo bay was cold"},
-            {"memory_id": str(uuid4()), "content": "Rhal heard a sound"},
+            {
+                "text": "The cargo bay was cold",
+                "importance": 5,
+                "entity_id": str(actor_id),
+                "universe_id": str(universe_id),
+                "witnesses": [],
+            },
+            {
+                "text": "Rhal heard a sound",
+                "importance": 4,
+                "entity_id": str(actor_id),
+                "universe_id": str(universe_id),
+                "witnesses": [],
+            },
         ]
 
         state = SceneState(
@@ -676,20 +688,21 @@ class TestPersistMemoriesNode:
             memories_to_persist=memories,
         )
 
+        create_memory_mock = MagicMock(return_value=MagicMock())
         with patch(
-            "monitor_agents.services.persistence_service.PersistenceService.persist_memories",
-            new_callable=AsyncMock,
-            return_value=[m["memory_id"] for m in memories],
-        ) as mock_persist:
+            "monitor_data.tools.mongodb_tools.mongodb_create_memory",
+            create_memory_mock,
+        ):
             result = await persist_memories_node(state)
 
-        mock_persist.assert_called_once_with(
-            entity_id=actor_id,
-            scene_id=scene_id,
-            story_id=story_id,
-            universe_id=universe_id,
-            memories=memories,
-        )
+        # Persisted exactly once per memory, under the memory's owner, with
+        # scene/universe provenance (Phase 4 Tasks 6/8).
+        assert create_memory_mock.call_count == 2
+        params_list = [call.args[0] for call in create_memory_mock.call_args_list]
+        assert [p.text for p in params_list] == ["The cargo bay was cold", "Rhal heard a sound"]
+        assert all(p.entity_id == actor_id for p in params_list)
+        assert all(p.scene_id == scene_id for p in params_list)
+        assert all(p.universe_id == universe_id for p in params_list)
         assert result == {"memories_to_persist": []}
 
     @pytest.mark.asyncio

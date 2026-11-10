@@ -93,6 +93,12 @@ class _GMReActSignature(dspy.Signature):  # type: ignore[misc]
     Tools are available — call them when uncertain rather than guessing.
     Once you have enough information, call ``finish`` and produce the
     final verdict.
+
+    Agency rule (never violate): characters marked [PLAYER-CONTROLLED] in
+    the cast belong to the user. Never decide or write their actions,
+    speech, thoughts, or feelings — not even for a non-speaking one. The
+    user alone decides those. GM-controlled characters are yours to play,
+    but only from what they could know.
     """
 
     # ── Inputs (caller-supplied) ──
@@ -104,6 +110,16 @@ class _GMReActSignature(dspy.Signature):  # type: ignore[misc]
     established_facts: str = dspy.InputField(desc="Newline-separated established facts from earlier turns (last 20).")
     scene_entities: str = dspy.InputField(desc="Newline-separated scene entities: ``- <name> (<type>)``.")
     recent_turns: str = dspy.InputField(desc="Newline-separated recent turns: ``- <speaker>: <text>`` (last 3).")
+    cast_context: str = dspy.InputField(
+        desc=(
+            "CAST — who is who in this scene, and the agency rule. "
+            "[PLAYER-CONTROLLED] characters belong to the user: NEVER decide or "
+            "write their actions, speech, thoughts, or feelings — not even for one "
+            "who is not the current speaker. [GM-CONTROLLED] characters are yours "
+            "to play, but only from what they could know. Empty when no cast is "
+            "available (legacy sessions)."
+        )
+    )
 
     # ── Upstream-routed (resolver-injected) ──
     upstream_action_context: str = dspy.InputField(
@@ -189,6 +205,9 @@ class _GMReActSignature(dspy.Signature):  # type: ignore[misc]
             "First draft of the GM's narrative for this turn. The Narrator "
             "downstream will refine this for voice / pacing. Keep it short "
             "(2-4 paragraphs) and reactive to the player's specific action. "
+            "Never write actions, speech, thoughts, or feelings for a "
+            "[PLAYER-CONTROLLED] character other than through what the user "
+            "stated — the user alone decides those. "
             "Markup: wrap physical actions/narration beats in *single "
             "asterisks* (e.g. *the door creaks open*). Leave spoken dialogue "
             "and normal prose unmarked -- plain text is the default. If you "
@@ -546,6 +565,29 @@ class GMAgent(BaseAgent):
                         block_parts.append("Veils: " + "; ".join(veils))
                     agreements_block = "\n".join(block_parts)
 
+        # Phase 4 (Task 1/2): the cast block — who is who + the agency rule —
+        # is an explicit GM input. Callers may pass it as ``scene_context[
+        # "cast"]``; otherwise the scene-cast registry (populated per turn by
+        # ``get_scene_loop``) supplies it.
+        cast_block = ""
+        raw_cast = scene_context.get("cast") if isinstance(scene_context, dict) else None
+        if raw_cast:
+            try:
+                from monitor_agents.cast import Cast
+
+                cast_block = Cast.model_validate(raw_cast).to_prompt_block()
+            except Exception:  # noqa: BLE001  # reason: falls through to the registry lookup (in decide)
+                log.debug("gm_agent: scene_context cast unparseable", exc_info=True)
+        if not cast_block:
+            try:
+                from monitor_agents.cast import get_scene_cast
+
+                registered = get_scene_cast(scene_id)
+                if registered is not None:
+                    cast_block = registered.to_prompt_block()
+            except Exception:  # noqa: BLE001  # reason: no cast is a supported legacy mode (in decide)
+                log.debug("gm_agent: cast registry lookup failed", exc_info=True)
+
         # Install the loop-bridge so async tools can resolve.
         set_loop_bridge(build_loop_bridge_from_running_loop())
 
@@ -571,6 +613,7 @@ class GMAgent(BaseAgent):
                         established_facts="\n".join(f"- {f}" for f in established) or "(none yet)",
                         scene_entities=entities_text or "(none)",
                         recent_turns=recent_turns_text or "(none)",
+                        cast_context=cast_block,
                         upstream_action_context=upstream_action_json,
                         upstream_pending_roll=upstream_pending_json,
                         table_agreements=agreements_block,

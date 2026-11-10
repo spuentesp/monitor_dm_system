@@ -41,6 +41,10 @@ def create_character(data: dict[str, Any]) -> dict[str, Any]:
         "entity_id": data.get("entity_id"),  # may be None (legacy compat)
         "source_universe_id": data.get("source_universe_id"),
         "default_universe_id": data.get("source_universe_id"),
+        # Persona-to-incarnation link (Phase 4 Task 4): the standalone
+        # persona this character was instantiated from. One persona playing
+        # in two worlds has two incarnations and one identity.
+        "source_persona_id": data.get("source_persona_id"),
         "versions": [],
         "memory_count": 0,
         "created_at": now,

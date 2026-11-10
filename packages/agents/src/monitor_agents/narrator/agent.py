@@ -222,33 +222,101 @@ async def apply_npc_emotion_updates(state: Any, predicted: dict[str, str]) -> in
     return writes
 
 
+def _cast_block(cast_like: Any) -> str:
+    """Render the CAST block (who is who + agency rule) for the prompt.
+
+    Accepts a ``monitor_agents.cast.Cast``, its ``model_dump()`` dict, or
+    anything else (returns ""). The block always carries the agency rule so
+    the rule travels with the roster it governs (Phase 4 Task 2).
+    """
+    if not cast_like:
+        return ""
+    from monitor_agents.cast import Cast
+
+    try:
+        cast = cast_like if isinstance(cast_like, Cast) else Cast.model_validate(cast_like)
+    except Exception:  # noqa: BLE001  # reason: malformed cast degrades to no block (in _cast_block)
+        logger.debug("cast block render failed: unparseable cast", exc_info=True)
+        return ""
+    return cast.to_prompt_block()
+
+
 def _npc_state_block(
     npc_profiles: Any,
     *,
     universe_id: str | None,
     player_id: str | None,
+    npc_memories: Any = None,
+    npc_facts: Any = None,
+    npc_intents: Any = None,
     cap: int = 4,
     max_chars: int = 200,
 ) -> str:
     """Render per-NPC emotion + relationship + speech_style as a narrator block.
 
-    Empty when no NPC has emotion/relationship in the active universe+player
+    Phase 4 (Tasks 7-9) adds, per NPC:
+    - ``intent`` — the one-line beat intent the narrator may not contradict,
+    - ``recalls`` — the NPC's top memories relevant to the current action,
+    - ``knows`` — only facts the NPC witnessed, was told, or that are common
+      knowledge (already filtered by the caller via ``cast.fact_visible_to``).
+
+    Empty when no NPC has anything to render in the active universe+player
     partition. Capped at `cap` NPCs and `max_chars` chars per field.
     """
     if not isinstance(npc_profiles, dict) or not npc_profiles:
-        return ""
-    rows: list[str] = []
-    for profile in list(npc_profiles.values())[:cap]:
-        if not isinstance(profile, dict):
+        if not npc_memories and not npc_facts and not npc_intents:
+            return ""
+
+    def _extras(raw: Any) -> dict[str, dict[str, Any]]:
+        return dict(raw) if isinstance(raw, dict) else {}
+
+    mem_map = _extras(npc_memories)
+    fact_map = _extras(npc_facts)
+    intent_map: dict[str, str] = {}
+    intent_names: dict[str, str] = {}
+    for item in npc_intents or []:
+        if not isinstance(item, dict) or not item.get("intent"):
             continue
-        name = str(profile.get("name") or "(unnamed)")[:max_chars].strip()
+        key = str(item.get("entity_id") or "")
+        intent_map[key] = str(item.get("intent") or "")[:max_chars].strip()
+        intent_names[key] = str(item.get("name") or "")
+
+    def _memories_for(key: str) -> list[str]:
+        entry = mem_map.get(key) or {}
+        raw = entry.get("memories") if isinstance(entry, dict) else entry
+        return [str(m)[:max_chars].strip() for m in (raw or []) if str(m).strip()][:3]
+
+    def _facts_for(key: str) -> list[str]:
+        entry = fact_map.get(key) or {}
+        raw = entry.get("facts") if isinstance(entry, dict) else entry
+        return [str(f)[:max_chars].strip() for f in (raw or []) if str(f).strip()][:3]
+
+    profiles = npc_profiles if isinstance(npc_profiles, dict) else {}
+    ordered_keys = [str(k) for k in profiles]
+    for key in [*mem_map, *fact_map, *intent_map]:
+        if key not in ordered_keys:
+            ordered_keys.append(key)
+
+    rows: list[str] = []
+    for key in ordered_keys[:cap]:
+        profile = profiles.get(key)
+        profile = profile if isinstance(profile, dict) else {}
+        name = str(profile.get("name") or intent_names.get(key) or "").strip()
+        if not name:
+            entry = mem_map.get(key) or fact_map.get(key) or {}
+            name = str(entry.get("name") or "") if isinstance(entry, dict) else ""
+        name = name or "(unnamed)"
+        name = name[:max_chars].strip()
         emo_map = profile.get("current_emotional_state_by_universe") or {}
         emo = str((emo_map.get(universe_id) if universe_id else None) or "").strip()[:max_chars]
         rel_map = (profile.get("relationship_states_by_universe") or {}).get(universe_id or "", {}) or {}
         rel = rel_map.get(player_id or "", {}) if isinstance(rel_map.get(player_id or ""), dict) else {}
         disposition = str(rel.get("disposition") or "")[:max_chars].strip()
         speech = str(profile.get("speech_style") or "")[:max_chars].strip()
-        if not (emo or disposition or speech):
+        memories = _memories_for(key)
+        facts = _facts_for(key)
+        intent = intent_map.get(key, "")
+        if not (emo or disposition or speech or memories or facts or intent):
             continue
         bits = []
         if emo:
@@ -257,10 +325,19 @@ def _npc_state_block(
             bits.append(f'disposition="{disposition}"')
         if speech:
             bits.append(f'speech_style="{speech}"')
+        if intent:
+            bits.append(f"intent: {intent}")
+        if memories:
+            bits.append("recalls: " + "; ".join(memories))
+        if facts:
+            bits.append("knows: " + "; ".join(facts))
         rows.append(f"- {name}: " + ", ".join(bits))
     if not rows:
         return ""
-    return "\n\nNPC STATE (use these in dialogue; do not contradict):\n" + "\n".join(rows) + "\n"
+    return (
+        "\n\nNPC STATE (use these in dialogue; play each NPC from their intent and "
+        "what they know; do not contradict):\n" + "\n".join(rows) + "\n"
+    )
 
 
 def _opening_recap_block(text: str | None, *, max_chars: int | None = None) -> str:
@@ -677,12 +754,23 @@ class Narrator(BaseAgent):
         if actor_block:
             profile_context += actor_block
 
-        # Inject NPC state (Task 4): per-NPC emotion + relationship + voice.
+        # Inject CAST block (Phase 4 Task 1/2): who is who + the agency rule,
+        # right next to the actor block it governs. Also forwarded as the
+        # dedicated ``cast_context`` signature input below.
+        cast_block = _cast_block(context.get("cast"))
+        if cast_block:
+            profile_context += cast_block
+
+        # Inject NPC state (Task 4 + Phase 4 Tasks 7-9): per-NPC emotion +
+        # relationship + voice + intent + recall + known facts.
         profile_context += _npc_state_block(
             context.get("npc_profiles"),
             universe_id=context.get("universe_id")
             or (str(getattr(story_state, "universe_id", "")) if story_state else None),
             player_id=str(actor.get("id")) if isinstance(actor, dict) and actor.get("id") else None,
+            npc_memories=context.get("npc_memories"),
+            npc_facts=context.get("npc_facts"),
+            npc_intents=context.get("npc_intents"),
         )
 
         # Inject OPEN FORESHADOWING (Task 6).
@@ -809,6 +897,7 @@ class Narrator(BaseAgent):
             "tone_context": tone_context,
             "game_system_context": json.dumps(compact_gc, ensure_ascii=False, default=str),
             "scene_context": json.dumps(context.get("entities", [])[:5], default=str),
+            "cast_context": cast_block,
             "profile_context": profile_context,
             "memory_context": json.dumps(context.get("memories", [])[:3], default=str),
             "prior_turns": json.dumps(context.get("turns", [])[-8:], default=str),

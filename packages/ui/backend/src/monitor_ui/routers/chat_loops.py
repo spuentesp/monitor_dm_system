@@ -215,6 +215,52 @@ def get_scene_loop(
     chat_log: list[Any] | None = None,
 ) -> Any:
     signature = scene_loop_signature(session, scene_id=scene_id, story_id=story_id)
+
+    # Phase 4 (Tasks 1, 3): refresh the scene cast on EVERY call — cached
+    # loops included — so a mid-scene speaker switch is picked up on the next
+    # turn (``scene_loop_signature`` already keys on the actor, which also
+    # rebuilds the loop). The roster comes from the session's controlled ids,
+    # with persona links and names resolved through character_resolution.
+    try:
+        from monitor_agents.cast import build_cast, register_scene_cast
+
+        from .character_resolution import (
+            resolve_character_names,
+            resolve_controlled_personas,
+        )
+
+        speaker_id = as_uuid(session.get("speaker_character_id") or session.get("character_id"))
+        controlled_ids = [str(c) for c in (session.get("controlled_character_ids") or []) if c]
+        names = resolve_character_names(controlled_ids)
+        personas = resolve_controlled_personas(controlled_ids)
+        cast = build_cast(
+            controlled_ids=controlled_ids,
+            speaker_id=speaker_id,
+            actor_context=actor_context,
+            entity_context=[{"id": cid, "name": name, "entity_type": "character"} for cid, name in names.items()],
+            personas=personas,
+            scene_id=scene_id,
+        )
+        register_scene_cast(scene_id, cast)
+    except Exception as exc:  # noqa: BLE001  # reason: recorded, loop falls back to the state-derived minimal cast (in get_scene_loop)
+        logger.warning("get_scene_loop: cast refresh failed: %s", exc, exc_info=True)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
+            from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
+
+            loop.create_task(
+                RoleplayErrorRecorder.record(
+                    source=RoleplayErrorSource.SCENE_LOOP,
+                    category=RoleplayErrorCategory.UNKNOWN,
+                    message=f"cast_refresh_failed: {exc}",
+                    fatal=False,
+                )
+            )
+
     cached = _SCENE_LOOPS.get(session_id)
     if cached and cached[0] == signature:
         _SCENE_LOOPS.move_to_end(session_id)

@@ -41,10 +41,12 @@ from pydantic import BaseModel
 
 from monitor_agents.base import BaseAgent
 from monitor_agents.npc_voice.npc_voice import NPCActorModule, NPCDirectVoiceModule
+from monitor_agents.services.roleplay_error_recorder import RoleplayErrorRecorder
 from monitor_agents.utils.runtime_profile_support import (
     build_npc_profile_context,
     normalize_source_profile,
 )
+from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, RoleplayErrorSource
 
 log = structlog.get_logger()
 
@@ -62,6 +64,277 @@ class NPCActorResponse(BaseModel):
 
     actor_response: str
     canon_insight: str  # 'update_profile:<field>=<value>' | 'new_fact:<stmt>' | 'none'
+
+
+# =============================================================================
+# SHARED RECALL / INTENT HELPERS (scene play reuses NPCVoice's recall)
+# =============================================================================
+
+
+async def recall_memories_for(
+    call_tool: Any,
+    npc_id: UUID | str,
+    query: str,
+    *,
+    universe_id: UUID | str | None = None,
+    include_cross_incarnation: bool = False,
+    top_k: int = 5,
+) -> list[dict[str, Any]]:
+    """Semantic memory recall from Qdrant for one character (Phase 4 Task 7).
+
+    The single recall path used by both NPCVoice (conversation mode) and the
+    scene-loop narrate node (per-NPC recall in the NPC STATE block), so scene
+    play recalls exactly what direct conversation recalls.
+
+    ``call_tool`` is any async ``(tool_name, arguments) -> Any`` callable —
+    normally ``BaseAgent.call_tool``. By default filters strictly by
+    ``(entity_id, universe_id)`` — no cross-incarnation leak. Pass
+    ``include_cross_incarnation=True`` to broaden the filter to the entity as
+    a whole (entity_id only).
+    """
+    search_kwargs: dict[str, Any] = {
+        "entity_id": str(npc_id),
+        "query_text": query,
+        "top_k": top_k,
+    }
+    # When cross-incarnation recall is requested, drop the universe
+    # scope so a sibling universe's incarnation of the same entity can
+    # answer. Without this, the universe_id filter below silently
+    # narrows recall back to the current incarnation and the flag is
+    # a no-op (codex P2).
+    if universe_id is not None and not include_cross_incarnation:
+        search_kwargs["universe_id"] = str(universe_id)
+    # Wrap params per the data-layer tool contract (MemorySearchRequest).
+    # Live e2e (Kvothe) surfaced that flat dicts fail Pydantic validation
+    # in production; this restore is required.
+    result = await call_tool("qdrant_search_memories", {"params": search_kwargs})
+    # The server serializes MemorySearchResponse — a dict with a
+    # "results" list — not a bare list. Unwrap it; treating the dict as
+    # "no results" silently disabled recall in every conversation.
+    if isinstance(result, dict):
+        result = result.get("results") or []
+    if not isinstance(result, list):
+        return []
+    # Qdrant stores vectors only — text is NOT in the payload (storage
+    # optimization in qdrant_tools). Hydrate each hit from MongoDB so the
+    # LLM sees memory content instead of bare ids with text=None.
+    for item in result:
+        if not isinstance(item, dict) or item.get("text"):
+            continue
+        memory_id = item.get("memory_id")
+        if not memory_id:
+            continue
+        try:
+            doc = await call_tool("mongodb_get_memory", {"memory_id": str(memory_id)})
+        except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in recall_memories_for)
+            log.debug("memory lookup failed; skipping chunk", exc_info=True)
+            continue
+        if isinstance(doc, dict) and doc.get("text"):
+            item["text"] = doc["text"]
+    return result
+
+
+async def fetch_npc_facts_for(
+    call_tool: Any,
+    npc_id: UUID | str,
+    *,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Canonical facts involving one NPC (``neo4j_list_facts``).
+
+    The caller filters the result through ``monitor_agents.cast.fact_visible_to``
+    so the NPC only sees what it witnessed, was told, or what is common
+    knowledge (Phase 4 Task 8).
+    """
+    facts_result = await call_tool("neo4j_list_facts", {"entity_id": str(npc_id), "limit": limit})
+    return [f for f in facts_result if isinstance(f, dict)] if isinstance(facts_result, list) else []
+
+
+async def compute_npc_intents(
+    *,
+    npcs: list[dict[str, Any]],
+    current_action: str,
+    agendas_by_npc: dict[str, str] | None = None,
+    cap: int = 4,
+) -> list[dict[str, Any]]:
+    """One LIGHT-tier intent call per present NPC, capped at 4 (Task 9).
+
+    Each entry of ``npcs`` is ``{"entity_id", "name", "profile", "memories"}``
+    where ``profile`` carries desires/fears (npc_profiles fields) and
+    ``memories`` is the NPC's private recall for this beat (Task 7). The
+    returned intent — one line from the NPC's own agenda — goes to the
+    Narrator, which may not contradict it.
+
+    A failure in one NPC's call is recorded (RoleplayErrorRecorder) and
+    skipped; the remaining NPCs still run.
+    """
+    import anyio
+
+    from monitor_agents.npc_voice.npc_voice import NPCIntentModule
+
+    agendas_by_npc = agendas_by_npc or {}
+    module = NPCIntentModule()
+    intents: list[dict[str, Any]] = []
+    for entry in list(npcs)[:cap]:
+        entity_id = str(entry.get("entity_id") or "")
+        name = str(entry.get("name") or entity_id)
+        profile = entry.get("profile") if isinstance(entry.get("profile"), dict) else {}
+        desires_bits = [str(d) for d in (profile.get("desires") or []) if d]
+        fears = [str(f) for f in (profile.get("fears") or []) if f]
+        desires = "; ".join([*desires_bits, *(f"fears: {f}" for f in fears)])
+        agenda = agendas_by_npc.get(entity_id) or str(profile.get("agenda") or profile.get("gm_notes") or "")
+        memories = json.dumps(entry.get("memories") or [], ensure_ascii=False, default=str)
+        try:
+            prediction = await anyio.to_thread.run_sync(
+                module.forward,
+                name,
+                agenda,
+                desires,
+                memories,
+                current_action,
+            )
+            intent = str(getattr(prediction, "intent", "") or "").strip()
+        except Exception as exc:  # noqa: BLE001  # reason: recorded, then one NPC is skipped (in compute_npc_intents)
+            log.warning("npc_intent failed for %s: %s", name, exc)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=f"npc_intent failed for {name}: {exc}",
+                fatal=False,
+                entity_id=UUID(entity_id) if _is_uuid(entity_id) else None,
+            )
+            continue
+        if intent:
+            intents.append({"entity_id": entity_id, "name": name, "intent": intent})
+    return intents
+
+
+def _is_uuid(raw: str) -> bool:
+    try:
+        UUID(raw)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+async def gather_npc_scene_context(
+    call_tool: Any,
+    *,
+    cast: Any,
+    npc_profiles: dict[str, Any] | None = None,
+    current_action: str = "",
+    universe_id: str | None = None,
+    cap: int = 4,
+    top_k: int = 3,
+) -> dict[str, Any]:
+    """Per-NPC scene enrichment for the NPC STATE block (Phase 4 Tasks 7-9).
+
+    For each GM-controlled character present (capped at ``cap``):
+    - top ``top_k`` memories relevant to the current action, via the same
+      recall NPCVoice uses (:func:`recall_memories_for`),
+    - the facts that NPC is allowed to know — witnessed, told, or common
+      knowledge (:func:`monitor_agents.cast.filter_visible_facts`),
+    - a one-line beat intent (:func:`compute_npc_intents`, one LIGHT call).
+
+    Returns ``{"npc_memories": {...}, "npc_facts": {...}, "npc_intents": [...]}``
+    keyed for ``narrator.agent._npc_state_block``. Individual failures are
+    recorded through ``RoleplayErrorRecorder`` and skipped — one bad NPC
+    never breaks the turn.
+    """
+    from monitor_agents.cast import filter_visible_facts
+
+    npc_profiles = npc_profiles or {}
+    gm_members = [m for m in cast.gm_characters()][:cap]
+
+    # One universe-wide agenda fetch, matched per owner (Task 9 "its agenda").
+    agendas_by_npc: dict[str, str] = {}
+    if gm_members and universe_id:
+        try:
+            raw_agendas = await call_tool(
+                "neo4j_list_agendas",
+                {"universe_id": str(universe_id), "status": "active"},
+            )
+            if isinstance(raw_agendas, list):
+                for agenda in raw_agendas:
+                    if not isinstance(agenda, dict):
+                        continue
+                    owner = str(agenda.get("owner_id") or "")
+                    if not owner:
+                        continue
+                    title = str(agenda.get("title") or "").strip()
+                    desc = str(agenda.get("description") or "").strip()
+                    agendas_by_npc[owner] = " — ".join(part for part in (title, desc) if part)
+        except Exception as exc:  # noqa: BLE001  # reason: recorded, agendas stay empty (in gather_npc_scene_context)
+            log.warning("npc agenda fetch failed: %s", exc)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=f"npc_agenda_fetch_failed: {exc}",
+                fatal=False,
+            )
+
+    npc_memories: dict[str, dict[str, Any]] = {}
+    npc_facts: dict[str, dict[str, Any]] = {}
+    intent_inputs: list[dict[str, Any]] = []
+
+    for member in gm_members:
+        key = member.entity_id
+        name = member.name or key
+        memories: list[str] = []
+        facts: list[str] = []
+        try:
+            raw_memories = await recall_memories_for(
+                call_tool,
+                key,
+                current_action or name,
+                universe_id=universe_id,
+                top_k=top_k,
+            )
+            memories = [str(m.get("text") or "").strip() for m in raw_memories if str(m.get("text") or "").strip()]
+        except Exception as exc:  # noqa: BLE001  # reason: recorded, recall stays empty (in gather_npc_scene_context)
+            log.warning("npc recall failed for %s: %s", name, exc)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=f"npc_recall_failed for {name}: {exc}",
+                fatal=False,
+                entity_id=UUID(key) if _is_uuid(key) else None,
+            )
+        try:
+            raw_facts = await fetch_npc_facts_for(call_tool, key)
+            visible = filter_visible_facts(raw_facts, key)
+            facts = [str(f.get("statement") or "").strip() for f in visible if str(f.get("statement") or "").strip()]
+        except Exception as exc:  # noqa: BLE001  # reason: recorded, facts stay empty (in gather_npc_scene_context)
+            log.warning("npc fact fetch failed for %s: %s", name, exc)
+            await RoleplayErrorRecorder.record(
+                source=RoleplayErrorSource.SCENE_LOOP,
+                category=RoleplayErrorCategory.UNKNOWN,
+                message=f"npc_fact_fetch_failed for {name}: {exc}",
+                fatal=False,
+                entity_id=UUID(key) if _is_uuid(key) else None,
+            )
+
+        if memories:
+            npc_memories[key] = {"name": name, "memories": memories}
+        if facts:
+            npc_facts[key] = {"name": name, "facts": facts}
+        profile = npc_profiles.get(key) if isinstance(npc_profiles.get(key), dict) else {}
+        intent_inputs.append(
+            {
+                "entity_id": key,
+                "name": name,
+                "profile": profile,
+                "memories": memories,
+            }
+        )
+
+    intents = await compute_npc_intents(
+        npcs=intent_inputs,
+        current_action=current_action,
+        agendas_by_npc=agendas_by_npc,
+        cap=cap,
+    )
+    return {"npc_memories": npc_memories, "npc_facts": npc_facts, "npc_intents": intents}
 
 
 # =============================================================================
@@ -418,51 +691,18 @@ class NPCVoice(BaseAgent):
     ) -> list[dict[str, Any]]:
         """Semantic memory recall from Qdrant for this NPC.
 
-        By default filters strictly by (entity_id, universe_id) — no cross-
-        incarnation leak. Pass include_cross_incarnation=True to broaden the
-        filter to the entity as a whole (entity_id only). Legacy callers
-        that omit universe_id keep the historical entity_id-only recall.
+        Delegates to :func:`recall_memories_for` — the single recall path
+        shared with scene play (Phase 4 Task 7), so scene NPC STATE recall
+        and conversation recall stay identical.
         """
-        search_kwargs: dict[str, Any] = {
-            "entity_id": str(npc_id),
-            "query_text": query,
-            "top_k": top_k,
-        }
-        # When cross-incarnation recall is requested, drop the universe
-        # scope so a sibling universe's incarnation of the same entity can
-        # answer. Without this, the universe_id filter below silently
-        # narrows recall back to the current incarnation and the flag is
-        # a no-op (codex P2).
-        if universe_id is not None and not include_cross_incarnation:
-            search_kwargs["universe_id"] = str(universe_id)
-        # Wrap params per the data-layer tool contract (MemorySearchRequest).
-        # Live e2e (Kvothe) surfaced that flat dicts fail Pydantic validation
-        # in production; this restore is required.
-        result = await self.call_tool("qdrant_search_memories", {"params": search_kwargs})
-        # The server serializes MemorySearchResponse — a dict with a
-        # "results" list — not a bare list. Unwrap it; treating the dict as
-        # "no results" silently disabled recall in every conversation.
-        if isinstance(result, dict):
-            result = result.get("results") or []
-        if not isinstance(result, list):
-            return []
-        # Qdrant stores vectors only — text is NOT in the payload (storage
-        # optimization in qdrant_tools). Hydrate each hit from MongoDB so the
-        # LLM sees memory content instead of bare ids with text=None.
-        for item in result:
-            if not isinstance(item, dict) or item.get("text"):
-                continue
-            memory_id = item.get("memory_id")
-            if not memory_id:
-                continue
-            try:
-                doc = await self.call_tool("mongodb_get_memory", {"memory_id": str(memory_id)})
-            except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _recall_memories)
-                log.debug("memory lookup failed; skipping chunk", exc_info=True)
-                continue
-            if isinstance(doc, dict) and doc.get("text"):
-                item["text"] = doc["text"]
-        return result
+        return await recall_memories_for(
+            self.call_tool,
+            npc_id,
+            query,
+            universe_id=universe_id,
+            include_cross_incarnation=include_cross_incarnation,
+            top_k=top_k,
+        )
 
     async def _get_story_context(self, npc_id: UUID) -> str:
         """Summarise recent facts about the NPC for actor mode."""
