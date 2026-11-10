@@ -1393,7 +1393,7 @@ async def decide_held_claim(
     return {"claims_for_review": remaining}
 
 
-@router.delete("/jobs/{job_id}", status_code=204)
+@router.delete("/jobs/{job_id}", status_code=204, dependencies=[Depends(get_current_user)])
 async def delete_job(job_id: str) -> None:
     """Delete a single ingestion job record from MongoDB.
 
@@ -1411,12 +1411,13 @@ async def delete_job(job_id: str) -> None:
         raise HTTPException(409, str(exc))
 
 
-@router.delete("/jobs", status_code=200)
+@router.delete("/jobs", status_code=200, dependencies=[Depends(require_admin)])
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def purge_failed_jobs() -> dict:  # type: ignore
     """Delete all failed/error ingestion jobs from MongoDB.
 
-    Returns a count of how many records were removed.
+    Returns a count of how many records were removed.  The purge spans every
+    tenant, so it is an operator action (admin only).
     """
     with db_op("Database unavailable"):
         mongodb = get_mongodb_client()
@@ -1437,7 +1438,7 @@ async def purge_failed_jobs() -> dict:  # type: ignore
         return {"deleted": result.deleted_count}
 
 
-@router.post("/cache/clear", status_code=200)
+@router.post("/cache/clear", status_code=200, dependencies=[Depends(require_admin)])
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def clear_llm_cache() -> dict:  # type: ignore
     """Clear DSPy caches, the LLM registry cache, and the Redis runtime cache.
@@ -1449,6 +1450,9 @@ async def clear_llm_cache() -> dict:  # type: ignore
 
     Redis is optional and only stores ephemeral runtime state; clearing it is
     safe and simply forces the next request to rebuild hot-path context.
+
+    The caches are process-wide and shared by every tenant, so clearing them
+    is an operator action (admin only).
     """
     import dspy
     from monitor_agents.dspy_runtime import clear_bg_registry_cache
@@ -1616,7 +1620,7 @@ async def list_job_attempts(
     return [LLMTaskAttemptResponse(**row) for row in rows]
 
 
-@router.get("/jobs/{job_id}/stream")
+@router.get("/jobs/{job_id}/stream", dependencies=[Depends(get_current_user)])
 # reason: FastAPI SSE handler with no return annotation; body returns StreamingResponse — mypy can't infer the response type without an explicit annotation or response_model
 async def stream_job(job_id: str):  # type: ignore
     """SSE stream that pushes job status updates until the job reaches a
@@ -1687,7 +1691,7 @@ async def stream_job(job_id: str):  # type: ignore
 # ---------------------------------------------------------------------------
 
 
-@router.post("/assets/upload", status_code=201)
+@router.post("/assets/upload", status_code=201, dependencies=[Depends(get_current_user)])
 async def upload_asset(
     file: UploadFile = File(...),
     source_id: str | None = Form(default=None),
@@ -1765,7 +1769,7 @@ async def upload_asset(
     }
 
 
-@router.get("/assets")
+@router.get("/assets", dependencies=[Depends(get_current_user)])
 async def list_assets(
     source_id: str | None = Query(default=None),
     universe_id: str | None = Query(default=None),
@@ -1811,7 +1815,7 @@ async def list_assets(
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
-@router.get("/assets/{asset_id}")
+@router.get("/assets/{asset_id}", dependencies=[Depends(get_current_user)])
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def get_asset(asset_id: str) -> dict:  # type: ignore
     """Get a single binary asset by ID with a fresh presigned URL."""
@@ -1838,7 +1842,7 @@ async def get_asset(asset_id: str) -> dict:  # type: ignore
     }
 
 
-@router.delete("/assets/{asset_id}", status_code=200)
+@router.delete("/assets/{asset_id}", status_code=200, dependencies=[Depends(get_current_user)])
 # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 async def delete_asset(asset_id: str) -> dict:  # type: ignore
     """Soft-delete a binary asset (marks deleted, retains metadata)."""
@@ -1862,7 +1866,7 @@ async def delete_asset(asset_id: str) -> dict:  # type: ignore
     return {"id": asset_id, "status": "deleted"}
 
 
-@router.post("/assets/{asset_id}/replace", status_code=200)
+@router.post("/assets/{asset_id}/replace", status_code=200, dependencies=[Depends(get_current_user)])
 async def replace_asset(
     asset_id: str,
     file: UploadFile = File(...),

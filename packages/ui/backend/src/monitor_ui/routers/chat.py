@@ -22,7 +22,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from monitor_data.db.postgres import PostgresClient, get_postgres_client
-from monitor_ui.auth import Principal, get_current_user, get_postgres, resolve_principal, is_local_mode
+from monitor_ui.auth import (
+    Principal,
+    get_current_user,
+    get_current_ws_principal,
+    get_postgres,
+    resolve_principal,
+    is_local_mode,
+)
 from monitor_ui.config import get_settings
 from monitor_ui.ownership import (
     require_character_owner,
@@ -319,7 +326,7 @@ async def list_sessions(principal: Principal = Depends(get_current_user)) -> lis
     ]
 
 
-@router.get("/benchmarks")
+@router.get("/benchmarks", dependencies=[Depends(get_current_user)])
 async def list_playtest_benchmarks() -> list[dict[str, Any]]:
     try:
         from monitor_data.defaults.playtest_benchmarks import (
@@ -1334,11 +1341,16 @@ async def skip_preplay(session_id: str, principal: Principal = Depends(get_curre
 # ---------------------------------------------------------------------------
 
 
-@router.websocket("/ws/{session_id}")
+@router.websocket("/ws/{session_id}", dependencies=[Depends(get_current_ws_principal)])
 async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
     # Authenticate and authorize BEFORE accept(): no frame is read, no
     # subscriber registered, nothing persisted until both pass.
     # 4401 = unauthenticated/invalid credentials, 4404 = foreign/missing session.
+    # The route-level get_current_ws_principal dependency is the framework
+    # guard: it rejects an anonymous handshake before the handler runs, so the
+    # route can never be reached without a credential. The handler resolves
+    # the principal itself as well, because it revalidates every inbound
+    # frame below.
     settings = get_settings()
     db = get_postgres_client()
     try:
