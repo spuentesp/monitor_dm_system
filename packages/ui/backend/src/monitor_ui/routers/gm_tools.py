@@ -19,6 +19,16 @@ from uuid import UUID, uuid4
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from monitor_agents.canonkeeper.agent import CanonKeeper
+from monitor_agents.gm_table import (
+    ComplicationSuggestions,
+    GmTableAgent,
+    NameSuggestions,
+    PartyKnowledgeAnswer,
+    PrepExtraction,
+    RulesAnswer,
+    SessionLogExtraction,
+    light_table_agent,
+)
 from monitor_agents.ingestion.capture_insights import CaptureInsight, CaptureInsightAgent
 from monitor_agents.plot_hooks import (
     Contradiction,
@@ -30,25 +40,50 @@ from monitor_agents.plot_hooks import (
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.base import (
     Authority,
+    EntityType,
     PlotThreadType,
     ProposalType,
     ThreadPriority,
     ThreadUrgency,
+)
+from monitor_data.schemas.entities import EntityResponse
+from monitor_data.schemas.facts import FactFilter, FactResponse
+from monitor_data.schemas.gm_prep import (
+    GmPrepBundleResponse,
+    GmPrepBundleUpsert,
+    GmPrepLocation,
+    GmPrepNpc,
+    GmPrepThread,
 )
 from monitor_data.schemas.proposed_changes import (
     Evidence,
     ProposedChangeCreate,
     ProposedChangeFilter,
 )
+from monitor_data.schemas.relationships import RelationshipFilter, RelationshipResponse
+from monitor_data.schemas.stories import StoryLedgerEntry
 from monitor_data.schemas.story_outlines import PlotThreadCreate
 from monitor_data.tools.mongodb_tools import (
     mongodb_create_proposed_change,
+    mongodb_get_gm_prep_bundle,
     mongodb_list_proposed_changes,
+    mongodb_list_story_ledger_entries,
+    mongodb_upsert_gm_prep_bundle,
 )
-from monitor_data.tools.neo4j_tools import neo4j_create_plot_thread
+from monitor_data.tools.neo4j_tools import (
+    neo4j_create_plot_thread,
+    neo4j_get_entity,
+    neo4j_get_party,
+    neo4j_list_agendas,
+    neo4j_list_facts,
+    neo4j_list_relationships,
+    neo4j_search_entities,
+)
 from monitor_data.utils.dice import roll_dice
 from monitor_ui.auth import Principal, get_current_user, get_postgres
 from monitor_ui.ownership import require_universe_owner
+from monitor_ui.routers.chat_game_system import resolve_universe_system_binding
+from monitor_ui.routers.chat_persistence import db_load_messages, db_load_sessions
 from pydantic import BaseModel, Field
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -624,3 +659,642 @@ async def generate_prep_item(
         log.warning("prep_item_generation_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to generate prep item: {exc}") from exc
     return GeneratePrepItemResponse(content=content)
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 Part B — GM assistant at a real table (tasks 2-4)
+#
+# Prep to table (CF-7): ingest the GM's notes, review what was extracted,
+# open the /gm page with tonight's NPCs, locations and threads ready.
+# At the table (CF-3/Q-2/Q-4/Q-7): fast lookups — NPC dossier, party
+# knowledge, last session, names/complications on demand, rules with source.
+# After the session (CF-5/CF-8): paste what happened; the assistant stages
+# canon proposals for review and flags contradictions (direct + G-9).
+# ---------------------------------------------------------------------------
+
+
+class PrepExtractRequest(BaseModel):
+    """Extract tonight's prep items from the GM's session notes."""
+
+    universe_id: UUID
+    story_id: UUID | None = None
+    notes: str = Field(min_length=1, max_length=50000)
+
+
+class PrepCommitRequest(BaseModel):
+    """Persist the reviewed prep bundle and stage its canon work."""
+
+    universe_id: UUID
+    story_id: UUID
+    npcs: list[GmPrepNpc] = Field(default_factory=list)
+    locations: list[GmPrepLocation] = Field(default_factory=list)
+    threads: list[GmPrepThread] = Field(default_factory=list)
+
+
+class PrepCommitResponse(BaseModel):
+    """The saved bundle plus what was written where."""
+
+    bundle: GmPrepBundleResponse
+    committed_thread_ids: list[str] = Field(default_factory=list)
+    staged_proposal_ids: list[str] = Field(default_factory=list)
+
+
+class PrepBundleGetResponse(BaseModel):
+    """The saved prep bundle for a (universe, story), if any."""
+
+    found: bool
+    bundle: GmPrepBundleResponse | None = None
+
+
+class NpcLookupRequest(BaseModel):
+    """Look up one NPC (or entity) dossier at the table."""
+
+    universe_id: UUID
+    name: str | None = Field(default=None, max_length=200)
+    entity_id: UUID | None = None
+
+
+class NpcDossierResponse(BaseModel):
+    """Who this NPC is and what they want."""
+
+    found: bool
+    entity: EntityResponse | None = None
+    agendas: list[dict[str, Any]] = Field(default_factory=list)
+    relationships: list[RelationshipResponse] = Field(default_factory=list)
+    recent_facts: list[FactResponse] = Field(default_factory=list)
+    note: str = ""
+
+
+class PartyKnowledgeRequest(BaseModel):
+    """What does the party know about a topic?"""
+
+    universe_id: UUID
+    party_id: UUID | None = None
+    character_ids: list[UUID] = Field(default_factory=list)
+    topic: str | None = Field(default=None, max_length=400)
+
+
+class LastSessionRequest(BaseModel):
+    """What was said / happened last session?"""
+
+    universe_id: UUID
+    story_id: UUID
+    transcript_limit: int = Field(default=20, ge=1, le=100)
+
+
+class TranscriptLine(BaseModel):
+    """One line of the prior session's transcript."""
+
+    role: str
+    content: str
+    timestamp: str
+
+
+class LastSessionResponse(BaseModel):
+    """The previous session's ledger entry and transcript tail."""
+
+    found: bool
+    session_id: str | None = None
+    session_title: str | None = None
+    ledger_entry: StoryLedgerEntry | None = None
+    transcript: list[TranscriptLine] = Field(default_factory=list)
+    note: str = ""
+
+
+class ImproviseRequest(BaseModel):
+    """On-demand name or complication at the table."""
+
+    universe_id: UUID
+    story_id: UUID | None = None
+    kind: Literal["name", "complication"]
+    context: str = Field(default="", max_length=2000)
+    count: int = Field(default=3, ge=1, le=10)
+
+
+class ImproviseResponse(BaseModel):
+    """Suggestions with the rationale behind them."""
+
+    kind: str
+    suggestions: list[str] = Field(default_factory=list)
+    rationale: str = ""
+
+
+class RulesLookupRequest(BaseModel):
+    """A rules question answered from the system's own rules."""
+
+    system_id: UUID | None = None
+    universe_id: UUID | None = None
+    question: str = Field(min_length=1, max_length=2000)
+
+
+class SessionLogFlag(BaseModel):
+    """One advisory contradiction flag on a session-log statement."""
+
+    kind: Literal["direct", "implication"]
+    severity: str = "medium"
+    explanation: str = ""
+
+
+class SessionLogItem(BaseModel):
+    """One staged canon change from a pasted session log."""
+
+    statement: str
+    participants: list[str] = Field(default_factory=list)
+    locations: list[str] = Field(default_factory=list)
+    proposal_id: str | None = None
+    flags: list[SessionLogFlag] = Field(default_factory=list)
+
+
+class SessionLogProposeRequest(BaseModel):
+    """Paste what happened; propose canon changes and flag contradictions."""
+
+    universe_id: UUID
+    story_id: UUID | None = None
+    scene_id: UUID | None = None
+    log_text: str = Field(min_length=1, max_length=40000)
+
+
+class SessionLogProposeResponse(BaseModel):
+    """Staged proposals, each with its contradiction flags (G-9)."""
+
+    batch_id: str
+    items: list[SessionLogItem] = Field(default_factory=list)
+    proposal_errors: list[str] = Field(default_factory=list)
+
+
+@router.post("/gm/prep/extract", response_model=PrepExtraction)
+async def prep_extract(
+    req: PrepExtractRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> PrepExtraction:
+    """Extract tonight's NPCs, locations and threads from the GM's notes (CF-7).
+
+    Review-only: nothing is saved or staged — the GM reviews the extraction
+    and then commits it via ``POST /gm/prep/commit``.
+    """
+    await require_universe_owner(db, principal, req.universe_id)
+    agent = GmTableAgent()
+    try:
+        return await agent.extract_prep(universe_id=req.universe_id, notes=req.notes)
+    except Exception as exc:
+        log.warning("prep_extract_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to extract prep items: {exc}") from exc
+
+
+@router.post("/gm/prep/commit", response_model=PrepCommitResponse)
+async def prep_commit(
+    req: PrepCommitRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> PrepCommitResponse:
+    """Save the reviewed prep bundle and stage its canon work (CF-7 → CF-8).
+
+    Accepted threads become story plot threads (same path as ``/gm/hooks/save``);
+    new NPCs/locations are staged as pending ENTITY proposals for the CF-8
+    review queue (CanonKeeper remains the only Neo4j writer). The bundle itself
+    is the "tonight" view the /gm page opens with.
+    """
+    await require_universe_owner(db, principal, req.universe_id)
+    bundle_id = uuid4()
+
+    committed_thread_ids: list[str] = []
+    staged_proposal_ids: list[str] = []
+    threads: list[GmPrepThread] = []
+    for item in req.threads:
+        urgency = _parse_thread_urgency(item.urgency)
+        plot_thread = PlotThreadCreate(
+            story_id=req.story_id,
+            title=item.title,
+            thread_type=PlotThreadType.SUBPLOT,
+            urgency=urgency,
+            priority=ThreadPriority.SECONDARY,
+            gm_notes=item.description,
+        )
+        try:
+            thread = await asyncio.to_thread(neo4j_create_plot_thread, plot_thread)
+        except Exception as exc:
+            log.warning("prep_thread_commit_failed", title=item.title, error=str(exc))
+            raise HTTPException(status_code=500, detail=f"Failed to save thread '{item.title}': {exc}") from exc
+        thread_id = str(thread.id)
+        committed_thread_ids.append(thread_id)
+        threads.append(item.model_copy(update={"thread_id": thread_id}))
+
+    def _stage_entities() -> tuple[list[str], None]:
+        ids: list[str] = []
+        proposals: list[tuple[str, str, str]] = [
+            (
+                npc.name,
+                EntityType.CHARACTER.value,
+                f"{npc.description}\n\nWants: {npc.want}" if npc.want else npc.description,
+            )
+            for npc in req.npcs
+            if npc.existing_entity_id is None
+        ]
+        proposals += [
+            (loc.name, EntityType.LOCATION.value, loc.description)
+            for loc in req.locations
+            if loc.existing_entity_id is None
+        ]
+        for name, entity_type, description in proposals:
+            try:
+                proposal = mongodb_create_proposed_change(
+                    ProposedChangeCreate(
+                        story_id=req.story_id,
+                        change_type=ProposalType.ENTITY,
+                        content={
+                            "name": name,
+                            "entity_type": entity_type,
+                            "description": description,
+                        },
+                        evidence=_capture_evidence(str(bundle_id)),
+                        confidence=0.7,
+                        authority=Authority.GM,
+                        proposer="GM",
+                        source=_capture_proposal_source(str(bundle_id)),
+                        proposal_type="prep_tonight",
+                    )
+                )
+                ids.append(str(proposal.proposal_id))
+            except Exception as exc:  # noqa: BLE001  # reason: one rejected staging must not lose the bundle (in prep_commit)
+                log.warning("prep_entity_staging_failed", name=name, error=str(exc))
+        return ids, None
+
+    staged_proposal_ids, _ = await asyncio.to_thread(_stage_entities)
+
+    bundle = await asyncio.to_thread(
+        mongodb_upsert_gm_prep_bundle,
+        GmPrepBundleUpsert(
+            universe_id=req.universe_id,
+            story_id=req.story_id,
+            npcs=req.npcs,
+            locations=req.locations,
+            threads=threads,
+            source=f"prep_bundle:{bundle_id}",
+        ),
+    )
+    return PrepCommitResponse(
+        bundle=bundle,
+        committed_thread_ids=committed_thread_ids,
+        staged_proposal_ids=staged_proposal_ids,
+    )
+
+
+@router.get("/gm/prep/{universe_id}", response_model=PrepBundleGetResponse)
+async def prep_get(
+    universe_id: str,
+    story_id: str | None = None,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> PrepBundleGetResponse:
+    """Return the saved prep bundle ("tonight's" NPCs, locations, threads)."""
+    universe_uuid = _uuid_or_400(universe_id, "universe_id")
+    story_uuid = _uuid_or_400(story_id, "story_id") if story_id else None
+    await require_universe_owner(db, principal, universe_uuid)
+    bundle = await asyncio.to_thread(mongodb_get_gm_prep_bundle, universe_uuid, story_uuid)
+    if bundle is None:
+        return PrepBundleGetResponse(found=False, bundle=None)
+    return PrepBundleGetResponse(found=True, bundle=bundle)
+
+
+@router.post("/gm/lookup/npc", response_model=NpcDossierResponse)
+async def lookup_npc(
+    req: NpcLookupRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> NpcDossierResponse:
+    """Who is this NPC and what do they want (CF-3 / Q-2)."""
+    await require_universe_owner(db, principal, req.universe_id)
+
+    def _resolve_entity() -> EntityResponse | None:
+        if req.entity_id is not None:
+            return neo4j_get_entity(req.entity_id)
+        query = (req.name or "").strip()
+        if not query:
+            return None
+        matches = neo4j_search_entities(req.universe_id, query)
+        if not matches:
+            return None
+        exact = [m for m in matches if str(m.get("name", "")).lower() == query.lower()]
+        chosen = exact[0] if exact else matches[0]
+        entity_id = chosen.get("id")
+        return neo4j_get_entity(UUID(str(entity_id))) if entity_id else None
+
+    entity = await asyncio.to_thread(_resolve_entity)
+    if entity is None:
+        return NpcDossierResponse(found=False, note="No entity with that name in this universe.")
+
+    def _gather() -> tuple[list[dict[str, Any]], list[RelationshipResponse], list[FactResponse]]:
+        agendas = [
+            a
+            for a in neo4j_list_agendas(req.universe_id, status=None)
+            if str(a.get("owner_id") or "") == str(entity.id)
+        ]
+        relationships = neo4j_list_relationships(RelationshipFilter(entity_id=entity.id, limit=20)).relationships
+        facts = neo4j_list_facts(FactFilter(universe_id=req.universe_id, entity_id=entity.id, limit=20))
+        return agendas, relationships, facts
+
+    agendas, relationships, facts = await asyncio.to_thread(_gather)
+    return NpcDossierResponse(
+        found=True,
+        entity=entity,
+        agendas=agendas,
+        relationships=relationships,
+        recent_facts=facts,
+    )
+
+
+@router.post("/gm/lookup/party-knowledge", response_model=PartyKnowledgeAnswer)
+async def lookup_party_knowledge(
+    req: PartyKnowledgeRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> PartyKnowledgeAnswer:
+    """What does the party know about this? (CF-3 / Q-4)."""
+    await require_universe_owner(db, principal, req.universe_id)
+    character_ids = list(req.character_ids)
+    if req.party_id is not None:
+        party_id: UUID = req.party_id
+
+        def _party_members() -> list[UUID]:
+            party = neo4j_get_party(party_id)
+            return [m.entity_id for m in (party.members if party else [])]
+
+        character_ids.extend(await asyncio.to_thread(_party_members))
+    if not character_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide party_id or at least one character_id.",
+        )
+
+    agent = GmTableAgent()
+    try:
+        return await agent.party_knowledge(
+            universe_id=req.universe_id,
+            character_ids=character_ids,
+            topic=req.topic,
+        )
+    except Exception as exc:
+        log.warning("party_knowledge_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to look up party knowledge: {exc}") from exc
+
+
+@router.post("/gm/lookup/last-session", response_model=LastSessionResponse)
+async def lookup_last_session(
+    req: LastSessionRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> LastSessionResponse:
+    """What happened / was said last session (CF-2 / Q-10).
+
+    Sources: the story's ledger (one append-only entry per finished scene)
+    and the most recent session's transcript tail for the story.
+    """
+    await require_universe_owner(db, principal, req.universe_id)
+
+    def _ledger() -> StoryLedgerEntry | None:
+        entries = mongodb_list_story_ledger_entries(req.story_id, limit=2)
+        return entries[-1] if entries else None
+
+    def _prior_session() -> tuple[str | None, str | None, list[TranscriptLine]]:
+        sessions = [s for s in db_load_sessions() if str(s.get("story_id") or "") == str(req.story_id)]
+        if not sessions:
+            return None, None, []
+        sessions.sort(key=lambda s: str(s.get("updated_at") or ""), reverse=True)
+        session = sessions[0]
+        session_id = str(session.get("id") or session.get("session_id") or "")
+        if not session_id:
+            return None, None, []
+        messages = db_load_messages(session_id)[-req.transcript_limit :]
+        lines = [
+            TranscriptLine(
+                role=str(m.get("role") or ""),
+                content=str(m.get("content") or ""),
+                timestamp=str(m.get("timestamp") or ""),
+            )
+            for m in messages
+        ]
+        return session_id, str(session.get("title") or "") or None, lines
+
+    entry, (session_id, session_title, transcript) = await asyncio.to_thread(lambda: (_ledger(), _prior_session()))
+    if entry is None and session_id is None:
+        return LastSessionResponse(found=False, note="No previous session found for this story.")
+    return LastSessionResponse(
+        found=True,
+        session_id=session_id,
+        session_title=session_title,
+        ledger_entry=entry,
+        transcript=transcript,
+    )
+
+
+@router.post("/gm/lookup/improvise", response_model=ImproviseResponse)
+async def lookup_improvise(
+    req: ImproviseRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ImproviseResponse:
+    """A name or a complication on demand (CF-4)."""
+    await require_universe_owner(db, principal, req.universe_id)
+    agent = light_table_agent()
+    try:
+        if req.kind == "name":
+            result: NameSuggestions | ComplicationSuggestions = await agent.suggest_names(
+                universe_id=req.universe_id,
+                context=req.context,
+                count=req.count,
+            )
+            return ImproviseResponse(
+                kind="name",
+                suggestions=list(result.names),
+                rationale=result.rationale,
+            )
+        result = await agent.suggest_complications(
+            universe_id=req.universe_id,
+            context=req.context,
+            count=req.count,
+            story_id=req.story_id,
+        )
+        return ImproviseResponse(
+            kind="complication",
+            suggestions=list(result.complications),
+            rationale=result.rationale,
+        )
+    except Exception as exc:
+        log.warning("improvise_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to generate suggestions: {exc}") from exc
+
+
+@router.post("/gm/lookup/rules", response_model=RulesAnswer)
+async def lookup_rules(
+    req: RulesLookupRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> RulesAnswer:
+    """A rules question answered with its source (Q-7 / RS)."""
+    system_id = req.system_id
+    if system_id is None and req.universe_id is not None:
+        await require_universe_owner(db, principal, req.universe_id)
+        binding = await asyncio.to_thread(resolve_universe_system_binding, str(req.universe_id))
+        bound = binding.get("system_id")
+        system_id = UUID(str(bound)) if bound else None
+    if system_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide system_id, or a universe with a bound game system.",
+        )
+    agent = GmTableAgent()
+    try:
+        return await agent.answer_rules(system_id=system_id, question=req.question)
+    except Exception as exc:
+        log.warning("rules_lookup_failed", system_id=str(system_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to answer the rules question: {exc}") from exc
+
+
+def _session_log_flags(
+    direct: list[dict[str, Any]],
+    implication: list[dict[str, Any]],
+) -> list[SessionLogFlag]:
+    flags = [
+        SessionLogFlag(kind="direct", severity="medium", explanation=str(d.get("explanation") or "")) for d in direct
+    ]
+    flags += [
+        SessionLogFlag(
+            kind="implication",
+            severity=str(d.get("severity") or "high"),
+            explanation=str(d.get("explanation") or ""),
+        )
+        for d in implication
+    ]
+    return flags
+
+
+@router.post("/gm/session-log/propose", response_model=SessionLogProposeResponse)
+async def session_log_propose(
+    req: SessionLogProposeRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> SessionLogProposeResponse:
+    """After the session: paste what happened, get canon proposals + flags (CF-5/CF-8).
+
+    Each extracted world-state statement becomes one pending FACT proposal in
+    the CF-8 review queue. Contradictions with existing canon are flagged in
+    two passes — the direct check (``CanonKeeper.check_live_entry``) and the
+    implication-level G-9 depth check (``implication_conflict_flags``) — and
+    flagged proposals are created with ``needs_review`` set. The checks run
+    before anything is staged, so a failed check writes nothing. Proposals are
+    story- or scene-scoped, so one of the two ids is required.
+    """
+    await require_universe_owner(db, principal, req.universe_id)
+    if req.story_id is None and req.scene_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide story_id or scene_id so proposals can be staged for review.",
+        )
+    agent = GmTableAgent()
+    canonkeeper = CanonKeeper()
+    per_statement_direct: list[dict[str, Any]] = []
+    try:
+        extraction: SessionLogExtraction = await agent.extract_session_log(
+            universe_id=req.universe_id,
+            log_text=req.log_text,
+        )
+        statements = [s for s in extraction.statements if s.statement.strip()]
+        for item in statements:
+            result = await canonkeeper.check_live_entry(
+                universe_id=req.universe_id,
+                entry_text=item.statement,
+            )
+            per_statement_direct.append(
+                {"explanation": result.get("explanation") or ""} if result.get("has_contradiction") else {}
+            )
+        implication_flags = await canonkeeper.implication_conflict_flags(
+            req.universe_id,
+            [item.statement for item in statements],
+        )
+    except Exception as exc:
+        log.warning("session_log_analysis_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to analyze the session log: {exc}",
+        ) from exc
+    implication_by_statement: dict[str, list[dict[str, Any]]] = {}
+    for flag in implication_flags:
+        implication_by_statement.setdefault(str(flag.get("statement") or ""), []).append(flag)
+
+    batch_id = str(uuid4())
+    source = f"session_log:{batch_id}"
+    created: list[str | None] = []
+    errors: list[str] = []
+
+    def _stage() -> tuple[list[str | None], list[str]]:
+        ids: list[str | None] = []
+        errs: list[str] = []
+        for idx, item in enumerate(statements):
+            direct_flag = per_statement_direct[idx]
+            imp_flags = implication_by_statement.get(item.statement, [])
+            flags = _session_log_flags([direct_flag] if direct_flag else [], imp_flags)
+            needs_review = bool(flags)
+            review_reason = "; ".join(f.explanation for f in flags if f.explanation)[:2000] or None
+            try:
+                proposal = mongodb_create_proposed_change(
+                    ProposedChangeCreate(
+                        scene_id=req.scene_id,
+                        story_id=req.story_id,
+                        change_type=ProposalType.FACT,
+                        content={
+                            "statement": item.statement,
+                            "fact_type": "occurrence",
+                            "canon_level": "proposed",
+                            "source_excerpt": req.log_text[:2000],
+                            "participants": list(item.participants),
+                            "locations": list(item.locations),
+                            "session_log_batch_id": batch_id,
+                        },
+                        evidence=_capture_evidence(batch_id),
+                        confidence=0.75,
+                        authority=Authority.GM,
+                        proposer="GM",
+                        source=source,
+                        proposal_type="session_log_fact",
+                        needs_review=needs_review,
+                        review_reason=review_reason,
+                        review_source="gm_session_log_flags" if needs_review else None,
+                    )
+                )
+                ids.append(str(proposal.proposal_id))
+            except Exception as exc:  # noqa: BLE001  # reason: one bad statement must not lose the rest of the batch (in session_log_propose)
+                ids.append(None)
+                errs.append(f"{item.statement[:80]}: {exc}")
+        return ids, errs
+
+    created, errors = await asyncio.to_thread(_stage)
+
+    items = [
+        SessionLogItem(
+            statement=item.statement,
+            participants=list(item.participants),
+            locations=list(item.locations),
+            proposal_id=created[idx],
+            flags=_session_log_flags(
+                [per_statement_direct[idx]] if per_statement_direct[idx] else [],
+                implication_by_statement.get(item.statement, []),
+            ),
+        )
+        for idx, item in enumerate(statements)
+    ]
+    return SessionLogProposeResponse(batch_id=batch_id, items=items, proposal_errors=errors)
+
+
+def _parse_thread_urgency(value: str) -> ThreadUrgency:
+    try:
+        return ThreadUrgency(value)
+    except ValueError:
+        return ThreadUrgency.MEDIUM
+
+
+def _uuid_or_400(value: str, field: str) -> UUID:
+    try:
+        return UUID(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid {field}: {value}") from exc
