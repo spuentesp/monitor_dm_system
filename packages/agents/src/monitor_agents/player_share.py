@@ -87,6 +87,30 @@ class ShareAgent(BaseAgent):
         raw = await self.call_tool("mongodb_get_player_share_for_story", {"story_id": str(story_id)})
         return self._as_model(raw, PlayerShare)
 
+    async def ensure_share(self, *, universe_id: UUID, story_id: UUID, owner_id: str) -> PlayerShare:
+        """The story's live link for this owner, minting one when absent.
+
+        A link owned by someone else (or tied to another universe) is never
+        reused — the new owner gets their own token.
+        """
+        share = await self.get_share_for_story(story_id)
+        if share is not None and share.universe_id == universe_id and share.owner_id == owner_id:
+            return share
+        raw = await self.call_tool(
+            "mongodb_create_player_share",
+            {
+                "params": PlayerShareCreate(
+                    story_id=story_id,
+                    universe_id=universe_id,
+                    owner_id=owner_id,
+                ).model_dump(mode="json"),
+            },
+        )
+        created = self._as_model(raw, PlayerShare)
+        if created is None:  # pragma: no cover - tool always returns the doc
+            raise ShareError("failed to create share link")
+        return created
+
     async def publish(
         self,
         *,
@@ -106,21 +130,7 @@ class ShareAgent(BaseAgent):
         Returns ``(share, artifact)`` — the caller shows the share URL from
         ``share.token``. Mongo only; nothing here can touch canon.
         """
-        share = await self.get_share_for_story(story_id)
-        if share is None or share.universe_id != universe_id or share.owner_id != owner_id:
-            raw = await self.call_tool(
-                "mongodb_create_player_share",
-                {
-                    "params": PlayerShareCreate(
-                        story_id=story_id,
-                        universe_id=universe_id,
-                        owner_id=owner_id,
-                    ).model_dump(mode="json"),
-                },
-            )
-            share = self._as_model(raw, PlayerShare)
-            if share is None:  # pragma: no cover - tool always returns the doc
-                raise ShareError("failed to create share link")
+        share = await self.ensure_share(universe_id=universe_id, story_id=story_id, owner_id=owner_id)
 
         artifact = await self._create_artifact(
             universe_id=universe_id,
