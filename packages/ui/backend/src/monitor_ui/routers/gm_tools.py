@@ -1939,7 +1939,7 @@ async def gm_share_link(
     """
     uid = _uuid_or_400(universe_id, "universe_id")
     sid = _uuid_or_400(story_id, "story_id")
-    share = await ShareAgent().ensure_share(universe_id=uid, story_id=sid, owner_id=principal.user_id)
+    share = await ShareAgent().ensure_share(universe_id=uid, story_id=sid, owner_id=str(principal.user_id))
     return ShareLinkResponse(
         story_id=str(sid),
         token=share.token,
@@ -1961,7 +1961,7 @@ async def gm_share_publish(
         share, artifact = await ShareAgent().publish(
             universe_id=req.universe_id,
             story_id=req.story_id,
-            owner_id=principal.user_id,
+            owner_id=str(principal.user_id),
             artifact_type=ShareArtifactType(req.artifact_type),
             title=req.title,
             content=req.content,
@@ -1992,7 +1992,7 @@ async def gm_share_unpublish(
     ok = await ShareAgent().unpublish(
         artifact_id=req.artifact_id,
         universe_id=req.universe_id,
-        owner_id=principal.user_id,
+        owner_id=str(principal.user_id),
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Not found")
@@ -2011,7 +2011,7 @@ async def gm_share_revoke(
     ok = await ShareAgent().revoke(
         story_id=req.story_id,
         universe_id=req.universe_id,
-        owner_id=principal.user_id,
+        owner_id=str(principal.user_id),
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Not found")
