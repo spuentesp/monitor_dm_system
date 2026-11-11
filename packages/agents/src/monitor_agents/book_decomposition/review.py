@@ -43,7 +43,7 @@ from monitor_data.schemas.book_graph import (
 )
 from pydantic import BaseModel, Field, ValidationError
 
-from monitor_agents.book_prompts import apply_fiction_preamble
+from monitor_agents.book_batching import run_batch_with_refusal_split
 from monitor_agents.book_decomposition.checks import (
     ClaimFlag,
     check_names,
@@ -59,6 +59,8 @@ from monitor_agents.book_decomposition.checks import (
 from monitor_agents.book_decomposition.extractor import run_metered
 from monitor_agents.book_decomposition.pacing import RunGuard, RunStopped
 from monitor_agents.book_decomposition.pipeline import ProvenancedAtom, WindowOutcome
+from monitor_agents.book_prompts import apply_fiction_preamble
+from monitor_agents.llm_errors import LLMErrorClass, classify_llm_error
 
 log = structlog.get_logger()
 
@@ -647,6 +649,10 @@ async def verify_claims(
                 raise
             # A failed batch leaves its claims unchecked, and they go to a person.
             except Exception as exc:  # noqa: BLE001  # reason: unchecked claims are routed to human review, never approved
+                if classify_llm_error(exc).error_class == LLMErrorClass.CONTENT_REFUSED:
+                    # PART 5A (I-2): a refusal is not retried with the same claims;
+                    # run_batch_with_refusal_split below splits the batch instead.
+                    raise
                 log.warning("claim_verification_failed", error=str(exc)[:300])
                 continue
             for check in answer.checks:
@@ -666,8 +672,18 @@ async def verify_claims(
 
     batches = [claims[i : i + batch_size] for i in range(0, len(claims), batch_size)]
     merged: dict[str, ClaimCheck] = {}
-    for result in await asyncio.gather(*(run(batch) for batch in batches)):
-        merged.update(result)
+    # PART 5A EXAMPLE (shared helper, monitor_agents.book_batching): a refused
+    # verification batch splits in half and each half is retried once; claims
+    # that still refuse are held with a reason instead of silently unchecked.
+    # Part A owns the rest of this loop (batch size, resume, held reporting).
+    outcomes = await asyncio.gather(
+        *(run_batch_with_refusal_split(batch, run, id_of=lambda claim: claim.id) for batch in batches)
+    )
+    for outcome in outcomes:
+        for result in outcome.results:
+            merged.update(result)
+        for held in outcome.held:
+            log.warning("claim_verification_held", claim_id=held.id, reason=held.reason)
     return merged
 
 

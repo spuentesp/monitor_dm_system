@@ -40,7 +40,7 @@ import asyncio
 import logging
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
@@ -174,6 +174,7 @@ from monitor_agents.analyzer._game_system_persistence import save_game_system
 from monitor_agents.analyzer._mindscape_projection import project_mindscape_to_qdrant
 from monitor_agents.analyzer._models import AnalysisRunResult, LLMExecutionSummary
 from monitor_agents.base import BaseAgent
+from monitor_agents.book_batching import run_batch_with_refusal_split
 from monitor_agents.llm_errors import LLMErrorClass, classify_llm_error
 from monitor_agents.llm_execution import (
     LLMAttemptRecord,
@@ -2079,12 +2080,15 @@ class Analyzer(BaseAgent):
         # Semaphore caps concurrent LLM calls to avoid provider rate-limits.
         sem = asyncio.Semaphore(_EXTRACTION_CONCURRENCY)
 
-        async def _run_batch(batch_idx: int, batch: list[_SectionDigest]) -> Any | None:
-            section_texts = [self._format_section_context(s) for s in batch]
-            sections_context = "\n\n---SECTION---\n\n".join(section_texts)
+        async def _run_batch(batch_idx: int, batch: list[_SectionDigest]) -> list[Any] | None:
             async with sem:
-                try:
-                    result = await self._call_module(
+                # PART 5A EXAMPLE (shared helper, monitor_agents.book_batching): a
+                # CONTENT_REFUSED call splits in half and each half is retried once;
+                # sections that still refuse are held and logged, never dropped
+                # without a record. Part B wires this to the job result and resume.
+                async def _call(items: Sequence[_SectionDigest]) -> Any:
+                    sections_context = "\n\n---SECTION---\n\n".join(self._format_section_context(s) for s in items)
+                    return await self._call_module(
                         self._batched_extractor,
                         stage="batched_extraction",
                         batch_id=f"{batch_idx + 1}/{n_batches}",
@@ -2093,8 +2097,11 @@ class Analyzer(BaseAgent):
                         known_graph_context="",
                         source_profile_context=source_profile_context,
                     )
-                    logger.info("Batch %d/%d complete", batch_idx + 1, n_batches)
-                    return result
+
+                try:
+                    outcome = await run_batch_with_refusal_split(
+                        batch, _call, id_of=lambda section: section.section_path
+                    )
                 except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _run_batch)
                     logger.warning(
                         "Batched extraction failed for batch %d/%d: %s",
@@ -2103,20 +2110,25 @@ class Analyzer(BaseAgent):
                         exc,
                     )
                     return None
+                for held in outcome.held:
+                    logger.warning("Batched extraction held section %s: %s", held.id, held.reason)
+                logger.info("Batch %d/%d complete", batch_idx + 1, n_batches)
+                return outcome.results
 
         # Fire all batches concurrently
         batch_results = list(await asyncio.gather(*[_run_batch(i, b) for i, b in enumerate(batches)]))
 
-        # Collect typed results from all batches
-        for result in batch_results:
-            if result is None:
+        # Collect typed results from all batches (one entry per successful sub-batch)
+        for batch_result in batch_results:
+            if not batch_result:
                 continue
-            if include_axioms:
-                all_axioms.extend(result.axioms or [])
-            if include_entities:
-                all_entities.extend(result.entities or [])
-            if include_lore:
-                all_lore.extend(result.lore_facts or [])
+            for result in batch_result:
+                if include_axioms:
+                    all_axioms.extend(result.axioms or [])
+                if include_entities:
+                    all_entities.extend(result.entities or [])
+                if include_lore:
+                    all_lore.extend(result.lore_facts or [])
 
         logger.info(
             "Parallel extraction complete: %d axioms, %d entities, %d lore (pre-merge)",
