@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+import structlog
+
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.db.neo4j import get_neo4j_client
 from monitor_data.schemas.base import (
@@ -21,6 +23,8 @@ from monitor_data.schemas.proposed_changes import (
     ProposedChangeUpdate,
 )
 from monitor_data.tenancy import assert_proposal_target_write, assert_proposal_write
+
+log = structlog.get_logger()
 
 # =============================================================================
 # PROPOSED CHANGE OPERATIONS
@@ -440,6 +444,114 @@ def mongodb_edit_proposed_change(
     updated = mongodb_get_proposed_change(proposal_id)
     if updated is None:
         raise ValueError(f"Proposal {proposal_id} not found after edit")
+    return updated
+
+
+def mongodb_retract_proposed_change(
+    proposal_id: UUID,
+    reason: str = "struck at the table",
+    retracted_by: str = "GM",
+    entry_id: str | None = None,
+) -> ProposedChangeResponse:
+    """Retract a pending proposal at the table (G03 — CF-1 amendment).
+
+    Pending → rejected with ``decision_metadata.reason`` so CF-8 shows *why*
+    the proposal disappeared (the plan's ``rejected_by_gm`` disposition:
+    status ``rejected``, ``decided_by`` = the GM/retracting actor). ``entry_id``
+    records which session entry this retract belongs to when it was caused by
+    striking that entry.
+
+    Authority: CaptureInsightAgent / CanonKeeper via MCP; GM correction flow.
+
+    Raises:
+        ValueError: proposal missing, or not pending (only pending can be
+            retracted — an accepted/rejected verdict is terminal).
+    """
+    assert_proposal_write(proposal_id, resource="proposed_change")
+    mongo_client = get_mongodb_client()
+    coll = mongo_client.get_collection("proposed_changes")
+    doc = coll.find_one({"proposal_id": str(proposal_id)})
+    if not doc:
+        raise ValueError(f"Proposal {proposal_id} not found")
+    current_status = _coerce_proposal_status(doc.get("status", ProposalStatus.PENDING.value))
+    if current_status != ProposalStatus.PENDING:
+        raise ValueError(
+            f"Cannot retract proposal with status {current_status.value}. Only pending proposals can be retracted."
+        )
+
+    updated_at = datetime.now(UTC)
+    update_doc: dict[str, Any] = {
+        "status": ProposalStatus.REJECTED.value,
+        "decision_metadata": {
+            "decided_by": retracted_by,
+            "decided_at": updated_at,
+            "reason": reason,
+            "canonical_ref": None,
+        },
+        "updated_at": updated_at,
+    }
+    if entry_id is not None:
+        update_doc["retracted_for_entry"] = entry_id
+    coll.update_one({"proposal_id": str(proposal_id)}, {"$set": update_doc})
+    log.info("proposal_retracted", proposal_id=str(proposal_id), entry_id=entry_id, reason=reason)
+
+    updated = mongodb_get_proposed_change(proposal_id)
+    if updated is None:
+        raise ValueError(f"Proposal {proposal_id} not found after retract")
+    return updated
+
+
+def mongodb_restore_retracted_proposal(
+    proposal_id: UUID,
+    reason: str = "struck at the table",
+    retracted_by: str = "GM",
+) -> ProposedChangeResponse:
+    """Undo a GM retract: rejected → pending, only for a matching retraction.
+
+    Guards both ways: the proposal must be rejected, and its decision
+    metadata must match the retract (actor + reason). A regular CF-8 rejection
+    for any other reason is never flipped back. Used by the strike-undo flow
+    (G03).
+
+    Authority: CaptureInsightAgent / CanonKeeper via MCP; GM correction flow.
+
+    Raises:
+        ValueError: proposal missing, not rejected, or not the matching
+            retract.
+    """
+    assert_proposal_write(proposal_id, resource="proposed_change")
+    mongo_client = get_mongodb_client()
+    coll = mongo_client.get_collection("proposed_changes")
+    doc = coll.find_one({"proposal_id": str(proposal_id)})
+    if not doc:
+        raise ValueError(f"Proposal {proposal_id} not found")
+    current_status = _coerce_proposal_status(doc.get("status", ProposalStatus.PENDING.value))
+    if current_status != ProposalStatus.REJECTED:
+        raise ValueError(
+            f"Cannot restore proposal with status {current_status.value}. Only a rejected retract can be restored."
+        )
+    decision = doc.get("decision_metadata") or {}
+    if str(decision.get("decided_by") or "") != retracted_by or str(decision.get("reason") or "") != reason:
+        raise ValueError(
+            f"Proposal {proposal_id} was not retracted by '{retracted_by}' with reason '{reason}'; refusing to restore."
+        )
+
+    updated_at = datetime.now(UTC)
+    coll.update_one(
+        {"proposal_id": str(proposal_id)},
+        {
+            "$set": {
+                "status": ProposalStatus.PENDING.value,
+                "decision_metadata": None,
+                "updated_at": updated_at,
+            },
+            "$unset": {"retracted_for_entry": ""},
+        },
+    )
+    log.info("proposal_retract_restored", proposal_id=str(proposal_id))
+    updated = mongodb_get_proposed_change(proposal_id)
+    if updated is None:
+        raise ValueError(f"Proposal {proposal_id} not found after restore")
     return updated
 
 

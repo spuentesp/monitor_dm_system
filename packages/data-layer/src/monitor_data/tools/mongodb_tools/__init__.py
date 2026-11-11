@@ -315,7 +315,19 @@ from monitor_data.tools.mongodb_tools.proposals import (
     mongodb_get_proposed_change,
     mongodb_list_proposed_changes,
     mongodb_flag_proposal_review,
+    mongodb_retract_proposed_change,
+    mongodb_restore_retracted_proposal,
     mongodb_update_proposed_change,
+)
+
+# Session Recorder entries (CF-1 / G03 — mid-session strike/edit)
+from monitor_data.tools.mongodb_tools.session_entries import (
+    STRIKE_REASON,
+    mongodb_delete_session_entry,
+    mongodb_get_session_entry,
+    mongodb_list_session_entries,
+    mongodb_restore_session_entry,
+    mongodb_update_session_entry,
 )
 
 # Random Table operations
@@ -458,7 +470,16 @@ __all__ = [
     "mongodb_get_proposed_change",
     "mongodb_list_proposed_changes",
     "mongodb_flag_proposal_review",
+    "mongodb_retract_proposed_change",
+    "mongodb_restore_retracted_proposal",
     "mongodb_update_proposed_change",
+    # Session Recorder entries (CF-1 / G03)
+    "STRIKE_REASON",
+    "mongodb_get_session_entry",
+    "mongodb_list_session_entries",
+    "mongodb_update_session_entry",
+    "mongodb_delete_session_entry",
+    "mongodb_restore_session_entry",
     # Stories
     "_convert_story_outline_doc_to_response",
     "_calculate_pacing_metrics",
