@@ -134,11 +134,20 @@ def test_every_sentence_lands_in_exactly_one_window(tree):
 
 
 @pytest.mark.unit
-def test_windows_do_not_cross_divisions(tree):
+def test_windows_may_cross_divisions_and_every_unit_keeps_its_own_heading_path(tree):
+    """Phase 5a packs across divisions (task 5); each unit still says where it sits."""
     by_id = {n.id: n for n in tree.nodes}
-    for window in build_windows(tree):
-        parents = {by_id[by_id[u.node_id].parent_id].parent_id for u in window.units}
-        assert parents == {window.division_id}
+    windows = build_windows(tree)
+    divisions_in_first = {by_id[by_id[unit.node_id].parent_id].parent_id for unit in windows[0].units}
+    assert len(divisions_in_first) > 1  # One window holds more than one division.
+    for window in windows:
+        assert window.heading_path == window.units[0].heading_path
+        for unit in window.units:
+            paragraph = by_id[unit.node_id]
+            container = by_id[paragraph.parent_id] if paragraph.parent_id else None
+            if container is not None and container.kind == BookNodeKind.DIVISION:
+                assert container.text in unit.heading_path  # The unit names its own division.
+            assert unit.node_id  # Ids survive packing, so claims still point at their sentence.
 
 
 @pytest.mark.unit
@@ -343,7 +352,7 @@ async def test_transient_failure_recovers_on_retry(tree):
 
 @pytest.mark.unit
 async def test_coverage_counts_against_expected_units_not_what_the_model_returned(tree):
-    windows = build_windows(tree)
+    windows = build_windows(tree, max_words=30)  # Several windows, so only one can be attempted.
     outcomes = await extract_windows(windows[:1], _Scripted())
     report = build_coverage_report(windows, outcomes)
     assert report.units_total == sum(len(w.units) for w in windows)

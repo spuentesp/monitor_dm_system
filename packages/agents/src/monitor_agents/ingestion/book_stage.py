@@ -36,6 +36,8 @@ from monitor_data.tools.mongodb_tools import (
     mongodb_update_ingestion_job,
 )
 
+from monitor_agents.book_decomposition.calls import call_line
+from monitor_agents.book_decomposition.estimate import CallEstimate
 from monitor_agents.book_decomposition.extractor import (
     DspyWindowExtractor,
     build_lm,
@@ -172,6 +174,12 @@ async def run_decomposition_job(
             ),
         )
 
+    def on_estimate(estimate: CallEstimate) -> None:
+        # Stored before the first model call, so a crash still leaves the estimate behind.
+        mongodb_update_ingestion_job(
+            job_id, IngestionJobUpdate(activity_log=[call_line("estimated", estimate.as_dict())])
+        )
+
     heartbeat = asyncio.create_task(_keep_job_alive(job_id, heartbeat_seconds))
     try:
         mongodb_update_ingestion_job(
@@ -201,6 +209,7 @@ async def run_decomposition_job(
             accept_run=lambda key: key.startswith(f"{prefix}-"),
             check_coverage=os.environ.get("MONITOR_BOOK_COVERAGE", "0") == "1",
             on_progress=on_progress,
+            on_estimate=on_estimate,
             on_tree=record_structure if source_id is not None and book_structure_enabled() else None,
             graph_model=(
                 (make_graph_model or _default_graph_model)(review_model_name, guard)
@@ -245,16 +254,43 @@ async def _keep_job_alive(job_id: UUID, seconds: float) -> None:
             log.warning("book_heartbeat_failed", job_id=str(job_id), error=str(exc)[:200])
 
 
+def _job_fields(result: DecomposeResult) -> tuple[list[dict[str, str]], int]:
+    """Held batches and the actual call count, as the job API already exposes them."""
+    held = [
+        {"section_path": entry["section_path"], "stage": entry["stage"], "reason": entry["reason"][:500]}
+        for entry in result.held[:200]
+    ]
+    # Full replacement: a resumed run re-sends the complete list, so holds that
+    # were resolved since are cleared and none can silently linger.
+    return held, sum(result.calls.values())
+
+
+def _result_log_lines(result: DecomposeResult) -> list[str]:
+    lines: list[str] = []
+    if result.estimate is not None:
+        lines.append(call_line("estimated", result.estimate))
+    if result.calls:
+        lines.append(call_line("made", result.calls))
+    if result.skipped_non_content:
+        counts = ", ".join(f"{reason}={count}" for reason, count in sorted(result.skipped_non_content.items()))
+        lines.append(f"Skipped as non-content: {counts}")
+    return lines
+
+
 def _record_result(job_id: UUID, result: DecomposeResult) -> None:
     if _is_cancelled(job_id):
         return
+    held, calls_made = _job_fields(result)
+    lines = _result_log_lines(result)
     if result.status == DecomposeStatus.PAUSED:
         mongodb_update_ingestion_job(
             job_id,
             IngestionJobUpdate(
                 status=IngestionStatus.PAUSED,
                 decomposition=result.progress,
-                activity_log=[f"Paused: {result.progress.pause_reason}"],
+                failed_sections=held,
+                total_batches=calls_made,
+                activity_log=[f"Paused: {result.progress.pause_reason}", *lines],
             ),
         )
         return
@@ -269,10 +305,13 @@ def _record_result(job_id: UUID, result: DecomposeResult) -> None:
             decomposition=result.progress,
             pack_id=result.pack_id,
             completed_at=datetime.now(UTC),
+            failed_sections=held,
+            total_batches=calls_made,
             activity_log=[
                 f"Decomposition finished: {result.progress.claims_kept} claims kept, "
                 f"{result.progress.claims_for_review} claims to review, "
-                f"{result.progress.sentences_quarantined} sentences need a person"
+                f"{result.progress.sentences_quarantined} sentences need a person",
+                *lines,
             ],
         ),
     )

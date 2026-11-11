@@ -23,6 +23,7 @@ from monitor_agents.book_decomposition.extractor import (
 )
 from monitor_agents.book_decomposition.pacing import GuardedExtractor, RunGuard, RunStopped
 from monitor_agents.book_decomposition.windows import Window
+from monitor_agents.llm_errors import LLMErrorClass, classify_llm_error
 
 log = structlog.get_logger()
 
@@ -98,9 +99,10 @@ def validate_extraction(window: Window, extraction: WindowExtraction) -> WindowO
 async def _run_window(window: Window, extractor: WindowExtractor, max_attempts: int) -> WindowOutcome:
     """Run a window until every unit has an outcome or the attempts run out.
 
-    Unparseable output usually means the answer outgrew the token limit, and repeating the
-    request would just hit DSPy's cache. So those failures split the units in half. Other
-    failures, such as provider errors, retry the same units.
+    Unparseable output and a content refusal usually mean this passage can't go
+    out as one request, so those failures split the units in half rather than
+    repeat the same request. Other failures, such as provider errors, retry the
+    same units.
     """
     outcome = WindowOutcome(window_id=window.id)
     started = time.monotonic()
@@ -117,17 +119,19 @@ async def _run_window(window: Window, extractor: WindowExtractor, max_attempts: 
             outcome.attempts -= 1
             _add_failed_usage(outcome, exc.__context__)
             break
-        except CONTENT_ERRORS as exc:
-            _record_failure(outcome, window, exc)
-            labels = [unit.label for unit in part.units]
-            if len(labels) > 1:
-                middle = len(labels) // 2
-                queue.append((part.restricted_to(set(labels[:middle])), 0))
-                queue.append((part.restricted_to(set(labels[middle:])), 0))
-            continue
-        # Any provider failure leaves these units uncovered and in the report.
         except Exception as exc:  # noqa: BLE001  # reason: failure is recorded on the outcome, never swallowed
             _record_failure(outcome, window, exc)
+            # PART 5A (I-2): a refusal splits like any other content failure; it is
+            # never retried with the same units. A one-unit refusal leaves that unit
+            # uncovered, so it reaches the report and, after three rounds, quarantine.
+            if isinstance(exc, CONTENT_ERRORS) or classify_llm_error(exc).error_class == LLMErrorClass.CONTENT_REFUSED:
+                labels = [unit.label for unit in part.units]
+                if len(labels) > 1:
+                    middle = len(labels) // 2
+                    queue.append((part.restricted_to(set(labels[:middle])), 0))
+                    queue.append((part.restricted_to(set(labels[middle:])), 0))
+                continue
+            # Any provider failure leaves these units uncovered and in the report.
             if used + 1 < max_attempts:
                 queue.append((part, used + 1))
             continue

@@ -24,6 +24,7 @@ import structlog
 from monitor_data.schemas.book_graph import BookNode, BookNodeKind, BookTree
 from pydantic import BaseModel, Field, ValidationError
 
+from monitor_agents.book_prompts import apply_fiction_preamble
 from monitor_agents.book_decomposition.extractor import run_metered
 from monitor_agents.book_decomposition.pacing import RunGuard, RunStopped
 from monitor_agents.book_decomposition.review import Claim
@@ -196,6 +197,9 @@ class _PrefillSignature(dspy.Signature):  # type: ignore[misc]
 
     claims: str = dspy.InputField(desc="Each claim with its label, heading and surrounding text")
     result: _PrefillBatch = dspy.OutputField()
+
+
+apply_fiction_preamble(_PrefillSignature)
 
 
 def format_for_prefill(rows: Sequence[KeyRow]) -> str:

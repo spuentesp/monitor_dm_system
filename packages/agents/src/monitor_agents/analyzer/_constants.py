@@ -153,7 +153,9 @@ MAX_SECTION_WORDS = 1500
 # before the LLM extraction batches see them (GAP-9 fix).
 MAX_SECTIONS_PER_LAYER = 200
 
-# Max sections per batched extraction LLM call.
+# Max sections per batched extraction LLM call (pre-phase value; superseded by
+# the word-budget batching in _settings.py — MONITOR_ANALYZER_BATCH_WORDS /
+# MONITOR_ANALYZER_BATCH_SECTIONS — and kept here as the documented old value).
 # 8 sections × 1500 words ≈ 16K tokens — fine for Gemini Flash (HEAVY role)
 BATCH_SIZE = 2
 
