@@ -769,6 +769,16 @@ async def audit_skipped_units(
             if classify_llm_error(exc).error_class == LLMErrorClass.CONTENT_REFUSED:
                 # PART 5A (I-2): the helper below halves this batch instead of repeating it.
                 raise
+            if isinstance(exc, CONTENT_ERRORS) and len(batch) > 1:
+                # Cut off at the output cap: split, so no half of the batch goes unexamined.
+                middle = len(batch) // 2
+                left = await run(batch[:middle])
+                right = await run(batch[middle:])
+                rescued.atoms.extend([*left.atoms, *right.atoms])
+                rescued.errors.extend([*left.errors, *right.errors])
+                rescued.uncovered = [*left.uncovered, *right.uncovered]
+                rescued.dropped_atoms += left.dropped_atoms + right.dropped_atoms
+                return rescued
             log.warning("skip_audit_failed", error=str(exc)[:300])
             rescued.errors.append(f"{type(exc).__name__}: {exc}"[:300])
             rescued.uncovered = [nid for nid, _ in batch]
@@ -1033,6 +1043,12 @@ async def audit_coverage(
             if classify_llm_error(exc).error_class == LLMErrorClass.CONTENT_REFUSED:
                 # PART 5A (I-2): the helper below halves this batch instead of repeating it.
                 raise
+            if isinstance(exc, CONTENT_ERRORS) and len(batch) > 1:
+                # Cut off at the output cap: split, so every paragraph still gets checked.
+                middle = len(batch) // 2
+                await run(batch[:middle])
+                await run(batch[middle:])
+                return
             log.warning("coverage_audit_failed", error=str(exc)[:300])
             report.coverage_check_failures += 1
             return

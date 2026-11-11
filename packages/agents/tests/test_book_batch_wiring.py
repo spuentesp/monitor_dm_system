@@ -182,12 +182,19 @@ async def test_a_single_unit_refusal_is_recorded_without_an_unchanged_retry():
 
 
 class _HalvingVerify:
-    """Answers fully, or refuses a too-big prompt; records every prompt's claim labels."""
+    """Answers fully, or refuses/truncates a too-big prompt; records every prompt."""
 
-    def __init__(self, refuse_above: int | None = None, omit_last: bool = False, half_first: bool = False) -> None:
+    def __init__(
+        self,
+        refuse_above: int | None = None,
+        omit_last: bool = False,
+        half_first: bool = False,
+        truncate_above: int | None = None,
+    ) -> None:
         self.refuse_above = refuse_above
         self.omit_last = omit_last
         self.half_first = half_first
+        self.truncate_above = truncate_above
         self.prompts: list[list[str]] = []
         self.prompt_texts: list[str] = []
         self.calls = 0
@@ -197,6 +204,8 @@ class _HalvingVerify:
         self.prompts.append(labels)
         self.prompt_texts.append(prompt)
         self.calls += 1
+        if self.truncate_above is not None and len(labels) > self.truncate_above:
+            raise TruncatedOutput("cut off at the cap")
         if self.refuse_above is not None and len(labels) > self.refuse_above:
             raise _refusal()
         if self.half_first and len(labels) > 1 and len(self.prompt_texts) == 1:
@@ -698,3 +707,84 @@ async def test_tallying_wrappers_pass_arguments_through_unchanged():
     model = tallying_review(_Echo(), tally)
     assert await model.verify("the prompt") == "verify-result"
     assert seen["prompt"] == "the prompt"
+
+
+# ---------------------------------------------------------------------------
+# A reply cut off at the output cap splits the batch everywhere (no loss)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+async def test_a_truncated_verification_reply_is_split_and_every_claim_is_checked():
+    claims = _claims(8)
+    model = _HalvingVerify(truncate_above=4)
+    held: list[dict[str, str]] = []
+    checks = await verify_claims(claims, model, batch_size=8, held_sink=held)
+    assert [len(prompt) for prompt in model.prompts] == [8, 4, 4]  # Split inside the run, never repeated whole.
+    assert sorted(checks) == sorted(claim.id for claim in claims)
+    assert held == []
+
+
+class _TruncatingAudit(_RefusingReview):
+    """The second look is cut off above a size, then answers the smaller halves."""
+
+    def __init__(self, truncate_above: int) -> None:
+        super().__init__()
+        self.truncate_above = truncate_above
+        self.sizes: list[int] = []
+
+    async def audit_skips(self, prompt: str) -> SkipAudit:
+        labels = re.findall(r"\[S\d+\]", prompt)
+        self.sizes.append(len(labels))
+        if len(labels) > self.truncate_above:
+            raise TruncatedOutput("cut off at the cap")
+        return SkipAudit()
+
+
+@pytest.mark.unit
+async def test_a_truncated_skip_audit_splits_and_every_sentence_is_rechecked():
+    tree = _tree(["a", "b", "c", "d"])
+    outcome = WindowOutcome(window_id="w", skipped={f"s{i}": "flavor" for i in range(4)})
+    model = _TruncatingAudit(truncate_above=2)
+    outcomes = await audit_skipped_units(tree, [outcome], model, batch_size=4)
+    assert model.sizes == [4, 2, 2]
+    assert [nid for item in outcomes for nid in item.uncovered] == []
+
+
+class _TruncatingGaps(_RefusingReview):
+    """The gap check is cut off above one paragraph, then answers singles."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sizes: list[int] = []
+
+    async def find_gaps(self, prompt: str) -> CoverageAudit:
+        labels = re.findall(r"\[P\d+\]", prompt)
+        self.sizes.append(len(labels))
+        if len(labels) > 1:
+            raise TruncatedOutput("cut off at the cap")
+        return CoverageAudit()
+
+
+@pytest.mark.unit
+async def test_a_truncated_coverage_reply_splits_and_every_paragraph_is_checked():
+    tree = _tree([f"Paragraph {i} holds a rule." for i in range(4)])
+    working = {}
+    for i in range(4):
+        statement = f"Paragraph {i} holds a rule."
+        claim = Claim(
+            id=f"c{i}",
+            atom=ExtractedAtom(kind=AtomKind.RULE, statement=statement, cites=["S1"]),
+            source_node_ids=(f"s{i}",),
+            page=i,
+            source_text=statement,
+            from_example_passage=False,
+            paragraph_ids=(f"p{i}",),
+        )
+        working[f"c{i}"] = _Working(claim, statement, ClaimStatus.ACCEPTED)
+    report = ReviewReport()
+    model = _TruncatingGaps()
+    await audit_coverage(tree, working, model, report, batch_size=4)
+    assert model.sizes == [4, 2, 1, 1, 2, 1, 1]
+    assert report.coverage_check_failures == 0
+    assert model.sizes.count(1) == 4  # Each of the four paragraphs got its own successful check.
