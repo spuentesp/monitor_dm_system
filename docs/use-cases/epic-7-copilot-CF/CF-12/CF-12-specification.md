@@ -1,6 +1,6 @@
 # CF-12: Generate Campaign (Story-Arc) Recap
 
-**Status:** proposed (gap G05, plan `docs/architecture/gm-assistant-gap-plans/G05-campaign-recap-CF-12.md`)
+**Status:** done — implemented 2026-11-11 (gap G05, plan `docs/architecture/gm-assistant-gap-plans/G05-campaign-recap-CF-12.md`)
 
 **Actor:** Human GM
 **Trigger:** Story page "Campaign So Far" section / Prep panel, or automatically at session wrap-up
@@ -59,5 +59,17 @@ mongodb_get_arc_recap(story_id)                # persisted read
 GET  /api/stories/{story_id}/arc-recap   # persisted read, never regenerates
 POST /api/stories/{story_id}/arc-recap   # generate/refresh (body: {"detail": ...})
 ```
+
+**Layer 3 (UI frontend):**
+- `storiesApi.getArcRecap` / `storiesApi.refreshArcRecap` in `packages/ui/frontend/src/lib/api.ts`;
+  `ArcRecap` / `ArcRecapDetail` types in `lib/types.ts`; `campaign_summary` added to the
+  `Handout` type union (CF-6 reuse).
+- `ArcRecapSection` (`components/ArcRecapSection.tsx`) — "Campaign so far" panel: persisted
+  read (404 = none yet → "Generate"), length selector (short/standard/detailed) + refresh
+  button, markdown body, persisted badge with scene count + `generated_at`.
+  Rendered on the story detail (`components/worlds/UniverseTree.tsx` → `StoryDetail`) and as
+  a collapsible in the CF-7 prep briefing (`components/gm/PrepToTablePanel.tsx`).
+- Tests: `components/ArcRecapSection.test.tsx` (vitest) + prep-panel integration in
+  `components/gm/PrepToTablePanel.test.tsx`.
 
 ---

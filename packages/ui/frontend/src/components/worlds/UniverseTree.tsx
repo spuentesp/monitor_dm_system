@@ -36,6 +36,7 @@ import type {
 } from "@/lib/types";
 import { cn, formatRelativeTime, truncate } from "@/lib/utils";
 import { errorMessage } from "@/lib/errors";
+import { ArcRecapSection } from "@/components/ArcRecapSection";
 import { repairWorldSelection, useOptionalWorldContext } from "@/lib/world-context";
 
 /** Template visibility filter for universe rows (F3-3 phase 6). */
@@ -696,6 +697,9 @@ function StoryDetail({
           </div>
         )}
       </div>
+
+      {/* CF-12 — campaign-level (story-arc) recap */}
+      <ArcRecapSection storyId={story.id} />
 
       {/* Scene timeline */}
       <div className="space-y-2">

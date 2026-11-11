@@ -66,7 +66,7 @@ See the [documentation map](./_index.md) for core objectives (O1-O5) and epics (
 | **Epic 4** — Autonomous GM | P-1 to P-21 | [epic-4-autonomous-gm-P/](use-cases/epic-4-autonomous-gm-P/) |
 | **Epic 5** — Rules | RS-1 to RS-8 | [epic-5-rules-RS/](use-cases/epic-5-rules-RS/) |
 | **Epic 6** — Timeline Query | Q-1 to Q-11 | [epic-6-timeline-Q/](use-cases/epic-6-timeline-Q/) |
-| **Epic 7** — Co-Pilot | CF-1 to CF-15 (CF-9…CF-15 proposed) | [epic-7-copilot-CF/](use-cases/epic-7-copilot-CF/) |
+| **Epic 7** — Co-Pilot | CF-1 to CF-15 (CF-12 done; CF-9…CF-11, CF-13…CF-15 proposed) | [epic-7-copilot-CF/](use-cases/epic-7-copilot-CF/) |
 | **Epic 8** — Planning Story | ST-1 to ST-7 | [epic-8-planning-ST/](use-cases/epic-8-planning-ST/) |
 | **Epic 9** — Docs | DOC-1 | [epic-9-docs-DOC/](use-cases/epic-9-docs-DOC/) |
 | **Epic 10** — Packs | MP-1 to MP-9 | [epic-10-packs-MP/](use-cases/epic-10-packs-MP/) |
@@ -103,7 +103,7 @@ implementing change as `status: proposed`.
 | CF-9 | Combat / initiative / HP tracker at the table | [G01](architecture/gm-assistant-gap-plans/G01-combat-tracker-CF-9.md) |
 | CF-10 | Audio capture and transcription | [G02](architecture/gm-assistant-gap-plans/G02-audio-capture-CF-10.md) |
 | CF-11 | World clock and deadline triggering | [G04](architecture/gm-assistant-gap-plans/G04-world-clock-CF-11.md) |
-| CF-12 | Campaign-level arc recap | [G05](architecture/gm-assistant-gap-plans/G05-campaign-recap-CF-12.md) |
+| CF-12 | Campaign-level arc recap — **done** ([spec](use-cases/epic-7-copilot-CF/CF-12/CF-12-specification.md)) | [G05](architecture/gm-assistant-gap-plans/G05-campaign-recap-CF-12.md) |
 | CF-13 | Encounter difficulty estimation | [G06](architecture/gm-assistant-gap-plans/G06-encounter-balancing-CF-13.md) |
 | CF-14 | Player-facing share links and export | [G07](architecture/gm-assistant-gap-plans/G07-player-facing-sharing-CF-14.md) |
 | CF-15 | Per-character knowledge inspector | [G09](architecture/gm-assistant-gap-plans/G09-memory-inspector-CF-15.md) |

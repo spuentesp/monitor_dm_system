@@ -1289,6 +1289,21 @@ export interface SceneTurn {
   timestamp?: string | null;
 }
 
+// CF-12 — campaign-level (story-arc) recap, persisted per story.
+export type ArcRecapDetail = "short" | "standard" | "detailed";
+
+export interface ArcRecap {
+  story_id: string;
+  universe_id: string | null;
+  recap: string;
+  detail: ArcRecapDetail;
+  scene_count: number;
+  scenes_watermark: string;
+  last_scene_id: string | null;
+  generated_at: string;
+  persisted: boolean;
+}
+
 export interface StoryThread {
   id?: string | null;
   title: string;
@@ -1461,7 +1476,7 @@ export interface WrapUpDigest {
 export interface Handout {
   title: string;
   content: string;
-  handout_type: "letter" | "map_note" | "prophecy" | "journal_entry" | "notice" | "rumor";
+  handout_type: "letter" | "map_note" | "prophecy" | "journal_entry" | "notice" | "rumor" | "campaign_summary";
   related_entities: string[];
   tone: "mysterious" | "urgent" | "warm" | "ominous" | "neutral";
   spoiler_level: "safe" | "partial" | "full";

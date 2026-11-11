@@ -6,7 +6,7 @@ title: "Generate Campaign (Story-Arc) Recap"
 category: "cf"
 epic: 7
 priority: "medium"
-status: "proposed"
+status: "done"
 
 summary: |
   Generate and persist a story-arc recap across all scenes of a story —
@@ -32,11 +32,22 @@ implementation:
     create:
       - "packages/data-layer/src/monitor_data/schemas/arc_recaps.py"
       - "docs/use-cases/epic-7-copilot-CF/CF-12/CF-12-specification.md"
+      - "packages/ui/frontend/src/components/ArcRecapSection.tsx"
+      - "packages/ui/frontend/src/components/ArcRecapSection.test.tsx"
     modify:
       - "packages/data-layer/src/monitor_data/tools/mongodb_tools/stories.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
       - "packages/agents/src/monitor_agents/recap/agent.py"
       - "packages/agents/src/monitor_agents/recap/recap.py"
+      - "packages/agents/src/monitor_agents/utils/db_readers.py"
+      - "packages/agents/src/monitor_agents/plot_hooks.py"
       - "packages/ui/backend/src/monitor_ui/routers/stories.py"
+      - "packages/ui/backend/src/monitor_ui/routers/chat.py"
+      - "packages/ui/backend/src/monitor_ui/routers/gm_tools.py"
+      - "packages/ui/frontend/src/lib/api.ts"
+      - "packages/ui/frontend/src/lib/types.ts"
+      - "packages/ui/frontend/src/components/worlds/UniverseTree.tsx"
+      - "packages/ui/frontend/src/components/gm/PrepToTablePanel.tsx"
   patterns:
     - "map-reduce over per-scene summaries (chunked) to stay within context limits"
     - "one MongoDB arc_recaps doc per story, upserted (idempotent persistence)"
