@@ -819,6 +819,19 @@ async def wrap_up_session(session_id: str, principal: Principal = Depends(get_cu
     session["updated_at"] = now
     _db_save_session(session)
 
+    # CF-12: auto-refresh the campaign-level arc recap on session wrap-up
+    # (best-effort — a failure here must not fail the wrap-up).
+    if story_id and universe_id:
+        try:
+            from monitor_agents.recap.agent import RecapAgent
+
+            await RecapAgent().generate_arc_recap(
+                story_id=uuid.UUID(story_id),
+                universe_id=uuid.UUID(universe_id),
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in wrap_up_session)
+            logger.warning("Wrap-up arc recap refresh failed (session=%s): %s", session_id, exc)
+
     return WrapUpDigest(
         recap=recap_text,
         accepted=accepted,

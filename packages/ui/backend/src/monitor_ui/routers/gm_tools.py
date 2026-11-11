@@ -233,9 +233,13 @@ class GenerateHandoutRequest(BaseModel):
     universe_id: UUID
     handout_type: str = Field(
         default="letter",
-        description="Type: letter, map_note, prophecy, journal_entry, notice, rumor",
+        description="Type: letter, map_note, prophecy, journal_entry, notice, rumor, campaign_summary",
     )
     focus_entity_id: UUID | None = None
+    story_id: UUID | None = Field(
+        None,
+        description="Story for campaign_summary handouts (CF-12 arc recap source); defaults to the universe's latest story",
+    )
     tone: str = Field(
         default="mysterious",
         description="Tone: mysterious, urgent, warm, ominous, neutral",
@@ -383,6 +387,7 @@ async def generate_handout(
             focus_entity_id=req.focus_entity_id,
             tone=req.tone,
             spoiler_level=req.spoiler_level,
+            story_id=req.story_id,
         )
         return GenerateHandoutResponse(handout=handout)
     except Exception as exc:

@@ -94,6 +94,32 @@ describe("PrepToTablePanel (CF-7)", () => {
     expect(screen.getByText("Not staged: p-2: store down")).toBeInTheDocument();
   });
 
+  it("shows the CF-12 'Campaign so far' collapsible for the selected story", async () => {
+    vi.spyOn(storiesApi, "getArcRecap").mockResolvedValue({
+      story_id: "story-1",
+      universe_id: "u-1",
+      recap: "## Major Arcs\n\nThe party fled Ironwatch.",
+      detail: "standard",
+      scene_count: 3,
+      scenes_watermark: "wm-3",
+      last_scene_id: "scene-3",
+      generated_at: "2026-11-11T10:00:00Z",
+      persisted: true,
+    });
+    const refreshSpy = vi.spyOn(storiesApi, "refreshArcRecap");
+    const user = userEvent.setup();
+    renderPanel("u-1");
+
+    // Collapsed by default in the prep panel; persisted read only, no POST.
+    const toggle = await screen.findByTestId("arc-recap-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+
+    expect(await screen.findByTestId("arc-recap-body")).toHaveTextContent("The party fled Ironwatch.");
+    expect(refreshSpy).not.toHaveBeenCalled();
+    expect(screen.getByTestId("arc-recap-persisted-badge")).toHaveTextContent("3 scenes");
+  });
+
   it("loads a previously saved bundle for tonight", async () => {
     vi.spyOn(gmTableApi, "getPrep").mockResolvedValue({
       found: true,

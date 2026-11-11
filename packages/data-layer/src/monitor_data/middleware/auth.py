@@ -289,6 +289,12 @@ AUTHORITY_MATRIX = {
     "mongodb_append_story_ledger_entry": ["story", "CanonKeeper"],
     "mongodb_list_story_ledger_entries": ["*"],
     # =========================================================================
+    # MONGODB OPERATIONS - Arc Recaps (CF-12)
+    # =========================================================================
+    # The RecapAgent writes the per-story arc recap; reads stay open.
+    "mongodb_save_arc_recap": ["RecapAgent", "CanonKeeper"],
+    "mongodb_get_arc_recap": ["*"],
+    # =========================================================================
     # QDRANT OPERATIONS - Vectors (DL-10)
     # =========================================================================
     "qdrant_upsert": ["Indexer"],

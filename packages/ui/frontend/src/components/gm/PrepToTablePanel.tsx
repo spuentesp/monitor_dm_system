@@ -22,6 +22,7 @@ import type {
   PrepThreadItem,
 } from "@/lib/gm-table-types";
 import { cn } from "@/lib/utils";
+import { ArcRecapSection } from "@/components/ArcRecapSection";
 
 type ReviewNpc = PrepNpcItem & { included: boolean };
 type ReviewLocation = PrepLocationItem & { included: boolean };
@@ -207,6 +208,9 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+        {/* CF-12 — "campaign so far" collapsible for the selected story */}
+        <ArcRecapSection storyId={storyId || null} collapsible defaultOpen={false} />
+
         {/* Notes */}
         <section className="space-y-1.5">
           <div className="flex items-center gap-2">

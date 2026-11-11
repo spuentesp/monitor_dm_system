@@ -76,6 +76,8 @@ import type {
   StoryThread,
   SceneSummary,
   SceneTurn,
+  ArcRecap,
+  ArcRecapDetail,
   PlotHook,
   Contradiction,
   CaptureInsight,
@@ -1524,6 +1526,13 @@ export const storiesApi = {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
+  // CF-12 — campaign-level (story-arc) recap.
+  getArcRecap: (storyId: string) => req<ArcRecap>(`/stories/${storyId}/arc-recap`),
+  refreshArcRecap: (storyId: string, detail: ArcRecapDetail = "standard") =>
+    req<ArcRecap>(`/stories/${storyId}/arc-recap`, {
+      method: "POST",
+      body: JSON.stringify({ detail }),
+    }),
 };
 
 // ─── GM Assistant (CF-4, CF-5, CF-6, CF-7) ──────────────────
@@ -1654,7 +1663,7 @@ export const gmApi = {
 
   generateHandout: (
     universeId: string,
-    options?: { handout_type?: string; focus_entity_id?: string; tone?: string; spoiler_level?: string },
+    options?: { handout_type?: string; focus_entity_id?: string; tone?: string; spoiler_level?: string; story_id?: string },
   ) =>
     req<{ handout: Handout }>("/gm/handouts", {
       method: "POST",
@@ -1664,6 +1673,7 @@ export const gmApi = {
         focus_entity_id: options?.focus_entity_id,
         tone: options?.tone ?? "mysterious",
         spoiler_level: options?.spoiler_level ?? "safe",
+        story_id: options?.story_id,
       }),
     }),
 

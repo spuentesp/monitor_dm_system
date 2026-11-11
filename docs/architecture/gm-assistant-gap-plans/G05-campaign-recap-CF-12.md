@@ -1,6 +1,8 @@
 # G05 — Campaign-level (story-arc) recap (proposed CF-12)
 
-> **Status:** proposed 2026-11-11. Gap: recap exists only per chat session
+> **Status:** implemented 2026-11-11 as **CF-12** (backend + agents + frontend +
+> tests; spec `docs/use-cases/epic-7-copilot-CF/CF-12/CF-12-specification.md`).
+> Originally proposed 2026-11-11. Gap: recap exists only per chat session
 > (`GET /chat/{id}/recap`, persisted). `stories.py` exposes scenes/threads
 > but no arc-level summary — after a long campaign there is no "where are
 > we" document, even though the CF-2 spec describes a full-story mode.

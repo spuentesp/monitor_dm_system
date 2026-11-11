@@ -1,0 +1,53 @@
+# CF-12: Generate Campaign (Story-Arc) Recap
+# ===========================================
+
+id: "CF-12"
+title: "Generate Campaign (Story-Arc) Recap"
+category: "cf"
+epic: 7
+priority: "medium"
+status: "done"
+
+summary: |
+  Generate and persist a story-arc recap across all scenes of a story —
+  major arcs, party journey, faction shifts, resolved vs. open threads —
+  refreshable on demand and automatically after each session wrap-up, and
+  cached so reads return the persisted artifact without regenerating
+  (same contract as CF-2's session recap).
+
+acceptance_criteria:
+  - "GET /stories/{story_id}/arc-recap returns the persisted arc recap without regenerating (persisted: true)."
+  - "POST /stories/{story_id}/arc-recap regenerates/refreshes it, covering all scenes of the story."
+  - "Recap stays consistent with canon: only accepted proposals count as canon deltas."
+  - "Refresh policy: manual refresh + auto-refresh on session wrap-up; stored with generated_at and a scene watermark."
+  - "Length controls short/standard/detailed matching CF-6 detail levels."
+  - "CF-6 handout type 'campaign_summary' reuses the persisted arc recap output."
+
+depends_on: ["CF-2"]
+blocks: ["CF-6 campaign summary handout"]
+
+implementation:
+  layer: 2
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/arc_recaps.py"
+      - "docs/use-cases/epic-7-copilot-CF/CF-12/CF-12-specification.md"
+      - "packages/ui/frontend/src/components/ArcRecapSection.tsx"
+      - "packages/ui/frontend/src/components/ArcRecapSection.test.tsx"
+    modify:
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools/stories.py"
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+      - "packages/agents/src/monitor_agents/recap/agent.py"
+      - "packages/agents/src/monitor_agents/recap/recap.py"
+      - "packages/agents/src/monitor_agents/utils/db_readers.py"
+      - "packages/agents/src/monitor_agents/plot_hooks.py"
+      - "packages/ui/backend/src/monitor_ui/routers/stories.py"
+      - "packages/ui/backend/src/monitor_ui/routers/chat.py"
+      - "packages/ui/backend/src/monitor_ui/routers/gm_tools.py"
+      - "packages/ui/frontend/src/lib/api.ts"
+      - "packages/ui/frontend/src/lib/types.ts"
+      - "packages/ui/frontend/src/components/worlds/UniverseTree.tsx"
+      - "packages/ui/frontend/src/components/gm/PrepToTablePanel.tsx"
+  patterns:
+    - "map-reduce over per-scene summaries (chunked) to stay within context limits"
+    - "one MongoDB arc_recaps doc per story, upserted (idempotent persistence)"
