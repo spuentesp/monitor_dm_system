@@ -65,13 +65,19 @@ async def _rate_limit(request: Request, settings: UISettings, token: str) -> Non
         raise HTTPException(status_code=429, detail="Too many requests")
 
 
-def _parse_character_id(character_id: str | None) -> UUID | None:
-    if character_id is None or character_id == "":
+def _parse_viewer_character(viewer_character: str | None) -> UUID | None:
+    """Parse the optional ``viewer_character`` query hint (not an ownership id).
+
+    Deliberately not named ``character_id``: that name is in ownership's
+    resolver table, and this value is a selection hint resolved against the
+    share roster server-side — never a credential.
+    """
+    if viewer_character is None or viewer_character == "":
         return None
     try:
-        return UUID(character_id)
+        return UUID(viewer_character)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid character_id format") from exc
+        raise HTTPException(status_code=400, detail="Invalid viewer_character format") from exc
 
 
 def _share_agent() -> ShareAgent:
@@ -88,7 +94,7 @@ def _not_found(exc: ShareError) -> HTTPException:
 async def share_index(
     token: str,
     request: Request,
-    character_id: str | None = Query(None, description="Viewer's selected party member"),
+    viewer_character: str | None = Query(None, description="Viewer's selected party member"),
     settings: UISettings = Depends(get_settings),
     agent: ShareAgent = Depends(_share_agent),
 ) -> PlayerView:
@@ -96,7 +102,9 @@ async def share_index(
     await _rate_limit(request, settings, token)
     try:
         share = await agent.resolve_share(token)
-        return await agent.build_player_view(share.story_id, token, character_id=_parse_character_id(character_id))
+        return await agent.build_player_view(
+            share.story_id, token, character_id=_parse_viewer_character(viewer_character)
+        )
     except ShareError as exc:
         raise _not_found(exc) from exc
 
@@ -106,7 +114,7 @@ async def _load_visible(
     artifact_id: UUID,
     *,
     expected_type: ShareArtifactType | None,
-    character_id: str | None,
+    viewer_character: str | None,
     request: Request,
     settings: UISettings,
     agent: ShareAgent,
@@ -118,7 +126,7 @@ async def _load_visible(
             share.story_id,
             token,
             artifact_id,
-            character_id=_parse_character_id(character_id),
+            character_id=_parse_viewer_character(viewer_character),
             expected_type=expected_type,
         )
     except ShareError as exc:
@@ -130,7 +138,7 @@ async def share_recap(
     token: str,
     artifact_id: UUID,
     request: Request,
-    character_id: str | None = Query(None),
+    viewer_character: str | None = Query(None),
     settings: UISettings = Depends(get_settings),
     agent: ShareAgent = Depends(_share_agent),
 ) -> SharedArtifact:
@@ -139,7 +147,7 @@ async def share_recap(
         token,
         artifact_id,
         expected_type=ShareArtifactType.RECAP,
-        character_id=character_id,
+        viewer_character=viewer_character,
         request=request,
         settings=settings,
         agent=agent,
@@ -151,7 +159,7 @@ async def share_handout(
     token: str,
     artifact_id: UUID,
     request: Request,
-    character_id: str | None = Query(None),
+    viewer_character: str | None = Query(None),
     settings: UISettings = Depends(get_settings),
     agent: ShareAgent = Depends(_share_agent),
 ) -> SharedArtifact:
@@ -160,7 +168,7 @@ async def share_handout(
         token,
         artifact_id,
         expected_type=ShareArtifactType.HANDOUT,
-        character_id=character_id,
+        viewer_character=viewer_character,
         request=request,
         settings=settings,
         agent=agent,
@@ -172,7 +180,7 @@ async def share_export_markdown(
     token: str,
     artifact_id: UUID,
     request: Request,
-    character_id: str | None = Query(None),
+    viewer_character: str | None = Query(None),
     settings: UISettings = Depends(get_settings),
     agent: ShareAgent = Depends(_share_agent),
 ) -> Response:
@@ -181,7 +189,7 @@ async def share_export_markdown(
         token,
         artifact_id,
         expected_type=None,  # export works for recaps and handouts alike
-        character_id=character_id,
+        viewer_character=viewer_character,
         request=request,
         settings=settings,
         agent=agent,

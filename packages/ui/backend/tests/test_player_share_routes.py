@@ -246,12 +246,12 @@ class TestPublicShareRoutes:
         assert r.status_code == 404
         assert "revoked" not in r.text.lower()
 
-    def test_malformed_character_id_is_400(self, client: Any, agent_state: SimpleNamespace) -> None:
+    def test_malformed_viewer_character_is_400(self, client: Any, agent_state: SimpleNamespace) -> None:
         c, _ = client
         story_id = uuid4()
         agent_state.share = _share_doc(story_id=str(story_id))
         agent_state.view = _view(story_id)
-        r = c.get("/api/share/tok", params={"character_id": "not-a-uuid"})
+        r = c.get("/api/share/tok", params={"viewer_character": "not-a-uuid"})
         assert r.status_code == 400
 
     def test_recap_route_rejects_handout_ids(self, client: Any, agent_state: SimpleNamespace) -> None:
