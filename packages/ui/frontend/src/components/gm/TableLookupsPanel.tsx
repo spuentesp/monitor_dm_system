@@ -356,6 +356,23 @@ function LastSessionLookup({ universeId }: { universeId: string }) {
               )}
             </div>
           )}
+          {/* CF-2 / CF-11: the recap's time line — how in-fiction time moved. */}
+          {result.time_line.length > 0 && (
+            <div data-testid="recap-time-line" className="glass-dark rounded-xl border border-white/5 p-2 space-y-1">
+              <h4 className="text-[9px] font-bold tracking-widest uppercase text-cyan-400">Time passed</h4>
+              {result.world_time && (
+                <p className="text-[10px] text-slate-400">World time: {result.world_time}</p>
+              )}
+              {result.time_line.map((a, i) => (
+                <p key={i} className="text-[10px] text-slate-500">
+                  • {a.delta}{" "}
+                  {a.from_at
+                    ? `(${a.from_at.slice(0, 10)} → ${a.to_at.slice(0, 10)})`
+                    : `(set ${a.to_at.slice(0, 10)})`}
+                </p>
+              ))}
+            </div>
+          )}
           {result.transcript.length > 0 && (
             <div>
               <h4 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-1">

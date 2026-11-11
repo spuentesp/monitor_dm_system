@@ -495,7 +495,12 @@ export function SessionRecorder({
         <RecapModal sessionId={activeId} onClose={() => setShowRecap(false)} />
       )}
       {showWrapUp && activeId && (
-        <WrapUpModal sessionId={activeId} onClose={() => setShowWrapUp(false)} />
+        <WrapUpModal
+          sessionId={activeId}
+          onClose={() => setShowWrapUp(false)}
+          universeId={universeId}
+          storyId={active?.story_id ?? null}
+        />
       )}
     </div>
   );

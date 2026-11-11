@@ -113,3 +113,147 @@ describe("PrepToTablePanel (CF-7)", () => {
     expect(await screen.findByText("Mira")).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// World clock (CF-11 Advance World Time)
+// ---------------------------------------------------------------------------
+
+const BASE_CLOCK = {
+  universe_id: "u-1",
+  story_id: "story-1",
+  current_at: "1012-03-04T09:00:00+00:00",
+  display: "1012-03-04T09:00:00+00:00",
+  deadlines: [
+    {
+      id: "d-ransom",
+      title: "The ransom is due",
+      due_at: "1012-03-03T00:00:00+00:00",
+      notes: "",
+      status: "overdue" as const,
+    },
+    {
+      id: "d-festival",
+      title: "Midsummer festival",
+      due_at: "1012-06-01T00:00:00+00:00",
+      notes: "",
+      status: "upcoming" as const,
+    },
+  ],
+  advances: [
+    {
+      from_at: "1012-03-01T09:00:00+00:00",
+      to_at: "1012-03-04T09:00:00+00:00",
+      delta: "+3 days",
+      advanced_at: "2026-11-10T00:00:00+00:00",
+    },
+  ],
+  offscreen_summary: "Mira struck a deal with the guild while the party rested.",
+  offscreen_summary_at: "2026-11-10T00:00:00+00:00",
+  updated_at: "1012-03-04T09:00:00+00:00",
+};
+
+const ADVANCE_RESULT = {
+  clock: { ...BASE_CLOCK, current_at: "1012-03-04T11:00:00+00:00", display: "1012-03-04T11:00:00+00:00" },
+  changed: true,
+  initialized: false,
+  crossed: [],
+  due: [BASE_CLOCK.deadlines[0]],
+  offscreen_summary: "",
+  npc_activities: [],
+  staged_proposal_ids: [],
+  staging_errors: [],
+};
+
+describe("World clock (CF-11)", () => {
+  it("shows the readout, deadlines and off-screen tick, then advances after confirmation", async () => {
+    vi.spyOn(gmTableApi, "getClock").mockResolvedValue({ found: true, clock: BASE_CLOCK });
+    const advanceSpy = vi.spyOn(gmTableApi, "advanceClock").mockResolvedValue(ADVANCE_RESULT);
+    const user = userEvent.setup();
+    renderPanel("u-1");
+
+    // CF-7 briefing content: readout, deadline statuses, off-screen tick.
+    expect(await screen.findByTestId("clock-readout")).toHaveTextContent("1012-03-04T09:00:00");
+    expect(screen.getByTestId("deadline-overdue")).toHaveTextContent("The ransom is due");
+    expect(screen.getByTestId("deadline-overdue")).toHaveTextContent("overdue");
+    expect(screen.getByTestId("deadline-upcoming")).toHaveTextContent("Midsummer festival");
+    expect(screen.getByTestId("offscreen-summary")).toHaveTextContent("Mira struck a deal with the guild");
+    expect(screen.getByText(/last advance: \+3 days/i)).toBeInTheDocument();
+
+    // Two-step confirmation: Advance → Confirm.
+    await user.type(screen.getByLabelText("Advance world time"), "+2 hours");
+    await user.click(screen.getByRole("button", { name: "Advance" }));
+    await user.click(screen.getByTestId("confirm-advance"));
+
+    await waitFor(() =>
+      expect(advanceSpy).toHaveBeenCalledWith({
+        universe_id: "u-1",
+        story_id: "story-1",
+        delta: "+2 hours",
+      }),
+    );
+    expect(await screen.findByTestId("clock-info")).toHaveTextContent("World time is now");
+  });
+
+  it("surfaces an advance error instead of failing silently", async () => {
+    vi.spyOn(gmTableApi, "getClock").mockResolvedValue({ found: false, clock: null });
+    vi.spyOn(gmTableApi, "advanceClock").mockRejectedValue(
+      new Error("No world clock yet for this story"),
+    );
+    const user = userEvent.setup();
+    renderPanel("u-1");
+
+    expect(await screen.findByText(/no clock yet/i)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Advance world time"), "+3 days");
+    await user.click(screen.getByRole("button", { name: "Advance" }));
+    await user.click(screen.getByTestId("confirm-advance"));
+
+    expect(await screen.findByTestId("clock-error")).toHaveTextContent(
+      "No world clock yet for this story",
+    );
+  });
+
+  it("sends an absolute first set as target_time", async () => {
+    vi.spyOn(gmTableApi, "getClock").mockResolvedValue({ found: false, clock: null });
+    const advanceSpy = vi.spyOn(gmTableApi, "advanceClock").mockResolvedValue({
+      ...ADVANCE_RESULT,
+      initialized: true,
+    });
+    const user = userEvent.setup();
+    renderPanel("u-1");
+
+    expect(await screen.findByText(/no clock yet/i)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Advance world time"), "1012-03-01T09:00");
+    await user.click(screen.getByRole("button", { name: "Advance" }));
+    await user.click(screen.getByTestId("confirm-advance"));
+
+    await waitFor(() =>
+      expect(advanceSpy).toHaveBeenCalledWith({
+        universe_id: "u-1",
+        story_id: "story-1",
+        target_time: "1012-03-01T09:00",
+      }),
+    );
+  });
+
+  it("creates a deadline once the clock exists", async () => {
+    vi.spyOn(gmTableApi, "getClock").mockResolvedValue({ found: true, clock: BASE_CLOCK });
+    const deadlineSpy = vi.spyOn(gmTableApi, "upsertDeadline").mockResolvedValue(BASE_CLOCK);
+    const user = userEvent.setup();
+    renderPanel("u-1");
+
+    expect(await screen.findByTestId("clock-readout")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Deadline title"), "The ransom is due");
+    await user.type(screen.getByLabelText("Deadline due"), "1012-03-03");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() =>
+      expect(deadlineSpy).toHaveBeenCalledWith({
+        universe_id: "u-1",
+        story_id: "story-1",
+        title: "The ransom is due",
+        due_at: "1012-03-03",
+      }),
+    );
+    expect(await screen.findByText(/deadline saved/i)).toBeInTheDocument();
+  });
+});

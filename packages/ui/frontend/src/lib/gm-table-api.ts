@@ -4,6 +4,8 @@
 
 import { req } from "@/lib/api";
 import type {
+  ClockAdvanceResponse,
+  ClockGetResponse,
   ImproviseResponse,
   LastSessionResponse,
   NpcDossierResponse,
@@ -16,6 +18,7 @@ import type {
   PrepThreadItem,
   RulesAnswer,
   SessionLogProposeResponse,
+  WorldClock,
 } from "./gm-table-types";
 
 export const gmTableApi = {
@@ -102,4 +105,28 @@ export const gmTableApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  /** CF-11 — the story's world clock briefing (prep panel / wrap-up). */
+  getClock: (universeId: string, storyId: string | null | undefined) =>
+    req<ClockGetResponse>(`/gm/clock/${storyId ?? ""}`, {
+      query: { universe_id: universeId },
+    }),
+
+  /** CF-11 — advance in-fiction time (relative delta or absolute target). */
+  advanceClock: (body: {
+    universe_id: string;
+    story_id: string;
+    delta?: string;
+    target_time?: string;
+  }) => req<ClockAdvanceResponse>("/gm/clock/advance", { method: "POST", body: JSON.stringify(body) }),
+
+  /** CF-11 — attach a deadline to the world clock (surfaces as due/overdue). */
+  upsertDeadline: (body: {
+    universe_id: string;
+    story_id: string;
+    title: string;
+    due_at: string;
+    notes?: string;
+    deadline_id?: string | null;
+  }) => req<WorldClock>("/gm/clock/deadline", { method: "POST", body: JSON.stringify(body) }),
 };
