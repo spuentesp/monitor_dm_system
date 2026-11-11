@@ -158,7 +158,10 @@ async def test_whole_book_ends_in_a_stored_review_ready_pack(mongo):
 
 
 @pytest.mark.unit
-async def test_a_paused_extraction_resumes_without_repeating_work(mongo):
+async def test_a_paused_extraction_resumes_without_repeating_work(mongo, monkeypatch):
+    # One window per section, so pausing mid-book is possible at all (task 5 packs
+    # these five short sections into a single window at the default budget).
+    monkeypatch.setenv("MONITOR_BOOK_WINDOW_WORDS", "5")
     doc, job = uuid.uuid4(), uuid.uuid4()
     first = _Extractor(stop_after=1)
     paused = await _run(_pdf(5), doc, job, first, _Review())
