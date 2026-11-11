@@ -244,7 +244,7 @@ async def decompose_book(
             except RunStopped as exc:
                 progress.pause_reason = str(exc)
                 publish()
-                return result(DecomposeStatus.PAUSED)
+                return result(DecomposeStatus.PAUSED, held=held)
             save_graphs(key, graphs, domains)
         decisions = load_decisions(key)
         claims = [*review.claims, *accepted_claims(review.ledger, decisions, tree)]

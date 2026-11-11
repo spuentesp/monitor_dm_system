@@ -133,7 +133,10 @@ def test_two_workers_cannot_share_a_document_on_real_mongodb(mongo):
 
 @needs_mongo
 @pytest.mark.integration
-async def test_a_paused_book_resumes_and_makes_one_pack_on_real_mongodb(mongo):
+async def test_a_paused_book_resumes_and_makes_one_pack_on_real_mongodb(mongo, monkeypatch):
+    # One window per section, so pausing mid-book is possible (task 5 packs these
+    # five short sections into a single window at the default budget).
+    monkeypatch.setenv("MONITOR_BOOK_WINDOW_WORDS", "5")
     doc, job = uuid.uuid4(), uuid.uuid4()
 
     async def run(extractor, guard):

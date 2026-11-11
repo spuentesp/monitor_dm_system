@@ -78,7 +78,7 @@ class DecompositionSettings:
     window_break: str = BREAK_BUDGET  # OLD "headings". Where a new window starts.
     extract_max_tokens: int = 32768  # OLD 16384. Output cap; a window that hits it is split.
     # Review batches (tasks 6, 8).
-    review_batch: int = 64  # OLD 12. Claims per verification call; the brief asks for 60-80.
+    review_batch: int = 70  # OLD 12. Claims per verification call; the brief asks for 60-80.
     graph_batch: int = 150  # OLD 30. Claims per graph call (task 7).
     coverage_batch: int = 25  # OLD 8. Paragraphs per coverage call.
     coverage_sample: float = 0.10  # OLD 1.0. Share of audited paragraphs actually checked (task 8).

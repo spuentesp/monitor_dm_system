@@ -111,7 +111,7 @@ def test_old_defaults_estimate_more_calls_than_the_new_ones():
     new = estimate_calls(tree, settings=DecompositionSettings(), graph_enabled=False, coverage_enabled=False)
     old = estimate_calls(tree, settings=OLD, graph_enabled=False, coverage_enabled=False)
     assert old.verification == 9  # ceil(100 claims / 12 per call, the old batch.
-    assert new.verification == 2  # ceil(100 claims / 64 per call, the new default.
+    assert new.verification == 2  # ceil(100 claims / 70 per call, the new default.
     assert old.total > new.total
 
 
