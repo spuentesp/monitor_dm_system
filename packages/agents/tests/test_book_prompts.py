@@ -19,8 +19,7 @@ def _signatures_in(package) -> dict[str, type[dspy.Signature]]:
     """Every module-level dspy.Signature subclass reachable from `package`."""
     found: dict[str, type[dspy.Signature]] = {}
     modules = [package] + [
-        importlib.import_module(info.name)
-        for info in pkgutil.walk_packages(package.__path__, package.__name__ + ".")
+        importlib.import_module(info.name) for info in pkgutil.walk_packages(package.__path__, package.__name__ + ".")
     ]
     for module in modules:
         for name, obj in vars(module).items():
