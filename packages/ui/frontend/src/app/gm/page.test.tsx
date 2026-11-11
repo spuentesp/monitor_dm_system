@@ -322,6 +322,7 @@ describe("Handouts publish to share link (CF-14)", () => {
       JSON.stringify([
         "prep-table",
         "lookups",
+        "combat",
         "session-log",
         "ask-world",
         "hooks",
