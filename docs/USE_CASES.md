@@ -36,7 +36,7 @@ See the [documentation map](./_index.md) for core objectives (O1-O5) and epics (
 | **IDENTITY**   | `M-31` etc.       | Identity and persona management | [epic-3-identity-M/](use-cases/epic-3-identity-M/) |
 | **VERSIONS**  | _no UC id_        | Character Versions — per-universe incarnations (no cross-incarnation leak); see [CHARACTER_VERSIONS.md](use-cases/epic-3-identity-M/M-31/CHARACTER_VERSIONS.md) | — |
 | **SYSTEM**     | `SYS-1` to `SYS-12` | App lifecycle, config, session | [epic-11-system-SYS/](use-cases/epic-11-system-SYS/) |
-| **CO-PILOT**   | `CF-1` to `CF-8`  | Human GM assistant features | [epic-7-copilot-CF/](use-cases/epic-7-copilot-CF/) |
+| **CO-PILOT**   | `CF-1` to `CF-15` | Human GM assistant features | [epic-7-copilot-CF/](use-cases/epic-7-copilot-CF/) |
 | **STORY**      | `ST-1` to `ST-7`  | Planning & meta-narrative tools | [epic-8-planning-ST/](use-cases/epic-8-planning-ST/) |
 | **RULES**      | `RS-1` to `RS-8`  | Game system definition — stats, skills, mechanics | [epic-5-rules-RS/](use-cases/epic-5-rules-RS/) |
 | **PACKS**      | `MP-1` to `MP-9`  | Multiverse Packs — compose, apply, share worlds | [epic-10-packs-MP/](use-cases/epic-10-packs-MP/) |
@@ -66,7 +66,7 @@ See the [documentation map](./_index.md) for core objectives (O1-O5) and epics (
 | **Epic 4** — Autonomous GM | P-1 to P-21 | [epic-4-autonomous-gm-P/](use-cases/epic-4-autonomous-gm-P/) |
 | **Epic 5** — Rules | RS-1 to RS-8 | [epic-5-rules-RS/](use-cases/epic-5-rules-RS/) |
 | **Epic 6** — Timeline Query | Q-1 to Q-11 | [epic-6-timeline-Q/](use-cases/epic-6-timeline-Q/) |
-| **Epic 7** — Co-Pilot | CF-1 to CF-8 | [epic-7-copilot-CF/](use-cases/epic-7-copilot-CF/) |
+| **Epic 7** — Co-Pilot | CF-1 to CF-15 (CF-9…CF-15 proposed) | [epic-7-copilot-CF/](use-cases/epic-7-copilot-CF/) |
 | **Epic 8** — Planning Story | ST-1 to ST-7 | [epic-8-planning-ST/](use-cases/epic-8-planning-ST/) |
 | **Epic 9** — Docs | DOC-1 | [epic-9-docs-DOC/](use-cases/epic-9-docs-DOC/) |
 | **Epic 10** — Packs | MP-1 to MP-9 | [epic-10-packs-MP/](use-cases/epic-10-packs-MP/) |
@@ -91,3 +91,19 @@ Design spec: `docs/superpowers/specs/2026-07-31-ui-two-tier-hub-design.md`.
 End-to-end coverage: `tests/e2e/test_05_lobby_lightrp_image.py` (gated;
 `RUN_INTEGRATION=1 RUN_E2E=1`). Future use cases recorded in the spec (light-RP
 chats feeding world data, memory inspector) are intentionally not implemented.
+
+## Proposed Co-Pilot use cases (CF-9 … CF-15)
+
+Status: **proposed** — each links to its gap plan in
+`docs/architecture/gm-assistant-gap-plans/`. Spec files are created by the
+implementing change as `status: proposed`.
+
+| ID | Title | Plan |
+|----|-------|------|
+| CF-9 | Combat / initiative / HP tracker at the table | [G01](architecture/gm-assistant-gap-plans/G01-combat-tracker-CF-9.md) |
+| CF-10 | Audio capture and transcription | [G02](architecture/gm-assistant-gap-plans/G02-audio-capture-CF-10.md) |
+| CF-11 | World clock and deadline triggering | [G04](architecture/gm-assistant-gap-plans/G04-world-clock-CF-11.md) |
+| CF-12 | Campaign-level arc recap | [G05](architecture/gm-assistant-gap-plans/G05-campaign-recap-CF-12.md) |
+| CF-13 | Encounter difficulty estimation | [G06](architecture/gm-assistant-gap-plans/G06-encounter-balancing-CF-13.md) |
+| CF-14 | Player-facing share links and export | [G07](architecture/gm-assistant-gap-plans/G07-player-facing-sharing-CF-14.md) |
+| CF-15 | Per-character knowledge inspector | [G09](architecture/gm-assistant-gap-plans/G09-memory-inspector-CF-15.md) |
