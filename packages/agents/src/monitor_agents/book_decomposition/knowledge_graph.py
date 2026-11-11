@@ -19,10 +19,13 @@ import structlog
 from monitor_data.schemas.book_graph import BookTree, ReviewedClaim
 from pydantic import BaseModel, Field
 
-from monitor_agents.book_prompts import apply_fiction_preamble
-from monitor_agents.book_decomposition.extractor import run_metered
+from monitor_agents.book_batching import run_batch_with_refusal_split
+from monitor_agents.book_decomposition.extractor import CONTENT_ERRORS, run_metered
 from monitor_agents.book_decomposition.pacing import RunGuard, RunStopped
 from monitor_agents.book_decomposition.review import _heading_path, _nearest_headings
+from monitor_agents.book_decomposition.settings import DecompositionSettings
+from monitor_agents.book_prompts import apply_fiction_preamble
+from monitor_agents.llm_errors import LLMErrorClass, classify_llm_error
 
 log = structlog.get_logger()
 
@@ -35,7 +38,6 @@ LORE_PREDICATES = frozenset(
     "serves depends_on known_for".split()
 )
 UNLISTED_PREDICATE = "related_to"
-DEFAULT_GRAPH_BATCH = 30
 _MAX_MERGE_GROUP = 6
 
 GRAPH_INSTRUCTIONS = f"""Build two knowledge graphs from these claims from a tabletop RPG book.
@@ -379,39 +381,65 @@ async def build_graphs(
     model: GraphModel,
     store: GraphStore,
     *,
-    batch_size: int = DEFAULT_GRAPH_BATCH,
+    batch_size: int | None = None,
     concurrency: int = 4,
+    held_sink: list[dict[str, str]] | None = None,
 ) -> tuple[dict[str, KnowledgeGraph], dict[str, str]]:
-    """Build the rules and lore graphs, and each claim's domain. Failed batches are counted."""
+    """Build the rules and lore graphs, and each claim's domain. Failed batches are counted.
+
+    A refused batch halves through `run_batch_with_refusal_split` and each half is
+    retried once; a batch cut off at the output cap splits the same way inside
+    `run`. Claims that still fail are counted as failed, and anything the helper
+    holds lands in `held_sink` with its id and reason.
+    """
+    if batch_size is None:
+        batch_size = DecompositionSettings.from_env().graph_batch
     batches = [claims[i : i + batch_size] for i in range(0, len(claims), batch_size)]
     saved = store.read()
     semaphore = asyncio.Semaphore(concurrency)
     failed = [0]
 
-    async def one(batch: Sequence[ReviewedClaim]) -> tuple[Sequence[ReviewedClaim], GraphBatch] | None:
+    async def run(batch: Sequence[ReviewedClaim]) -> list[tuple[Sequence[ReviewedClaim], GraphBatch]]:
+        """One entry per successful (sub-)batch: the claims its labels refer to, and the answer."""
         body = format_claims(batch)
         key = hashlib.sha256(body.encode()).hexdigest()[:16]
         if key in saved:
-            return batch, saved[key]
+            return [(batch, saved[key])]
         try:
             async with semaphore:
                 answer = await model.propose(body)
         except RunStopped:
             raise
         except Exception as exc:  # noqa: BLE001  # reason: counted in the report; a rerun retries the batch
+            if classify_llm_error(exc).error_class == LLMErrorClass.CONTENT_REFUSED:
+                # PART 5A (I-2): the helper halves this batch instead of repeating it.
+                raise
+            if isinstance(exc, CONTENT_ERRORS) and len(batch) > 1:
+                # Cut off or unparseable: split, so no half of the batch is dropped.
+                middle = len(batch) // 2
+                return [*(await run(batch[:middle])), *(await run(batch[middle:]))]
             log.warning("graph_batch_failed", error=f"{type(exc).__name__}: {exc}"[:300])
             failed[0] += 1
-            return None
+            return []
         store.append(key, answer)
-        return batch, answer
+        return [(batch, answer)]
 
-    results = await asyncio.gather(*(one(batch) for batch in batches), return_exceptions=True)
-    answers = []
-    for result in results:
-        if isinstance(result, BaseException):
-            raise result
-        if result is not None:
-            answers.append(result)
+    gathered = await asyncio.gather(
+        *(run_batch_with_refusal_split(batch, run, id_of=lambda claim: claim.id) for batch in batches),
+        return_exceptions=True,
+    )
+    answers: list[tuple[Sequence[ReviewedClaim], GraphBatch]] = []
+    for outcome in gathered:
+        if isinstance(outcome, BaseException):
+            raise outcome
+        for group in outcome.results:
+            answers.extend(group)
+        if outcome.held:
+            failed[0] += 1
+            for held in outcome.held:
+                if held_sink is not None:
+                    held_sink.append({"section_path": held.id, "stage": "graph", "reason": held.reason})
+                log.warning("graph_batch_held", claim_id=held.id, reason=held.reason)
     graphs: dict[str, KnowledgeGraph] = {}
     for domain in ("rules", "lore"):
         report = GraphReport(claims=len(claims), batches=len(batches), batches_failed=failed[0])
