@@ -311,6 +311,14 @@ AUTHORITY_MATRIX = {
     "mongodb_remove_combat_participant": ["Resolver", "CanonKeeper"],
     "mongodb_add_combat_log_entry": ["Resolver", "CanonKeeper"],
     "mongodb_set_combat_outcome": ["Resolver", "CanonKeeper"],
+    # Session combat tracker (CF-9) — ephemeral table state; only the
+    # human-GM surface's CombatAgent mutates it. Reads stay open.
+    "mongodb_combat_start": ["CombatAgent"],
+    "mongodb_combat_get": ["*"],
+    "mongodb_combat_update_combatant": ["CombatAgent"],
+    "mongodb_combat_set_initiative": ["CombatAgent"],
+    "mongodb_combat_next_round": ["CombatAgent"],
+    "mongodb_combat_end": ["CombatAgent"],
     # =========================================================================
     # MONGODB OPERATIONS - Resolutions (DL-24)
     # =========================================================================

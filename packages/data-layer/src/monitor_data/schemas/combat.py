@@ -227,3 +227,140 @@ class CombatListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# =============================================================================
+# SESSION COMBAT TRACKER (CF-9 — ephemeral at-the-table state)
+# =============================================================================
+# Combat state for a live table encounter is ephemeral session state: it lives
+# in MongoDB keyed by ``(universe_id, session_id)`` and is never written to
+# Neo4j. Permanent world effects (deaths, faction shifts) leave the encounter
+# only as ProposedChange items staged for CanonKeeper (CF-8 path).
+
+
+class CombatantState(BaseModel):
+    """One combatant in the session tracker."""
+
+    id: UUID = Field(description="Combatant id within the encounter (not the canon entity id)")
+    name: str = Field(max_length=200, description="Display name")
+    side: CombatSide = Field(default=CombatSide.ENEMY, description="Which side the combatant fights for")
+    hp: int = Field(ge=0, description="Current hit points")
+    max_hp: int = Field(gt=0, description="Maximum hit points")
+    temp_hp: int = Field(default=0, ge=0, description="Temporary hit points (absorbed first)")
+    initiative: float | None = Field(None, description="Initiative score once rolled")
+    conditions: list[str] = Field(
+        default_factory=list,
+        description="Active condition tags (free text in v1; structured per-system effects are a lookup, not state)",
+    )
+    dead: bool = Field(default=False, description="Death flag")
+    unconscious: bool = Field(default=False, description="Unconscious / disabled flag")
+    concentration: str | None = Field(
+        None,
+        max_length=500,
+        description="Concentration or reminder note (e.g. 'bless: 3 allies')",
+    )
+    notes: str = Field(default="", max_length=2000, description="Free-form GM note")
+    entity_id: UUID | None = Field(
+        None,
+        description="Canon entity backing this combatant, for read-only stat-block lookup",
+    )
+
+
+class CombatantCreate(BaseModel):
+    """A combatant added when the encounter starts."""
+
+    name: str = Field(min_length=1, max_length=200)
+    side: CombatSide = CombatSide.ENEMY
+    hp: int = Field(ge=0)
+    max_hp: int = Field(gt=0)
+    temp_hp: int = Field(default=0, ge=0)
+    conditions: list[str] = Field(default_factory=list)
+    notes: str = Field(default="", max_length=2000)
+    entity_id: UUID | None = None
+
+
+class CombatStart(BaseModel):
+    """Request to start (or restart) a session combat encounter."""
+
+    universe_id: UUID
+    session_id: str = Field(min_length=1, max_length=100, description="Owning play/chat session key")
+    combatants: list[CombatantCreate] = Field(min_length=1, description="Initial combatants")
+    story_id: UUID | None = Field(None, description="Story scope for end-of-encounter proposals (CF-8 queue)")
+    scene_id: UUID | None = Field(None, description="Scene scope for end-of-encounter proposals (CF-8 queue)")
+
+
+class CombatInitiativeEntry(BaseModel):
+    """Initiative result for one combatant."""
+
+    combatant_id: UUID
+    initiative: float
+    tiebreak: float = Field(
+        default=0,
+        description="Tie-break score (e.g. dex mod or a reroll); higher wins ties",
+    )
+
+
+class CombatSetInitiative(BaseModel):
+    """Request to set initiative for the encounter."""
+
+    universe_id: UUID
+    session_id: str = Field(max_length=100)
+    entries: list[CombatInitiativeEntry] = Field(min_length=1)
+
+
+class CombatUpdateCombatant(BaseModel):
+    """Request to adjust one combatant's tracked state.
+
+    String fields follow a set/clear contract: ``None`` leaves the value
+    unchanged, ``""`` clears it.
+    """
+
+    universe_id: UUID
+    session_id: str = Field(max_length=100)
+    combatant_id: UUID
+    hp: int | None = Field(None, ge=0, description="Absolute HP (clamped to max_hp); overrides hp_delta")
+    hp_delta: int | None = Field(
+        None,
+        description="Negative = damage (temp HP absorbed first), positive = healing",
+    )
+    temp_hp: int | None = Field(None, ge=0, description="Absolute temp HP")
+    conditions_add: list[str] = Field(default_factory=list)
+    conditions_remove: list[str] = Field(default_factory=list)
+    dead: bool | None = None
+    unconscious: bool | None = None
+    concentration: str | None = Field(None, max_length=500, description="None = unchanged, '' = clear")
+    notes: str | None = Field(None, max_length=2000, description="None = unchanged, '' = clear")
+
+
+class CombatNextRound(BaseModel):
+    """Request to advance the encounter to the next round."""
+
+    universe_id: UUID
+    session_id: str = Field(max_length=100)
+
+
+class CombatEnd(BaseModel):
+    """Request to end the encounter."""
+
+    universe_id: UUID
+    session_id: str = Field(max_length=100)
+
+
+class CombatSessionState(BaseModel):
+    """Full tracker state for one session encounter."""
+
+    universe_id: UUID
+    session_id: str
+    status: CombatStatus = Field(
+        description="INITIATIVE after start, ACTIVE once initiative is set, RESOLVED after end",
+    )
+    round: int = Field(default=1, ge=1, description="Current round counter")
+    turn_order: list[UUID] = Field(
+        default_factory=list,
+        description="Combatant ids in initiative order (set by combat_set_initiative)",
+    )
+    combatants: list[CombatantState] = Field(default_factory=list)
+    story_id: UUID | None = None
+    scene_id: UUID | None = None
+    started_at: datetime
+    ended_at: datetime | None = None
