@@ -124,7 +124,7 @@ class Handout(BaseModel):
     content: str = Field(description="Handout content in markdown format")
     handout_type: str = Field(
         default="letter",
-        description="Type of handout: letter, map_note, prophecy, journal_entry, notice, rumor",
+        description="Type of handout: letter, map_note, prophecy, journal_entry, notice, rumor, campaign_summary",
     )
     related_entities: list[str] = Field(default_factory=list, description="Entity names referenced in the handout")
     tone: str = Field(
@@ -509,13 +509,15 @@ class PlotHookAgent(BaseAgent):
         focus_entity_id: UUID | None = None,
         tone: str = "mysterious",
         spoiler_level: str = "safe",
+        story_id: UUID | None = None,
     ) -> Handout:
         """
         Generate a player handout from world data.
 
         Creates an in-world document (letter, map note, prophecy, journal entry,
-        notice, or rumor) that can be given to players as a physical or digital
-        handout.
+        notice, rumor, or campaign_summary) that can be given to players as a
+        physical or digital handout. The "campaign_summary" type is anchored on
+        the story's persisted CF-12 arc recap ("campaign so far").
 
         Args:
             universe_id: The universe to draw from
@@ -523,6 +525,8 @@ class PlotHookAgent(BaseAgent):
             focus_entity_id: Optional entity to center the handout around
             tone: Desired tone of the handout
             spoiler_level: How much secret information to include
+            story_id: Optional story for campaign_summary handouts (defaults to
+                the universe's most recent story)
 
         Returns:
             Handout with title, content, and metadata
@@ -574,6 +578,12 @@ class PlotHookAgent(BaseAgent):
         threads = self._parse_result(threads_result, "threads", [])
         thread_summaries = [f"- {t.get('title', 'Untitled')}: {t.get('description', '')}" for t in threads[:5]]
 
+        # 3b. CF-12: a campaign_summary handout is anchored on the story's
+        # persisted arc recap (the "campaign so far" document).
+        campaign_recap_md = ""
+        if handout_type == "campaign_summary":
+            campaign_recap_md = await self._persisted_arc_recap(universe_id, story_id)
+
         # 4. Use LLM to generate handout
         handout_type_descriptions = {
             "letter": "a personal letter from one character to another",
@@ -582,8 +592,19 @@ class PlotHookAgent(BaseAgent):
             "journal_entry": "a diary or journal entry from a character",
             "notice": "a public notice, poster, or announcement",
             "rumor": "a piece of hearsay or tavern gossip",
+            "campaign_summary": (
+                "a campaign summary ('the story so far') handout recapping the whole "
+                "arc so far for players who are catching up"
+            ),
         }
         type_desc = handout_type_descriptions.get(handout_type, "a document")
+
+        campaign_section = ""
+        if handout_type == "campaign_summary":
+            campaign_section = (
+                "Campaign so far (persisted arc recap, CF-12):\n"
+                f"{campaign_recap_md or 'None persisted yet'}\n\n"
+            )
 
         messages = [
             {
@@ -600,6 +621,7 @@ class PlotHookAgent(BaseAgent):
                 "role": "user",
                 "content": (
                     f"Generate {type_desc} for the players.\n\n"
+                    f"{campaign_section}"
                     f"Entities in the world:\n{chr(10).join(entity_summaries) or 'None'}\n\n"
                     f"Known facts:\n{chr(10).join(fact_list) or 'None'}\n\n"
                     f"Open plot threads:\n{chr(10).join(thread_summaries) or 'None'}\n\n"
@@ -623,6 +645,35 @@ class PlotHookAgent(BaseAgent):
             logger.warning("LLM handout generation failed, using template", exc_info=True)
 
         return self._template_handout(handout_type, tone, spoiler_level, entity_summaries, fact_list)
+
+    async def _persisted_arc_recap(self, universe_id: UUID, story_id: UUID | None) -> str:
+        """Fetch the persisted CF-12 arc recap markdown for a story ('' when none).
+
+        When no story_id is given, falls back to the universe's most recently
+        created story.
+        """
+        sid = story_id
+        if sid is None:
+            stories_result = await self.call_tool(
+                "neo4j_list_stories",
+                {"params": {"universe_id": str(universe_id), "limit": 1, "sort_by": "created_at", "sort_order": "desc"}},
+            )
+            stories = self._parse_result(stories_result, "stories", [])
+            if not stories:
+                return ""
+            try:
+                sid = UUID(str(stories[0].get("id")))
+            except (ValueError, TypeError, AttributeError):
+                return ""
+        try:
+            recap_result = await self.call_tool("mongodb_get_arc_recap", {"story_id": str(sid)})
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _persisted_arc_recap)
+            logger.warning("Arc recap lookup failed for story %s: %s", sid, exc)
+            return ""
+        recap = self._parse_result(recap_result, {}, {})
+        if not isinstance(recap, dict):
+            return ""
+        return str(recap.get("recap_markdown") or "")
 
     # ------------------------------------------------------------------
     # BaseAgent compliance
@@ -851,6 +902,7 @@ class PlotHookAgent(BaseAgent):
             "journal_entry": ("# Journal Entry\n\n{content}\n\n— The journal ends here"),
             "notice": ("# Public Notice\n\n{content}\n\n— Posted for all to see"),
             "rumor": ('# Tavern Gossip\n\n*"{content}"*\n\n— Overheard at the inn'),
+            "campaign_summary": ("# The Story So Far\n\n{content}\n\n— A recap of the campaign to date"),
         }
 
         # Build content from available facts and entities
