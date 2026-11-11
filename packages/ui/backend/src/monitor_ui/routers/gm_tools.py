@@ -28,6 +28,7 @@ from monitor_agents.gm_table import (
     light_table_agent,
 )
 from monitor_agents.ingestion.capture_insights import CaptureInsight, CaptureInsightAgent
+from monitor_agents.ingestion.session_ingest import SessionIngestAgent
 from monitor_agents.plot_hooks import (
     Contradiction,
     Handout,
@@ -40,6 +41,7 @@ from monitor_data.schemas.base import (
     Authority,
     EntityType,
     PlotThreadType,
+    ProposalStatus,
     ProposalType,
     ThreadPriority,
     ThreadUrgency,
@@ -62,6 +64,7 @@ from monitor_data.schemas.relationships import RelationshipFilter, RelationshipR
 from monitor_data.schemas.stories import StoryLedgerEntry
 from monitor_data.schemas.story_outlines import PlotThreadCreate
 from monitor_data.tools.mongodb_tools import (
+    STRIKE_REASON,
     mongodb_create_proposed_change,
     mongodb_get_gm_prep_bundle,
     mongodb_list_proposed_changes,
@@ -1290,6 +1293,290 @@ async def session_log_propose(
         for idx, item in enumerate(statements)
     ]
     return SessionLogProposeResponse(batch_id=batch_id, items=items, proposal_errors=errors)
+
+
+# ---------------------------------------------------------------------------
+# G03 — mid-session strike/edit of captured entries (CF-1 amendment)
+#
+# While recording, the GM can edit or strike any logged entry and retract or
+# undo-retract any queued candidate proposal — one click, no wrap-up. Struck
+# entries keep an audit trail (v1 soft-delete only); striking also retracts
+# the entry's pending capture proposals with reason "struck at the table"
+# (G03 open decision: recommended default, with one undo).
+# ---------------------------------------------------------------------------
+
+
+class SessionLogEntryPatchRequest(BaseModel):
+    """Edit a logged recorder entry; insight extraction re-runs for it only."""
+
+    universe_id: UUID
+    text: str = Field(min_length=1, max_length=4000)
+    story_id: UUID | None = None
+    scene_id: UUID | None = None
+
+
+class SessionLogEntry(BaseModel):
+    """One logged (or struck) recorder entry as the correction routes see it."""
+
+    id: str
+    session_id: str
+    role: str = "player"
+    content: str
+    timestamp: str = ""
+    struck: bool = False
+    struck_at: str | None = None
+    struck_reason: str | None = None
+    edited_at: str | None = None
+
+
+class SessionLogEntryPatchResponse(BaseModel):
+    """Edited entry plus the re-run insight (None when extraction was skipped)."""
+
+    entry: SessionLogEntry
+    insight: CaptureInsight | None = None
+    insight_skipped: bool = False
+    proposal_ids: list[str] = Field(default_factory=list)
+    proposal_errors: list[str] = Field(default_factory=list)
+
+
+class SessionLogEntryStrikeResponse(BaseModel):
+    """Struck entry plus the proposals retracted with it."""
+
+    entry: SessionLogEntry
+    retracted_proposal_ids: list[str] = Field(default_factory=list)
+    retract_errors: list[str] = Field(default_factory=list)
+
+
+class SessionLogEntryRestoreResponse(BaseModel):
+    """Restored entry plus the proposals put back to pending by the undo."""
+
+    entry: SessionLogEntry
+    restored_proposal_ids: list[str] = Field(default_factory=list)
+    restore_errors: list[str] = Field(default_factory=list)
+
+
+class SessionLogProposalRetractRequest(BaseModel):
+    """Optional strike reason for a standalone proposal retract."""
+
+    reason: str = Field(default=STRIKE_REASON, min_length=1, max_length=2000)
+
+
+class SessionLogProposalRetractResponse(BaseModel):
+    """The retracted proposal's id, new status, and the reason recorded."""
+
+    proposal_id: str
+    status: str
+    reason: str
+
+
+def _entry_from_doc(doc: dict[str, Any]) -> SessionLogEntry:
+    return SessionLogEntry(
+        id=str(doc.get("id") or ""),
+        session_id=str(doc.get("session_id") or ""),
+        role=str(doc.get("role") or "player"),
+        content=str(doc.get("content") or ""),
+        timestamp=str(doc.get("timestamp") or ""),
+        struck=bool(doc.get("struck")),
+        struck_at=doc.get("struck_at"),
+        struck_reason=doc.get("struck_reason"),
+        edited_at=doc.get("edited_at"),
+    )
+
+
+def _evict_recorder_messages(session_id: str) -> None:
+    """Drop the chat router's in-process message cache after a correction."""
+    if not session_id:
+        return
+    from monitor_ui.routers.chat import invalidate_messages_cache
+
+    invalidate_messages_cache(session_id)
+
+
+def _entry_http_error(exc: ValueError) -> HTTPException:
+    if "not found" in str(exc).lower():
+        return HTTPException(status_code=404, detail="Not found")
+    return HTTPException(status_code=409, detail=str(exc))
+
+
+@router.patch(
+    "/gm/session-log/entries/{log_entry_id}",
+    response_model=SessionLogEntryPatchResponse,
+)
+async def update_session_log_entry(
+    log_entry_id: str,
+    req: SessionLogEntryPatchRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> SessionLogEntryPatchResponse:
+    """Edit a logged entry in place and re-run insight extraction for it (G03).
+
+    The transcript edit always lands; insight extraction is fail-open — an
+    LLM/tool failure keeps the entry and sets ``insight_skipped`` so the GM's
+    correction is never lost. New candidate facts from the edited text are
+    staged as pending capture proposals (idempotent per entry).
+    """
+    await require_universe_owner(db, principal, req.universe_id)
+    ingest = SessionIngestAgent()
+    try:
+        doc = await ingest.update_entry(log_entry_id, req.text)
+    except ValueError as exc:
+        raise _entry_http_error(exc) from exc
+    _evict_recorder_messages(str(doc.get("session_id") or ""))
+
+    insight: CaptureInsight | None = None
+    insight_skipped = False
+    try:
+        insight = await CaptureInsightAgent().analyze_entry(
+            universe_id=req.universe_id,
+            entry_text=req.text,
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: fail-open contract — entry kept, insight skipped (in update_session_log_entry)
+        insight_skipped = True
+        log.warning("session_entry_insight_rerun_failed", entry_id=log_entry_id, error=str(exc))
+
+    proposal_ids: list[str] = []
+    proposal_errors: list[str] = []
+    if insight is not None:
+        proposal_ids, proposal_errors = await _create_capture_proposals(
+            CaptureInsightsRequest(
+                universe_id=req.universe_id,
+                entry_text=req.text,
+                entry_id=log_entry_id,
+                story_id=req.story_id,
+                scene_id=req.scene_id,
+            ),
+            insight,
+        )
+    return SessionLogEntryPatchResponse(
+        entry=_entry_from_doc(doc),
+        insight=insight,
+        insight_skipped=insight_skipped,
+        proposal_ids=proposal_ids,
+        proposal_errors=proposal_errors,
+    )
+
+
+@router.delete(
+    "/gm/session-log/entries/{log_entry_id}",
+    response_model=SessionLogEntryStrikeResponse,
+)
+async def strike_session_log_entry(log_entry_id: str) -> SessionLogEntryStrikeResponse:
+    """Strike (soft-delete) a logged entry — session-owner only (G03).
+
+    Also retracts the entry's still-pending capture proposals with reason
+    "struck at the table", recording their ids on the entry so the undo can
+    restore exactly those. Retracts are best-effort: one already-decided
+    proposal never blocks the strike itself.
+    """
+    # Ownership: resource_route_guard resolves log_entry_id → session owner.
+    ingest = SessionIngestAgent()
+    try:
+        existing = await ingest.get_entry(log_entry_id)
+    except ValueError as exc:
+        raise _entry_http_error(exc) from exc
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    capture = CaptureInsightAgent()
+    retracted: list[str] = []
+    errors: list[str] = []
+    pending = await asyncio.to_thread(
+        mongodb_list_proposed_changes,
+        ProposedChangeFilter(
+            source=_capture_proposal_source(log_entry_id),
+            status=ProposalStatus.PENDING,
+            limit=500,
+        ),
+    )
+    for proposal in pending.proposed_changes:
+        try:
+            await capture.retract_proposal(
+                str(proposal.proposal_id),
+                reason=STRIKE_REASON,
+                entry_id=log_entry_id,
+            )
+            retracted.append(str(proposal.proposal_id))
+        except ValueError as exc:
+            errors.append(f"{proposal.proposal_id}: {exc}")
+
+    try:
+        doc = await ingest.strike_entry(
+            log_entry_id,
+            retracted_proposal_ids=retracted,
+            reason=STRIKE_REASON,
+        )
+    except ValueError as exc:
+        raise _entry_http_error(exc) from exc
+    _evict_recorder_messages(str(doc.get("session_id") or existing.get("session_id") or ""))
+    return SessionLogEntryStrikeResponse(
+        entry=_entry_from_doc(doc),
+        retracted_proposal_ids=retracted,
+        retract_errors=errors,
+    )
+
+
+@router.post(
+    "/gm/session-log/entries/{log_entry_id}/restore",
+    response_model=SessionLogEntryRestoreResponse,
+)
+async def restore_session_log_entry(log_entry_id: str) -> SessionLogEntryRestoreResponse:
+    """Undo a strike: the entry returns to the recorder view (G03).
+
+    The proposals retracted with the strike are flipped back to pending —
+    only those recorded on the entry, and only when their decision metadata
+    matches the strike (actor + reason), so a regular CF-8 rejection is never
+    touched by the undo.
+    """
+    ingest = SessionIngestAgent()
+    try:
+        doc = await ingest.restore_entry(log_entry_id)
+    except ValueError as exc:
+        raise _entry_http_error(exc) from exc
+    _evict_recorder_messages(str(doc.get("session_id") or ""))
+
+    restored: list[str] = [str(p) for p in (doc.get("restored_proposal_ids") or [])]
+    errors: list[str] = []
+    capture = CaptureInsightAgent()
+    for proposal_id in restored:
+        try:
+            await capture.restore_proposal(proposal_id)
+        except ValueError as exc:
+            errors.append(f"{proposal_id}: {exc}")
+    return SessionLogEntryRestoreResponse(
+        entry=_entry_from_doc(doc),
+        restored_proposal_ids=restored,
+        restore_errors=errors,
+    )
+
+
+@router.post(
+    "/gm/session-log/proposals/{proposal_id}/retract",
+    response_model=SessionLogProposalRetractResponse,
+)
+async def retract_session_log_proposal(
+    proposal_id: str,
+    body: SessionLogProposalRetractRequest | None = None,
+) -> SessionLogProposalRetractResponse:
+    """Retract a queued candidate proposal before wrap-up (G03).
+
+    Owner-checked by the router guard (``proposal_id`` → scene/story chain).
+    Pending → rejected with the strike reason, so CF-8 shows the proposal as
+    rejected with *why* it disappeared.
+    """
+    try:
+        UUID(proposal_id)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="Not found") from exc
+    reason = body.reason if body else STRIKE_REASON
+    try:
+        proposal = await CaptureInsightAgent().retract_proposal(proposal_id, reason=reason)
+    except ValueError as exc:
+        raise _entry_http_error(exc) from exc
+    return SessionLogProposalRetractResponse(
+        proposal_id=str(proposal.get("proposal_id") or proposal_id),
+        status=str(proposal.get("status") or ""),
+        reason=reason,
+    )
 
 
 def _parse_thread_urgency(value: str) -> ThreadUrgency:
