@@ -1467,6 +1467,53 @@ export interface Handout {
   spoiler_level: "safe" | "partial" | "full";
 }
 
+// ─── Player-facing sharing (CF-14 / G07) ────────────────────
+
+export type ShareArtifactType = "recap" | "handout";
+export type ShareSpoilerLevel = "party" | "character";
+
+export interface ShareArtifactSummary {
+  id: string;
+  artifact_type: ShareArtifactType;
+  title: string;
+  spoiler_level: ShareSpoilerLevel;
+  updated_at: string;
+}
+
+export interface SharedArtifact extends ShareArtifactSummary {
+  story_id: string;
+  content: string;
+  scope_character_id: string | null;
+  published: boolean;
+  created_at: string;
+}
+
+export interface ShareCharacter {
+  id: string;
+  name: string;
+}
+
+export interface PlayerShareView {
+  story_id: string;
+  character_id: string | null;
+  artifacts: ShareArtifactSummary[];
+  characters: ShareCharacter[];
+}
+
+export interface ShareLink {
+  story_id: string;
+  token: string;
+  share_path: string;
+  revoked: boolean;
+}
+
+export interface SharePublishResult {
+  artifact_id: string;
+  token: string;
+  share_path: string;
+  published: boolean;
+}
+
 // ─── Entity Template Types (M-31, CF-2) ─────────────────────
 
 export interface VariableProperty {

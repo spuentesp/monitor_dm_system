@@ -26,9 +26,19 @@ import {
   Check,
   AlertTriangle,
   Scroll,
+  Link2,
+  Copy,
 } from "lucide-react";
 import { entitiesApi, ingestApi, universesApi, gmApi, storiesApi } from "@/lib/api";
-import type { PlotHook, Contradiction, SessionPrep, Handout, StoryThread, PrepItem } from "@/lib/types";
+import type {
+  PlotHook,
+  Contradiction,
+  SessionPrep,
+  Handout,
+  StoryThread,
+  PrepItem,
+  SharePublishResult,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useDismissRef } from "@/lib/useDismissRef";
 import { uuid } from "@/lib/uuid";
@@ -1200,6 +1210,25 @@ function HandoutsPanel({ universeId }: { universeId: string | null }) {
   const [handoutType, setHandoutType] = useState<string>("letter");
   const [tone, setTone] = useState<string>("mysterious");
   const [spoilerLevel, setSpoilerLevel] = useState<string>("safe");
+  // CF-14 — share links are story-scoped, so pick the story to publish into.
+  const [storyId, setStoryId] = useState("");
+  const [published, setPublished] = useState<SharePublishResult | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const { data: storiesData } = useQuery({
+    queryKey: ["universe-stories", universeId],
+    queryFn: () => storiesApi.listStories({ universe_id: universeId!, limit: 100 }),
+    enabled: !!universeId,
+    staleTime: 15_000,
+  });
+  const stories = storiesData?.stories ?? [];
+
+  useEffect(() => {
+    if (!storyId && stories.length > 0) setStoryId(stories[0].id);
+    if (storyId && stories.length > 0 && !stories.some((s) => s.id === storyId)) {
+      setStoryId(stories[0].id);
+    }
+  }, [stories, storyId]);
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -1208,8 +1237,36 @@ function HandoutsPanel({ universeId }: { universeId: string | null }) {
         tone,
         spoiler_level: spoilerLevel,
       }),
-    onSuccess: (data) => setHandout(data.handout),
+    onSuccess: (data) => {
+      setHandout(data.handout);
+      // A fresh handout invalidates whatever was published before.
+      setPublished(null);
+    },
   });
+
+  const publish = useMutation({
+    mutationFn: () =>
+      gmApi.sharePublish({
+        universe_id: universeId!,
+        story_id: storyId,
+        artifact_type: "handout",
+        title: handout!.title,
+        content: handout!.content,
+        spoiler_level: "party",
+      }),
+    onSuccess: (data) => setPublished(data),
+  });
+  const unpublish = useMutation({
+    mutationFn: () =>
+      gmApi.shareUnpublish({
+        universe_id: universeId!,
+        artifact_id: published!.artifact_id,
+      }),
+    onSuccess: () => setPublished(null),
+  });
+  const shareUrl = published
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}${published.share_path}`
+    : "";
 
   if (!universeId) {
     return (
@@ -1225,6 +1282,21 @@ function HandoutsPanel({ universeId }: { universeId: string | null }) {
       <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 flex-shrink-0">
         <Scroll className="w-3.5 h-3.5 text-amber-400" />
         <span className="text-xs font-semibold text-slate-300 flex-1">Handouts</span>
+        <select
+          value={storyId}
+          onChange={(e) => {
+            setStoryId(e.target.value);
+            setPublished(null);
+          }}
+          className="input-cyber py-1 text-xs max-w-[150px]"
+          disabled={stories.length === 0}
+          aria-label="Story to publish into"
+        >
+          <option value="">Select story</option>
+          {stories.map((s) => (
+            <option key={s.id} value={s.id}>{s.title}</option>
+          ))}
+        </select>
         <button
           onClick={() => mutation.mutate()}
           disabled={mutation.isPending}
@@ -1319,6 +1391,60 @@ function HandoutsPanel({ universeId }: { universeId: string | null }) {
                 ))}
               </div>
             )}
+            {/* CF-14 — publish this handout to the story's share link */}
+            <div className="border-t border-white/5 pt-3 space-y-2" data-testid="handout-share">
+              {!published ? (
+                <>
+                  <button
+                    onClick={() => publish.mutate()}
+                    disabled={!storyId || publish.isPending}
+                    className="btn-cyber text-xs inline-flex items-center gap-1.5"
+                    data-testid="handout-publish"
+                  >
+                    {publish.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Link2 className="w-3.5 h-3.5" />
+                    )}
+                    Publish to players
+                  </button>
+                  {!storyId && (
+                    <p className="text-[10px] text-slate-600">Pick a story first — share links are per story.</p>
+                  )}
+                  {publish.isError && (
+                    <p className="text-[10px] text-red-400" data-testid="handout-publish-error">
+                      Couldn&apos;t publish — try again.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="flex items-center gap-2" data-testid="handout-share-link">
+                  <code className="flex-1 min-w-0 truncate text-[11px] text-emerald-300 bg-emerald-500/5 border border-emerald-500/20 rounded px-2 py-1.5">
+                    {shareUrl}
+                  </code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(shareUrl).then(() => {
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 1500);
+                      });
+                    }}
+                    className="flex-shrink-0 text-xs px-2 py-1.5 rounded border border-white/10 text-slate-400 hover:text-slate-200"
+                    aria-label="Copy share link"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
+                    onClick={() => unpublish.mutate()}
+                    disabled={unpublish.isPending}
+                    className="flex-shrink-0 text-xs px-2 py-1.5 rounded border border-white/10 text-slate-400 hover:text-red-300"
+                    data-testid="handout-unpublish"
+                  >
+                    Unpublish
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
         {!mutation.isPending && !handout && (
