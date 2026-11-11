@@ -679,14 +679,14 @@ async def verify_claims(
             fresh: dict[str, ClaimCheck] = {}
             answered: set[str] = set()
             for check in answer.checks:
-                claim = labels.get(check.label)
+                labelled = labels.get(check.label)
                 is_valid = check.verdict != ClaimVerdict.CORRECTED or bool(
                     check.corrected_statement and check.corrected_statement.strip()
                 )
                 answered.add(check.label)
-                if claim is not None and is_valid:
-                    results[claim.id] = check
-                    fresh[claim.id] = check
+                if labelled is not None and is_valid:
+                    results[labelled.id] = check
+                    fresh[labelled.id] = check
             if on_checks is not None:
                 on_checks(fresh)
             missing = [claim for claim in part if claim.id not in results]

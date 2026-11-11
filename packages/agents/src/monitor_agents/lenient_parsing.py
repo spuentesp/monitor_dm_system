@@ -84,9 +84,9 @@ def _repair(value: Any, annotation: Any, path: str, repairs: list[Repair]) -> An
             return _repair(value, args[0], path, repairs)
     origin = get_origin(annotation)
     if origin in (Union, UnionType):
-        args = [arg for arg in get_args(annotation) if arg is not type(None)]
-        if len(args) == 1:
-            return _repair(value, args[0], path, repairs)
+        non_none = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if len(non_none) == 1:
+            return _repair(value, non_none[0], path, repairs)
         return value
     if isinstance(annotation, type) and issubclass(annotation, Enum):
         return _repair_enum(value, annotation, path, repairs)

@@ -172,7 +172,8 @@ class AnalyzerBatchStore:
         if entry is None:
             return None
         self.reused += 1
-        return entry["payload"]
+        payload: dict[str, Any] | None = entry["payload"]
+        return payload
 
     def put(self, key: str, payload: dict[str, Any]) -> None:
         if not self.enabled or self._broken:

@@ -50,7 +50,7 @@ def _is_refusal(exc: BaseException) -> bool:
 
 async def run_batch_with_refusal_split(
     items: Sequence[T],
-    run: Callable[[Sequence[T]], Awaitable[R]],
+    run: Callable[[list[T]], Awaitable[R]],
     *,
     id_of: Callable[[T], str],
 ) -> BatchOutcome[R]:
@@ -67,7 +67,7 @@ async def run_batch_with_refusal_split(
         return BatchOutcome(results=[], held=[])
 
     try:
-        value = await run(items)
+        value = await run(list(items))
     except Exception as exc:
         if not _is_refusal(exc):
             raise
