@@ -368,8 +368,10 @@ from monitor_data.tools.mongodb_tools.stories import (
     _convert_story_outline_doc_to_response,
     mongodb_append_story_ledger_entry,
     mongodb_create_story_outline,
+    mongodb_get_arc_recap,
     mongodb_get_story_outline,
     mongodb_list_story_ledger_entries,
+    mongodb_save_arc_recap,
     mongodb_update_story_outline,
 )
 
@@ -467,6 +469,8 @@ __all__ = [
     "mongodb_update_story_outline",
     "mongodb_append_story_ledger_entry",
     "mongodb_list_story_ledger_entries",
+    "mongodb_save_arc_recap",
+    "mongodb_get_arc_recap",
     # Combat
     "_convert_combat_doc_to_response",
     "mongodb_create_combat",
