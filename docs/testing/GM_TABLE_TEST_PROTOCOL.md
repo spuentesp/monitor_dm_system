@@ -49,6 +49,18 @@ lookup the assistant must serve within a few seconds.
 | S8 | The session ends | **Session Log → Canon**: paste/type what happened | Proposals appear in the Canon Review queue; contradictions with canon are flagged (direct + G-9) |
 | S9 | After wrap-up | Review the flagged items | The flags point at real problems (record false alarms in the log) |
 
+### Combat tracker scenario (CF-9)
+
+Run these when a fight actually breaks out — do not force one just to test.
+The tracker lives in the **Combat** tab of `/gm`.
+
+| # | Trigger at the table | Try | Passes when |
+|---|---|---|---|
+| C1 | Combat starts | **Combat → start**: add the combatants with HP, then enter initiative and *Set order* | The order is on screen in one action; ties resolve the same way every time |
+| C2 | A combatant takes a hit | Type a dice expression (e.g. `1d8+3`) into Damage and apply | The roll happens server-side (matches `/gm/roll`) and HP drops correctly, temp HP absorbed first |
+| C3 | A condition lands | Add a condition tag, then click the tag for an explanation | The tag sticks; the explanation says what it does (system definition or plain-language fallback) |
+| C4 | The fight ends | Type aftermath lines (faction reactions), click **End** | The encounter resolves; casualty + aftermath proposals appear in the Canon Review queue (CF-8); an LLM summary is a bonus, not a blocker |
+
 Also record any time the GM **gave up and did it by hand** (opened the wiki,
 asked a player, flipped a book) instead of using the assistant — that is the
 most important data in the test.
@@ -56,7 +68,8 @@ most important data in the test.
 ## After the session (30 min)
 
 1. **Wrap up** the recording (recap + canon counts + open threads) and run S8/S9
-   if not done at the table.
+   if not done at the table. If a combat happened, run C4: confirm the
+   casualty/aftermath proposals from the Combat panel landed in the queue.
 2. In the Canon Review queue, accept/reject the staged proposals; note which
    proposals were wrong extraction (count them).
 3. Fill the **session verdict** section of the lookup log.
