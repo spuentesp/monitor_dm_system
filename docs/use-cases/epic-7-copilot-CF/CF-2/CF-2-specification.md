@@ -60,4 +60,9 @@ Tone: {story_tone}
 """
 ```
 
+**Amended by CF-11 (Advance World Time):** the recap payload gains a
+world-clock time line — `world_time` (current readout) and `time_line`
+(the advance audit log, newest first) on `POST /gm/lookup/last-session`.
+See [CF-11](../CF-11/CF-11-specification.md).
+
 ---

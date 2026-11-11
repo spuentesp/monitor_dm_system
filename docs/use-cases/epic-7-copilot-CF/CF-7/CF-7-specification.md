@@ -120,4 +120,9 @@ Keep it concise and actionable.
 """
 ```
 
+**Amended by CF-11 (Advance World Time):** the prep briefing gains a
+"time passed since last session" section — the story's world-clock readout,
+due/overdue deadlines, and the off-screen NPC summary generated when the GM
+advanced the clock. See [CF-11](../CF-11/CF-11-specification.md).
+
 ---
