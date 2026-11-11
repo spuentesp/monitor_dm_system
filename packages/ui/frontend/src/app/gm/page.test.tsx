@@ -282,6 +282,7 @@ describe("GM Assistant hidden tool panels (user-modifiable prefs)", () => {
       JSON.stringify([
         "prep-table",
         "lookups",
+        "combat",
         "session-log",
         "ask-world",
         "hooks",
@@ -297,6 +298,7 @@ describe("GM Assistant hidden tool panels (user-modifiable prefs)", () => {
     // No tool panel body leaks through — not even the ask-the-world default.
     expect(screen.queryByPlaceholderText(/ask the world/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/select a universe to generate plot hooks/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/select a universe to run an encounter/i)).not.toBeInTheDocument();
   });
 
   it("falls back to the first visible panel rather than a hidden ask-world", () => {
@@ -388,5 +390,33 @@ describe("Handouts publish to share link (CF-14)", () => {
     const link = await screen.findByTestId("handout-share-link");
     expect(link).toHaveTextContent("/share/tok-abc");
     expect(screen.queryByTestId("handout-publish")).not.toBeInTheDocument();
+  });
+});
+
+describe("GM Assistant combat panel (CF-9)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("switches to the Combat tab and renders the combat panel", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    // Desktop and mobile strips both render a Combat tab; either drives state.
+    const tabs = await screen.findAllByRole("button", { name: /^combat$/i });
+    await user.click(tabs[0]);
+
+    expect(await screen.findByText(/select a universe to run an encounter/i)).toBeInTheDocument();
+  });
+
+  it("keeps Combat out of the default hidden set (new panels appear)", async () => {
+    renderPage();
+
+    // Without prefs, Combat is available as a tab alongside the default
+    // Tonight panel — new panels are never hidden by stored prefs.
+    expect((await screen.findAllByRole("button", { name: /^combat$/i })).length).toBeGreaterThan(0);
+    expect(
+      screen.getByText(/select a universe to prep tonight's session/i),
+    ).toBeInTheDocument();
   });
 });

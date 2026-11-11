@@ -19,6 +19,7 @@ from uuid import UUID, uuid4
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from monitor_agents.canonkeeper.agent import CanonKeeper
+from monitor_agents.combat import CombatAgent, ConditionExplanation
 from monitor_agents.gm_table import (
     GmTableAgent,
     PartyKnowledgeAnswer,
@@ -46,6 +47,15 @@ from monitor_data.schemas.base import (
     ProposalType,
     ThreadPriority,
     ThreadUrgency,
+)
+from monitor_data.schemas.combat import (
+    CombatEnd,
+    CombatInitiativeEntry,
+    CombatNextRound,
+    CombatSessionState,
+    CombatSetInitiative,
+    CombatStart,
+    CombatUpdateCombatant,
 )
 from monitor_data.schemas.entities import EntityResponse
 from monitor_data.schemas.facts import FactFilter, FactResponse
@@ -2001,3 +2011,370 @@ async def gm_share_revoke(
     if not ok:
         raise HTTPException(status_code=404, detail="Not found")
     return ShareRevokeResponse(story_id=str(req.story_id), revoked=True)
+
+
+# ---------------------------------------------------------------------------
+# Session combat tracker (CF-9)
+# ---------------------------------------------------------------------------
+# Ephemeral at-the-table state keyed by (universe_id, session_id): every route
+# is owner-checked first, then delegates to CombatAgent (Layer 2), which calls
+# the mongodb_combat_* tools over MCP. Nothing here writes Neo4j — permanent
+# effects leave only as ProposedChange items in the CF-8 queue.
+
+
+class CombatInitiativeRequest(BaseModel):
+    """Initiative rolls for the encounter; ``narrate`` adds read-aloud text."""
+
+    universe_id: UUID
+    entries: list[CombatInitiativeEntry] = Field(min_length=1)
+    narrate: bool = Field(default=False, description="Also return an LLM narration of the order")
+
+
+class CombatInitiativeResponse(BaseModel):
+    state: CombatSessionState
+    narration: str | None = None
+
+
+class CombatantPatchRequest(BaseModel):
+    """HP / condition / flag adjustments for one combatant (path supplies ids).
+
+    String fields follow the set/clear contract: ``None`` leaves the value
+    unchanged, ``""`` clears it.
+    """
+
+    universe_id: UUID
+    hp: int | None = Field(None, ge=0, description="Absolute HP (clamped to max_hp)")
+    hp_delta: int | None = Field(
+        None,
+        description="Negative = damage (temp HP absorbed first), positive = healing",
+    )
+    temp_hp: int | None = Field(None, ge=0, description="Absolute temp HP")
+    conditions_add: list[str] = Field(default_factory=list)
+    conditions_remove: list[str] = Field(default_factory=list)
+    dead: bool | None = None
+    unconscious: bool | None = None
+    concentration: str | None = Field(None, max_length=500, description="None = unchanged, '' = clear")
+    notes: str | None = Field(None, max_length=2000, description="None = unchanged, '' = clear")
+
+
+class CombatRoundRequest(BaseModel):
+    universe_id: UUID
+
+
+class CombatEndRequest(BaseModel):
+    """End the encounter; optional ``world_effects`` are GM-declared faction /
+    lore consequences staged for the CF-8 queue alongside casualty proposals."""
+
+    universe_id: UUID
+    story_id: UUID | None = None
+    scene_id: UUID | None = None
+    world_effects: list[str] = Field(
+        default_factory=list,
+        description="Faction/lore consequences the GM declares at the end",
+    )
+
+
+class CombatEndResponse(BaseModel):
+    state: CombatSessionState
+    proposal_ids: list[str] = Field(default_factory=list)
+    proposal_errors: list[str] = Field(default_factory=list)
+    summary: str | None = Field(None, description="Best-effort LLM summary; None when unavailable")
+
+
+class ConditionExplainRequest(BaseModel):
+    universe_id: UUID
+    condition: str = Field(min_length=1, max_length=100)
+    system_id: UUID | None = Field(None, description="Defaults to the universe's bound system")
+
+
+def _combat_error(exc: Exception) -> HTTPException:
+    """Map combat state-machine failures to HTTP errors."""
+    detail = str(exc)
+    if "No combat encounter" in detail or "not found in encounter" in detail:
+        return HTTPException(status_code=404, detail=detail)
+    if "already ended" in detail:
+        return HTTPException(status_code=409, detail=detail)
+    return HTTPException(status_code=400, detail=detail)
+
+
+@router.post("/gm/combat/start", response_model=CombatSessionState)
+async def combat_start(
+    req: CombatStart,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> CombatSessionState:
+    """Start (or restart) the at-the-table encounter for (universe, session)."""
+    await require_universe_owner(db, principal, req.universe_id)
+    agent = CombatAgent()
+    try:
+        return await agent.start_encounter(req)
+    except ValueError as exc:
+        raise _combat_error(exc) from exc
+    except Exception as exc:
+        log.warning("combat_start_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to start combat: {exc}") from exc
+
+
+@router.get("/gm/combat/{session_id}", response_model=CombatSessionState)
+async def combat_get(
+    session_id: str,
+    universe_id: UUID,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> CombatSessionState:
+    """The live encounter state, or 404 when no encounter exists for the key."""
+    await require_universe_owner(db, principal, universe_id)
+    agent = CombatAgent()
+    try:
+        state = await agent.get_state(universe_id, session_id)
+    except ValueError as exc:
+        raise _combat_error(exc) from exc
+    except Exception as exc:
+        log.warning("combat_get_failed", universe_id=str(universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to load combat: {exc}") from exc
+    if state is None:
+        raise HTTPException(status_code=404, detail="No combat encounter for this session")
+    return state
+
+
+@router.post("/gm/combat/{session_id}/initiative", response_model=CombatInitiativeResponse)
+async def combat_set_initiative_route(
+    session_id: str,
+    req: CombatInitiativeRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> CombatInitiativeResponse:
+    """Record initiative rolls; the turn order is computed deterministically.
+
+    The optional narration is best-effort: the order is already stored when it
+    runs, so an LLM failure degrades to ``narration=None`` instead of failing
+    the initiative roll the GM is waiting on.
+    """
+    await require_universe_owner(db, principal, req.universe_id)
+    agent = CombatAgent()
+    try:
+        state = await agent.set_initiative(
+            CombatSetInitiative(
+                universe_id=req.universe_id,
+                session_id=session_id,
+                entries=req.entries,
+            )
+        )
+    except ValueError as exc:
+        raise _combat_error(exc) from exc
+    except Exception as exc:
+        log.warning("combat_initiative_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to set initiative: {exc}") from exc
+
+    narration: str | None = None
+    if req.narrate:
+        try:
+            narration = await agent.narrate_initiative(state)
+        except Exception as exc:  # noqa: BLE001  # reason: narration is optional enrichment; the order is already stored (in combat_set_initiative_route)
+            log.warning("combat_narration_failed", session_id=session_id, error=str(exc))
+    return CombatInitiativeResponse(state=state, narration=narration)
+
+
+@router.patch("/gm/combat/{session_id}/combatant/{combatant_id}", response_model=CombatSessionState)
+async def combat_patch_combatant(
+    session_id: str,
+    combatant_id: UUID,
+    req: CombatantPatchRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> CombatSessionState:
+    """Adjust one combatant's HP / temp HP / conditions / flags / notes."""
+    await require_universe_owner(db, principal, req.universe_id)
+    agent = CombatAgent()
+    try:
+        return await agent.update_combatant(
+            CombatUpdateCombatant(
+                universe_id=req.universe_id,
+                session_id=session_id,
+                combatant_id=combatant_id,
+                hp=req.hp,
+                hp_delta=req.hp_delta,
+                temp_hp=req.temp_hp,
+                conditions_add=req.conditions_add,
+                conditions_remove=req.conditions_remove,
+                dead=req.dead,
+                unconscious=req.unconscious,
+                concentration=req.concentration,
+                notes=req.notes,
+            )
+        )
+    except ValueError as exc:
+        raise _combat_error(exc) from exc
+    except Exception as exc:
+        log.warning(
+            "combat_update_combatant_failed",
+            universe_id=str(req.universe_id),
+            combatant_id=str(combatant_id),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to update combatant: {exc}") from exc
+
+
+@router.post("/gm/combat/{session_id}/next-round", response_model=CombatSessionState)
+async def combat_next_round_route(
+    session_id: str,
+    req: CombatRoundRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> CombatSessionState:
+    """Advance the encounter to the next round."""
+    await require_universe_owner(db, principal, req.universe_id)
+    agent = CombatAgent()
+    try:
+        return await agent.next_round(
+            CombatNextRound(universe_id=req.universe_id, session_id=session_id)
+        )
+    except ValueError as exc:
+        raise _combat_error(exc) from exc
+    except Exception as exc:
+        log.warning("combat_next_round_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to advance round: {exc}") from exc
+
+
+@router.post("/gm/combat/{session_id}/end", response_model=CombatEndResponse)
+async def combat_end_route(
+    session_id: str,
+    req: CombatEndRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> CombatEndResponse:
+    """End the encounter and stage its world effects for CanonKeeper (CF-8).
+
+    Deterministic order: validate staging scope → end the state → stage one
+    FACT proposal per casualty and per GM-declared world effect (deduped by
+    the ``combat_end:<session>`` source tag) → best-effort LLM summary. The
+    summary never blocks or rolls back the end.
+    """
+    await require_universe_owner(db, principal, req.universe_id)
+    agent = CombatAgent()
+    try:
+        state = await agent.get_state(req.universe_id, session_id)
+    except ValueError as exc:
+        raise _combat_error(exc) from exc
+    except Exception as exc:
+        log.warning("combat_end_get_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to load combat: {exc}") from exc
+    if state is None:
+        raise HTTPException(status_code=404, detail="No combat encounter for this session")
+
+    story_id = req.story_id or state.story_id
+    scene_id = req.scene_id or state.scene_id
+    deaths = [c for c in state.combatants if c.dead]
+    effects = [e.strip() for e in req.world_effects if e.strip()]
+    if (deaths or effects) and story_id is None and scene_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide story_id or scene_id so end-of-encounter proposals can be staged.",
+        )
+
+    try:
+        state = await agent.end_encounter(
+            CombatEnd(universe_id=req.universe_id, session_id=session_id)
+        )
+    except ValueError as exc:
+        raise _combat_error(exc) from exc
+    except Exception as exc:
+        log.warning("combat_end_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to end combat: {exc}") from exc
+
+    proposal_ids: list[str] = []
+    proposal_errors: list[str] = []
+    if deaths or effects:
+        source = f"combat_end:{session_id}"
+        staged: list[tuple[str, str, list[str]]] = [
+            (f"{c.name} died in combat", "combat_casualty", [c.name]) for c in deaths
+        ]
+        staged += [(effect, "combat_world_effect", []) for effect in effects]
+
+        def _stage() -> tuple[list[str | None], list[str]]:
+            ids: list[str | None] = []
+            errs: list[str] = []
+            existing = mongodb_list_proposed_changes(ProposedChangeFilter(source=source, limit=1000))
+            existing_statements = {
+                str(p.content.get("statement") or "").strip()
+                for p in existing.proposed_changes
+                if isinstance(p.content, dict)
+            }
+            for statement, ptype, participants in staged:
+                if statement in existing_statements:
+                    continue
+                try:
+                    proposal = mongodb_create_proposed_change(
+                        ProposedChangeCreate(
+                            scene_id=scene_id,
+                            story_id=story_id,
+                            change_type=ProposalType.FACT,
+                            content={
+                                "statement": statement,
+                                "fact_type": "occurrence",
+                                "canon_level": "proposed",
+                                "participants": participants,
+                                "universe_id": str(state.universe_id),
+                            },
+                            confidence=0.9,
+                            authority=Authority.GM,
+                            proposer="CombatAgent",
+                            source=source,
+                            proposal_type=ptype,
+                        )
+                    )
+                    ids.append(str(proposal.proposal_id))
+                    existing_statements.add(statement)
+                except Exception as exc:  # noqa: BLE001  # reason: one bad proposal must not lose the rest of the batch (in combat_end_route)
+                    ids.append(None)
+                    errs.append(f"{statement[:80]}: {exc}")
+            return ids, errs
+
+        created, proposal_errors = await asyncio.to_thread(_stage)
+        proposal_ids = [pid for pid in created if pid]
+
+    summary: str | None = None
+    try:
+        summary = await agent.summarize_encounter(state)
+    except Exception as exc:  # noqa: BLE001  # reason: summary is optional enrichment; state is already ended (in combat_end_route)
+        log.warning("combat_summary_failed", session_id=session_id, error=str(exc))
+
+    return CombatEndResponse(
+        state=state,
+        proposal_ids=proposal_ids,
+        proposal_errors=proposal_errors,
+        summary=summary,
+    )
+
+
+@router.post("/gm/combat/condition-explain", response_model=ConditionExplanation)
+async def combat_explain_condition(
+    req: ConditionExplainRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ConditionExplanation:
+    """What a condition tag does: structured definition from the bound game
+    system when it has one, free-text guidance otherwise (G01 open decision)."""
+    await require_universe_owner(db, principal, req.universe_id)
+    system_id = req.system_id
+    system_name: str | None = None
+    if system_id is None:
+        binding = await asyncio.to_thread(resolve_universe_system_binding, str(req.universe_id))
+        bound = binding.get("system_id")
+        system_id = UUID(str(bound)) if bound else None
+        system_name = binding.get("system_name")
+    agent = CombatAgent()
+    try:
+        return await agent.explain_condition(
+            req.condition, system_id=system_id, system_name=system_name
+        )
+    except Exception as exc:
+        log.warning(
+            "combat_condition_explain_failed",
+            universe_id=str(req.universe_id),
+            condition=req.condition,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to explain condition: {exc}"
+        ) from exc

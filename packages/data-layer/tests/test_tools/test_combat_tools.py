@@ -16,11 +16,17 @@ from monitor_data.schemas.combat import (
     AddCombatLogEntry,
     AddCombatParticipant,
     CombatCreate,
+    CombatEnd,
     CombatEnvironment,
     CombatFilter,
+    CombatInitiativeEntry,
+    CombatNextRound,
     CombatParticipant,
     CombatResponse,
+    CombatSetInitiative,
+    CombatStart,
     CombatUpdate,
+    CombatUpdateCombatant,
     Condition,
     RemoveCombatParticipant,
     SetCombatOutcome,
@@ -29,6 +35,12 @@ from monitor_data.schemas.combat import (
 from monitor_data.tools.mongodb_tools import (
     mongodb_add_combat_log_entry,
     mongodb_add_combat_participant,
+    mongodb_combat_end,
+    mongodb_combat_get,
+    mongodb_combat_next_round,
+    mongodb_combat_set_initiative,
+    mongodb_combat_start,
+    mongodb_combat_update_combatant,
     mongodb_create_combat,
     mongodb_delete_combat,
     mongodb_get_combat,
@@ -1173,3 +1185,371 @@ def test_create_combat_with_hazards(mock_get_mongodb: Mock, mock_get_neo4j: Mock
     assert result.environment.hazards[0]["type"] == "spike_pit"
     assert result.environment.metadata["danger_level"] == "high"
     mock_combats.insert_one.assert_called_once()
+
+
+# =============================================================================
+# TEST: session combat tracker (CF-9)
+# =============================================================================
+# These tools are ephemeral table state keyed by (universe_id, session_id).
+# The fake collection below is stateful so start → get → update → initiative
+# → next-round → end round-trips exercise the real persistence paths.
+
+
+class _FakeSessionColl:
+    """Minimal in-memory stand-in for the ``session_combats`` collection."""
+
+    def __init__(self) -> None:
+        self.docs: list[dict] = []
+
+    def _match(self, d: dict, q: dict) -> bool:
+        return all(d.get(k) == v for k, v in q.items())
+
+    def find_one(self, q: dict, *a, **k) -> dict | None:
+        return next((d for d in self.docs if self._match(d, q)), None)
+
+    def replace_one(self, q: dict, doc: dict, upsert: bool = False) -> None:
+        for i, d in enumerate(self.docs):
+            if self._match(d, q):
+                self.docs[i] = dict(doc)
+                return
+        if upsert:
+            self.docs.append(dict(doc))
+
+
+@pytest.fixture
+def session_coll() -> _FakeSessionColl:
+    return _FakeSessionColl()
+
+
+@pytest.fixture
+def patch_session_mongo(session_coll: _FakeSessionColl):
+    """Patch get_mongodb_client so session-combat tools hit the fake collection."""
+    mock_client = MagicMock()
+    mock_client.get_collection.return_value = session_coll
+    with patch(
+        "monitor_data.tools.mongodb_tools.combat.get_mongodb_client",
+        return_value=mock_client,
+    ):
+        yield session_coll
+
+
+def _start_params(**over):
+    base = {
+        "universe_id": uuid4(),
+        "session_id": "sess-1",
+        "combatants": [
+            {"name": "Mira", "side": CombatSide.PC, "hp": 24, "max_hp": 24},
+            {"name": "Goblin", "side": CombatSide.ENEMY, "hp": 7, "max_hp": 7},
+            {"name": "Goblin Boss", "side": CombatSide.ENEMY, "hp": 14, "max_hp": 14},
+        ],
+    }
+    base.update(over)
+    return CombatStart(**base)
+
+
+def test_session_combat_start_creates_initial_state(patch_session_mongo):
+    state = mongodb_combat_start(_start_params())
+    assert state.status == CombatStatus.INITIATIVE
+    assert state.round == 1
+    assert state.turn_order == []
+    assert state.ended_at is None
+    assert {c.name for c in state.combatants} == {"Mira", "Goblin", "Goblin Boss"}
+    # Combatants get their own instance ids (distinct from canon entity ids).
+    assert len({c.id for c in state.combatants}) == 3
+
+
+def test_session_combat_start_rejects_hp_over_max(patch_session_mongo):
+    with pytest.raises(ValueError, match="cannot exceed max_hp"):
+        mongodb_combat_start(
+            _start_params(combatants=[{"name": "Broken", "hp": 11, "max_hp": 10}])
+        )
+
+
+def test_session_combat_start_replaces_prior_state_for_same_key(patch_session_mongo):
+    uid = uuid4()
+    first = mongodb_combat_start(_start_params(universe_id=uid))
+    second = mongodb_combat_start(
+        _start_params(universe_id=uid, combatants=[{"name": "Solo", "hp": 5, "max_hp": 5}])
+    )
+    assert len(patch_session_mongo.docs) == 1  # same (universe, session) key
+    assert [c.name for c in second.combatants] == ["Solo"]
+    assert second.started_at >= first.started_at
+
+
+def test_session_combat_get_returns_none_when_absent(patch_session_mongo):
+    assert mongodb_combat_get(uuid4(), "nope") is None
+
+
+def test_session_combat_get_round_trips_state(patch_session_mongo):
+    started = mongodb_combat_start(_start_params())
+    fetched = mongodb_combat_get(started.universe_id, started.session_id)
+    assert fetched is not None
+    assert fetched.universe_id == started.universe_id
+    assert fetched.session_id == "sess-1"
+    assert [c.name for c in fetched.combatants] == [c.name for c in started.combatants]
+
+
+def test_session_combat_is_isolated_per_universe(patch_session_mongo):
+    uid_a, uid_b = uuid4(), uuid4()
+    mongodb_combat_start(_start_params(universe_id=uid_a))
+    assert mongodb_combat_get(uid_b, "sess-1") is None
+
+
+def test_update_combatant_damage_absorbs_temp_hp_first(patch_session_mongo):
+    started = mongodb_combat_start(
+        _start_params(combatants=[{"name": "Mira", "side": CombatSide.PC, "hp": 20, "max_hp": 20, "temp_hp": 5}])
+    )
+    mira = started.combatants[0]
+    # 8 damage: 5 absorbed by temp HP, 3 hit HP.
+    state = mongodb_combat_update_combatant(
+        CombatUpdateCombatant(
+            universe_id=started.universe_id,
+            session_id=started.session_id,
+            combatant_id=mira.id,
+            hp_delta=-8,
+        )
+    )
+    updated = state.combatants[0]
+    assert updated.temp_hp == 0
+    assert updated.hp == 17
+
+
+def test_update_combatant_damage_floors_at_zero(patch_session_mongo):
+    started = mongodb_combat_start(
+        _start_params(combatants=[{"name": "Goblin", "hp": 7, "max_hp": 7}])
+    )
+    goblin = started.combatants[0]
+    state = mongodb_combat_update_combatant(
+        CombatUpdateCombatant(
+            universe_id=started.universe_id,
+            session_id=started.session_id,
+            combatant_id=goblin.id,
+            hp_delta=-99,
+        )
+    )
+    assert state.combatants[0].hp == 0
+
+
+def test_update_combatant_heal_clamps_to_max(patch_session_mongo):
+    started = mongodb_combat_start(
+        _start_params(combatants=[{"name": "Mira", "side": CombatSide.PC, "hp": 10, "max_hp": 20}])
+    )
+    mira = started.combatants[0]
+    state = mongodb_combat_update_combatant(
+        CombatUpdateCombatant(
+            universe_id=started.universe_id,
+            session_id=started.session_id,
+            combatant_id=mira.id,
+            hp_delta=50,
+        )
+    )
+    assert state.combatants[0].hp == 20
+
+
+def test_update_combatant_absolute_hp_overrides_delta(patch_session_mongo):
+    started = mongodb_combat_start(
+        _start_params(combatants=[{"name": "Mira", "side": CombatSide.PC, "hp": 10, "max_hp": 20}])
+    )
+    mira = started.combatants[0]
+    state = mongodb_combat_update_combatant(
+        CombatUpdateCombatant(
+            universe_id=started.universe_id,
+            session_id=started.session_id,
+            combatant_id=mira.id,
+            hp=3,
+            hp_delta=-9,
+        )
+    )
+    assert state.combatants[0].hp == 3
+
+
+def test_update_combatant_conditions_add_and_remove(patch_session_mongo):
+    started = mongodb_combat_start(
+        _start_params(combatants=[{"name": "Mira", "side": CombatSide.PC, "hp": 20, "max_hp": 20}])
+    )
+    mira = started.combatants[0]
+    state = mongodb_combat_update_combatant(
+        CombatUpdateCombatant(
+            universe_id=started.universe_id,
+            session_id=started.session_id,
+            combatant_id=mira.id,
+            conditions_add=["poisoned", "prone"],
+        )
+    )
+    assert state.combatants[0].conditions == ["poisoned", "prone"]
+    state = mongodb_combat_update_combatant(
+        CombatUpdateCombatant(
+            universe_id=started.universe_id,
+            session_id=started.session_id,
+            combatant_id=mira.id,
+            conditions_add=["poisoned"],  # duplicate is a no-op
+            conditions_remove=["prone"],
+        )
+    )
+    assert state.combatants[0].conditions == ["poisoned"]
+
+
+def test_update_combatant_dead_flag_forces_hp_zero(patch_session_mongo):
+    started = mongodb_combat_start(
+        _start_params(combatants=[{"name": "Goblin", "hp": 7, "max_hp": 7}])
+    )
+    goblin = started.combatants[0]
+    state = mongodb_combat_update_combatant(
+        CombatUpdateCombatant(
+            universe_id=started.universe_id,
+            session_id=started.session_id,
+            combatant_id=goblin.id,
+            dead=True,
+            unconscious=True,
+        )
+    )
+    updated = state.combatants[0]
+    assert updated.dead is True
+    assert updated.unconscious is True
+    assert updated.hp == 0
+
+
+def test_update_combatant_concentration_set_and_clear(patch_session_mongo):
+    started = mongodb_combat_start(
+        _start_params(combatants=[{"name": "Mira", "side": CombatSide.PC, "hp": 20, "max_hp": 20}])
+    )
+    mira = started.combatants[0]
+    state = mongodb_combat_update_combatant(
+        CombatUpdateCombatant(
+            universe_id=started.universe_id,
+            session_id=started.session_id,
+            combatant_id=mira.id,
+            concentration="bless: 3 allies",
+        )
+    )
+    assert state.combatants[0].concentration == "bless: 3 allies"
+    state = mongodb_combat_update_combatant(
+        CombatUpdateCombatant(
+            universe_id=started.universe_id,
+            session_id=started.session_id,
+            combatant_id=mira.id,
+            concentration="",  # '' clears
+        )
+    )
+    assert state.combatants[0].concentration is None
+
+
+def test_update_combatant_missing_encounter_raises(patch_session_mongo):
+    with pytest.raises(ValueError, match="No combat encounter"):
+        mongodb_combat_update_combatant(
+            CombatUpdateCombatant(
+                universe_id=uuid4(),
+                session_id="ghost",
+                combatant_id=uuid4(),
+                hp_delta=-1,
+            )
+        )
+
+
+def test_update_combatant_unknown_combatant_raises(patch_session_mongo):
+    started = mongodb_combat_start(_start_params())
+    with pytest.raises(ValueError, match="not found in encounter"):
+        mongodb_combat_update_combatant(
+            CombatUpdateCombatant(
+                universe_id=started.universe_id,
+                session_id=started.session_id,
+                combatant_id=uuid4(),
+                hp_delta=-1,
+            )
+        )
+
+
+def test_set_initiative_orders_by_score_then_tiebreak(patch_session_mongo):
+    started = mongodb_combat_start(_start_params())
+    by_name = {c.name: c for c in started.combatants}
+    state = mongodb_combat_set_initiative(
+        CombatSetInitiative(
+            universe_id=started.universe_id,
+            session_id=started.session_id,
+            entries=[
+                CombatInitiativeEntry(combatant_id=by_name["Goblin"].id, initiative=12, tiebreak=3),
+                CombatInitiativeEntry(combatant_id=by_name["Mira"].id, initiative=18, tiebreak=1),
+                CombatInitiativeEntry(combatant_id=by_name["Goblin Boss"].id, initiative=12, tiebreak=5),
+            ],
+        )
+    )
+    order = [c.name for c in state.combatants]
+    # Mira wins outright; the 12-tie breaks on tiebreak (Boss 5 > Goblin 3).
+    assert order == ["Mira", "Goblin Boss", "Goblin"]
+    assert state.turn_order == [c.id for c in state.combatants]
+    assert state.status == CombatStatus.ACTIVE
+    assert state.combatants[0].initiative == 18
+
+
+def test_set_initiative_unrolled_sink_and_name_tiebreak(patch_session_mongo):
+    started = mongodb_combat_start(
+        _start_params(
+            combatants=[
+                {"name": "zeta", "hp": 5, "max_hp": 5},
+                {"name": "alpha", "hp": 5, "max_hp": 5},
+                {"name": "mid", "hp": 5, "max_hp": 5},
+            ]
+        )
+    )
+    by_name = {c.name: c for c in started.combatants}
+    state = mongodb_combat_set_initiative(
+        CombatSetInitiative(
+            universe_id=started.universe_id,
+            session_id=started.session_id,
+            entries=[
+                # Exact tie on initiative and tiebreak → alphabetical: alpha < zeta.
+                CombatInitiativeEntry(combatant_id=by_name["zeta"].id, initiative=10),
+                CombatInitiativeEntry(combatant_id=by_name["alpha"].id, initiative=10),
+                # "mid" never rolls → sinks below both.
+            ],
+        )
+    )
+    assert [c.name for c in state.combatants] == ["alpha", "zeta", "mid"]
+    assert state.combatants[2].initiative is None
+
+
+def test_set_initiative_unknown_combatant_raises(patch_session_mongo):
+    started = mongodb_combat_start(_start_params())
+    with pytest.raises(ValueError, match="Unknown combatant"):
+        mongodb_combat_set_initiative(
+            CombatSetInitiative(
+                universe_id=started.universe_id,
+                session_id=started.session_id,
+                entries=[CombatInitiativeEntry(combatant_id=uuid4(), initiative=10)],
+            )
+        )
+
+
+def test_next_round_increments_and_refuses_after_end(patch_session_mongo):
+    started = mongodb_combat_start(_start_params())
+    state = mongodb_combat_next_round(
+        CombatNextRound(universe_id=started.universe_id, session_id=started.session_id)
+    )
+    assert state.round == 2
+    state = mongodb_combat_next_round(
+        CombatNextRound(universe_id=started.universe_id, session_id=started.session_id)
+    )
+    assert state.round == 3
+    mongodb_combat_end(CombatEnd(universe_id=started.universe_id, session_id=started.session_id))
+    with pytest.raises(ValueError, match="already ended"):
+        mongodb_combat_next_round(
+            CombatNextRound(universe_id=started.universe_id, session_id=started.session_id)
+        )
+
+
+def test_combat_end_resolves_and_stamps_ended_at(patch_session_mongo):
+    started = mongodb_combat_start(_start_params())
+    state = mongodb_combat_end(
+        CombatEnd(universe_id=started.universe_id, session_id=started.session_id)
+    )
+    assert state.status == CombatStatus.RESOLVED
+    assert state.ended_at is not None
+    # Round-trip: the resolved status survives persistence.
+    fetched = mongodb_combat_get(started.universe_id, started.session_id)
+    assert fetched is not None
+    assert fetched.status == CombatStatus.RESOLVED
+
+
+def test_combat_end_missing_encounter_raises(patch_session_mongo):
+    with pytest.raises(ValueError, match="No combat encounter"):
+        mongodb_combat_end(CombatEnd(universe_id=uuid4(), session_id="ghost"))
