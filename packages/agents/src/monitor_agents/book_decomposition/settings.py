@@ -83,7 +83,7 @@ class DecompositionSettings:
     coverage_batch: int = 25  # OLD 8. Paragraphs per coverage call.
     coverage_sample: float = 0.10  # OLD 1.0. Share of audited paragraphs actually checked (task 8).
     coverage_min_paragraphs: int = 64  # Below this many paragraphs, sampling saves nothing: check all.
-    skip_audit_batch: int = 25  # OLD 25. Skipped sentences per second-look call.
+    skip_audit_batch: int = 70  # OLD 25. Skipped sentences per second-look call (same size as a review batch).
     # What is never sent for extraction (task 9).
     skip_non_content: bool = True  # OLD False. Front matter and contents/index/credits divisions.
     # Estimate-only proxies (task 10): what the book will yield, guessed until measured.
@@ -130,5 +130,6 @@ OLD = replace(
     graph_batch=30,
     coverage_batch=8,
     coverage_sample=1.0,
+    skip_audit_batch=25,
     skip_non_content=False,
 )

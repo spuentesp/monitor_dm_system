@@ -18,6 +18,7 @@ import os
 import sys
 from pathlib import Path
 
+from monitor_agents.analyzer.estimate import AnalyzerEstimate, estimate_analyzer_calls
 from monitor_agents.book_decomposition.estimate import CallEstimate, estimate_calls
 from monitor_agents.book_decomposition.settings import DecompositionSettings, OLD
 from monitor_agents.book_decomposition.windows import build_windows
@@ -26,6 +27,15 @@ from monitor_data.tools.ingest_tools.book_tree import decompose_pdf
 
 def _flag(name: str) -> bool:
     return os.environ.get(name, "0") == "1"
+
+
+def _print_analyzer(label: str, estimate: AnalyzerEstimate) -> None:
+    print(f"{label}: {estimate.total} calls for the batched stages ({estimate.sections} sections)")
+    for stage, count in estimate.as_dict().items():
+        print(f"  {stage:<18} {count}")
+    print(
+        "  other per-section stages (tables, agendas, topologies, profiles): not modelled; see the job's actual count"
+    )
 
 
 def _print_estimate(label: str, estimate: CallEstimate, settings: DecompositionSettings) -> None:
@@ -73,6 +83,14 @@ def main(argv: list[str] | None = None) -> int:
     print()
     _print_estimate("OLD defaults (before phase 5a)", old, OLD)
     print(f"\nDifference (old - new): {old.total - current.total} calls")
+
+    print()
+    print("Analyzer (decomposition on: rules, lore and axioms layers are skipped)")
+    _print_analyzer("Current settings", estimate_analyzer_calls(tree))
+    _print_analyzer(
+        "OLD defaults (before phase 5a)",
+        estimate_analyzer_calls(tree, batch_words=1_000_000, batch_sections=2, summary_batch=1),
+    )
     return 0
 
 
