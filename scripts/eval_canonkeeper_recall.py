@@ -47,7 +47,6 @@ from pathlib import Path
 from typing import Any
 
 from monitor_agents.canonkeeper.recall_corpus import (
-    CLASS_TARGETS,
     FALSE_POSITIVE_CEILING,
     RECALL_CASES,
     RecallCase,
