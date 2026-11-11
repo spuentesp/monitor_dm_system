@@ -456,6 +456,15 @@ from monitor_data.tools.mongodb_tools.working_state import (
 )
 
 # World Clock operations (CF-11 Advance World Time)
+# Audio capture transcripts (CF-10 / G02)
+from monitor_data.tools.mongodb_tools.transcripts import (
+    mongodb_create_transcript,
+    mongodb_delete_transcript,
+    mongodb_get_transcript,
+    mongodb_list_transcripts,
+    mongodb_update_transcript,
+)
+
 # Per-character knowledge audit (CF-15 / G09)
 from monitor_data.tools.mongodb_tools.knowledge_audit import (
     mongodb_list_knowledge_audit,
@@ -504,6 +513,11 @@ __all__ = [
     "mongodb_create_proposed_change",
     "mongodb_list_canon_overrides",
     "mongodb_list_knowledge_audit",
+    "mongodb_create_transcript",
+    "mongodb_delete_transcript",
+    "mongodb_get_transcript",
+    "mongodb_list_transcripts",
+    "mongodb_update_transcript",
     "mongodb_record_canon_override",
     "mongodb_defer_proposed_change",
     "mongodb_edit_proposed_change",

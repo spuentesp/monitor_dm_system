@@ -1,6 +1,9 @@
 # G02 — Audio / hybrid session capture (proposed CF-10)
 
-> **Status:** proposed 2026-11-11. Gap: CF-1 capture is text-only; audio was
+> **Status:** implemented 2026-11-11 as **CF-10** (pluggable transcription
+> registry + upload/transcribe/queue routes + the segment review panel in
+> the recorder). The live pass (phase 5) is **not** done. Originally
+> proposed 2026-11-11. Gap: CF-1 capture is text-only; audio was
 > descoped in P3.1 (2026-11-06) because it needs a transcription vendor,
 > diarization, and a new ingest path. But EPIC 7's verb is "listen" — a GM
 > cannot type notes while running the game, so real sessions under-capture.

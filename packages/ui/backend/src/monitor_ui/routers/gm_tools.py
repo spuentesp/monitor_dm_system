@@ -13,13 +13,15 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_agents.combat import CombatAgent, ConditionExplanation
+from monitor_agents.audio_capture import AudioCaptureAgent, AudioCaptureError
 from monitor_agents.encounter_difficulty import EncounterDifficultyAgent
 from monitor_agents.knowledge_audit import KnowledgeAuditAgent
 from monitor_agents.gm_table import (
@@ -40,6 +42,7 @@ from monitor_agents.plot_hooks import (
     PlotHookAgent,
     SessionPrep,
 )
+from monitor_data.db.minio import get_minio_client
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.base import (
     Authority,
@@ -88,6 +91,7 @@ from monitor_data.schemas.world_clock import (
 )
 from monitor_data.tools.mongodb_tools import (
     STRIKE_REASON,
+    mongodb_get_transcript,
     mongodb_create_proposed_change,
     mongodb_get_gm_prep_bundle,
     mongodb_get_world_clock,
@@ -2578,3 +2582,194 @@ async def challenge_character_knowledge(
         log.warning("knowledge_challenge_failed", entity_id=str(eid), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to stage the correction: {exc}") from exc
     return KnowledgeChallengeResponse(proposal_id=proposal_id, entity_id=eid)
+
+
+# ---------------------------------------------------------------------------
+# Audio capture (CF-10 / G02)
+# ---------------------------------------------------------------------------
+# "Listen" is what EPIC 7 says the GM assistant does, and until now it only
+# did it to text: the GM typed notes while running the game, so real
+# sessions under-captured. A recording is another input mode for the same
+# CF-1 pipeline — audio in, candidate facts out, canon only through the
+# CF-8 queue.
+#
+# The transcription backend is configuration, not code: a hosted
+# OpenAI-compatible endpoint (a provider row with role='transcription') or
+# a local whisper install (MONITOR_TRANSCRIPTION_COMMAND). Recordings are
+# stored under an owner-scoped key so one GM's audio is never another's.
+
+
+class AudioTranscribeResponse(BaseModel):
+    """The transcript of a recording."""
+
+    transcript_id: UUID
+    universe_id: UUID
+    provider: str = ""
+    model: str = ""
+    text: str = ""
+    language: str | None = None
+    duration: float | None = None
+    segments: list[dict[str, Any]] = Field(default_factory=list)
+    audio_key: str | None = None
+
+
+class AudioSegmentQueueRequest(BaseModel):
+    """Queue one reviewed segment into the capture flow."""
+
+    segment_index: int = Field(ge=0)
+    text: str | None = Field(default=None, max_length=10000)
+
+
+class AudioSegmentQueueResponse(BaseModel):
+    """The proposals the segment produced."""
+
+    transcript_id: UUID
+    segment_index: int
+    proposal_ids: list[str] = Field(default_factory=list)
+
+
+# The size cap on an uploaded recording. A three-hour session in 16 kHz
+# mono PCM is roughly 170 MB; the cap leaves room for it and no more.
+_MAX_AUDIO_BYTES = 200 * 1024 * 1024
+
+
+@router.post("/gm/audio/transcribe", response_model=AudioTranscribeResponse)
+async def transcribe_audio(
+    universe_id: UUID = Form(...),
+    file: UploadFile = File(...),
+    session_id: UUID | None = Form(default=None),
+    scene_id: UUID | None = Form(default=None),
+    story_id: UUID | None = Form(default=None),
+    language: str | None = Form(default=None),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> AudioTranscribeResponse:
+    """Upload a recording and transcribe it (CF-10).
+
+    The recording is kept under an owner-scoped key and the transcript is
+    stored with the provider that made it. Nothing becomes canon here: the
+    GM reviews the segments and queues them into the CF-1 flow.
+    """
+    await require_universe_owner(db, principal, universe_id)
+    audio = await file.read()
+    if not audio:
+        raise HTTPException(status_code=400, detail="The recording is empty.")
+    if len(audio) > _MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"The recording is larger than {_MAX_AUDIO_BYTES // (1024 * 1024)} MB.",
+        )
+
+    safe_name = Path(file.filename or "recording.wav").name.replace(" ", "_")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    object_key = f"audio/{universe_id}/{principal.user_id}/{timestamp}_{safe_name}"
+
+    content_type = file.content_type or "audio/wav"
+    try:
+        await get_minio_client().upload(
+            key=object_key, data=audio, content_type=content_type
+        )
+    except Exception as exc:
+        log.warning("audio_upload_failed", key=object_key, error=str(exc))
+        raise HTTPException(
+            status_code=503, detail="The recording could not be stored."
+        ) from exc
+
+    try:
+        transcript = await AudioCaptureAgent().transcribe(
+            audio,
+            universe_id=universe_id,
+            owner_id=str(principal.user_id),
+            filename=safe_name,
+            content_type=content_type,
+            session_id=session_id,
+            scene_id=scene_id,
+            story_id=story_id,
+            language=language,
+            audio_key=object_key,
+        )
+    except AudioCaptureError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        log.warning("audio_transcribe_failed", error=str(exc))
+        raise HTTPException(
+            status_code=500, detail=f"The recording could not be transcribed: {exc}"
+        ) from exc
+
+    return AudioTranscribeResponse(
+        transcript_id=transcript.transcript_id,
+        universe_id=transcript.universe_id,
+        provider=transcript.provider,
+        model=transcript.model,
+        text=transcript.text,
+        language=transcript.language,
+        duration=transcript.duration,
+        segments=[s.model_dump(mode="json") for s in transcript.segments],
+        audio_key=transcript.audio_key,
+    )
+
+
+@router.get("/gm/audio/transcripts/{transcript_id}", response_model=AudioTranscribeResponse)
+async def get_audio_transcript(
+    transcript_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> AudioTranscribeResponse:
+    """Read a stored transcript (CF-10)."""
+    tid = _uuid_or_400(transcript_id, "transcript_id")
+    raw = await asyncio.to_thread(mongodb_get_transcript, tid)
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    await require_universe_owner(db, principal, raw.universe_id)
+    return AudioTranscribeResponse(
+        transcript_id=raw.transcript_id,
+        universe_id=raw.universe_id,
+        provider=raw.provider,
+        model=raw.model,
+        text=raw.text,
+        language=raw.language,
+        duration=raw.duration,
+        segments=[s.model_dump(mode="json") for s in raw.segments],
+        audio_key=raw.audio_key,
+    )
+
+
+@router.post(
+    "/gm/audio/transcripts/{transcript_id}/queue",
+    response_model=AudioSegmentQueueResponse,
+)
+async def queue_audio_segment(
+    transcript_id: str,
+    req: AudioSegmentQueueRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> AudioSegmentQueueResponse:
+    """Queue one reviewed transcript segment into the CF-1 capture flow (CF-10).
+
+    The segment becomes a capture entry and goes through the same insight
+    extraction a typed entry does, so the proposals are the same proposals
+    the GM would have got by typing — and they wait in the CF-8 queue like
+    any other.
+    """
+    tid = _uuid_or_400(transcript_id, "transcript_id")
+    raw = await asyncio.to_thread(mongodb_get_transcript, tid)
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    await require_universe_owner(db, principal, raw.universe_id)
+
+    try:
+        proposal_ids = await AudioCaptureAgent().queue_segment(
+            tid, req.segment_index, entry_text=req.text
+        )
+    except AudioCaptureError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        log.warning("audio_segment_queue_failed", error=str(exc))
+        raise HTTPException(
+            status_code=500, detail=f"The segment could not be queued: {exc}"
+        ) from exc
+    return AudioSegmentQueueResponse(
+        transcript_id=tid,
+        segment_index=req.segment_index,
+        proposal_ids=proposal_ids,
+    )

@@ -13,7 +13,6 @@ from __future__ import annotations
 import pytest
 from monitor_agents.encounter_difficulty import EncounterDifficultyAgent
 from monitor_agents.game_system.difficulty import (
-    DifficultyEstimate,
     Foe,
     PartyMember,
     estimate_difficulty,

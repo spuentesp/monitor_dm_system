@@ -7,6 +7,7 @@ import type {
   ClockAdvanceResponse,
   ClockGetResponse,
   ImproviseResponse,
+  KnowledgeAudit,
   LastSessionResponse,
   NpcDossierResponse,
   PartyKnowledgeAnswer,
@@ -24,6 +25,34 @@ import type {
 } from "./gm-table-types";
 
 export const gmTableApi = {
+  /** CF-15 — what the system believes a character knows, with provenance. */
+  auditKnowledge: (universeId: string, entityId: string) =>
+    req<KnowledgeAudit>(`/gm/knowledge/${entityId}`, {
+      query: { universe_id: universeId },
+    }),
+
+  /** CF-15 — challenge one attribution; stages a CF-8 proposal. */
+  challengeKnowledge: (
+    universeId: string,
+    entityId: string,
+    body: {
+      item_id: string;
+      item_kind: "fact" | "memory" | "proposal";
+      statement: string;
+      reason: string;
+      action: "retract" | "correct";
+      story_id?: string | null;
+      scene_id?: string | null;
+    },
+  ) =>
+    req<{ proposal_id: string; entity_id: string }>(
+      `/gm/knowledge/${entityId}/challenge`,
+      {
+        method: "POST",
+        body: JSON.stringify({ universe_id: universeId, ...body }),
+      },
+    ),
+
   /** Task 2 — extract tonight's items from the GM's notes (review-only). */
   extractPrep: (universeId: string, notes: string, storyId?: string | null) =>
     req<PrepExtraction>("/gm/prep/extract", {

@@ -858,7 +858,11 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         """
         facts = await self._fetch_canon_facts(universe_id)
         axioms = await self._fetch_canon_axioms(universe_id)
-        entity_names = await self._fetch_entity_names(universe_id)
+        # The names are only needed to narrow a context; an empty canon has
+        # nothing to narrow.
+        entity_names = (
+            await self._fetch_entity_names(universe_id) if (facts or axioms) else []
+        )
         return facts, axioms, entity_names
 
     async def _fetch_entity_names(self, universe_id: UUID) -> list[str]:
@@ -892,10 +896,16 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
 
         The direct check is the one that can gate canon: it fires when the
         candidate denies a canon fact outright. This method runs it one
-        candidate at a time, with the context narrowed to the canon that
-        bears on that candidate — the shape the per-class measurement
+        candidate at a time — the shape the per-class measurement
         (``scripts/eval_canonkeeper_recall.py``) found to be the reliable
-        one.
+        one: 100% on direct negations and status antonyms, 83% on timeline
+        violations.
+
+        The context is the whole canon by default. Narrowing it to the
+        canon that bears on each candidate is available
+        (``CANONKEEPER_FOCUSED_CONTEXT``) but costs a class of
+        contradictions, so it is off; see
+        ``docs/testing/canonkeeper_recall_measurement_2026-11-11.md``.
 
         Advisory: the caller decides what to do with the flags. A failure
         yields no flags, never a hard error.
@@ -908,6 +918,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             One dict per flagged statement: ``statement``, ``explanation``,
             ``contradiction_type``, ``severity``, ``flag_kind``.
         """
+        from monitor_data.config import settings
         from monitor_data.schemas.contradiction import ContradictionSeverity, ContradictionType
 
         from monitor_agents.canonkeeper.context import build_focused_context
@@ -917,14 +928,24 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         if not candidates:
             return []
 
-        facts, axioms, entity_names = await self._canon_snapshot(universe_id)
-        if not facts and not axioms:
+        whole_canon = "\n".join(await self._canon_context_lines(universe_id))
+        if not whole_canon:
             return []
+
+        facts: list[dict[str, Any]] = []
+        axioms: list[Any] = []
+        entity_names: list[str] = []
+        if settings.canonkeeper_focused_context:
+            facts, axioms, entity_names = await self._canon_snapshot(universe_id)
 
         module = ContradictionModule()
         flags: list[dict[str, Any]] = []
         for statement in candidates:
-            context = build_focused_context(statement, facts, axioms, entity_names)
+            context = (
+                build_focused_context(statement, facts, axioms, entity_names)
+                if settings.canonkeeper_focused_context
+                else whole_canon
+            )
             if not context:
                 continue
             try:
@@ -1002,14 +1023,16 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         per_candidate = settings.canonkeeper_per_candidate_checks
         focused = settings.canonkeeper_focused_context
 
-        facts, axioms, entity_names = await self._canon_snapshot(universe_id)
-        if not facts and not axioms:
-            return []
-
         context_lines = await self._canon_context_lines(universe_id)
         if not context_lines:
             return []
         context = "\n".join(context_lines)
+
+        facts: list[dict[str, Any]] = []
+        axioms: list[Any] = []
+        entity_names: list[str] = []
+        if per_candidate and focused:
+            facts, axioms, entity_names = await self._canon_snapshot(universe_id)
 
         module = ImplicationContradictionModule()
         chunk_size = settings.canonkeeper_implication_chunk_size

@@ -1,6 +1,9 @@
 # G09 — Per-character knowledge inspector (proposed CF-15)
 
-> **Status:** proposed 2026-11-11. Gap: the memory inspector was recorded as
+> **Status:** implemented 2026-11-11 as **CF-15** (the knowledge audit tool,
+> the `KnowledgeAuditAgent`, the audit/challenge routes, and the Knowledge
+> tab in the lookups panel). Originally proposed 2026-11-11. Gap: the memory
+> inspector was recorded as
 > a future use case in `docs/USE_CASES.md` (two-tier hub spec) and never
 > built. `/gm/lookup/party-knowledge` answers questions, but the GM cannot
 > *audit* what the system believes each PC knows — the difference between

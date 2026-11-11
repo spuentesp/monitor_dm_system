@@ -1,6 +1,10 @@
 # G08 — Contradiction enforcement hardening (CF-5 amendment, G-9)
 
-> **Status:** proposed 2026-11-11. Gap: CF-5 detection is advisory-only.
+> **Status:** implemented 2026-11-11 (phases 1–4): the per-class recall
+> corpus and harness, the per-candidate check shape, the CF-8 soft block
+> with an audited override, and the opt-in per-owner hard rejection.
+> Measured: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`.
+> Originally proposed 2026-11-11. Gap: CF-5 detection is advisory-only.
 > G-9 Phase 3 (hard rejection on canon transition violations) is opt-in off,
 > and implication-check recall measured 25% on the synthetic set
 > (`docs/testing/canonkeeper_depth_measurement_2026-11-07.md`), so a wrong

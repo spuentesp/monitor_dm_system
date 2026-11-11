@@ -278,11 +278,14 @@ class Settings(BaseSettings):
         ),
     )
     canonkeeper_focused_context: bool = Field(
-        default=True,
+        default=False,
         alias="CANONKEEPER_FOCUSED_CONTEXT",
         description=(
             "Narrow the canon context to the facts that bear on the candidate "
-            "statement instead of passing the whole canon."
+            "statement instead of passing the whole canon. Measured on the "
+            "per-class corpus: it costs one status-antonym case, so it is "
+            "off by default (docs/testing/canonkeeper_recall_measurement_"
+            "2026-11-11.md)."
         ),
     )
     # G08 phase 3/4 — the CF-8 soft block and the opt-in hard rejection.

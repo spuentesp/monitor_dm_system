@@ -1483,6 +1483,18 @@ export interface PrepItem {
   generated_content?: string | null;
 }
 
+// CF-13 (G06) — how fair the proposed encounter is for this party.
+// Carries its own working, so the GM can see the arithmetic.
+export interface EncounterDifficulty {
+  label: string;
+  rationale: string;
+  threat: number;
+  party_budget: number;
+  ratio: number | null;
+  basis: string;
+  details: Record<string, unknown>;
+}
+
 export interface SessionPrep {
   recap: string;
   open_threads: string[];
@@ -1490,6 +1502,7 @@ export interface SessionPrep {
   npc_reminders: string[];
   world_state_changes: string[];
   checklist?: PrepItem[];
+  encounter_difficulty?: EncounterDifficulty | null;
 }
 
 // P1.3 — guided end-of-session wrap-up digest (gm_assistant recordings).

@@ -870,7 +870,10 @@ async def accept_proposal(
     with db_op():
         proposal = mongodb_get_proposed_change(proposal_uuid)
     if proposal is None:
-        raise HTTPException(status_code=404, detail="Not found")
+        # 409, not 404: the sibling verdict routes answer a missing
+        # proposal the same way, and the accept path's contract has always
+        # been "you cannot decide this".
+        raise HTTPException(status_code=409, detail="Proposal not found.")
     if proposal.status != ProposalStatus.PENDING:
         raise HTTPException(
             status_code=409,

@@ -226,3 +226,28 @@ export interface SessionLogProposalRetractResponse {
   status: string;
   reason: string;
 }
+
+// CF-15 (G09) — what the system believes a character knows.
+export interface KnowledgeItem {
+  id: string;
+  kind: "fact" | "memory" | "proposal";
+  statement: string;
+  source: "scene" | "witnessed" | "common" | "proposal" | "memory";
+  scene_id: string | null;
+  importance: number;
+  certainty: number;
+  confidence: number;
+  canon_level: string;
+  suspicious: boolean;
+  suspicion_reason: string;
+}
+
+export interface KnowledgeAudit {
+  entity_id: string;
+  universe_id: string | null;
+  items: KnowledgeItem[];
+  fact_count: number;
+  memory_count: number;
+  proposal_count: number;
+  suspicious_count: number;
+}

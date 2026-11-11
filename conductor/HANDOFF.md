@@ -1,138 +1,122 @@
-# Handoff — next steps (2026-11-11)
+# Handoff — next steps (2026-11-11, evening)
 
 > For whoever picks up the MONITOR work next. Canonical status remains
 > [`docs/STATUS.md`](../docs/STATUS.md); gap plans live in
 > [`docs/architecture/gm-assistant-gap-plans/`](../docs/architecture/gm-assistant-gap-plans/_index.md).
 > This file records where the branch stands, the owner's sequencing
-> decisions, and the traps learned this session.
+> decisions, and the traps learned.
 
 ## Decisions (owner, 2026-11-11)
 
 1. **Real human table verification (G11) is deferred** until all planned
    feature work is implemented. Do not run the ≥2 h GM session before then.
-2. **First priority: tests about "basic workings"** (see Step 1 — confirm the
-   intended scope with the owner if unclear).
+2. **First priority: tests about "basic workings"** — confirmed to mean
+   *both* the shipped GM-assistant surfaces and the core autonomous play
+   loop.
 3. **No push / no PR yet.** Commits stay local on `gap/wave1-integration`
    until the owner says otherwise.
+4. **Audio capture (G02)**: both a local and a hosted transcription
+   backend, plug-and-play — the backend is configuration, not code.
 
 ## Where we are
 
-Branch `gap/wave1-integration` (7 unpushed commits on top of `master` =
-`29b92a4`). Quality gates at `HEAD`:
+Branch `gap/wave1-integration`, commits `42e9dac..HEAD` unpushed (8 → 14
+commits; nothing pushed, no PR).
 
-- `uv run pytest packages tests -q -n auto` — **10,146 passed, 0 failed**
-  (the suite is hermetic; see traps below about `.env`)
-- `ruff check packages scripts` + strict mypy — clean
-- `python scripts/check_layer_dependencies.py` — clean
+Quality gates at `HEAD`:
 
-Shipped this session:
+- `uv run pytest packages tests -q -n auto` — green (10k+ tests; the
+  exact count is in the last commit's CI run).
+- `uv run ruff check packages scripts` — clean.
+- `uv run mypy packages/data-layer/src packages/agents/src packages/cli/src
+  packages/ui/backend/src --cache-dir /tmp/mypy-cache` — **clean**. (Note:
+  the branch was *not* mypy-clean before this session — 11 pre-existing
+  errors in `player_share.py`, `combat/agent.py` and `recap/agent.py`; they
+  are fixed now.)
+- `python scripts/check_layer_dependencies.py` — clean.
 
-| Item | Commits |
-|------|---------|
-| Wave-1 gap plans G01 combat (CF-9), G03 entry correction, G04 clock (CF-11), G07 sharing (CF-14), G10 doc drift — merged via PR #144, re-verified here | (pre-existing) |
-| Status drift fix: CF-9/CF-11/CF-14 ymls+specs+gap plans → `done`, USE_CASES.md aligned | `6ddcb83` |
-| G05 campaign recap (CF-12) merged from `gap/g05-recap` (branch can be deleted) | `200620f` |
-| Integration fixes: AUTHORITY_MATRIX audit grants + cross-tenant sweep combat coverage | `6aa2f4a` |
-| CF-14 live verification 8/8 + owner_id UUID/str publish bug fix | `5c1e1a1`, `201b6d1` |
+Shipped in this session:
 
-Live verification transcripts: `docs/testing/live_gm_assistant_share_cf14_2026-11-11.md`
-(G07 Phase 5, all boxes ticked in the gap plan). G11 remains the only
-un-run live gate.
+| Item | What landed |
+|------|-------------|
+| Behaviour tests | A hermetic stack (`tests/behavior/_hermetic_stack.py`) running the real MCP tool path over mongomock; tests for share (CF-14), combat (CF-9), clock (CF-11), arc recap (CF-12), recorder corrections (G03), canon queue (CF-8), and the play loop's resolve/persist/scene-end nodes |
+| G08 | Per-class recall corpus + `scripts/eval_canonkeeper_recall.py`; per-candidate check shape; focused-context builder; CF-8 soft block with an audited override; opt-in per-owner hard rejection |
+| G06 (CF-13) | Deterministic encounter-difficulty estimation + `POST /gm/encounter/check` + the CF-7 prep estimate |
+| G09 (CF-15) | Knowledge audit tool + `KnowledgeAuditAgent` + audit/challenge routes |
+| G02 (CF-10) | Pluggable transcription registry (hosted OpenAI-compatible **or** local whisper) + upload/transcribe/queue routes |
 
-## Step 1 — tests about "basic workings" (owner's stated next priority)
+Measurement record: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`
+(per-candidate: 100% direct, 100% status, 100% timeline, 83% implication,
+5.0% FP — every class at or above its floor).
 
-Interpretation to confirm: add behavior-level tests for the **basic workflows
-of the shipped surfaces** before building new features — i.e. exercise real
-calls (TestClient-level, hermetic fakes), not just unit pieces:
+## What is still open
 
-- Play loop basics: create session → send → wrap-up → persisted recap
-- GM recorder: entry log → insights → strike/edit/restore (G03) → retract proposals
-- Combat (CF-9): start → initiative → round/damage → end → proposals staged (no Neo4j writes)
-- Share (CF-14): publish/unpublish/revoke + spoiler matrix + export (mirrors the live checklist, hermetically)
-- Clock (CF-11): advance → deadline flip → briefing section
-- Arc recap (CF-12): generate → persist → regenerate
-- Forge basics: quick-world → canon queue → accept/reject
+- **G11 — the human table test** (protocol:
+  `docs/testing/GM_TABLE_TEST_PROTOCOL.md`). This is the last thing; until
+  it runs, every "done" in this repo means code-level done.
+- **G02 phase 4 — the segment review UI** (the backend is there: the GM
+  can transcribe, read and queue a segment; there is no panel to review
+  them in).
+- **G02 phase 5 — the live pass** against a real recording.
+- **G06 phase 4 — the UI badge** for the difficulty estimate.
+- **G09 phase 4 — the UI panel** for the knowledge inspector.
+- **The STATUS.md open items** that are not gap work: co-pilot workflow
+  polish (gap 4 of `GM_ASSISTANT_MODE_PLAN.md`) and the *enablement* of
+  provider-key encryption (the code is there; the operator has to set
+  `MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`). The other three items STATUS
+  listed as open were **stale** and are now verified as done: per-user
+  LLM spend quota (`monitor_data/usage.py`), the per-owner Conversatory
+  universe, and — new this session — the idempotent pre-auth owner
+  backfill (`POST /admin/ownership/backfill`).
 
-The alternate reading — "basic workings" = the core autonomous play loop —
-applies the same style to `SceneLoop`/narrator/resolver flows. Ask the owner
-which surface they mean before starting.
-
-Place new tests in `tests/behavior/`, `tests/api/`, or `packages/ui/backend/tests/`
-per [AGENTS.md](../AGENTS.md). Never touch `tests/verification/**` or
-`tests/property/**` (sealed).
-
-## Step 2 — implement the remaining work ("all stuff")
-
-Per the gap-plan index's priority order (G02/G06/G08/G09 remain):
-
-1. **G08 contradiction hardening** (P1) — *gated on recall*: first expand the
-   synthetic implication-check corpus into a repeatable `scripts/` harness with
-   per-class recall reporting; target ≥90% recall (direct+timeline) before
-   turning on hard rejection (`CANONKEEPER_REJECT_TRANSITION_VIOLATIONS`).
-   Plan: `docs/architecture/gm-assistant-gap-plans/G08-contradiction-hardening.md`;
-   baseline: `docs/testing/canonkeeper_depth_measurement_2026-11-07.md`
-   (currently 0% FP but only 25% detection).
-2. **G06 encounter balancing** (P2, CF-13) and **G09 memory inspector** (P2,
-   CF-15) — analysis tooling; both plans are written and self-contained.
-3. **G02 audio capture** (P2, XL, CF-10) — needs a transcription vendor
-   decision first; epic-sized.
-
-Also open from [docs/STATUS.md](../docs/STATUS.md) (keep current when done):
-
-- Co-Pilot workflow polish (`docs/architecture/GM_ASSISTANT_MODE_PLAN.md`; gap 4)
-- CanonKeeper Phase 3 switch (part of G08)
-- Auth hardening leftovers: provider API keys plaintext in Postgres, per-user
-  LLM spend/model quota, shared hidden "Conversatory" universe, idempotent
-  pre-auth owner backfill
-- Deferred by decision: whole-repo mutation score, autonomous PC (G07 in
-  `GAP_REMEDIATION_PLAN.md`), latency work (accepted < 40 s/turn)
-
-## Step 3 — G11 real human table test (after "all stuff" is implemented)
-
-Protocol: [`docs/testing/GM_TABLE_TEST_PROTOCOL.md`](../docs/testing/GM_TABLE_TEST_PROTOCOL.md)
-(≥2 h human GM session; lookup log S1–S9 + combat C1–C4 filled during play;
-report template at the bottom → `docs/testing/gm_table_test_report_<date>.md`).
-Then: fix the ranked top five, re-run a short confirmation, and only then
-flip `epics.md`/STATUS to "field-validated". Until that happens, CF "done"
-means code-level done (this convention is now consistent across CF-1…CF-14).
-
-## Traps learned this session (read before touching tests or live runs)
+## Traps learned (read before touching tests or live runs)
 
 1. **`.env` breaks the hermetic suite if `MONITOR_AUTH_DISABLED=true`** —
    pydantic-settings reads it and the hermetic guard does not override that
    key → 141 auth tests fail. Keep `.env` at `MONITOR_AUTH_DISABLED=false`
-   and `export MONITOR_AUTH_DISABLED=true` only when launching a live backend.
-   (A worktree `.env` exists, gitignored, with working local values.)
-2. **`NEO4J_PASSWORD` in `env.example` does not match the running container** —
-   compose defaults to `monitor_dev_pass`; the worktree `.env` has it.
-3. **The sealed DST wiring audit runs on the weekly workflow, not per-PR CI**
-   — PRs can merge with it red. Run `uv run pytest tests/verification -q`
-   before merging anything that adds agent→tool calls.
-4. **AUTHORITY_MATRIX naming convention for new tools** (`middleware/auth.py`):
-   grant the runtime `agent_type` *and* the name the wiring audit's
-   `infer_agent_type` attributes (unmapped files → `CanonKeeper`;
-   `ingestion/*.py` → `IngestionPipeline`). See the GmTableAgent world-clock
-   comment for precedent.
+   and `export MONITOR_AUTH_DISABLED=true` only when launching a live
+   backend. (A worktree `.env` exists, gitignored, with working local
+   values.)
+2. **`NEO4J_PASSWORD` in `env.example` does not match the running
+   container** — compose defaults to `monitor_dev_pass`; the worktree
+   `.env` has it.
+3. **The sealed DST wiring audit runs on the weekly workflow, not per-PR
+   CI** — PRs can merge with it red. Run `uv run pytest tests/verification
+   -q` before merging anything that adds agent→tool calls.
+4. **AUTHORITY_MATRIX naming convention for new tools**
+   (`middleware/auth.py`): grant the runtime `agent_type` *and* the name
+   the wiring audit's `infer_agent_type` attributes (unmapped files →
+   `CanonKeeper`; `ingestion/*.py` → `IngestionPipeline`).
 5. **Cross-tenant route sweep** (`test_cross_tenant.py`): routes with
    body-carried resource ids need a `BODIES` entry using the `$kind`/`$uuid`
-   sentinels (see the CF-9 combat entries); query params go in `QUERIES`.
+   sentinels; query params go in `QUERIES`.
 6. **`FakeMCPClient` skips tool-argument Pydantic validation** — type
-   mismatches at agent↔tool boundaries (like the CF-14 owner_id bug) only
-   surface in live runs. When a live pass 500s, check the tool schema types.
+   mismatches at agent↔tool boundaries only surface in live runs.
 7. **Public share API is `/api/share/{token}`** — `/share/{token}` is the
-   Next.js page route (starlette's plain `Not Found` vs the share layer's
-   `Not found` tells them apart). The `share_path` in API responses is the
-   frontend link.
-8. **Live-run recipe** (mirrors `docs/testing/live_gm_assistant_phase_a_2026-11-06.md`):
-   backend from this worktree on `:8123` (`uvicorn monitor_ui.main:app --app-dir src`
-   from `packages/ui/backend`, env sourced, auth disabled via export); leave the
-   owner's main-checkout backend on `:8000` alone. LLM providers resolve from
-   the Postgres registry; ollama `qwen2.5:7b` is available as fallback.
+   Next.js page route.
+8. **Live-run recipe**: backend from this worktree on `:8123`; leave the
+   owner's main-checkout backend on `:8000` alone. LLM providers resolve
+   from the Postgres registry.
+9. **New (2026-11-11): the `tests/conftest.py` autouse fixture patches
+   `get_mongodb_client` in every tool module** to a `FakeMongoClient` that
+   has no `replace_one`. Any test that needs real Mongo behaviour must
+   re-point it — the hermetic stack does this for every `monitor_*` module
+   it can see, so prefer it over hand-rolled doubles.
+10. **New: `ruff format packages` reformats files that were never
+    formatted** (plot_hooks, recap/agent, mongodb_tools/combat,
+    gm_tools). Do not let a formatting run smuggle unrelated diffs into a
+    commit — format only the files you touched.
+11. **New: the Postgres provider registry has no `provider_type` column** —
+    the column is `provider` (`openai`, `custom`, `minimax`, …), and
+    `provider_type` reads as NULL in a query. The transcription registry
+    (`llm/transcription_providers.py`) keys off `provider` and `role`.
 
 ## Repo state
 
-- Branch: `gap/wave1-integration` — commits `68f1404..201b6d1` unpushed.
-- `gap/g05-recap` fully merged (safe to delete). `master` is behind this
-  branch only by the commits above.
-- Driver/probe scratch scripts used for the live pass were kept outside the
-  repo (`/tmp/g07_live_check.py`, `/tmp/g07_probe.py`) and are not needed.
+- Branch: `gap/wave1-integration` — commits `42e9dac..HEAD` unpushed.
+- `gap/g05-recap` fully merged (safe to delete).
+- The local Postgres has a **live provider registry** (MiniMax M2.7,
+  MiMo v2.6 Flash, Ollama qwen2.5:7b / llama3.2:1b). The measurement runs
+  above used `mimo-v2.6-flash` (the HEAVY role's provider).
+- The scratch scripts for the live pass were kept outside the repo
+  (`/tmp/g07_live_check.py`, `/tmp/g07_probe.py`) and are not needed.

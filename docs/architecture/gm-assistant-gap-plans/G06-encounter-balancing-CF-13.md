@@ -1,6 +1,9 @@
 # G06 — Encounter difficulty estimation in prep (proposed CF-13)
 
-> **Status:** proposed 2026-11-11. Gap: CF-7 suggests "potential
+> **Status:** implemented 2026-11-11 as **CF-13** (deterministic difficulty
+> estimation + `POST /gm/encounter/check` + the CF-7 prep estimate + the
+> difficulty badge in the session prep panel). Originally proposed
+> 2026-11-11. Gap: CF-7 suggests "potential
 > encounters" and `POST /gm/lookup/improvise` can create NPCs, but nothing
 > checks a suggested encounter against the actual party (levels, size,
 > resources), so prep suggestions are unvetted.
