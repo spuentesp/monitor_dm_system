@@ -4,8 +4,28 @@ Live Session Extraction Prompts for Ingestion.
 LAYER: 2 (agents)
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 import dspy
 from pydantic import BaseModel, Field
+
+from monitor_agents.base import BaseAgent
+
+
+def _entry_result(result: Any, entry_id: str) -> dict[str, Any]:
+    """Normalize an MCP session-entry tool result into a dict.
+
+    ``BaseAgent.call_tool`` returns tool failures as the raw string
+    ``"Error executing tool: ..."`` — surface those as ValueError so callers
+    can map not-found to 404 and the rest to 500.
+    """
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, str) and result.startswith("Error executing tool:"):
+        raise ValueError(result.removeprefix("Error executing tool:").strip())
+    raise ValueError(f"Session entry {entry_id} could not be read")
 
 
 class SessionEvent(BaseModel):
@@ -93,3 +113,61 @@ class CaptureEntryModule(dspy.Module):  # type: ignore[misc]
             known_entities=known_entities or [],
             open_threads=open_threads or [],
         )
+
+
+class SessionIngestAgent(BaseAgent):
+    """Thin MCP pass-throughs for correcting logged Session Recorder entries.
+
+    G03 (CF-1 amendment): the GM edits or strikes an entry mid-session. The
+    transcript lives in Mongo ``chat_messages``; this agent only forwards to
+    the data-layer session-entry tools — no LLM calls, no Neo4j. All MCP
+    calls are async, per the layer-2 convention.
+    """
+
+    def __init__(
+        self,
+        agent_type: str = "SessionIngestAgent",
+        agent_id: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        super().__init__(
+            agent_type=agent_type,
+            agent_id=agent_id or "session-ingest-agent",
+            model=model,
+        )
+
+    async def run(self) -> None:
+        """Implemented for BaseAgent compliance; called directly by routes."""
+
+    async def get_entry(self, entry_id: str) -> dict[str, Any] | None:
+        """Fetch one logged entry (None when it does not exist)."""
+        result = await self.call_tool("mongodb_get_session_entry", {"entry_id": entry_id})
+        if result is None:
+            return None
+        return _entry_result(result, entry_id)
+
+    async def update_entry(self, entry_id: str, text: str) -> dict[str, Any]:
+        """Edit an entry's text in place (recorder transcript update)."""
+        result = await self.call_tool(
+            "mongodb_update_session_entry",
+            {"entry_id": entry_id, "text": text},
+        )
+        return _entry_result(result, entry_id)
+
+    async def strike_entry(
+        self,
+        entry_id: str,
+        retracted_proposal_ids: list[str] | None = None,
+        reason: str = "struck at the table",
+    ) -> dict[str, Any]:
+        """Soft-delete an entry (audit trail kept) and record retract ids."""
+        args: dict[str, Any] = {"entry_id": entry_id, "soft": True, "reason": reason}
+        if retracted_proposal_ids:
+            args["retracted_proposal_ids"] = list(retracted_proposal_ids)
+        result = await self.call_tool("mongodb_delete_session_entry", args)
+        return _entry_result(result, entry_id)
+
+    async def restore_entry(self, entry_id: str) -> dict[str, Any]:
+        """Undo a strike; returns ``restored_proposal_ids`` for the undo."""
+        result = await self.call_tool("mongodb_restore_session_entry", {"entry_id": entry_id})
+        return _entry_result(result, entry_id)
