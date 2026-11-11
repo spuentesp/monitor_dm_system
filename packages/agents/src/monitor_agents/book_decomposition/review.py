@@ -514,6 +514,32 @@ class ReviewModel(Protocol):
     async def find_gaps(self, prompt: str) -> CoverageAudit: ...
 
 
+def stack_decision_from_value(raw: Any) -> StackDecision:
+    """Accept the shapes a model gives for "nothing to merge": a bare list, or {"stacks": [...]}."""
+    if isinstance(raw, list):
+        return StackDecision.model_validate({"stacks": raw})
+    return StackDecision.model_validate(raw)
+
+
+def stack_decision_from_reply(reply: Any) -> StackDecision | None:
+    """Read a stacking answer out of a reply the DSPy adapter rejected, or None if it isn't one."""
+    if not isinstance(reply, str):
+        return None
+    text = reply.strip()
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        return None
+    if isinstance(payload, dict) and "stacks" not in payload:
+        return None
+    try:
+        return stack_decision_from_value(payload)
+    except ValueError:
+        return None
+
+
 class DspyReviewModel:
     """Runs the review signatures through DSPy with a given LM."""
 
@@ -545,7 +571,14 @@ class DspyReviewModel:
         return VerificationBatch.model_validate(await self._run(self._verify, claims=prompt))
 
     async def stack(self, prompt: str) -> StackDecision:
-        return StackDecision.model_validate(await self._run(self._stack, claims=prompt))
+        try:
+            raw = await self._run(self._stack, claims=prompt)
+        except Exception as exc:  # noqa: BLE001  # reason: only a parse failure whose reply is a valid stack list is recovered; others re-raise
+            recovered = stack_decision_from_reply(getattr(exc, "lm_response", None))
+            if recovered is None:
+                raise
+            return recovered
+        return stack_decision_from_value(raw)
 
     async def audit_skips(self, prompt: str) -> SkipAudit:
         return SkipAudit.model_validate(await self._run(self._audit, sentences=prompt))
