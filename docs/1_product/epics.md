@@ -35,7 +35,7 @@ MONITOR's development is guided by 12 core Epics (EPIC 0–11).
 | **EPIC 4** — Autonomous GM | `P-1` to `P-21` (minus `P-4`, catalogued under EPIC 5) | Partially — core play loop shipped and live-verified; autonomous PC (PC-Agent) has no implementation and is formally deferred (STATUS.md gap 7); gaps 1–4 open |
 | **EPIC 5** — Rules & Randomization | `P-4`, `RS-1` to `RS-8` | Implemented (server-authoritative dice experience live-verified 2026-07-23) |
 | **EPIC 6** — Session & Timeline | `M-9` to `M-11`, `M-26` to `M-30`, `Q-1` to `Q-11` | Implemented |
-| **EPIC 7** — Human GM Assistant | `CF-1` to `CF-8` | Partially — web `/gm` surface exists; CLI `monitor copilot` never shipped and the end-to-end human-GM workflow is unpolished (STATUS.md gap 5) |
+| **EPIC 7** — Human GM Assistant | `CF-1` to `CF-8` | CF-1…CF-8 implemented on the web `/gm` surface (117 targeted tests green, live pass 11/11 2026-11-06); field validation pending (G11 table test); new gaps planned in `docs/architecture/gm-assistant-gap-plans/` |
 | **EPIC 8** — Planning & Meta-Narrative | `ST-1` to `ST-7` | Partially — story-state threading and plot hooks shipped; no full ST-coverage sweep in STATUS.md |
 | **EPIC 9** — Documentation | `DOC-1` | Defined |
 | **EPIC 10** — Multiverse Packs | `MP-1` to `MP-9` | Implemented (batch Merge/Export/Clone/Slice and universe forking shipped) |

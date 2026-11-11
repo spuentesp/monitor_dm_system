@@ -37,12 +37,19 @@ neo4j_list_events(scene_id)                    # Canonical events
 - `ContextAssembly.get_full_scene_history(scene_id)` — Compile all data
 - `Narrator.generate_recap(scene_history)` — LLM summarization
 
-**Layer 3 (CLI):**
-```bash
-monitor copilot recap --scene <UUID>
-monitor copilot recap --story <UUID> --last   # Most recent scene
-monitor copilot recap --story <UUID> --all    # Full story recap
+**Layer 3 (Surface):**
+The GM Assistant lives in the web UI at `/gm` (wrap-up flow, `WrapUpModal`) —
+there is no CLI `monitor copilot` (decision: GM_ASSISTANT_MODE_PLAN, G-5
+Option A). The CLI examples describe the intended workflow; the wired surface
+is the web API.
+```text
+/gm → select universe → Wrap up session (WrapUpModal)
+    → POST /chat/{session_id}/wrap-up   (canonize + build recap)
+    → GET  /chat/{session_id}/recap      (persisted recap)
 ```
+
+> Not shipped (web-only decision): `monitor copilot recap --scene <UUID>`,
+> `monitor copilot recap --story <UUID> --last|--all`
 
 **LLM Prompt Structure:**
 ```python
