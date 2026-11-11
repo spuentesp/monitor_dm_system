@@ -309,6 +309,7 @@ class _RefusingReview:
         self.stack_calls = 0
         self.audit_calls = 0
         self.gap_calls = 0
+        self.gap_prompts: list[str] = []
 
     async def verify(self, prompt: str) -> VerificationBatch:
         labels = [match.group(0)[1:-1] for match in re.finditer(r"\[C\d+\]", prompt)]
@@ -328,6 +329,7 @@ class _RefusingReview:
 
     async def find_gaps(self, prompt: str) -> CoverageAudit:
         self.gap_calls += 1
+        self.gap_prompts.append(prompt)
         if self.refuse_gaps:
             raise _refusal()
         return CoverageAudit()
@@ -788,3 +790,100 @@ async def test_a_truncated_coverage_reply_splits_and_every_paragraph_is_checked(
     assert model.sizes == [4, 2, 1, 1, 2, 1, 1]
     assert report.coverage_check_failures == 0
     assert model.sizes.count(1) == 4  # Each of the four paragraphs got its own successful check.
+
+
+@pytest.mark.unit
+async def test_every_paragraph_of_a_division_without_claims_is_checked():
+    """Task 8: the sample plus every paragraph in a division that produced no claim."""
+    from monitor_agents.book_decomposition.review import zero_claim_paragraphs
+
+    # Two divisions: d1 keeps a claim, d2 produces none.
+    nodes = [
+        BookNode(id="root", doc_id="d", kind=BookNodeKind.BOOK, seq=0, page_start=0, page_end=0),
+        BookNode(
+            id="d1",
+            doc_id="d",
+            kind=BookNodeKind.DIVISION,
+            parent_id="root",
+            seq=1,
+            text="One",
+            page_start=0,
+            page_end=0,
+        ),
+        BookNode(
+            id="p0",
+            doc_id="d",
+            kind=BookNodeKind.PARAGRAPH,
+            parent_id="d1",
+            seq=2,
+            text="Players may add traits.",
+            page_start=0,
+            page_end=0,
+        ),
+        BookNode(
+            id="s0",
+            doc_id="d",
+            kind=BookNodeKind.SENTENCE,
+            parent_id="p0",
+            seq=3,
+            text="Players may add traits.",
+            page_start=0,
+            page_end=0,
+        ),
+        BookNode(
+            id="d2",
+            doc_id="d",
+            kind=BookNodeKind.DIVISION,
+            parent_id="root",
+            seq=4,
+            text="Two",
+            page_start=0,
+            page_end=0,
+        ),
+        BookNode(
+            id="p1",
+            doc_id="d",
+            kind=BookNodeKind.PARAGRAPH,
+            parent_id="d2",
+            seq=5,
+            text="Nothing was extracted here.",
+            page_start=0,
+            page_end=0,
+        ),
+        BookNode(
+            id="s1",
+            doc_id="d",
+            kind=BookNodeKind.SENTENCE,
+            parent_id="p1",
+            seq=6,
+            text="Nothing was extracted here.",
+            page_start=0,
+            page_end=0,
+        ),
+    ]
+    tree = BookTree(
+        doc_id="d",
+        title="T",
+        decomposer_version="1",
+        content_hash="x",
+        nodes=nodes,
+        report=DecompositionReport(),
+    )
+    statement = "Players may add traits."
+    claim = Claim(
+        id="c0",
+        atom=ExtractedAtom(kind=AtomKind.RULE, statement=statement, cites=["S1"]),
+        source_node_ids=("s0",),
+        page=0,
+        source_text=statement,
+        from_example_passage=False,
+        paragraph_ids=("p0",),
+    )
+    working = {"c0": _Working(claim, statement, ClaimStatus.ACCEPTED)}
+    assert [paragraph.id for paragraph, _ in zero_claim_paragraphs(tree, working)] == ["p1"]
+
+    report = ReviewReport()
+    model = _RefusingReview()
+    await audit_coverage(tree, working, model, report)
+    assert report.paragraphs_audited == 2  # p0 (has claims) and p1 (its division has none).
+    assert any("[P2] PARAGRAPH: Nothing was extracted here." in prompt for prompt in model.gap_prompts)

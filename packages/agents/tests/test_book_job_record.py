@@ -217,3 +217,21 @@ async def test_the_job_update_receives_held_sections_and_the_call_counts(mongo, 
     assert estimate_update.activity_log[0].startswith("Calls estimated: total=")
     final_update = next(update for update in updates if update.total_batches is not None)
     assert final_update.total_batches >= 1
+
+
+@pytest.mark.unit
+def test_quarantined_units_reach_held_with_their_failure_reason():
+    """Extraction's held items: every quarantined unit, with the failure that held it."""
+    from monitor_agents.book_decomposition.pipeline import WindowOutcome
+    from monitor_agents.book_decomposition.service import _extraction_held
+
+    outcome = WindowOutcome(
+        window_id="w",
+        uncovered=["u1", "u2"],
+        errors=["AdapterParseError: cut off"],
+    )
+    held = _extraction_held([outcome], {"u1", "u3"})
+    assert [entry["section_path"] for entry in held] == ["u1", "u3"]
+    assert all(entry["stage"] == "extraction" for entry in held)
+    assert "cut off" in held[0]["reason"]  # The failure that actually hit this unit.
+    assert "quarantined" in held[1]["reason"]  # No outcome recorded it; say so plainly.
