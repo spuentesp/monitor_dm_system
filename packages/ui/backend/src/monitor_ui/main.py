@@ -50,6 +50,7 @@ from monitor_ui.routers import (
     pack_library,
     parties,
     performance,
+    player_view,
     play_sessions,
     prompt_collections,
     prompts,
@@ -395,6 +396,7 @@ def create_app() -> FastAPI:
     app.include_router(parties.router, prefix="/api/parties", tags=["parties"])
     app.include_router(change_log.router, prefix="/api", tags=["change-log"])
     app.include_router(play_sessions.router, prefix="/api", tags=["play-sessions"])
+    app.include_router(player_view.router, prefix="/api", tags=["player-share"])
     app.include_router(architect.router, prefix="/api", tags=["architect"])
     # OpenAI-compatible /v1/chat/completions — points RisuAI / SillyTavern /
     # LiteLLM at MONITOR. Session mode keeps conversation state on the server.

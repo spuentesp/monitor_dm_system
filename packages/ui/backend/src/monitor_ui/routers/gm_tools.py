@@ -29,6 +29,7 @@ from monitor_agents.gm_table import (
 )
 from monitor_agents.ingestion.capture_insights import CaptureInsight, CaptureInsightAgent
 from monitor_agents.ingestion.session_ingest import SessionIngestAgent
+from monitor_agents.player_share import ShareAgent, ShareError
 from monitor_agents.plot_hooks import (
     Contradiction,
     Handout,
@@ -60,6 +61,7 @@ from monitor_data.schemas.proposed_changes import (
     ProposedChangeCreate,
     ProposedChangeFilter,
 )
+from monitor_data.schemas.player_share import ShareArtifactType, ShareSpoilerLevel
 from monitor_data.schemas.relationships import RelationshipFilter, RelationshipResponse
 from monitor_data.schemas.stories import StoryLedgerEntry
 from monitor_data.schemas.story_outlines import PlotThreadCreate
@@ -93,7 +95,7 @@ from monitor_data.tools.neo4j_tools import (
 )
 from monitor_data.utils.dice import roll_dice
 from monitor_ui.auth import Principal, get_current_user, get_postgres
-from monitor_ui.ownership import require_universe_owner, resource_route_guard
+from monitor_ui.ownership import require_story_owner, require_universe_owner, resource_route_guard
 from monitor_ui.routers.chat_game_system import resolve_universe_system_binding
 from monitor_ui.routers.chat_persistence import db_load_messages, db_load_sessions
 from pydantic import BaseModel, Field
@@ -1837,3 +1839,165 @@ def _uuid_or_400(value: str, field: str) -> UUID:
         return UUID(value)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"Invalid {field}: {value}") from exc
+
+
+# ---------------------------------------------------------------------------
+# CF-14: Player-facing share links (G07)
+# ---------------------------------------------------------------------------
+# All four endpoints are owner-checked (universe + story) before ShareAgent
+# touches storage; foreign IDs answer the same generic 404 as missing ones.
+
+
+class ShareLinkRequest(BaseModel):
+    """Create-or-return the story's share link."""
+
+    universe_id: UUID
+    story_id: UUID
+
+
+class ShareLinkResponse(BaseModel):
+    """The bearer token and the path players open."""
+
+    story_id: str
+    token: str
+    share_path: str
+    revoked: bool = False
+
+
+class SharePublishRequest(BaseModel):
+    """Publish a recap or handout to the story's share link."""
+
+    universe_id: UUID
+    story_id: UUID
+    artifact_type: Literal["recap", "handout"]
+    title: str = Field(min_length=1, max_length=300)
+    content: str = Field(min_length=1)
+    spoiler_level: Literal["party", "character"] = "party"
+    scope_character_id: UUID | None = None
+    source_fact_ids: list[UUID] = Field(default_factory=list)
+    session_id: UUID | None = None
+
+
+class SharePublishResponse(BaseModel):
+    """Published artifact plus the share link (auto-minted when absent)."""
+
+    artifact_id: str
+    token: str
+    share_path: str
+    published: bool = True
+
+
+class ShareArtifactOpRequest(BaseModel):
+    """Unpublish one artifact (blocks /share/* access immediately)."""
+
+    universe_id: UUID
+    artifact_id: UUID
+
+
+class ShareArtifactOpResponse(BaseModel):
+    artifact_id: str
+    published: bool
+
+
+class ShareRevokeRequest(BaseModel):
+    """Revoke every live token for a story."""
+
+    universe_id: UUID
+    story_id: UUID
+
+
+class ShareRevokeResponse(BaseModel):
+    story_id: str
+    revoked: bool
+
+
+@router.get("/gm/share/link", response_model=ShareLinkResponse)
+async def gm_share_link(
+    universe_id: str,
+    story_id: str,
+    principal: Principal = Depends(get_current_user),
+) -> ShareLinkResponse:
+    """CF-14: fetch (or mint) the story's share link.
+
+    Query params are owner-checked by the router-level resource_route_guard
+    (story_id + universe_id are both in the resolver table).
+    """
+    uid = _uuid_or_400(universe_id, "universe_id")
+    sid = _uuid_or_400(story_id, "story_id")
+    share = await ShareAgent().ensure_share(universe_id=uid, story_id=sid, owner_id=principal.user_id)
+    return ShareLinkResponse(
+        story_id=str(sid),
+        token=share.token,
+        share_path=f"/share/{share.token}",
+        revoked=share.revoked,
+    )
+
+
+@router.post("/gm/share/publish", response_model=SharePublishResponse)
+async def gm_share_publish(
+    req: SharePublishRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> SharePublishResponse:
+    """CF-14: publish a recap/handout (Mongo only — canon untouched)."""
+    await require_universe_owner(db, principal, req.universe_id)
+    await require_story_owner(db, principal, req.story_id)
+    try:
+        share, artifact = await ShareAgent().publish(
+            universe_id=req.universe_id,
+            story_id=req.story_id,
+            owner_id=principal.user_id,
+            artifact_type=ShareArtifactType(req.artifact_type),
+            title=req.title,
+            content=req.content,
+            spoiler_level=ShareSpoilerLevel(req.spoiler_level),
+            scope_character_id=req.scope_character_id,
+            source_fact_ids=req.source_fact_ids,
+            session_id=req.session_id,
+        )
+    except ShareError as exc:
+        log.warning("share_publish_failed", story_id=str(req.story_id), error=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to publish") from exc
+    return SharePublishResponse(
+        artifact_id=str(artifact.id),
+        token=share.token,
+        share_path=f"/share/{share.token}",
+        published=True,
+    )
+
+
+@router.post("/gm/share/unpublish", response_model=ShareArtifactOpResponse)
+async def gm_share_unpublish(
+    req: ShareArtifactOpRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ShareArtifactOpResponse:
+    """CF-14: unpublish an item — the /share/* routes stop serving it at once."""
+    await require_universe_owner(db, principal, req.universe_id)
+    ok = await ShareAgent().unpublish(
+        artifact_id=req.artifact_id,
+        universe_id=req.universe_id,
+        owner_id=principal.user_id,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Not found")
+    return ShareArtifactOpResponse(artifact_id=str(req.artifact_id), published=False)
+
+
+@router.post("/gm/share/revoke", response_model=ShareRevokeResponse)
+async def gm_share_revoke(
+    req: ShareRevokeRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ShareRevokeResponse:
+    """CF-14: revoke the story's link — every token stops working immediately."""
+    await require_universe_owner(db, principal, req.universe_id)
+    await require_story_owner(db, principal, req.story_id)
+    ok = await ShareAgent().revoke(
+        story_id=req.story_id,
+        universe_id=req.universe_id,
+        owner_id=principal.user_id,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Not found")
+    return ShareRevokeResponse(story_id=str(req.story_id), revoked=True)

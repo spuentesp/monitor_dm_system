@@ -4,7 +4,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WrapUpModal } from "./WrapUpModal";
-import { chatApi } from "@/lib/api";
+import { chatApi, gmApi } from "@/lib/api";
 
 // P1.3 — guided end-of-session wrap-up digest. Mounting the modal fires
 // chatApi.wrapUp; the modal owns the progress state (several LLM calls
@@ -13,6 +13,10 @@ import { chatApi } from "@/lib/api";
 vi.mock("@/lib/api", () => ({
   chatApi: { wrapUp: vi.fn() },
   req: vi.fn(),
+  gmApi: {
+    sharePublish: vi.fn(),
+    shareUnpublish: vi.fn(),
+  },
 }));
 
 import { gmTableApi } from "@/lib/gm-table-api";
@@ -54,11 +58,16 @@ const DIGEST = {
   },
 };
 
-function renderModal(onClose = () => {}) {
+function renderModal(onClose = () => {}, scope?: { universeId?: string | null; storyId?: string | null }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <WrapUpModal sessionId="rec-1" onClose={onClose} />
+      <WrapUpModal
+        sessionId="rec-1"
+        universeId={scope?.universeId ?? null}
+        storyId={scope?.storyId ?? null}
+        onClose={onClose}
+      />
     </QueryClientProvider>,
   );
 }
@@ -194,5 +203,67 @@ describe("WrapUpModal (P1.3)", () => {
 
     expect(await screen.findByTestId("wrap-up-recap")).toBeInTheDocument();
     expect(screen.queryByTestId("wrap-up-clock")).not.toBeInTheDocument();
+  });
+});
+
+describe("WrapUpModal publish (CF-14)", () => {
+  it("hides the share section when the session has no story scope", async () => {
+    vi.mocked(chatApi.wrapUp).mockResolvedValue(DIGEST as never);
+    renderModal();
+    await screen.findByTestId("wrap-up-recap");
+    expect(screen.queryByTestId("wrap-up-share")).not.toBeInTheDocument();
+  });
+
+  it("publishes the recap and shows the share link", async () => {
+    vi.mocked(chatApi.wrapUp).mockResolvedValue(DIGEST as never);
+    vi.mocked(gmApi.sharePublish).mockResolvedValue({
+      artifact_id: "art-9",
+      token: "tok-abc",
+      share_path: "/share/tok-abc",
+      published: true,
+    } as never);
+    renderModal(undefined, { universeId: "uni-1", storyId: "story-1" });
+
+    await userEvent.click(await screen.findByTestId("wrap-up-publish"));
+    expect(gmApi.sharePublish).toHaveBeenCalledWith({
+      universe_id: "uni-1",
+      story_id: "story-1",
+      artifact_type: "recap",
+      title: "Session recap",
+      content: DIGEST.recap,
+      session_id: "rec-1",
+    });
+
+    const link = await screen.findByTestId("wrap-up-share-link");
+    expect(screen.getByTestId("wrap-up-share-url")).toHaveTextContent(
+      "/share/tok-abc",
+    );
+    expect(link).toBeInTheDocument();
+    expect(screen.queryByTestId("wrap-up-publish")).not.toBeInTheDocument();
+  });
+
+  it("unpublishing returns to the publish button", async () => {
+    vi.mocked(chatApi.wrapUp).mockResolvedValue(DIGEST as never);
+    vi.mocked(gmApi.sharePublish).mockResolvedValue({
+      artifact_id: "art-9",
+      token: "tok-abc",
+      share_path: "/share/tok-abc",
+      published: true,
+    } as never);
+    vi.mocked(gmApi.shareUnpublish).mockResolvedValue({
+      artifact_id: "art-9",
+      published: false,
+    } as never);
+    renderModal(undefined, { universeId: "uni-1", storyId: "story-1" });
+
+    await userEvent.click(await screen.findByTestId("wrap-up-publish"));
+    await screen.findByTestId("wrap-up-share-link");
+
+    await userEvent.click(screen.getByTestId("wrap-up-unpublish"));
+    await waitFor(() => expect(screen.getByTestId("wrap-up-publish")).toBeInTheDocument());
+    expect(gmApi.shareUnpublish).toHaveBeenCalledWith({
+      universe_id: "uni-1",
+      artifact_id: "art-9",
+    });
   });
 });

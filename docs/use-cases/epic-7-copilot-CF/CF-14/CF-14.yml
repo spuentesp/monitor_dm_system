@@ -1,0 +1,40 @@
+# CF-14: Share Session Artifacts with Players
+# ==============================
+
+id: "CF-14"
+title: "Share Session Artifacts with Players"
+category: "cf"
+epic: 7
+priority: "medium"
+status: "proposed"
+
+summary: |
+  Story-scoped share link (unguessable token, owner-revocable) behind which
+  players read only GM-published recaps and handouts, with character-scoped
+  spoilers resolved server-side from witnessed facts, plus Markdown export.
+
+acceptance_criteria:
+  - "GM publishes a recap; a player opening the share link sees only published items, with character-scoped handouts filtered server-side."
+  - "Revoking the token or unpublishing an item immediately blocks access."
+  - "No draft or GM-only data is reachable through any /share/* route (tested)."
+  - "Commits reference CF-14; tests green; layer check clean."
+
+depends_on: ["CF-2", "CF-6"]
+blocks: []
+
+implementation:
+  layer: 2
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/player_share.py"
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools/player_share.py"
+      - "packages/agents/src/monitor_agents/player_share.py"
+      - "packages/ui/backend/src/monitor_ui/routers/player_view.py"
+      - "packages/ui/frontend/src/app/share/[token]/page.tsx"
+    modify:
+      - "packages/ui/backend/src/monitor_ui/routers/gm_tools.py"
+      - "packages/ui/frontend/src/components/gm/WrapUpModal.tsx"
+      - "packages/ui/frontend/src/app/gm/page.tsx"
+  patterns:
+    - "Token is the credential (no player accounts in v1)"
+    - "Spoilers reuse monitor_agents.cast.filter_visible_facts (CF-6 witnessed-facts logic)"

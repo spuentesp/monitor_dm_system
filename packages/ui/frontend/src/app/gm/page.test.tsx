@@ -4,7 +4,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WorldContextProvider } from "@/lib/world-context";
-import { entitiesApi, gmApi, universesApi } from "@/lib/api";
+import { entitiesApi, gmApi, storiesApi, universesApi } from "@/lib/api";
 import type { RPGSystem, Universe } from "@/lib/types";
 import GMAssistantPage from "./page";
 
@@ -308,5 +308,85 @@ describe("GM Assistant hidden tool panels (user-modifiable prefs)", () => {
     // never the hidden Ask panel.
     expect(screen.getByText(/select a universe to prep tonight's session/i)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/ask the world/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("Handouts publish to share link (CF-14)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    // Render the tools body as the Handouts panel only.
+    window.localStorage.setItem(
+      "monitor.gm.hiddenPanels",
+      JSON.stringify([
+        "prep-table",
+        "lookups",
+        "session-log",
+        "ask-world",
+        "hooks",
+        "threads",
+        "contradictions",
+        "session-prep",
+      ]),
+    );
+  });
+
+  it("publishes a generated handout into the story's share link", async () => {
+    const universes = [makeUniverse("u-1", "Alpha World", null)];
+    mockUniverseApis(universes, []);
+    vi.spyOn(storiesApi, "listStories").mockResolvedValue({
+      stories: [
+        {
+          id: "story-1",
+          universe_id: "u-1",
+          title: "Main Quest",
+          story_type: "campaign",
+          status: "active",
+          scene_count: 3,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      total: 1,
+    } as never);
+    vi.spyOn(gmApi, "generateHandout").mockResolvedValue({
+      handout: {
+        title: "A sealed letter",
+        content: "Come at dawn.",
+        handout_type: "letter",
+        related_entities: [],
+        tone: "mysterious",
+        spoiler_level: "safe",
+      },
+    } as never);
+    const publishSpy = vi.spyOn(gmApi, "sharePublish").mockResolvedValue({
+      artifact_id: "art-1",
+      token: "tok-abc",
+      share_path: "/share/tok-abc",
+      published: true,
+    } as never);
+    const user = userEvent.setup();
+    renderPage();
+
+    const universeSelect = (await screen.findByText("Alpha World")).closest("select")!;
+    await user.selectOptions(universeSelect, "u-1");
+
+    // The tools body falls back to the Handouts panel (only visible one).
+    await user.click(await screen.findByRole("button", { name: /Generate/ }));
+    await screen.findByText("A sealed letter");
+
+    // The story picker auto-selects the only story; publish goes out with it.
+    await user.click(await screen.findByTestId("handout-publish"));
+    await waitFor(() =>
+      expect(publishSpy).toHaveBeenCalledWith({
+        universe_id: "u-1",
+        story_id: "story-1",
+        artifact_type: "handout",
+        title: "A sealed letter",
+        content: "Come at dawn.",
+        spoiler_level: "party",
+      }),
+    );
+    const link = await screen.findByTestId("handout-share-link");
+    expect(link).toHaveTextContent("/share/tok-abc");
+    expect(screen.queryByTestId("handout-publish")).not.toBeInTheDocument();
   });
 });

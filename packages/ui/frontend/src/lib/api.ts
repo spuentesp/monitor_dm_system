@@ -82,6 +82,13 @@ import type {
   SessionPrep,
   WrapUpDigest,
   Handout,
+  PlayerShareView,
+  ShareArtifactSummary,
+  ShareArtifactType,
+  ShareCharacter,
+  ShareLink,
+  SharePublishResult,
+  SharedArtifact,
   EntityTemplate,
   EntityTemplateListResponse,
   InstantiateTemplateResponse,
@@ -1732,6 +1739,37 @@ export const gmApi = {
       `/gm/notes/${universeId}`,
       { method: "PUT", body: JSON.stringify({ content }) },
     ),
+
+  // CF-14 — player-facing share links (owner-checked server-side)
+  shareLink: (universeId: string, storyId: string) =>
+    req<ShareLink>("/gm/share/link", {
+      query: { universe_id: universeId, story_id: storyId },
+    }),
+  sharePublish: (body: {
+    universe_id: string;
+    story_id: string;
+    artifact_type: ShareArtifactType;
+    title: string;
+    content: string;
+    spoiler_level?: "party" | "character";
+    scope_character_id?: string | null;
+    source_fact_ids?: string[];
+    session_id?: string | null;
+  }) =>
+    req<SharePublishResult>(
+      "/gm/share/publish",
+      withCsrf({ method: "POST", body: JSON.stringify(body) }),
+    ),
+  shareUnpublish: (body: { universe_id: string; artifact_id: string }) =>
+    req<{ artifact_id: string; published: boolean }>(
+      "/gm/share/unpublish",
+      withCsrf({ method: "POST", body: JSON.stringify(body) }),
+    ),
+  shareRevoke: (body: { universe_id: string; story_id: string }) =>
+    req<{ story_id: string; revoked: boolean }>(
+      "/gm/share/revoke",
+      withCsrf({ method: "POST", body: JSON.stringify(body) }),
+    ),
 };
 
 // ─── Entity Templates (M-31, CF-2) ──────────────────────────
@@ -2160,4 +2198,27 @@ export const adminApi = {
   setRole: (userId: string, isAdmin: boolean) =>
     req<AdminUser>(`/admin/users/${userId}/role`,
       withCsrf({ method: "POST", body: JSON.stringify({ is_admin: isAdmin }) })),
+};
+
+// ─── Player-facing share links (CF-14 / G07) ────────────────
+// Public surface: the unguessable token in the path is the credential —
+// no session, no CSRF. Export URLs are plain <a download> links.
+
+export const shareApi = {
+  view: (token: string, viewerCharacter?: string | null) =>
+    req<PlayerShareView>(`/share/${encodeURIComponent(token)}`, {
+      query: viewerCharacter ? { viewer_character: viewerCharacter } : undefined,
+    }),
+  recap: (token: string, artifactId: string, viewerCharacter?: string | null) =>
+    req<SharedArtifact>(`/share/${encodeURIComponent(token)}/recap/${artifactId}`, {
+      query: viewerCharacter ? { viewer_character: viewerCharacter } : undefined,
+    }),
+  handout: (token: string, artifactId: string, viewerCharacter?: string | null) =>
+    req<SharedArtifact>(`/share/${encodeURIComponent(token)}/handout/${artifactId}`, {
+      query: viewerCharacter ? { viewer_character: viewerCharacter } : undefined,
+    }),
+  exportUrl: (token: string, artifactId: string, viewerCharacter?: string | null) => {
+    const base = apiUrl(`/share/${encodeURIComponent(token)}/export/${artifactId}.md`);
+    return viewerCharacter ? `${base}?viewer_character=${encodeURIComponent(viewerCharacter)}` : base;
+  },
 };

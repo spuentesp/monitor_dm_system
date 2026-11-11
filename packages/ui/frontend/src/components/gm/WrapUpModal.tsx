@@ -7,8 +7,10 @@ import {
   BookOpen,
   CheckCircle2,
   Clock,
+  Copy,
   Flag,
   GitBranch,
+  Link2,
   Loader2,
   RotateCcw,
   ShieldCheck,
@@ -18,9 +20,9 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { chatApi } from "@/lib/api";
+import { chatApi, gmApi } from "@/lib/api";
 import { gmTableApi } from "@/lib/gm-table-api";
-import type { WrapUpCanonItem } from "@/lib/types";
+import type { SharePublishResult, WrapUpCanonItem } from "@/lib/types";
 import { DialogShell } from "@/components/DialogShell";
 import { cn } from "@/lib/utils";
 
@@ -197,14 +199,14 @@ function WorldClockSection({ universeId, storyId }: { universeId: string; storyI
  */
 export function WrapUpModal({
   sessionId,
-  onClose,
   universeId,
   storyId,
+  onClose,
 }: {
   sessionId: string;
-  onClose: () => void;
   universeId?: string | null;
   storyId?: string | null;
+  onClose: () => void;
 }) {
   const qc = useQueryClient();
   const wrapUp = useMutation({
@@ -223,6 +225,36 @@ export function WrapUpModal({
   }, [mutate]);
 
   const digest = wrapUp.data;
+
+  // CF-14 — publish this recap to the story's player share link. Only
+  // offered when the session carries a universe + story (share links are
+  // story-scoped); unpublishing blocks /share/* access immediately.
+  const [published, setPublished] = useState<SharePublishResult | null>(null);
+  const [copied, setCopied] = useState(false);
+  const canShare = Boolean(universeId && storyId);
+  const publish = useMutation({
+    mutationFn: () =>
+      gmApi.sharePublish({
+        universe_id: universeId!,
+        story_id: storyId!,
+        artifact_type: "recap",
+        title: "Session recap",
+        content: digest?.recap ?? "",
+        session_id: sessionId,
+      }),
+    onSuccess: (data) => setPublished(data),
+  });
+  const unpublish = useMutation({
+    mutationFn: () =>
+      gmApi.shareUnpublish({
+        universe_id: universeId!,
+        artifact_id: published!.artifact_id,
+      }),
+    onSuccess: () => setPublished(null),
+  });
+  const shareUrl = published
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}${published.share_path}`
+    : "";
 
   return (
     <DialogShell
@@ -268,6 +300,66 @@ export function WrapUpModal({
 
             {/* World clock (CF-11) — readout + advance for the finished session */}
             {universeId && storyId && <WorldClockSection universeId={universeId} storyId={storyId} />}
+            {/* CF-14 — publish the recap to players */}
+            {canShare && (
+              <section data-testid="wrap-up-share" className="space-y-2">
+                <SectionHeading icon={Link2}>Share with players</SectionHeading>
+                {!published ? (
+                  <button
+                    onClick={() => publish.mutate()}
+                    disabled={publish.isPending}
+                    className="btn-cyber text-xs inline-flex items-center gap-1.5"
+                    data-testid="wrap-up-publish"
+                  >
+                    {publish.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Link2 className="w-3.5 h-3.5" />
+                    )}
+                    Publish recap to players
+                  </button>
+                ) : (
+                  <div className="space-y-2" data-testid="wrap-up-share-link">
+                    <div className="flex items-center gap-2">
+                      <code
+                        className="flex-1 min-w-0 truncate text-[11px] text-emerald-300 bg-emerald-500/5 border border-emerald-500/20 rounded px-2 py-1.5"
+                        data-testid="wrap-up-share-url"
+                      >
+                        {shareUrl}
+                      </code>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard?.writeText(shareUrl).then(() => {
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 1500);
+                          });
+                        }}
+                        className="flex-shrink-0 text-xs px-2 py-1.5 rounded border border-white/10 text-slate-400 hover:text-slate-200"
+                        aria-label="Copy share link"
+                      >
+                        {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
+                        onClick={() => unpublish.mutate()}
+                        disabled={unpublish.isPending}
+                        className="flex-shrink-0 text-xs px-2 py-1.5 rounded border border-white/10 text-slate-400 hover:text-red-300"
+                        data-testid="wrap-up-unpublish"
+                      >
+                        Unpublish
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-600">
+                      Anyone with this link sees the published recap — never drafts or GM notes.
+                    </p>
+                  </div>
+                )}
+                {publish.isError && (
+                  <p className="text-xs text-red-400" data-testid="wrap-up-publish-error">
+                    Couldn&apos;t publish the recap — try again.
+                  </p>
+                )}
+              </section>
+            )}
 
             {/* Canon changes */}
             <section data-testid="wrap-up-canon" className="space-y-2">

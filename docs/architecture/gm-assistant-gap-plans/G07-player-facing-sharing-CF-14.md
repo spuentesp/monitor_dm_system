@@ -70,3 +70,29 @@ personalized views (v1 = party-level), email delivery.
 - Token model: single per-story token (v1) vs. per-artifact links.
 - PDF export: needs a renderer (defer; Markdown v1).
 - Player identity on shared links: anonymous-with-token v1; accounts later.
+
+## Live verification checklist (Phase 5)
+
+Run once against the Docker stack (`./dev.sh`) — hermetic tests cover the
+logic; this pass proves the wiring end-to-end. Append results with date.
+
+1. [ ] Wrap-up a gm_assistant recording → **Publish recap to players** →
+       copy the `/share/{token}` link from the modal.
+2. [ ] Open the link in a private window (no login): the published recap
+       renders; a *draft* or unpublished item id returns 404.
+3. [ ] Publish a handout from the Handouts panel (pick a story first);
+       confirm it appears on the share page with a working **Download .md**.
+4. [ ] **Unpublish** the handout → refresh the share page → it is gone;
+       direct `/share/{token}/handout/{id}` now 404s.
+5. [ ] Publish a character-scoped handout via
+       `POST /api/gm/share/publish` (`spoiler_level: "character"`,
+       `scope_character_id`, `source_fact_ids`) → on the share page the
+       item is hidden for "The whole party" and for the wrong character,
+       visible when the scoped character is selected; a party member who
+       witnessed all source facts also sees it.
+6. [ ] **Revoke** the link → the share page shows "no longer available"
+       (404) for every route, including `export/*.md`.
+7. [ ] Hammer one token > `SHARE_RATE_LIMIT` within a minute → 429.
+8. [ ] `uv run ruff check packages`, `python scripts/check_layer_dependencies.py`,
+       and the CF-14 test files all green.
+
