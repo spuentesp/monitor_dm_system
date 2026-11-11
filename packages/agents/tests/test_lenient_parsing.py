@@ -103,6 +103,9 @@ The sections state world rules and organizations.
 [[ ## lore_facts ## ]]
 []
 
+[[ ## sections_covered ## ]]
+["Rules > Magic"]
+
 [[ ## completed ## ]]
 """
 
@@ -192,3 +195,14 @@ async def test_call_module_returns_the_recovered_prediction_without_retrying(mon
     assert runner.calls == 1  # recovered on the first failure: no unchanged retry
     assert [axiom.statement for axiom in prediction.axioms] == ["Magic exists"]
     assert prediction.entities[0].group_type == GroupType.OTHER
+
+
+@pytest.mark.unit
+def test_a_reply_missing_sections_covered_is_not_recovered() -> None:
+    """BatchedExtractionSignature asks for sections_covered so a cut-off reply is
+    detected. A completion without it is never accepted as complete: recovery
+    returns None and the caller retries or splits the batch."""
+    truncated = _BATCHED_COMPLETION.replace('[[ ## sections_covered ## ]]\n["Rules > Magic"]\n\n', "")
+    assert "sections_covered" not in truncated
+
+    assert recover_parse_failure(_parse_error(truncated)) is None
