@@ -144,6 +144,16 @@ from monitor_data.tools.mongodb_tools.gm_prep import (
     mongodb_get_gm_prep_bundle,
     mongodb_upsert_gm_prep_bundle,
 )
+from monitor_data.tools.mongodb_tools.player_share import (
+    mongodb_create_player_share,
+    mongodb_create_shared_artifact,
+    mongodb_get_player_share_by_token,
+    mongodb_get_player_share_for_story,
+    mongodb_get_shared_artifact,
+    mongodb_list_shared_artifacts,
+    mongodb_revoke_player_share,
+    mongodb_set_shared_artifact_published,
+)
 
 # Ingestion Job operations
 from monitor_data.tools.mongodb_tools.ingestion_jobs import (
@@ -622,6 +632,15 @@ __all__ = [
     # GM Prep bundles (CF-7 prep-to-table)
     "mongodb_get_gm_prep_bundle",
     "mongodb_upsert_gm_prep_bundle",
+    # Player share links + shared artifacts (CF-14)
+    "mongodb_create_player_share",
+    "mongodb_get_player_share_by_token",
+    "mongodb_get_player_share_for_story",
+    "mongodb_revoke_player_share",
+    "mongodb_create_shared_artifact",
+    "mongodb_get_shared_artifact",
+    "mongodb_list_shared_artifacts",
+    "mongodb_set_shared_artifact_published",
     # World Snapshots
     "mongodb_create_world_snapshot",
     "mongodb_get_world_snapshot",
