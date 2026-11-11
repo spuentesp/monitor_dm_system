@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 import re
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -56,23 +56,25 @@ from monitor_agents.book_decomposition.checks import (
     quote_is_in,
     unresolved_flags,
 )
-from monitor_agents.book_decomposition.extractor import run_metered
+from monitor_agents.book_decomposition.extractor import CONTENT_ERRORS, run_metered
 from monitor_agents.book_decomposition.pacing import RunGuard, RunStopped
 from monitor_agents.book_decomposition.pipeline import ProvenancedAtom, WindowOutcome
+from monitor_agents.book_decomposition.settings import DecompositionSettings
+from monitor_agents.book_decomposition.windows import plan_non_content
 from monitor_agents.book_prompts import apply_fiction_preamble
 from monitor_agents.llm_errors import LLMErrorClass, classify_llm_error
 
 log = structlog.get_logger()
 
-DEFAULT_BATCH_SIZE = 12
-DEFAULT_MAX_CLUSTER = 12
 DEFAULT_CONCURRENCY = 8
+DEFAULT_MAX_CLUSTER = 12
+# One retry of whatever a call left uncovered, then the claim goes to a person.
+_VERIFY_ATTEMPTS = 2
 _SIMILARITY_THRESHOLD = 0.5
 _MIN_SHARED_TOKENS = 2
 _QUANTITY = re.compile(r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b", re.IGNORECASE)
 _MID_SENTENCE_NAME = re.compile(r"(?<=[a-z,] )[A-Z][a-z]{2,}\b")
 _QUANTITY_OVERLAP = 2
-_COVERAGE_BATCH = 8
 _MAX_SIDEBAR_PAGES = 1
 _MIN_NAME_USES = 3
 _MAX_NAME_USE_OUTSIDE = 0.4
@@ -626,25 +628,32 @@ async def verify_claims(
     claims: Sequence[Claim],
     model: ReviewModel,
     *,
-    batch_size: int = DEFAULT_BATCH_SIZE,
+    batch_size: int | None = None,
     concurrency: int = DEFAULT_CONCURRENCY,
     on_checks: Callable[[dict[str, ClaimCheck]], None] | None = None,
+    held_sink: list[dict[str, str]] | None = None,
 ) -> dict[str, ClaimCheck]:
     """Check claims against sources. A claim with no valid check stays out of the result.
 
     `on_checks` receives each batch's checks as soon as they arrive, so stopping loses none.
+    A reply that is cut off or covers only part of its batch is split and the uncovered part
+    retried; what still has no check is recorded in `held_sink` with its reason, never
+    silently accepted.
     """
+    if batch_size is None:
+        batch_size = DecompositionSettings.from_env().review_batch
     semaphore = asyncio.Semaphore(concurrency)
+    failures: dict[str, str] = {}
 
-    async def run(batch: Sequence[Claim], attempts: int = 2) -> dict[str, ClaimCheck]:
+    async def run(batch: Sequence[Claim]) -> dict[str, ClaimCheck]:
         results: dict[str, ClaimCheck] = {}
-        pending = list(batch)
-        for _ in range(attempts):
-            labels = {f"C{i}": claim for i, claim in enumerate(pending, 1)}
-            fresh: dict[str, ClaimCheck] = {}
+        queue: deque[tuple[list[Claim], int]] = deque([(list(batch), 0)])
+        while queue:
+            part, used = queue.popleft()
+            labels = {f"C{i}": claim for i, claim in enumerate(part, 1)}
             try:
                 async with semaphore:
-                    answer = await model.verify(format_for_verification(pending))
+                    answer = await model.verify(format_for_verification(part))
             except RunStopped:
                 raise
             # A failed batch leaves its claims unchecked, and they go to a person.
@@ -654,28 +663,55 @@ async def verify_claims(
                     # run_batch_with_refusal_split below splits the batch instead.
                     raise
                 log.warning("claim_verification_failed", error=str(exc)[:300])
+                reason = f"{type(exc).__name__}: {exc}"[:300]
+                if isinstance(exc, CONTENT_ERRORS) and len(part) > 1:
+                    # Cut off at the output cap or unparseable: split and retry what's missing.
+                    middle = len(part) // 2
+                    queue.append((part[:middle], 0))
+                    queue.append((part[middle:], 0))
+                    continue
+                if used + 1 < _VERIFY_ATTEMPTS:
+                    queue.append((part, used + 1))
+                    continue
+                for claim in part:
+                    failures.setdefault(claim.id, reason)
                 continue
+            fresh: dict[str, ClaimCheck] = {}
+            answered: set[str] = set()
             for check in answer.checks:
                 claim = labels.get(check.label)
                 is_valid = check.verdict != ClaimVerdict.CORRECTED or bool(
                     check.corrected_statement and check.corrected_statement.strip()
                 )
+                answered.add(check.label)
                 if claim is not None and is_valid:
                     results[claim.id] = check
                     fresh[claim.id] = check
             if on_checks is not None:
                 on_checks(fresh)
-            pending = [claim for claim in pending if claim.id not in results]
-            if not pending:
-                break
+            missing = [claim for claim in part if claim.id not in results]
+            if not missing:
+                continue
+            if used + 1 < _VERIFY_ATTEMPTS:
+                # Retry only what this reply left uncovered, never the whole batch again.
+                queue.append((missing, used + 1))
+                continue
+            for claim in missing:
+                label = next(label for label, item in labels.items() if item.id == claim.id)
+                reason = (
+                    "the model's check for this claim was not usable"
+                    if label in answered
+                    else "the model's answer did not include this claim"
+                )
+                failures.setdefault(claim.id, reason)
         return results
 
     batches = [claims[i : i + batch_size] for i in range(0, len(claims), batch_size)]
     merged: dict[str, ClaimCheck] = {}
+    helper_held: dict[str, str] = {}
     # PART 5A EXAMPLE (shared helper, monitor_agents.book_batching): a refused
     # verification batch splits in half and each half is retried once; claims
     # that still refuse are held with a reason instead of silently unchecked.
-    # Part A owns the rest of this loop (batch size, resume, held reporting).
     outcomes = await asyncio.gather(
         *(run_batch_with_refusal_split(batch, run, id_of=lambda claim: claim.id) for batch in batches)
     )
@@ -683,7 +719,17 @@ async def verify_claims(
         for result in outcome.results:
             merged.update(result)
         for held in outcome.held:
+            helper_held[held.id] = held.reason
             log.warning("claim_verification_held", claim_id=held.id, reason=held.reason)
+    if held_sink is not None:
+        for claim in claims:
+            if claim.id in merged or claim.id in helper_held:
+                continue
+            reason = failures.get(claim.id, "Verification did not complete")
+            held_sink.append({"section_path": claim.id, "stage": "verification", "reason": reason})
+            log.warning("claim_verification_held", claim_id=claim.id, reason=reason)
+        for claim_id, reason in helper_held.items():
+            held_sink.append({"section_path": claim_id, "stage": "verification", "reason": reason})
     return merged
 
 
@@ -699,10 +745,13 @@ async def audit_skipped_units(
     outcomes: Iterable[WindowOutcome],
     model: ReviewModel,
     *,
-    batch_size: int = 25,
+    batch_size: int | None = None,
     concurrency: int = DEFAULT_CONCURRENCY,
+    held_sink: list[dict[str, str]] | None = None,
 ) -> list[WindowOutcome]:
     """Re-read every skipped sentence and return any claims it should have produced."""
+    if batch_size is None:
+        batch_size = DecompositionSettings.from_env().skip_audit_batch
     by_id = {node.id: node for node in tree.nodes}
     skipped = [(nid, why) for outcome in outcomes for nid, why in outcome.skipped.items()]
     semaphore = asyncio.Semaphore(concurrency)
@@ -716,8 +765,10 @@ async def audit_skipped_units(
                 answer = await model.audit_skips(prompt)
         except RunStopped:
             raise
-        # The sentences keep their skip status, and the error is on the outcome.
         except Exception as exc:  # noqa: BLE001  # reason: recorded on the outcome and shown in the report
+            if classify_llm_error(exc).error_class == LLMErrorClass.CONTENT_REFUSED:
+                # PART 5A (I-2): the helper below halves this batch instead of repeating it.
+                raise
             log.warning("skip_audit_failed", error=str(exc)[:300])
             rescued.errors.append(f"{type(exc).__name__}: {exc}"[:300])
             rescued.uncovered = [nid for nid, _ in batch]
@@ -732,7 +783,19 @@ async def audit_skipped_units(
         return rescued
 
     batches = [skipped[i : i + batch_size] for i in range(0, len(skipped), batch_size)]
-    return list(await asyncio.gather(*(run(batch) for batch in batches)))
+    gathered = await asyncio.gather(
+        *(run_batch_with_refusal_split(batch, run, id_of=lambda item: item[0]) for batch in batches)
+    )
+    rescued: list[WindowOutcome] = []
+    for batch, outcome in zip(batches, gathered, strict=True):
+        rescued.extend(outcome.results)
+        for held in outcome.held:
+            # The sentence keeps its skip status and lands in `sentences_not_rechecked`.
+            rescued.append(WindowOutcome(window_id=f"skip-audit:{held.id}", uncovered=[held.id], errors=[held.reason]))
+            if held_sink is not None:
+                held_sink.append({"section_path": held.id, "stage": "skip_audit", "reason": held.reason})
+            log.warning("skip_audit_held", sentence_id=held.id, reason=held.reason)
+    return rescued
 
 
 # ---------------------------------------------------------------------------
@@ -788,6 +851,10 @@ class ReviewReport(BaseModel):
         default_factory=list, description="Sentences that were cited, but now support nothing"
     )
     ledger_problems: list[str] = Field(default_factory=list)
+    held: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="Batches the provider refused or that never completed: section_path, stage, reason",
+    )
 
 
 @dataclass
@@ -877,22 +944,73 @@ def coverage_fingerprint() -> str:
     return hashlib.sha256(ParagraphCoverageSignature.instructions.encode()).hexdigest()[:12]
 
 
+def _in_sample(paragraph_id: str, share: float) -> bool:
+    """Deterministic 1-in-n sample keyed by the paragraph, so a resumed run samples the same ones."""
+    if share >= 1.0:
+        return True
+    if share <= 0.0:
+        return False
+    digest = int(hashlib.sha256(f"coverage-sample:{paragraph_id}".encode()).hexdigest()[:8], 16)
+    return digest / 0xFFFFFFFF < share
+
+
+def zero_claim_paragraphs(tree: BookTree, working: dict[str, _Working]) -> list[tuple[BookNode, list[str]]]:
+    """Every paragraph in a division that produced no claims (task 8).
+
+    A division where extraction found nothing is exactly where a gap check pays for
+    itself: every sentence of it went uncovered. Worked examples are left out, and
+    so is anything the tree marks as non-content.
+    """
+    if not any(node.kind == BookNodeKind.DIVISION for node in tree.nodes):
+        return []
+    by_id = {node.id: node for node in tree.nodes}
+    covered = {paragraph for state in working.values() for paragraph in state.claim.paragraph_ids}
+    divisions_with_claims = {
+        by_id[paragraph].parent_id for paragraph in covered if paragraph in by_id and by_id[paragraph].parent_id
+    }
+    continuations = example_continuations(tree)
+    skipped = plan_non_content(tree)
+    found: list[tuple[BookNode, list[str]]] = []
+    for node in tree.nodes:
+        if node.kind != BookNodeKind.PARAGRAPH or node.id in skipped:
+            continue
+        parent = by_id.get(node.parent_id or "")
+        if parent is None or parent.kind != BookNodeKind.DIVISION or parent.id in divisions_with_claims:
+            continue
+        if _starts_example(node.text) or node.id in continuations:
+            continue
+        found.append((node, []))
+    return found
+
+
 async def audit_coverage(
     tree: BookTree,
     working: dict[str, _Working],
     model: CoverageModel,
     report: ReviewReport,
     *,
-    batch_size: int = _COVERAGE_BATCH,
+    batch_size: int | None = None,
     concurrency: int = DEFAULT_CONCURRENCY,
     coverage_log: CoverageStore | None = None,
+    coverage_sample: float | None = None,
+    held_sink: list[dict[str, str]] | None = None,
 ) -> None:
     """Ask what each paragraph says that all of its claims together don't.
 
-    This only reports, for a person. A gap's quote must really be in the paragraph, so an invented
-    gap is dropped and counted.
+    Checks a configurable share of the paragraphs that kept a claim
+    (`MONITOR_BOOK_COVERAGE_SAMPLE`, default 10%), plus every paragraph in a
+    division that produced no claim. This only reports, for a person. A gap's
+    quote must really be in the paragraph, so an invented gap is dropped and counted.
     """
-    items = paragraphs_to_audit(tree, working)
+    s = DecompositionSettings.from_env()
+    if batch_size is None:
+        batch_size = s.coverage_batch
+    if coverage_sample is None:
+        coverage_sample = s.coverage_sample
+    covered = paragraphs_to_audit(tree, working)
+    if len(covered) >= s.coverage_min_paragraphs:
+        covered = [(paragraph, found) for paragraph, found in covered if _in_sample(paragraph.id, coverage_sample)]
+    items = [*covered, *zero_claim_paragraphs(tree, working)]
     saved = coverage_log.read() if coverage_log else {}
     keys = {paragraph.id: CoverageLog.key(paragraph, found) for paragraph, found in items}
     report.paragraphs_audited = len(items)
@@ -912,6 +1030,9 @@ async def audit_coverage(
         except RunStopped:
             raise
         except Exception as exc:  # noqa: BLE001  # reason: counted in the report, so the gap in checking is visible
+            if classify_llm_error(exc).error_class == LLMErrorClass.CONTENT_REFUSED:
+                # PART 5A (I-2): the helper below halves this batch instead of repeating it.
+                raise
             log.warning("coverage_audit_failed", error=str(exc)[:300])
             report.coverage_check_failures += 1
             return
@@ -936,10 +1057,19 @@ async def audit_coverage(
 
     batches = [pending[i : i + batch_size] for i in range(0, len(pending), batch_size)]
     # Let calls in progress finish when one stops the run, so answers already paid for are saved.
-    outcomes = await asyncio.gather(*(run(batch) for batch in batches), return_exceptions=True)
-    for outcome in outcomes:
+    gathered = await asyncio.gather(
+        *(run_batch_with_refusal_split(batch, run, id_of=lambda item: item[0].id) for batch in batches),
+        return_exceptions=True,
+    )
+    for outcome in gathered:
         if isinstance(outcome, BaseException):
             raise outcome
+        for held in outcome.held:
+            # The paragraph's check never happened: counted, and named on the job.
+            report.coverage_check_failures += 1
+            if held_sink is not None:
+                held_sink.append({"section_path": held.id, "stage": "coverage", "reason": held.reason})
+            log.warning("coverage_held", paragraph_id=held.id, reason=held.reason)
     report.paragraph_gaps.sort(key=lambda gap: gap.page)
 
 
@@ -1087,6 +1217,7 @@ async def stack_claims(
     report: ReviewReport,
     *,
     concurrency: int = DEFAULT_CONCURRENCY,
+    held_sink: list[dict[str, str]] | None = None,
 ) -> None:
     """Within each kind, cluster the surviving claims and merge or flag related ones."""
     survivors: dict[AtomKind, list[Claim]] = defaultdict(list)
@@ -1111,28 +1242,45 @@ async def stack_claims(
     statements = {claim_id: state.statement for claim_id, state in working.items()}
     semaphore = asyncio.Semaphore(concurrency)
 
-    async def run(cluster: list[Claim]) -> tuple[list[Claim], StackDecision | None]:
+    async def run(cluster: Sequence[Claim]) -> tuple[list[Claim], StackDecision | None]:
         try:
             async with semaphore:
-                return cluster, await model.stack(format_for_stacking(cluster, statements))
+                decision = await model.stack(format_for_stacking(cluster, statements))
         except RunStopped:
             raise
-        # Nothing is merged, and a person checks them, since a contradiction may have gone unseen.
         except Exception as exc:  # noqa: BLE001  # reason: counted in the report; claims stay unmerged rather than lost
+            if classify_llm_error(exc).error_class == LLMErrorClass.CONTENT_REFUSED:
+                # PART 5A (I-2): a refused cluster halves and each half is retried once.
+                raise
+            # Nothing is merged, and a person checks them, since a contradiction may have gone unseen.
             log.warning("claim_stacking_failed", error=str(exc)[:300])
-            return cluster, None
+            return list(cluster), None
+        return list(cluster), decision
 
-    for cluster, decision in await asyncio.gather(*(run(c) for c in clusters)):
-        if decision is None:
-            report.stacking_failures += 1
-            for claim in cluster:
-                state = working[claim.id]
-                if state.status in (ClaimStatus.ACCEPTED, ClaimStatus.CORRECTED):
-                    state.status = ClaimStatus.NEEDS_HUMAN
-                    state.reason = "Duplicate and contradiction check didn't complete"
-            continue
-        for stack in decision.stacks:
-            _apply_stack(stack, cluster, working, report)
+    def note_failure(cluster: Sequence[Claim], reason: str) -> None:
+        for claim in cluster:
+            state = working[claim.id]
+            if state.status in (ClaimStatus.ACCEPTED, ClaimStatus.CORRECTED):
+                state.status = ClaimStatus.NEEDS_HUMAN
+                state.reason = reason
+
+    gathered = await asyncio.gather(
+        *(run_batch_with_refusal_split(cluster, run, id_of=lambda claim: claim.id) for cluster in clusters)
+    )
+    for outcome in gathered:
+        for cluster, decision in outcome.results:
+            if decision is None:
+                report.stacking_failures += 1
+                note_failure(cluster, "Duplicate and contradiction check didn't complete")
+                continue
+            for stack in decision.stacks:
+                _apply_stack(stack, cluster, working, report)
+        for held in outcome.held:
+            # The claim could not even be compared; a person sees it, with the refusal.
+            note_failure([working[held.id].claim], f"Duplicate and contradiction check refused: {held.reason}")
+            if held_sink is not None:
+                held_sink.append({"section_path": held.id, "stage": "stacking", "reason": held.reason})
+            log.warning("claim_stacking_held", claim_id=held.id, reason=held.reason)
 
 
 def _finalize(working: dict[str, _Working], report: ReviewReport) -> ReviewResult:
@@ -1256,15 +1404,22 @@ async def review_claims(
     model: ReviewModel,
     *,
     concurrency: int = DEFAULT_CONCURRENCY,
+    batch_size: int | None = None,
     check_log: CheckStore | None = None,
     check_coverage: bool = True,
     coverage_model: CoverageModel | None = None,
-    coverage_batch_size: int = _COVERAGE_BATCH,
+    coverage_batch_size: int | None = None,
     coverage_log: CoverageStore | None = None,
+    coverage_sample: float | None = None,
 ) -> ReviewResult:
-    """Run the full review: audit skips, verify every claim, stack, then build the ledger."""
+    """Run the full review: audit skips, verify every claim, stack, then build the ledger.
+
+    Everything the provider refused or that never completed lands in `report.held`
+    with its id and reason, so nothing disappears without a record.
+    """
     report = ReviewReport()
-    rescued = await audit_skipped_units(tree, outcomes, model, concurrency=concurrency)
+    held: list[dict[str, str]] = []
+    rescued = await audit_skipped_units(tree, outcomes, model, concurrency=concurrency, held_sink=held)
     report.rescued_from_skips = sum(len(item.atoms) for item in rescued)
     report.skip_audit_failures = sum(bool(item.errors) for item in rescued)
     report.sentences_not_rechecked = sorted({nid for item in rescued for nid in item.uncovered})
@@ -1279,12 +1434,14 @@ async def review_claims(
     checks = await verify_claims(
         [claim for claim in claims if claim.id not in reused],
         model,
+        batch_size=batch_size,
         concurrency=concurrency,
         on_checks=((lambda fresh: check_log.append({keys[cid]: c for cid, c in fresh.items()})) if check_log else None),
+        held_sink=held,
     )
     checks.update(reused)
     working = _apply_checks(claims, checks)
-    await stack_claims(working, model, report, concurrency=concurrency)
+    await stack_claims(working, model, report, concurrency=concurrency, held_sink=held)
     if check_coverage:
         await audit_coverage(
             tree,
@@ -1294,6 +1451,8 @@ async def review_claims(
             batch_size=coverage_batch_size,
             concurrency=concurrency,
             coverage_log=coverage_log,
+            coverage_sample=coverage_sample,
+            held_sink=held,
         )
         new_claims = [c for c in claims_from_gaps(tree, report.paragraph_gaps) if c.id not in working]
         # A gap is one model's reading, so it goes through the same verifier as any other claim.
@@ -1303,11 +1462,14 @@ async def review_claims(
         fresh = await verify_claims(
             [c for c in new_claims if c.id not in known],
             model,
+            batch_size=batch_size,
             concurrency=concurrency,
             on_checks=(
                 (lambda found: check_log.append({keys[cid]: c for cid, c in found.items()})) if check_log else None
             ),
+            held_sink=held,
         )
         working.update(_apply_checks(new_claims, {**known, **fresh}))
         report.claims_from_gaps = len(new_claims)
+    report.held = held
     return _finalize(working, report)

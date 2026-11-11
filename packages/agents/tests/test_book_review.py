@@ -615,7 +615,14 @@ async def test_stopping_mid_review_keeps_the_checks_already_done(tmp_path):
     items = _spread_items(16)
     tree = _tree(["x"] * 16)
     with pytest.raises(RunStopped):
-        await review_claims(tree, [_outcome(*items)], _CountingModel(stop_after=1), check_log=log, concurrency=1)
+        await review_claims(
+            tree,
+            [_outcome(*items)],
+            _CountingModel(stop_after=1),
+            check_log=log,
+            batch_size=12,  # The batch mechanics this test pins, at the old size.
+            concurrency=1,
+        )
     assert len(log.read()) == 12
     finish = _CountingModel()
     result = await review_claims(tree, [_outcome(*items)], finish, check_log=log)
