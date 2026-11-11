@@ -231,3 +231,12 @@ def save_review(doc_id: str, result: ReviewResult) -> None:
         BookRecordType.REPORT,
         [BookRecord(key="review", data=result.report.model_dump(mode="json"))],
     )
+
+
+def save_non_content_report(doc_id: str, counts: dict[str, int], reasons: dict[str, str]) -> None:
+    """Store what was never sent for extraction, so a run can show what it skipped (task 9)."""
+    mongodb_upsert_book_records(
+        doc_id,
+        BookRecordType.REPORT,
+        [BookRecord(key="skipped-non-content", data={"counts": counts, "reasons": reasons})],
+    )

@@ -17,16 +17,22 @@ from monitor_data.schemas.book_graph import WindowExtraction
 from monitor_data.schemas.llm_config import ModelRole
 from pydantic import ValidationError
 
+from monitor_agents.book_prompts import apply_fiction_preamble
+from monitor_agents.book_decomposition.settings import DecompositionSettings
 from monitor_agents.book_decomposition.windows import Window
 from monitor_agents.dspy_runtime import get_dspy_lm
 
-MAX_OUTPUT_TOKENS = 16384
 _MINIMAX_PREFIX = "minimax/"
 _MINIMAX_DEFAULT_BASE = "https://api.minimax.io/anthropic"
 _REQUEST_TIMEOUT_SECONDS = 300
 # RunGuard and the extraction loop own retries. Retrying inside LiteLLM as well would hide a
 # quota error from them for several more calls.
 _LM_RETRIES = 0
+
+
+def max_output_tokens() -> int:
+    """The output cap for one extraction call (`MONITOR_BOOK_EXTRACT_MAX_TOKENS`, default 32,768)."""
+    return DecompositionSettings.from_env().extract_max_tokens
 
 
 class TruncatedOutput(Exception):
@@ -106,7 +112,7 @@ def run_metered(lm: Any, call: Callable[[], Any]) -> tuple[Any, int, int]:
         with dspy.context(lm=_metered(lm)):
             prediction = call()
         if meter.last_was_truncated:
-            raise TruncatedOutput(f"The answer hit the {MAX_OUTPUT_TOKENS} token limit")
+            raise TruncatedOutput(f"The answer hit the {max_output_tokens()} token limit")
     except Exception as exc:
         exc.book_call_usage = (meter.input_tokens, meter.output_tokens)  # type: ignore[attr-defined]
         raise
@@ -158,8 +164,13 @@ class WindowExtractionSignature(dspy.Signature):  # type: ignore[misc]
 
     heading_path: str = dspy.InputField(desc="Where this passage sits in the book")
     context: str = dspy.InputField(desc="Read-only text just before this passage. Do not cite it.")
-    units: str = dspy.InputField(desc="The passage, one labelled unit per line (S=sentence, T=table)")
+    units: str = dspy.InputField(
+        desc="The passage, one labelled unit per line (S=sentence, T=table), each with its heading path"
+    )
     result: WindowExtraction = dspy.OutputField()
+
+
+apply_fiction_preamble(WindowExtractionSignature)
 
 
 def build_lm(model: str, reasoning_effort: str | None = None) -> dspy.LM:
@@ -175,7 +186,7 @@ def build_lm(model: str, reasoning_effort: str | None = None) -> dspy.LM:
     if not model.startswith(_MINIMAX_PREFIX):
         return MeteredLM(
             model,
-            max_tokens=MAX_OUTPUT_TOKENS,
+            max_tokens=max_output_tokens(),
             temperature=0.0,
             timeout=_REQUEST_TIMEOUT_SECONDS,
             num_retries=_LM_RETRIES,
@@ -194,7 +205,7 @@ def build_lm(model: str, reasoning_effort: str | None = None) -> dspy.LM:
         f"anthropic/{model.removeprefix(_MINIMAX_PREFIX)}",
         api_key=api_key,
         api_base=os.environ.get("MINIMAX_BASE_URL", "").strip() or _MINIMAX_DEFAULT_BASE,
-        max_tokens=MAX_OUTPUT_TOKENS,
+        max_tokens=max_output_tokens(),
         temperature=0.1,  # MiniMax documents its temperature range as excluding 0.
         timeout=_REQUEST_TIMEOUT_SECONDS,
         num_retries=_LM_RETRIES,
@@ -209,7 +220,12 @@ def prompt_fingerprint() -> str:
 
 
 def format_units(window: Window) -> str:
-    return "\n".join(f"[{unit.label}] {unit.text}" for unit in window.units)
+    """One unit per line, each with the heading path it sits under (a window can span headings)."""
+    lines = []
+    for unit in window.units:
+        where = " > ".join(unit.heading_path)
+        lines.append(f"[{unit.label}] ({where}) {unit.text}" if where else f"[{unit.label}] {unit.text}")
+    return "\n".join(lines)
 
 
 class DspyWindowExtractor:
@@ -224,7 +240,7 @@ class DspyWindowExtractor:
         self._predict = dspy.Predict(WindowExtractionSignature)
 
     def _call(self, window: Window) -> ExtractorResult:
-        lm = self._lm or get_dspy_lm("book_decomposition", ModelRole.HEAVY, max_tokens=MAX_OUTPUT_TOKENS)
+        lm = self._lm or get_dspy_lm("book_decomposition", ModelRole.HEAVY, max_tokens=max_output_tokens())
         prediction, input_tokens, output_tokens = run_metered(
             lm,
             lambda: self._predict(

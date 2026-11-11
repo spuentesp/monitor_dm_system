@@ -366,10 +366,7 @@ class PlotHookAgent(BaseAgent):
             )
             return [
                 *self._timeline_contradictions(events, scope=scope),
-                *[
-                    contradiction.model_copy(update={"scope": scope})
-                    for contradiction in result.contradictions
-                ],
+                *[contradiction.model_copy(update={"scope": scope}) for contradiction in result.contradictions],
             ]
         except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in detect_contradictions)
             logger.warning("LLM contradiction detection failed", exc_info=True)
@@ -442,14 +439,10 @@ class PlotHookAgent(BaseAgent):
             f.get("content", f.get("text", "")) for f in facts[:5] if f.get("canon_level") in ("canon", "established")
         ]
 
-        checklist = [
-            PrepItem(category="npc", description=f"Review NPC: {npc}")
-            for npc in list(set(npc_reminders))[:3]
-        ]
+        checklist = [PrepItem(category="npc", description=f"Review NPC: {npc}") for npc in list(set(npc_reminders))[:3]]
         checklist.extend(PrepItem(category="hook", description=f"Prepare hook: {hook.title}") for hook in hooks[:3])
         checklist.extend(
-            PrepItem(category="lore", description=f"Review change: {change}")
-            for change in world_changes[:3]
+            PrepItem(category="lore", description=f"Review change: {change}") for change in world_changes[:3]
         )
 
         return SessionPrep(

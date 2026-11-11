@@ -51,6 +51,9 @@ from monitor_data.schemas.plot_threads import ExtractedPlotThread
 from monitor_data.schemas.llm_config import ModelRole
 from typing import Any
 
+from pydantic import BaseModel, Field
+
+from monitor_agents.book_prompts import apply_fiction_preamble
 from monitor_agents.dspy_runtime import dspy_context_for
 
 # =============================================================================
@@ -102,6 +105,9 @@ class AxiomExtractionSignature(dspy.Signature):  # type: ignore[misc]
     )
 
 
+apply_fiction_preamble(AxiomExtractionSignature)
+
+
 class EntityExtractionSignature(dspy.Signature):  # type: ignore[misc]
     """
     Identify entity types/archetypes from source text.
@@ -148,6 +154,9 @@ class EntityExtractionSignature(dspy.Signature):  # type: ignore[misc]
     )
 
 
+apply_fiction_preamble(EntityExtractionSignature)
+
+
 class SourceProfileSynthesisSignature(dspy.Signature):  # type: ignore[misc]
     """
     Synthesize a structured profile of what a source appears to be before extraction.
@@ -183,6 +192,9 @@ class SourceProfileSynthesisSignature(dspy.Signature):  # type: ignore[misc]
             "{ref, section_path, page_hint, note}."
         )
     )
+
+
+apply_fiction_preamble(SourceProfileSynthesisSignature)
 
 
 class LoreFactExtractionSignature(dspy.Signature):  # type: ignore[misc]
@@ -232,6 +244,9 @@ class LoreFactExtractionSignature(dspy.Signature):  # type: ignore[misc]
     )
 
 
+apply_fiction_preamble(LoreFactExtractionSignature)
+
+
 class GameSystemDetectionSignature(dspy.Signature):  # type: ignore[misc]
     """
     Detect whether the source text contains RPG game system mechanics.
@@ -274,6 +289,9 @@ class GameSystemDetectionSignature(dspy.Signature):  # type: ignore[misc]
     )
 
 
+apply_fiction_preamble(GameSystemDetectionSignature)
+
+
 class GameRuleExtractionSignature(dspy.Signature):  # type: ignore[misc]
     """
     Extract specific mechanical rules from game system source text.
@@ -309,6 +327,9 @@ class GameRuleExtractionSignature(dspy.Signature):  # type: ignore[misc]
         )
     )
     rules: list[GameRule] = dspy.OutputField(desc="Structured game rules extracted from this section")
+
+
+apply_fiction_preamble(GameRuleExtractionSignature)
 
 
 class PlotThreadExtractionSignature(dspy.Signature):  # type: ignore[misc]
@@ -369,6 +390,9 @@ class PlotThreadExtractionSignature(dspy.Signature):  # type: ignore[misc]
     )
 
 
+apply_fiction_preamble(PlotThreadExtractionSignature)
+
+
 class ToneExtractionSignature(dspy.Signature):  # type: ignore[misc]
     """
     Extract narrative style, mood, and global tone instructions from source text.
@@ -389,6 +413,9 @@ class ToneExtractionSignature(dspy.Signature):  # type: ignore[misc]
     tone_profiles: list[ExtractedToneProfile] = dspy.OutputField(desc="Extracted narrative tone profiles")
 
 
+apply_fiction_preamble(ToneExtractionSignature)
+
+
 class CharacterProfileExtractionSignature(dspy.Signature):  # type: ignore[misc]
     """
     Extract narrative and psychological profiles for characters or archetypes.
@@ -407,6 +434,9 @@ class CharacterProfileExtractionSignature(dspy.Signature):  # type: ignore[misc]
 
     profile_reasoning: str = dspy.OutputField(desc="Reasoning about the character's psychology")
     character_profiles: list[ExtractedCharacterProfile] = dspy.OutputField(desc="Extracted psychological profiles")
+
+
+apply_fiction_preamble(CharacterProfileExtractionSignature)
 
 
 class GenerationTemplateExtractionSignature(dspy.Signature):  # type: ignore[misc]
@@ -435,6 +465,9 @@ class GenerationTemplateExtractionSignature(dspy.Signature):  # type: ignore[mis
     generation_templates: list[ExtractedGenerationTemplate] = dspy.OutputField(desc="Extracted generation recipes")
 
 
+apply_fiction_preamble(GenerationTemplateExtractionSignature)
+
+
 class CreationLogicSynthesizerSignature(dspy.Signature):  # type: ignore[misc]
     """
     Transform text-heavy character creation steps into actionable logic steps.
@@ -457,6 +490,9 @@ class CreationLogicSynthesizerSignature(dspy.Signature):  # type: ignore[misc]
 
     logic_reasoning: str = dspy.OutputField(desc="Step-by-step reasoning about how to make each step actionable")
     logic_steps: list[CreationLogicStep] = dspy.OutputField(desc="The synthesized actionable logic")
+
+
+apply_fiction_preamble(CreationLogicSynthesizerSignature)
 
 
 # =============================================================================
@@ -875,6 +911,9 @@ class CharacterSheetExtractionSignature(dspy.Signature):  # type: ignore[misc]
     )
 
 
+apply_fiction_preamble(CharacterSheetExtractionSignature)
+
+
 class CharacterSheetExtractionModule(_AnalyzerModule):
     """Extract character sheet structure from confirmed game system text."""
 
@@ -972,6 +1011,9 @@ class CreationProcedureExtractionSignature(dspy.Signature):  # type: ignore[misc
     )
 
 
+apply_fiction_preamble(CreationProcedureExtractionSignature)
+
+
 class CreationProcedureExtractionModule(_AnalyzerModule):
     """Extract character creation procedure from game system text."""
 
@@ -1053,6 +1095,9 @@ class NPCExtractionSignature(dspy.Signature):  # type: ignore[misc]
     creation_rules: NPCCreationRules | None = dspy.OutputField(
         desc="NPC creation/scaling rules if found, or null. Ensure evidence_refs are included."
     )
+
+
+apply_fiction_preamble(NPCExtractionSignature)
 
 
 class NPCExtractionModule(_AnalyzerModule):
@@ -1139,6 +1184,9 @@ class RandomTableExtractionSignature(dspy.Signature):  # type: ignore[misc]
     )
 
 
+apply_fiction_preamble(RandomTableExtractionSignature)
+
+
 class RandomTableExtractionModule(_AnalyzerModule):
     """Extract structured random tables from game text."""
 
@@ -1167,6 +1215,9 @@ class AgendaExtractionSignature(dspy.Signature):  # type: ignore[misc]
 
     agendas_reasoning: str = dspy.OutputField(desc="Reasoning about the drives found")
     agendas: list[ExtractedAgenda] = dspy.OutputField(desc="Structured agendas. Ensure evidence_refs are included.")
+
+
+apply_fiction_preamble(AgendaExtractionSignature)
 
 
 class AgendaExtractionModule(_AnalyzerModule):
@@ -1198,6 +1249,9 @@ class TopologyExtractionSignature(dspy.Signature):  # type: ignore[misc]
     topologies: list[ExtractedTopology] = dspy.OutputField(
         desc="Spatial connections. Ensure evidence_refs are included."
     )
+
+
+apply_fiction_preamble(TopologyExtractionSignature)
 
 
 class TopologyExtractionModule(_AnalyzerModule):
@@ -1309,6 +1363,9 @@ class RelationshipInferenceSignature(dspy.Signature):  # type: ignore[misc]
     )
 
 
+apply_fiction_preamble(RelationshipInferenceSignature)
+
+
 class RelationshipInferenceModule(_AnalyzerModule):
     """Infer entity-to-entity relationships from a full entity roster (one call per source)."""
 
@@ -1360,6 +1417,9 @@ class SectionClassifierSignature(dspy.Signature):  # type: ignore[misc]
             "Every line MUST start with SECTION followed by a pipe character."
         )
     )
+
+
+apply_fiction_preamble(SectionClassifierSignature)
 
 
 class SectionClassifierModule(_AnalyzerModule):
@@ -1519,6 +1579,16 @@ class BatchedExtractionSignature(dspy.Signature):  # type: ignore[misc]
     lore_facts: list[ExtractedLoreFact] = dspy.OutputField(
         desc="Specific lore facts tied to named entities or places. Include evidence_refs, canon_level, and knowledge_scope."
     )
+    sections_covered: list[str] = dspy.OutputField(
+        desc=(
+            "The heading path of EVERY section you processed, copied exactly from the "
+            "'# Section: ...' lines — including sections that yielded nothing. This list "
+            "must be complete; it is how a truncated reply is detected."
+        )
+    )
+
+
+apply_fiction_preamble(BatchedExtractionSignature)
 
 
 class SectionCategorizationSignature(dspy.Signature):  # type: ignore[misc]
@@ -1529,6 +1599,9 @@ class SectionCategorizationSignature(dspy.Signature):  # type: ignore[misc]
     category: str = dspy.OutputField(
         desc="One of: power_system, lineage, character_archetype, items_equipment, combat_rules, social_moral, factions, lore_history, creatures_npc, game_mechanics, narrative_style, general"
     )
+
+
+apply_fiction_preamble(SectionCategorizationSignature)
 
 
 class SectionCategorizationModule(_AnalyzerModule):
@@ -1548,6 +1621,9 @@ class SectionSummarySignature(dspy.Signature):  # type: ignore[misc]
     themes: list[str] = dspy.OutputField(desc="Up to 5 keywords capturing the section's topics")
 
 
+apply_fiction_preamble(SectionSummarySignature)
+
+
 class SectionSummaryModule(_AnalyzerModule):
     """Summarize a single TTRPG document section — HEAVY for ingestion (was LIGHT)."""
 
@@ -1556,6 +1632,50 @@ class SectionSummaryModule(_AnalyzerModule):
     # SectionSummary is called once per section in synthesize_mindscape. On a
     # 295 MB PDF this is hundreds of calls; routing to local qwen made it
     # unrunnable. HEAVY routes to MiniMax-M3 (or gemini-2.5-flash).
+
+
+class SectionSummaryItem(BaseModel):
+    """One section's summary inside a batched summary reply (I-17)."""
+
+    heading_path: str
+    summary: str = ""
+    themes: list[str] = Field(default_factory=list)
+
+
+class BatchedSectionSummarySignature(dspy.Signature):  # type: ignore[misc]
+    """Summarize several TTRPG document sections in one pass (I-17).
+
+    Sections are separated by '---SECTION---'; each starts with
+    '# Section: <heading path>'. Produce one summary per section, even for
+    sections with nothing worth summarizing (an empty summary is fine), and
+    copy every heading path exactly as given.
+    """
+
+    sections_context: str = dspy.InputField(
+        desc=(
+            "Several sections separated by '---SECTION---'. Each starts with "
+            "'# Section: <heading path>' followed by the section text."
+        )
+    )
+    source_name: str = dspy.InputField(desc="Name of the source document")
+    summaries: list[SectionSummaryItem] = dspy.OutputField(
+        desc=(
+            "Exactly one entry per input section, in input order, with heading_path "
+            "copied verbatim from each '# Section:' line — including sections that "
+            "yielded nothing. This completeness is how a truncated reply is detected."
+        )
+    )
+
+
+apply_fiction_preamble(BatchedSectionSummarySignature)
+
+
+class BatchedSectionSummaryModule(_AnalyzerModule):
+    """Summarize up to MONITOR_ANALYZER_SUMMARY_BATCH sections per call (I-17)."""
+
+    _signature = BatchedSectionSummarySignature
+    _role = ModelRole.HEAVY
+    _max_tokens = 8192
 
 
 class ModuleIntroExtractionSignature(dspy.Signature):  # type: ignore[misc]
@@ -1585,6 +1705,9 @@ class ModuleIntroExtractionSignature(dspy.Signature):  # type: ignore[misc]
             "compose or paraphrase one."
         )
     )
+
+
+apply_fiction_preamble(ModuleIntroExtractionSignature)
 
 
 class ModuleIntroExtractionModule(_AnalyzerModule):
@@ -1618,6 +1741,9 @@ class SourceMindscapeSynthesisSignature(dspy.Signature):  # type: ignore[misc]
     system_name: str = dspy.OutputField(
         desc="The TTRPG system this source is for, if identifiable; otherwise 'unknown'"
     )
+
+
+apply_fiction_preamble(SourceMindscapeSynthesisSignature)
 
 
 class SourceMindscapeSynthesisModule(_AnalyzerModule):
