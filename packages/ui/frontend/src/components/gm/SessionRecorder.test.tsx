@@ -21,7 +21,13 @@ vi.mock("@/lib/api", () => ({
     patchSession: vi.fn(),
   },
   storiesApi: { listThreads: vi.fn() },
-  gmApi: { checkEntryContradiction: vi.fn(), captureInsights: vi.fn() },
+  gmApi: {
+    checkEntryContradiction: vi.fn(),
+    captureInsights: vi.fn(),
+    updateSessionEntry: vi.fn(),
+    strikeSessionEntry: vi.fn(),
+    restoreSessionEntry: vi.fn(),
+  },
 }));
 
 const RECORDING = {
@@ -344,5 +350,147 @@ describe("SessionRecorder CF-1 proposal handoff", () => {
     await logEntry(text);
 
     expect(await screen.findByText(/1 candidate fact could not be queued/i)).toBeInTheDocument();
+  });
+});
+
+// G03 (CF-1 amendment) — mid-session strike/edit of captured entries.
+describe("SessionRecorder entry correction (G03/CF-1)", () => {
+  function message(text: string, overrides: Record<string, unknown> = {}) {
+    return {
+      id: "m-1",
+      session_id: RECORDING.id,
+      role: "player",
+      content: text,
+      timestamp: new Date().toISOString(),
+      metadata: {},
+      ...overrides,
+    };
+  }
+
+  it("edits a logged entry through PATCH and leaves edit mode", async () => {
+    vi.mocked(chatApi.getMessages).mockResolvedValue([message("Mira pocketed the key")] as never);
+    vi.mocked(gmApi.updateSessionEntry).mockResolvedValue({
+      entry: {
+        id: "m-1",
+        session_id: RECORDING.id,
+        role: "player",
+        content: "Mira pocketed the chapel key",
+        timestamp: new Date().toISOString(),
+        struck: false,
+        struck_at: null,
+        struck_reason: null,
+        edited_at: new Date().toISOString(),
+      },
+      insight: null,
+      insight_skipped: true,
+      proposal_ids: [],
+      proposal_errors: [],
+    });
+    renderRecorder();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit entry" }));
+    const textarea = await screen.findByLabelText("Edit entry text");
+    await userEvent.clear(textarea);
+    await userEvent.type(textarea, "Mira pocketed the chapel key");
+    await userEvent.click(screen.getByRole("button", { name: "Save entry edit" }));
+
+    await waitFor(() =>
+      expect(gmApi.updateSessionEntry).toHaveBeenCalledWith("m-1", {
+        universe_id: "u-1",
+        text: "Mira pocketed the chapel key",
+        story_id: null,
+        scene_id: null,
+      }),
+    );
+    // Edit mode closes after a successful save.
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Edit entry text")).toBeNull(),
+    );
+  });
+
+  it("cancelling an edit calls nothing", async () => {
+    vi.mocked(chatApi.getMessages).mockResolvedValue([message("Mira pocketed the key")] as never);
+    renderRecorder();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit entry" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
+
+    expect(screen.queryByLabelText("Edit entry text")).toBeNull();
+    expect(gmApi.updateSessionEntry).not.toHaveBeenCalled();
+  });
+
+  it("strikes an entry: hidden from the transcript, listed under Struck with undo", async () => {
+    vi.mocked(chatApi.getMessages)
+      .mockResolvedValueOnce([message("the take that never happened")] as never)
+      .mockResolvedValue([
+        message("the take that never happened", {
+          struck: true,
+          struck_at: new Date().toISOString(),
+          struck_reason: "struck at the table",
+        }),
+      ] as never);
+    vi.mocked(gmApi.strikeSessionEntry).mockResolvedValue({
+      entry: {
+        id: "m-1",
+        session_id: RECORDING.id,
+        role: "player",
+        content: "the take that never happened",
+        timestamp: new Date().toISOString(),
+        struck: true,
+        struck_at: new Date().toISOString(),
+        struck_reason: "struck at the table",
+        edited_at: null,
+      },
+      retracted_proposal_ids: [],
+      retract_errors: [],
+    });
+    renderRecorder();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Strike entry" }));
+    await waitFor(() => expect(gmApi.strikeSessionEntry).toHaveBeenCalledWith("m-1"));
+
+    // Struck entries leave the recorder view but stay in the audit list.
+    const audit = await screen.findByTestId("struck-audit");
+    expect(audit).toHaveTextContent("Struck entries (1)");
+    expect(screen.queryByText("the take that never happened")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: /Struck entries \(1\)/ }));
+    expect(await screen.findByText("the take that never happened")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Restore entry" }));
+    await waitFor(() => expect(gmApi.restoreSessionEntry).toHaveBeenCalledWith("m-1"));
+  });
+
+  it("keeps a struck entry out of the main transcript after restore round-trip", async () => {
+    vi.mocked(chatApi.getMessages)
+      .mockResolvedValueOnce([message("wrong turn", { struck: true })] as never)
+      .mockResolvedValue([message("wrong turn")] as never);
+    vi.mocked(gmApi.restoreSessionEntry).mockResolvedValue({
+      entry: {
+        id: "m-1",
+        session_id: RECORDING.id,
+        role: "player",
+        content: "wrong turn",
+        timestamp: new Date().toISOString(),
+        struck: false,
+        struck_at: null,
+        struck_reason: null,
+        edited_at: null,
+      },
+      restored_proposal_ids: ["p-1"],
+      restore_errors: [],
+    });
+    renderRecorder();
+
+    const audit = await screen.findByTestId("struck-audit");
+    expect(audit).toHaveTextContent("Struck entries (1)");
+    await userEvent.click(screen.getByRole("button", { name: /Struck entries \(1\)/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Restore entry" }));
+
+    await waitFor(() => expect(gmApi.restoreSessionEntry).toHaveBeenCalledWith("m-1"));
+    // Refetch (second getMessages) returns the un-struck entry: back in view,
+    // audit list gone.
+    await waitFor(() => expect(screen.getByText("wrong turn")).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("struck-audit")).toBeNull());
   });
 });

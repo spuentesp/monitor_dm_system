@@ -39,6 +39,9 @@ import type {
   RPGSystem,
   SceneReview,
   Session,
+  SessionLogEntryPatchResponse,
+  SessionLogEntryRestoreResponse,
+  SessionLogEntryStrikeResponse,
   SlowQuery,
   Source,
   Character,
@@ -1692,6 +1695,31 @@ export const gmApi = {
         story_id: context?.story_id ?? null,
         scene_id: context?.scene_id ?? null,
       }),
+    }),
+
+  // G03 (CF-1 amendment) — mid-session strike/edit of captured entries.
+  updateSessionEntry: (
+    entryId: string,
+    body: {
+      universe_id: string;
+      text: string;
+      story_id?: string | null;
+      scene_id?: string | null;
+    },
+  ) =>
+    req<SessionLogEntryPatchResponse>(`/gm/session-log/entries/${entryId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  strikeSessionEntry: (entryId: string) =>
+    req<SessionLogEntryStrikeResponse>(`/gm/session-log/entries/${entryId}`, {
+      method: "DELETE",
+    }),
+
+  restoreSessionEntry: (entryId: string) =>
+    req<SessionLogEntryRestoreResponse>(`/gm/session-log/entries/${entryId}/restore`, {
+      method: "POST",
     }),
 
   // P2.3 — per-universe scratchpad (server-backed; replaces localStorage)

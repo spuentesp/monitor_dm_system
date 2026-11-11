@@ -193,6 +193,17 @@ def _evict_messages_cache() -> None:
         del _MESSAGES[oldest]
 
 
+def invalidate_messages_cache(session_id: str) -> None:
+    """Drop the in-process message cache for a session.
+
+    G03 (CF-1 amendment): the GM's entry edit/strike/undo routes in
+    ``gm_tools`` write the transcript through the data-layer tools, so this
+    cache must be evicted or the next ``GET .../messages`` would serve the
+    pre-correction copy.
+    """
+    _MESSAGES.pop(session_id, None)
+
+
 # ---------------------------------------------------------------------------
 # Thin helpers (kept for backward-compat with tests that monkeypatch them)
 # ---------------------------------------------------------------------------

@@ -15,7 +15,11 @@
 5. For each significant event:
    - append turns to the draft scene transcript
    - create `ProposedChange` items tagged with timestamp, participants, and location
-6. GM can annotate in real time ("this is important", "NPC name: Varys", "this should not be canon")
+6. GM can annotate in real time ("this is important", "NPC name: Varys",
+   "this should not be canon") and can **edit or strike any logged entry**,
+   or **retract any queued candidate proposal**, before wrap-up (G03:
+   strike is soft — kept in a struck audit list; striking an entry also
+   retracts its pending capture proposals with one undo)
 7. Session ends → scene drafts and pending proposals are ready for review
 8. → CF-2 (Generate recap) or → CF-8 (Review CanonKeeper queue)
 

@@ -141,6 +141,14 @@ AUTHORITY_MATRIX = {
     "mongodb_get_turns": ["*"],
     "mongodb_undo_turn": ["*"],
     # =========================================================================
+    # MONGODB OPERATIONS - Session Recorder entries (CF-1 / G03)
+    # =========================================================================
+    "mongodb_get_session_entry": ["*"],
+    "mongodb_list_session_entries": ["*"],
+    "mongodb_update_session_entry": ["SessionIngestAgent", "CaptureInsightAgent", "CanonKeeper"],
+    "mongodb_delete_session_entry": ["SessionIngestAgent", "CaptureInsightAgent", "CanonKeeper"],
+    "mongodb_restore_session_entry": ["SessionIngestAgent", "CaptureInsightAgent", "CanonKeeper"],
+    # =========================================================================
     # MONGODB OPERATIONS - Proposals (Legacy - kept for backward compatibility)
     # =========================================================================
     "mongodb_create_proposal": ["Narrator", "Resolver", "CanonKeeper"],
@@ -158,6 +166,10 @@ AUTHORITY_MATRIX = {
     # authority when invoked through MCP.
     "mongodb_defer_proposed_change": ["CanonKeeper"],
     "mongodb_edit_proposed_change": ["CanonKeeper"],
+    # G03 (CF-1 amendment) — the GM's at-table retract/undo of a queued
+    # capture proposal; pending → rejected with the strike reason.
+    "mongodb_retract_proposed_change": ["CaptureInsightAgent", "SessionIngestAgent", "CanonKeeper"],
+    "mongodb_restore_retracted_proposal": ["CaptureInsightAgent", "SessionIngestAgent", "CanonKeeper"],
     # G-9 Phase 2 — stamping the advisory review flag is a CanonKeeper write.
     "mongodb_flag_proposal_review": ["CanonKeeper"],
     # (Memory operations moved to DL-7 section below)

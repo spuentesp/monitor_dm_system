@@ -133,3 +133,73 @@ class TestAnalyzeEntry:
         assert forward_kwargs["open_threads"] == []
         assert insight.locations == ["the chapel"]
         assert insight.advances_thread == ""
+
+
+class TestProposalCorrectionPassThroughs:
+    """G03 (CF-1 amendment) — retract/restore of queued candidate proposals."""
+
+    @pytest.mark.asyncio
+    async def test_retract_proposal_forwards_tool_and_args(self):
+        from unittest.mock import AsyncMock
+
+        agent = CaptureInsightAgent(agent_id="test-retract")
+        agent.call_tool = AsyncMock(  # type: ignore[method-assign]
+            return_value={"proposal_id": "p-1", "status": "rejected"}
+        )
+
+        result = await agent.retract_proposal(
+            "p-1",
+            reason="struck at the table",
+            entry_id="entry-9",
+        )
+
+        agent.call_tool.assert_awaited_once_with(
+            "mongodb_retract_proposed_change",
+            {
+                "proposal_id": "p-1",
+                "reason": "struck at the table",
+                "entry_id": "entry-9",
+            },
+        )
+        assert result["status"] == "rejected"
+
+    @pytest.mark.asyncio
+    async def test_retract_proposal_omits_entry_id_when_absent(self):
+        from unittest.mock import AsyncMock
+
+        agent = CaptureInsightAgent(agent_id="test-retract-2")
+        agent.call_tool = AsyncMock(return_value={"proposal_id": "p-2", "status": "rejected"})  # type: ignore[method-assign]
+
+        await agent.retract_proposal("p-2")
+
+        agent.call_tool.assert_awaited_once_with(
+            "mongodb_retract_proposed_change",
+            {"proposal_id": "p-2", "reason": "struck at the table"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_restore_proposal_forwards_tool_and_args(self):
+        from unittest.mock import AsyncMock
+
+        agent = CaptureInsightAgent(agent_id="test-restore")
+        agent.call_tool = AsyncMock(return_value={"proposal_id": "p-3", "status": "pending"})  # type: ignore[method-assign]
+
+        result = await agent.restore_proposal("p-3")
+
+        agent.call_tool.assert_awaited_once_with(
+            "mongodb_restore_retracted_proposal",
+            {"proposal_id": "p-3", "reason": "struck at the table"},
+        )
+        assert result["status"] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_mcp_error_string_raises_value_error(self):
+        from unittest.mock import AsyncMock
+
+        agent = CaptureInsightAgent(agent_id="test-retract-err")
+        agent.call_tool = AsyncMock(  # type: ignore[method-assign]
+            return_value="Error executing tool: Proposal p-4 not found"
+        )
+
+        with pytest.raises(ValueError, match="not found"):
+            await agent.retract_proposal("p-4")

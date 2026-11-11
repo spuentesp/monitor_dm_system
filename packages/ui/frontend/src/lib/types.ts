@@ -78,6 +78,43 @@ export interface Message {
   metadata: Record<string, unknown>;
   chat_mode?: "ic" | "ooc";
   character_id?: string | null;
+  // G03 (CF-1 amendment) — mid-session strike/edit of logged entries.
+  struck?: boolean;
+  struck_at?: string | null;
+  edited_at?: string | null;
+}
+
+/** One logged (or struck) recorder entry as the G03 correction routes see it. */
+export interface SessionLogEntryInfo {
+  id: string;
+  session_id: string;
+  role: string;
+  content: string;
+  timestamp: string;
+  struck: boolean;
+  struck_at: string | null;
+  struck_reason: string | null;
+  edited_at: string | null;
+}
+
+export interface SessionLogEntryPatchResponse {
+  entry: SessionLogEntryInfo;
+  insight: CaptureInsight | null;
+  insight_skipped: boolean;
+  proposal_ids: string[];
+  proposal_errors: string[];
+}
+
+export interface SessionLogEntryStrikeResponse {
+  entry: SessionLogEntryInfo;
+  retracted_proposal_ids: string[];
+  retract_errors: string[];
+}
+
+export interface SessionLogEntryRestoreResponse {
+  entry: SessionLogEntryInfo;
+  restored_proposal_ids: string[];
+  restore_errors: string[];
 }
 
 export interface ChatSessionState {
