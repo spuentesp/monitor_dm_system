@@ -97,13 +97,14 @@ from monitor_data.tools.mongodb_tools import (
     mongodb_create_ingestion_job,
     mongodb_find_document_by_content_hash,
     mongodb_find_document_by_filename,
+    mongodb_get_document,
     mongodb_get_ingestion_job,
     mongodb_update_document,
     mongodb_update_ingestion_job,
 )
 from monitor_data.tools.neo4j_tools import neo4j_create_source
 
-from monitor_agents.analyzer import Analyzer
+from monitor_agents.analyzer import AnalysisCancelledError, Analyzer
 from monitor_agents.base import BaseAgent
 from monitor_agents.indexer.agent import Indexer
 from monitor_agents.llm_errors import LLMErrorClass, classify_llm_error
@@ -120,12 +121,31 @@ _MAX_FILE_SIZE_BYTES: int = int(os.environ.get("MONITOR_MAX_INGEST_FILE_BYTES", 
 _ANALYZE_STAGE_TIMEOUT_SECS: int = int(os.environ.get("MONITOR_ANALYZE_TIMEOUT", str(180 * 60)))
 _ANALYZE_JOB_MARGIN_SECS = 5 * 60
 _MIN_ANALYZE_TIMEOUT_SECS = 60
+# I-17 task 15: with an estimate of the calls the analysis will make, the limit
+# scales as estimated_calls × MONITOR_ANALYZE_SECONDS_PER_CALL but never drops
+# below the 40-minute floor, and never runs past the job's own limit.
+_ANALYZE_TIMEOUT_FLOOR_SECS: int = int(os.environ.get("MONITOR_ANALYZE_TIMEOUT_FLOOR", str(40 * 60)))
+_ANALYZE_SECONDS_PER_CALL: float = float(os.environ.get("MONITOR_ANALYZE_SECONDS_PER_CALL", "6"))
 
 
-def analyze_timeout_for_job(job_timeout_seconds: int) -> int:
-    """Set the analyzer's limit inside a job's limit, leaving time to report the failure."""
+def analyze_timeout_for_job(job_timeout_seconds: int, estimated_calls: int | None = None) -> int:
+    """Set the analyzer's limit inside a job's limit, leaving time to report the failure.
+
+    Without an estimate the stage default applies (``MONITOR_ANALYZE_TIMEOUT``,
+    capped to the job's limit) — the pre-phase behaviour. With an estimate the
+    limit scales with it (``estimated_calls × MONITOR_ANALYZE_SECONDS_PER_CALL``)
+    with a 40-minute floor (``MONITOR_ANALYZE_TIMEOUT_FLOOR``), still capped
+    inside the job so a timeout can be reported as a resumable pause before the
+    job's own deadline hits. The two scaling settings are read per call, so an
+    operator (or a test) can change them without a restart.
+    """
+    floor_secs = int(os.environ.get("MONITOR_ANALYZE_TIMEOUT_FLOOR", str(_ANALYZE_TIMEOUT_FLOOR_SECS)))
+    seconds_per_call = float(os.environ.get("MONITOR_ANALYZE_SECONDS_PER_CALL", str(_ANALYZE_SECONDS_PER_CALL)))
     inside_job = max(job_timeout_seconds - _ANALYZE_JOB_MARGIN_SECS, _MIN_ANALYZE_TIMEOUT_SECS)
-    return min(_ANALYZE_STAGE_TIMEOUT_SECS, inside_job)
+    if estimated_calls is None:
+        return min(_ANALYZE_STAGE_TIMEOUT_SECS, inside_job)
+    scaled = int(estimated_calls * seconds_per_call)
+    return min(max(scaled, floor_secs), inside_job)
 
 
 async def _delete_source_chunks(source_id: UUID) -> None:
@@ -269,6 +289,7 @@ class IngestionPipeline(BaseAgent):
         reuse_doc_id: UUID | None = None,
         on_job_created: Callable[[UUID], None] | None = None,
         analyze_timeout_seconds: int | None = None,
+        resume_job_id: UUID | None = None,
     ) -> IngestionJobResponse:
         """
         Ingest a raw file through the full pipeline.
@@ -293,6 +314,10 @@ class IngestionPipeline(BaseAgent):
             auto_apply:    If True, immediately creates ProposedChanges from the pack.
             content_type:  MIME type override (auto-detected from filename if None).
             on_job_created: Called with the persisted job ID as soon as it is created.
+            analyze_timeout_seconds: Per-stage analysis limit (analyze_timeout_for_job).
+            resume_job_id: Re-run the analysis on this existing job instead of
+                creating a new one (I-17 task 14). The job's saved batches are
+                reused, so a resumed run repeats no call that already succeeded.
 
         Returns:
             IngestionJobResponse tracking pipeline progress.
@@ -328,17 +353,31 @@ class IngestionPipeline(BaseAgent):
         # (INGESTION_PIPELINE_AUDIT.md Finding 7).
         content_hash = hashlib.sha256(file_bytes).hexdigest()
 
-        existing_doc = await asyncio.to_thread(
-            mongodb_find_document_by_filename,
-            filename,
-            universe_id,
-        )
-        reusing_existing_doc = (
-            existing_doc is not None
-            and reuse_doc_id is not None
-            and existing_doc.doc_id == reuse_doc_id
-            and (reuse_source_id is None or existing_doc.source_id == reuse_source_id)
-        )
+        resumed_job: IngestionJobResponse | None = None
+        if resume_job_id is not None:
+            # I-17 task 14: a resume reuses the same job row and document, so
+            # the Analyzer picks up every batch this job already saved.
+            resumed_job = await asyncio.to_thread(mongodb_get_ingestion_job, resume_job_id)
+            if resumed_job is None:
+                raise ValueError(f"Cannot resume unknown job {resume_job_id}")
+            existing_doc = await asyncio.to_thread(mongodb_get_document, resumed_job.doc_id)
+            if existing_doc is None:
+                raise ValueError("Cannot resume: the source document record no longer exists")
+            reuse_source_id = resumed_job.source_id
+            reuse_doc_id = resumed_job.doc_id
+            reusing_existing_doc = True
+        else:
+            existing_doc = await asyncio.to_thread(
+                mongodb_find_document_by_filename,
+                filename,
+                universe_id,
+            )
+            reusing_existing_doc = (
+                existing_doc is not None
+                and reuse_doc_id is not None
+                and existing_doc.doc_id == reuse_doc_id
+                and (reuse_source_id is None or existing_doc.source_id == reuse_source_id)
+            )
 
         duplicate_reason: str | None = None
         if (
@@ -453,38 +492,61 @@ class IngestionPipeline(BaseAgent):
                 ),
             )
 
-            job = await asyncio.to_thread(
-                mongodb_create_ingestion_job,
-                IngestionJobCreate(
-                    universe_id=universe_id,
-                    source_id=source_id,
-                    doc_id=doc_id,
-                    source_title=source_title,
-                    processing_checklist=selected_layers,
-                ),
-            )
-            job_id = job.job_id
-            if on_job_created is not None:
-                on_job_created(job_id)
-            await asyncio.to_thread(
-                mongodb_update_ingestion_job,
-                job_id,
-                IngestionJobUpdate(
-                    current_stage=IngestionStage.UPLOAD,
-                    progress=0.05,
-                    snippet_count=None,
-                    entities_extracted=None,
-                    axioms_extracted=None,
-                    proposals_generated=None,
-                    proposals_accepted=None,
-                    proposals_rejected=None,
-                    activity_log=[
-                        f"Created source record for '{source_title}'",
-                        f"Stored file '{filename}' in object storage",
-                        f"Checklist: {', '.join(selected_layers)}",
-                    ],
-                ),
-            )
+            if resumed_job is not None:
+                # Resume (I-17 task 14): same job row, counters reset, analysis
+                # re-runs and reuses the batches already saved for this document.
+                job_id = resumed_job.job_id
+                if on_job_created is not None:
+                    on_job_created(job_id)
+                await asyncio.to_thread(
+                    mongodb_update_ingestion_job,
+                    job_id,
+                    IngestionJobUpdate(
+                        status=IngestionStatus.RUNNING,
+                        current_stage=IngestionStage.UPLOAD,
+                        progress=0.05,
+                        processing_checklist=selected_layers,
+                        last_error=None,
+                        partial=False,
+                        failed_sections=[],
+                        activity_log=[
+                            f"Resuming analysis for '{source_title}' — batches saved by the earlier run will be reused"
+                        ],
+                    ),
+                )
+            else:
+                job = await asyncio.to_thread(
+                    mongodb_create_ingestion_job,
+                    IngestionJobCreate(
+                        universe_id=universe_id,
+                        source_id=source_id,
+                        doc_id=doc_id,
+                        source_title=source_title,
+                        processing_checklist=selected_layers,
+                    ),
+                )
+                job_id = job.job_id
+                if on_job_created is not None:
+                    on_job_created(job_id)
+                await asyncio.to_thread(
+                    mongodb_update_ingestion_job,
+                    job_id,
+                    IngestionJobUpdate(
+                        current_stage=IngestionStage.UPLOAD,
+                        progress=0.05,
+                        snippet_count=None,
+                        entities_extracted=None,
+                        axioms_extracted=None,
+                        proposals_generated=None,
+                        proposals_accepted=None,
+                        proposals_rejected=None,
+                        activity_log=[
+                            f"Created source record for '{source_title}'",
+                            f"Stored file '{filename}' in object storage",
+                            f"Checklist: {', '.join(selected_layers)}",
+                        ],
+                    ),
+                )
 
             # ── Stage 5: Index (Indexer) ─────────────────────────────
             if _preserve_snippets:
@@ -617,11 +679,31 @@ class IngestionPipeline(BaseAgent):
                     ),
                     timeout=analyze_timeout,
                 )
-            except TimeoutError as exc:
-                raise RuntimeError(
-                    f"Analysis stage timed out after {analyze_timeout // 60} "
-                    "minutes — the LLM provider may be unreachable or overloaded."
-                ) from exc
+            except AnalysisCancelledError:
+                # The job was cancelled between batches; the cancel endpoint
+                # already owns the status, so do not overwrite it (I-17).
+                logger.info("Analysis stopped early: job %s was cancelled", job_id)
+                current = await asyncio.to_thread(mongodb_get_ingestion_job, job_id)
+                if current is None:
+                    raise
+                return current
+            except TimeoutError:
+                # I-17 task 15: a timeout pauses the job as resumable; it does
+                # not cancel it. The batches already saved make the resume cheap.
+                pause_message = (
+                    f"Analysis paused after {analyze_timeout // 60} minutes — "
+                    "resume to continue; batches already saved are reused"
+                )
+                logger.warning("Analysis stage timed out (job=%s): pausing as resumable", job_id)
+                return await asyncio.to_thread(
+                    mongodb_update_ingestion_job,
+                    job_id,
+                    IngestionJobUpdate(
+                        status=IngestionStatus.PAUSED,
+                        warnings=[pause_message],
+                        activity_log=[pause_message],
+                    ),
+                )
 
             final_status = getattr(analysis_result, "status", IngestionStatus.COMPLETED) or IngestionStatus.COMPLETED
             final_batches = {
@@ -709,6 +791,11 @@ class IngestionPipeline(BaseAgent):
             return final
 
         except Exception as exc:
+            if job_id is not None and await _is_job_cancelled(job_id):
+                # The operator cancelled this run (the cancel endpoint already
+                # recorded it) — never overwrite that status with FAILED (I-17).
+                logger.info("Ingestion stopped for cancelled job %s: %s", job_id, exc)
+                raise
             error_msg = _truncate_error(exc)
             # The job record keeps only a one-line message; this log line is
             # the only place the full traceback survives the process.

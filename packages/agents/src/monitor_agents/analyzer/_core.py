@@ -48,6 +48,7 @@ from uuid import UUID
 from monitor_data.db.qdrant import get_qdrant_client
 from monitor_data.schemas.agendas import ExtractedAgenda
 from monitor_data.schemas.base import IngestionStatus
+from monitor_data.schemas.book_graph import BookRecordType
 from monitor_data.schemas.game_systems import CreationLogicStep
 from monitor_data.schemas.ingestion_jobs import IngestionJobUpdate, IngestionStage
 from monitor_data.schemas.knowledge_packs import (  # type: ignore[attr-defined]
@@ -78,12 +79,20 @@ from monitor_data.tools.mongodb_tools import (
     mongodb_update_ingestion_job,
     mongodb_update_knowledge_pack,
 )
+from monitor_data.tools.mongodb_tools.book_decomposition import mongodb_list_book_records
 from qdrant_client.http.models import SearchRequest
 from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchText, MatchValue
 
+from monitor_agents.analyzer._batching import plan_word_batches, run_covered_batch
+from monitor_agents.analyzer._cancel import AnalysisCancelledError, job_is_cancelled
 from monitor_agents.analyzer._sampling import log_sample, scroll_all, select_spread
-from monitor_agents.analyzer._constants import (
-    BATCH_SIZE as _BATCH_SIZE,
+from monitor_agents.analyzer._settings import batch_sections, batch_words, summary_batch
+from monitor_agents.analyzer._store import (
+    AnalyzerBatchStore,
+    ResponseDiskCache,
+    prediction_from_jsonable,
+    prediction_to_jsonable,
+    prompt_key,
 )
 from monitor_agents.analyzer._constants import (
     CATEGORIES_AXIOMS as _CATEGORIES_AXIOMS,
@@ -174,7 +183,7 @@ from monitor_agents.analyzer._game_system_persistence import save_game_system
 from monitor_agents.analyzer._mindscape_projection import project_mindscape_to_qdrant
 from monitor_agents.analyzer._models import AnalysisRunResult, LLMExecutionSummary
 from monitor_agents.base import BaseAgent
-from monitor_agents.book_batching import run_batch_with_refusal_split
+from monitor_agents.dspy_runtime import describe_dspy_target
 from monitor_agents.lenient_parsing import recover_parse_failure
 from monitor_agents.llm_errors import LLMErrorClass, classify_llm_error
 from monitor_agents.llm_execution import (
@@ -186,6 +195,7 @@ from monitor_agents.llm_execution import (
 from monitor_agents.analyzer.analyzer import (
     AgendaExtractionModule,
     BatchedExtractionModule,
+    BatchedSectionSummaryModule,
     CharacterProfileExtractionModule,
     CharacterSheetExtractionModule,
     CreationLogicSynthesizerModule,
@@ -296,6 +306,21 @@ class _SectionBundle:
         self.plot_thread_sections = plot_thread_sections or []
 
 
+def _plan_section_batches(sections: Sequence[_SectionDigest]) -> list[list[_SectionDigest]]:
+    """Word-budget batches for the Analyzer's section passes (I-17 task 13).
+
+    Same budget as ``_batched_extract_all``; with the pre-phase settings
+    (``MONITOR_ANALYZER_BATCH_SECTIONS=2`` and a huge word budget) it produces
+    the old two-section batches.
+    """
+    return plan_word_batches(
+        sections,
+        words_of=lambda section: len((section.text or "").split()),
+        max_words=batch_words(),
+        max_sections=batch_sections(),
+    )
+
+
 class Analyzer(BaseAgent):
     """
     Extracts structured knowledge from a set of ingested text chunks.
@@ -328,9 +353,115 @@ class Analyzer(BaseAgent):
         # [G-2](b) Module-intro extractor — only invoked for ADVENTURE_MODULE
         # packs (gate enforced in ``_extract_module_intro`` below).
         self._module_intro_extractor = ModuleIntroExtractionModule()
+        # Per-run state for cancellation checks and batch reuse (set by
+        # ``analyze_source``, cleared by ``_assemble_and_finalize``).
+        self._active_doc_ids: list[UUID] = []
+        self._batch_store: AnalyzerBatchStore | None = None
+        self._response_cache: ResponseDiskCache | None = None
+        self._cancel_seen = False
 
     async def run(self) -> None:
         pass  # driven externally by IngestionPipeline
+
+    # ------------------------------------------------------------------
+    # Cancellation + reuse helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _decomposition_fills_content() -> bool:
+        """True when book decomposition will fill axioms, lore and rules (I-17).
+
+        Imported lazily: ``ingestion.book_stage`` pulls the whole decomposition
+        service, and the Analyzer must not depend on it at import time.
+        """
+        from monitor_agents.ingestion.book_stage import book_decomposition_enabled
+
+        return book_decomposition_enabled()
+
+    def _decomposition_tree_present(self) -> bool:
+        """True when a stored book tree already gives the later stages structure (I-17)."""
+        if not self._active_doc_ids:
+            return False
+        try:
+            return bool(mongodb_list_book_records(str(self._active_doc_ids[0]), BookRecordType.TREE_META))
+        except Exception as exc:  # noqa: BLE001  # reason: absence of the tree must not fail the analysis
+            logger.warning("Book tree lookup failed (summaries will run): %s", exc)
+            return False
+
+    async def _raise_if_cancelled(self, job_id: UUID | None) -> None:
+        """Stop between batches as soon as the job record says the run was stopped (I-17)."""
+        if self._cancel_seen:
+            raise AnalysisCancelledError(f"Ingestion job {job_id} was cancelled")
+        if await job_is_cancelled(job_id):
+            self._cancel_seen = True
+            raise AnalysisCancelledError(f"Ingestion job {job_id} was cancelled")
+
+    def _reuse_key(self, *, module: Any, stage: str, kwargs: dict[str, Any], role: ModelRole) -> str | None:
+        """Key for the reuse layers, or None when neither layer is active."""
+        store = self._batch_store
+        cache = self._response_cache
+        store_active = store is not None and store.enabled
+        cache_active = cache is not None and cache.enabled
+        if not store_active and not cache_active:
+            return None
+        signature = getattr(module, "_signature", None)
+        try:
+            target = describe_dspy_target("analyzer", role)
+            model = target.get("model") or target.get("role") or str(role.value)
+        except Exception:  # noqa: BLE001  # reason: the role alone still keys the reuse layers
+            model = str(getattr(role, "value", role))
+        return prompt_key(
+            model=model,
+            stage=stage,
+            instructions=str(getattr(signature, "instructions", "") or ""),
+            kwargs=kwargs,
+        )
+
+    def _reused_value(self, key: str | None, signature: Any) -> Any:
+        """Saved batch first, disk cache second; None means 'call the model'."""
+        if key is None:
+            return None
+        payload: dict[str, Any] | None = None
+        store = self._batch_store
+        if store is not None and store.enabled:
+            payload = store.get(key)
+        if payload is None:
+            cache = self._response_cache
+            if cache is not None and cache.enabled:
+                payload = cache.get(key)
+        if payload is None:
+            return None
+        try:
+            if signature is not None:
+                value = prediction_from_jsonable(payload, signature)
+            else:
+                import dspy
+
+                value = dspy.Prediction(**payload)
+        except Exception as exc:  # noqa: BLE001  # reason: a stale entry is a cache miss, never a wrong result
+            logger.warning("Saved analyzer batch unusable (treating as a miss): %s", exc)
+            return None
+        logger.info("Analyzer reused a saved batch (key=%s...)", key[:12])
+        return value
+
+    def _remember_value(self, key: str | None, value: Any) -> None:
+        """Persist one finished batch to every active reuse layer.
+
+        Best-effort by design: the model call already succeeded, so a
+        serialization or storage problem is logged and never fails the batch.
+        """
+        if key is None:
+            return
+        try:
+            payload = prediction_to_jsonable(value)
+            store = self._batch_store
+            if store is not None and store.enabled:
+                store.put(key, payload)
+            cache = self._response_cache
+            if cache is not None and cache.enabled:
+                cache.put(key, payload)
+        except Exception as exc:  # noqa: BLE001  # reason: persistence is optional; the call itself succeeded
+            logger.warning("Analyzer batch not saved for reuse: %s", exc)
 
     # ------------------------------------------------------------------
     # DSPy call wrapper — enforces a hard Python-level timeout so a single
@@ -358,6 +489,11 @@ class Analyzer(BaseAgent):
         active_summary = summary if summary is not None else self._active_execution_summary
         active_job_id = job_id if job_id is not None else self._active_job_id
 
+        # Between batches: once the job record says this run was stopped, no
+        # further model call is made (I-17 — a cancelled job used to keep
+        # calling the model for over an hour).
+        await self._raise_if_cancelled(active_job_id)
+
         if active_summary is not None and active_summary.blocked_provider:
             raise RuntimeError(
                 "LLM provider blocked for this job after a non-retryable failure; skipping remaining DSPy work"
@@ -381,6 +517,14 @@ class Analyzer(BaseAgent):
             node_name="analyzer",
             role=module_role,
         )
+
+        # Reuse layers (I-17): saved batches on the document, then the disk
+        # cache. A hit returns the previous reply without a model call.
+        signature = getattr(module, "_signature", None)
+        reuse_key = self._reuse_key(module=module, stage=context.stage, kwargs=kwargs, role=module_role)
+        reused = self._reused_value(reuse_key, signature)
+        if reused is not None:
+            return reused
 
         async def _run() -> Any:
             return await self._llm_runner.run_blocking(
@@ -410,6 +554,7 @@ class Analyzer(BaseAgent):
                     # PART 5A (I-2): the reply was field-for-field recoverable
                     # after lenient repair (unknown enum → other, JSON-string
                     # object parsed), so keep the batch instead of retrying it.
+                    self._remember_value(reuse_key, recovered)
                     return recovered
                 logger.warning(
                     "Module %s parse failure; retrying once: %s",
@@ -419,6 +564,7 @@ class Analyzer(BaseAgent):
                 result = await _run()
             else:
                 raise
+        self._remember_value(reuse_key, result.value)
         return result.value
 
     def _record_llm_attempt(
@@ -475,13 +621,17 @@ class Analyzer(BaseAgent):
         activity_log = None
 
         if attempt.status == LLMAttemptStatus.BACKING_OFF:
-            status = IngestionStatus.BACKING_OFF
+            # The run is still working: only the retry signal goes on the job,
+            # never the status. Monitoring used to see status=backing_off on a
+            # job that was very much still running (I-17).
             if attempt.backoff_ms:
                 next_retry_at = datetime.now(UTC) + timedelta(milliseconds=attempt.backoff_ms)
             activity_log = [self._format_attempt_message(attempt)]
             warnings = [attempt.error_message] if attempt.error_message else None
         elif attempt.status == LLMAttemptStatus.FAILED_NON_RETRYABLE:
-            status = summary.final_status()
+            # Likewise: a permanently failed batch does not end the run — the
+            # final status (partial / blocked_provider / ...) is written once
+            # in _assemble_and_finalize, when the work has actually stopped.
             activity_log = [self._format_attempt_message(attempt)]
             errors = [attempt.error_message] if attempt.error_message else None
         elif attempt.status == LLMAttemptStatus.FAILED:
@@ -608,6 +758,13 @@ class Analyzer(BaseAgent):
             )
             if layer
         }
+        # I-17 task 11: book decomposition fills axioms, lore and rules, so
+        # with the flag on the Analyzer runs only what decomposition does not
+        # produce. With the flag off, nothing here changes.
+        decomposition_fills_content = self._decomposition_fills_content()
+        if decomposition_fills_content:
+            selected_layers.discard("axioms")
+            selected_layers.discard("lore")
         include_axioms = "axioms" in selected_layers
         include_entities = "entities" in selected_layers
         include_lore = "lore" in selected_layers
@@ -630,14 +787,21 @@ class Analyzer(BaseAgent):
         execution_summary = LLMExecutionSummary()
         self._active_job_id = job_id
         self._active_execution_summary = execution_summary
+        self._active_doc_ids = list(source_document_ids)
+        self._batch_store = AnalyzerBatchStore(str(source_document_ids[0]) if source_document_ids else None)
+        self._response_cache = ResponseDiskCache()
+        self._cancel_seen = False
 
         # --- Stage: ANALYZE starts ---
+        start_activity = [f"Analyzer started for layers: {', '.join(sorted(selected_layers))}"]
+        if decomposition_fills_content:
+            start_activity.append("Book decomposition fills axioms, lore and rules — analyzer runs only its own layers")
         self._update_job(
             job_id,
             status=IngestionStatus.RUNNING,
             current_stage=IngestionStage.ANALYZE,
             progress=0.0,
-            activity_log=[f"Analyzer started for layers: {', '.join(sorted(selected_layers))}"],
+            activity_log=start_activity,
         )
 
         # Create a DRAFT pack immediately so callers can track it
@@ -734,6 +898,9 @@ class Analyzer(BaseAgent):
             include_character_profiles=include_character_profiles,
             include_generation_templates=include_generation_templates,
             include_plot_threads=include_plot_threads,
+            # I-17 task 11: decomposition fills rules; the analyzer keeps the
+            # passes only it produces (tables, agendas, topology, game system).
+            extract_rules=include_rules and not decomposition_fills_content,
         )
 
         # [G-2](b) Detect the verbatim authored intro for ADVENTURE_MODULE
@@ -1220,6 +1387,7 @@ class Analyzer(BaseAgent):
         include_character_profiles: bool = True,
         include_generation_templates: bool = True,
         include_plot_threads: bool = True,
+        extract_rules: bool = True,
     ) -> tuple[
         list[dict[str, Any]],
         dict[str, Any],
@@ -1249,7 +1417,9 @@ class Analyzer(BaseAgent):
         source_label = detected_system_name or source_name
 
         # Game rules
-        if is_game_system and include_rules:
+        if include_rules and not extract_rules:
+            rules_log = "Rules pass skipped: book decomposition fills rules"
+        elif is_game_system and include_rules:
             fallback_rule_sections = sections.rule_sections or sections.charsheet_sections
             game_rules = await self._extract_game_rules(
                 fallback_rule_sections,
@@ -1508,6 +1678,9 @@ class Analyzer(BaseAgent):
         if pack_type != KnowledgePackType.ADVENTURE_MODULE:
             return ""
 
+        # One direct dspy call, outside _call_module — check cancellation here too.
+        await self._raise_if_cancelled(self._active_job_id)
+
         sections_ctx = self._format_first_n_sections(sections, n=6)
         if not sections_ctx:
             return None
@@ -1704,6 +1877,12 @@ class Analyzer(BaseAgent):
             )
 
         final_status = execution_summary.final_status()
+        reused_batches = self._batch_store.reused if self._batch_store is not None else 0
+        if reused_batches:
+            self._update_job(
+                job_id,
+                activity_log=[f"Reused {reused_batches} saved analyzer batch(es) from an earlier run"],
+            )
         self._update_job(
             job_id,
             next_retry_at=None,
@@ -1734,6 +1913,10 @@ class Analyzer(BaseAgent):
         )
         self._active_execution_summary = None
         self._active_job_id = None
+        self._active_doc_ids = []
+        self._batch_store = None
+        self._response_cache = None
+        self._cancel_seen = False
         return result
 
     # ------------------------------------------------------------------
@@ -2037,6 +2220,50 @@ class Analyzer(BaseAgent):
     # Batched extraction — multiple sections per LLM call
     # ------------------------------------------------------------------
 
+    async def _recorded_section_batch(
+        self,
+        batch: Sequence[_SectionDigest],
+        call: Callable[[Sequence[_SectionDigest]], Any],
+        *,
+        stage: str,
+    ) -> list[Any] | None:
+        """Run one section batch through the coverage/refusal splitter (I-17, I-2).
+
+        Refusals split via the shared Part C helper, truncated or partial
+        replies split and retry only the uncovered sections, and anything that
+        still cannot be processed reaches the job's ``failed_sections`` with
+        its section id and the reason — never a silent drop. ``None`` means the
+        whole batch failed unrecoverably (already recorded); cancellation
+        propagates so no further model call is made.
+        """
+
+        def _id(section: _SectionDigest) -> str:
+            return section.section_path or "General"
+
+        try:
+            outcome = await run_covered_batch(batch, call, id_of=_id)
+        except AnalysisCancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001  # reason: boundary records the failure on the job, then continues
+            logger.warning("%s batch failed for %d section(s): %s", stage, len(batch), exc)
+            if self._active_execution_summary is not None:
+                for section in batch:
+                    self._active_execution_summary.record_section_failure(
+                        section_path=_id(section),
+                        stage=stage,
+                        reason=f"{type(exc).__name__}: {exc}",
+                    )
+            return None
+        for held in outcome.held:
+            logger.warning("%s held section %s: %s", stage, held.id, held.reason)
+            if self._active_execution_summary is not None:
+                self._active_execution_summary.record_section_failure(
+                    section_path=held.id,
+                    stage=stage,
+                    reason=held.reason,
+                )
+        return outcome.results
+
     async def _batched_extract_all(
         self,
         sections: list[_SectionDigest],
@@ -2050,10 +2277,13 @@ class Analyzer(BaseAgent):
         """
         Extract axioms, entities, and lore facts from sections using parallel batched LLM calls.
 
-        Groups sections into batches of _BATCH_SIZE and fires all calls concurrently,
-        bounded by _EXTRACTION_CONCURRENCY to avoid rate-limiting.  Post-extraction
-        name-based merge handles deduplication, while concurrency cuts total wall-clock
-        time by ~_EXTRACTION_CONCURRENCY×.
+        Batches are planned by word budget (``MONITOR_ANALYZER_BATCH_WORDS`` /
+        ``MONITOR_ANALYZER_BATCH_SECTIONS``, I-17 task 13) and every reply is
+        verified to cover the sections it was sent: a refusal splits via the
+        shared Part C helper, a truncated or partial reply splits and retries
+        only what is missing, and anything still uncovered reaches the job as a
+        held item. Finished batches are saved on the document so a rescan or
+        resume with the same settings does not pay for them again (I-17 task 14).
 
         When a source_profile is supplied, sections are pre-ranked by profile relevance
         so the batches most likely to yield high-quality axioms, entities, and lore facts
@@ -2070,17 +2300,17 @@ class Analyzer(BaseAgent):
         if source_profile is not None:
             sections = rank_sections_with_profile(sections, source_profile)
 
-        # Build batches
-        batches: list[list[_SectionDigest]] = [
-            sections[i : i + _BATCH_SIZE] for i in range(0, len(sections), _BATCH_SIZE)
-        ]
+        max_words = batch_words()
+        max_sections = batch_sections()
+        batches = _plan_section_batches(sections)
 
         n_batches = len(batches)
         logger.info(
-            "Batched extraction: %d sections → %d batches of ≤%d (concurrency=%d)",
+            "Batched extraction: %d sections → %d batches (≤%d words, ≤%d sections, concurrency=%d)",
             len(sections),
             n_batches,
-            _BATCH_SIZE,
+            max_words,
+            max_sections,
             _EXTRACTION_CONCURRENCY,
         )
 
@@ -2089,10 +2319,7 @@ class Analyzer(BaseAgent):
 
         async def _run_batch(batch_idx: int, batch: list[_SectionDigest]) -> list[Any] | None:
             async with sem:
-                # PART 5A EXAMPLE (shared helper, monitor_agents.book_batching): a
-                # CONTENT_REFUSED call splits in half and each half is retried once;
-                # sections that still refuse are held and logged, never dropped
-                # without a record. Part B wires this to the job result and resume.
+
                 async def _call(items: Sequence[_SectionDigest]) -> Any:
                     sections_context = "\n\n---SECTION---\n\n".join(self._format_section_context(s) for s in items)
                     return await self._call_module(
@@ -2105,22 +2332,10 @@ class Analyzer(BaseAgent):
                         source_profile_context=source_profile_context,
                     )
 
-                try:
-                    outcome = await run_batch_with_refusal_split(
-                        batch, _call, id_of=lambda section: section.section_path
-                    )
-                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _run_batch)
-                    logger.warning(
-                        "Batched extraction failed for batch %d/%d: %s",
-                        batch_idx + 1,
-                        n_batches,
-                        exc,
-                    )
-                    return None
-                for held in outcome.held:
-                    logger.warning("Batched extraction held section %s: %s", held.id, held.reason)
-                logger.info("Batch %d/%d complete", batch_idx + 1, n_batches)
-                return outcome.results
+                results = await self._recorded_section_batch(batch, _call, stage="batched_extraction")
+                if results is not None:
+                    logger.info("Batch %d/%d complete", batch_idx + 1, n_batches)
+                return results
 
         # Fire all batches concurrently
         batch_results = list(await asyncio.gather(*[_run_batch(i, b) for i, b in enumerate(batches)]))
@@ -2256,8 +2471,13 @@ class Analyzer(BaseAgent):
         """
         Generate section summaries and a source-level semantic frame.
         Persists artifacts to the KnowledgePack and returns the SourceMindscapeArtifact.
+
+        Section summaries are batched (``MONITOR_ANALYZER_SUMMARY_BATCH`` per
+        call, I-17 task 12) with the same refusal/coverage splitting as
+        extraction. When the document already has a stored decomposition tree,
+        the summaries are skipped entirely — the tree already gives the later
+        stages their structure.
         """
-        section_summarizer = SectionSummaryModule()
         global_synthesizer = SourceMindscapeSynthesisModule()
 
         section_inputs = build_section_summary_inputs(
@@ -2275,20 +2495,8 @@ class Analyzer(BaseAgent):
         section_summary_artifacts: list[SectionSummaryArtifact] = []
         formatted_section_summaries: list[str] = []
 
-        for inp in section_inputs:
-            try:
-                result = await self._call_module(
-                    section_summarizer,
-                    stage="section_summary",
-                    heading_path=inp["heading_path"],
-                    section_text=inp["section_text"],
-                )
-                summary_text = getattr(result, "summary", "") or ""
-            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in synthesize_mindscape)
-                logger.warning("Section summary failed for '%s': %s", inp["heading_path"], exc)
-                summary_text = ""
-
-            artifact = SectionSummaryArtifact(
+        def _artifact_for(inp: dict[str, Any], summary_text: str) -> SectionSummaryArtifact:
+            return SectionSummaryArtifact(
                 section_key=inp["heading_path"].replace(" > ", "_").lower(),
                 heading_path=inp["heading_path"].split(" > "),
                 chunk_ids=list(inp.get("chunk_ids", []) or []),
@@ -2296,27 +2504,99 @@ class Analyzer(BaseAgent):
                 confidence=0.8 if summary_text else 0.55,
                 semantic_category=inp.get("semantic_category"),
             )
-            section_summary_artifacts.append(artifact)
-            if summary_text:
-                formatted_section_summaries.append(f"{inp['heading_path']}: {summary_text}")
 
-        try:
-            global_result = await self._call_module(
-                global_synthesizer,
-                stage="mindscape_synthesis",
-                section_summaries="\n".join(formatted_section_summaries),
-                source_name=source_name,
+        tree_present = bool(section_inputs) and self._decomposition_tree_present()
+        if tree_present:
+            # I-17 task 12: no summary call — the stored decomposition tree
+            # already gives the later stages what they need.
+            logger.info(
+                "Section summaries skipped for '%s': decomposition tree present (%d sections)",
+                source_name,
+                len(section_inputs),
             )
-            mindscape = SourceMindscapeArtifact(
-                source_name=source_name,
-                summary=getattr(global_result, "global_summary", "") or "",
-                themes=getattr(global_result, "themes", []) or [],
-                taxonomy_hints=getattr(global_result, "taxonomy_hints", []) or [],
-                system_name=getattr(global_result, "system_name", None),
-                confidence=0.85,
-            )
-        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in synthesize_mindscape)
-            logger.warning("Mindscape synthesis failed for '%s': %s", source_name, exc)
+        elif section_inputs and summary_batch() <= 1:
+            # Pre-phase behaviour, reachable with MONITOR_ANALYZER_SUMMARY_BATCH=1:
+            # exactly one call per section.
+            section_summarizer = SectionSummaryModule()
+            for inp in section_inputs:
+                try:
+                    result = await self._call_module(
+                        section_summarizer,
+                        stage="section_summary",
+                        heading_path=inp["heading_path"],
+                        section_text=inp["section_text"],
+                    )
+                    summary_text = getattr(result, "summary", "") or ""
+                except AnalysisCancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001  # reason: one failed section falls back to its text
+                    logger.warning("Section summary failed for '%s': %s", inp["heading_path"], exc)
+                    summary_text = ""
+                section_summary_artifacts.append(_artifact_for(inp, summary_text))
+                if summary_text:
+                    formatted_section_summaries.append(f"{inp['heading_path']}: {summary_text}")
+        elif section_inputs:
+            collected: dict[str, Any] = {}
+            batch_size = summary_batch()
+            for start in range(0, len(section_inputs), batch_size):
+                batch = section_inputs[start : start + batch_size]
+
+                async def _call(items: Sequence[dict[str, Any]]) -> Any:
+                    sections_context = "\n\n---SECTION---\n\n".join(
+                        f"# Section: {item['heading_path']}\n\n{item['section_text']}" for item in items
+                    )
+                    return await self._call_module(
+                        BatchedSectionSummaryModule(),
+                        stage="section_summary",
+                        sections_context=sections_context,
+                        source_name=source_name,
+                    )
+
+                def _covered(prediction: Any, items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+                    found = {
+                        str(getattr(entry, "heading_path", "") or "").strip().casefold()
+                        for entry in (getattr(prediction, "summaries", None) or [])
+                    }
+                    return [item for item in items if str(item["heading_path"]).strip().casefold() in found]
+
+                def _id(item: dict[str, Any]) -> str:
+                    return str(item["heading_path"])
+
+                try:
+                    outcome = await run_covered_batch(batch, _call, id_of=_id, covered_by=_covered)
+                except AnalysisCancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001  # reason: a failed batch falls back to section text, recorded
+                    logger.warning("Section summary batch failed for %d section(s): %s", len(batch), exc)
+                    if self._active_execution_summary is not None:
+                        for item in batch:
+                            self._active_execution_summary.record_section_failure(
+                                section_path=_id(item),
+                                stage="section_summary",
+                                reason=f"{type(exc).__name__}: {exc}",
+                            )
+                    continue
+                for held in outcome.held:
+                    logger.warning("Section summary held '%s': %s", held.id, held.reason)
+                    if self._active_execution_summary is not None:
+                        self._active_execution_summary.record_section_failure(
+                            section_path=held.id,
+                            stage="section_summary",
+                            reason=held.reason,
+                        )
+                for prediction in outcome.results:
+                    for entry in getattr(prediction, "summaries", None) or []:
+                        collected[str(getattr(entry, "heading_path", "") or "").strip().casefold()] = entry
+
+            for inp in section_inputs:
+                entry = collected.get(str(inp["heading_path"]).strip().casefold())
+                summary_text = (getattr(entry, "summary", "") or "") if entry is not None else ""
+                section_summary_artifacts.append(_artifact_for(inp, summary_text))
+                if summary_text:
+                    formatted_section_summaries.append(f"{inp['heading_path']}: {summary_text}")
+
+        mindscape: SourceMindscapeArtifact
+        if tree_present:
             mindscape = SourceMindscapeArtifact(
                 source_name=source_name,
                 summary="",
@@ -2325,6 +2605,34 @@ class Analyzer(BaseAgent):
                 system_name=None,
                 confidence=0.0,
             )
+        else:
+            try:
+                global_result = await self._call_module(
+                    global_synthesizer,
+                    stage="mindscape_synthesis",
+                    section_summaries="\n".join(formatted_section_summaries),
+                    source_name=source_name,
+                )
+                mindscape = SourceMindscapeArtifact(
+                    source_name=source_name,
+                    summary=getattr(global_result, "global_summary", "") or "",
+                    themes=getattr(global_result, "themes", []) or [],
+                    taxonomy_hints=getattr(global_result, "taxonomy_hints", []) or [],
+                    system_name=getattr(global_result, "system_name", None),
+                    confidence=0.85,
+                )
+            except AnalysisCancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in synthesize_mindscape)
+                logger.warning("Mindscape synthesis failed for '%s': %s", source_name, exc)
+                mindscape = SourceMindscapeArtifact(
+                    source_name=source_name,
+                    summary="",
+                    themes=[],
+                    taxonomy_hints=[],
+                    system_name=None,
+                    confidence=0.0,
+                )
 
         persist_mindscape_artifacts(
             pack_id=str(pack_id),
@@ -2341,6 +2649,8 @@ class Analyzer(BaseAgent):
                 section_summaries=section_summary_artifacts,
                 mindscape=mindscape,
             )
+        except AnalysisCancelledError:
+            raise
         except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in synthesize_mindscape)
             logger.warning("Qdrant mindscape projection failed for '%s': %s", source_name, exc)
 
@@ -2870,35 +3180,26 @@ class Analyzer(BaseAgent):
             return []
 
         # Table extraction can be very token-intensive if many tables exist.
-        # We batch sections just like entities.
+        # Batched by the same word budget as general extraction (I-17).
         sem = asyncio.Semaphore(_EXTRACTION_CONCURRENCY)
 
-        async def _run_batch(batch: list[_SectionDigest]) -> list[ExtractedRandomTable]:
-            combined_context = "\n\n---SECTION---\n\n".join(self._format_section_context(section) for section in batch)
+        async def _call(items: Sequence[_SectionDigest]) -> list[ExtractedRandomTable]:
+            combined_context = "\n\n---SECTION---\n\n".join(self._format_section_context(s) for s in items)
             async with sem:
-                try:
-                    result = await self._call_module(
-                        self._table_extractor,
-                        stage="random_table_extraction",
-                        batch_id=f"{len(batch)}-sections",
-                        section_context=combined_context,
-                        source_name=source_name,
-                    )
-                    return result.random_tables or []
-                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _run_batch)
-                    logger.warning(
-                        "Random table extraction batch failed for '%s': %s",
-                        source_name,
-                        exc,
-                    )
-                    return []
+                result = await self._call_module(
+                    self._table_extractor,
+                    stage="random_table_extraction",
+                    batch_id=f"{len(items)}-sections",
+                    section_context=combined_context,
+                    source_name=source_name,
+                )
+            return result.random_tables or []
 
-        # Use same batch size as general extraction
         all_tables: list[ExtractedRandomTable] = []
-        for i in range(0, len(sections), _BATCH_SIZE):
-            batch = sections[i : i + _BATCH_SIZE]
-            results = await _run_batch(batch)
-            all_tables.extend(results)
+        for batch in _plan_section_batches(sections):
+            results = await self._recorded_section_batch(batch, _call, stage="random_table_extraction")
+            for chunk in results or []:
+                all_tables.extend(chunk)
 
         return dedupe_named_items(all_tables)
 
@@ -2913,27 +3214,23 @@ class Analyzer(BaseAgent):
 
         sem = asyncio.Semaphore(_EXTRACTION_CONCURRENCY)
 
-        async def _run_batch(batch: list[_SectionDigest]) -> list[ExtractedAgenda]:
-            combined_context = "\n\n---SECTION---\n\n".join(self._format_section_context(section) for section in batch)
+        async def _call(items: Sequence[_SectionDigest]) -> list[ExtractedAgenda]:
+            combined_context = "\n\n---SECTION---\n\n".join(self._format_section_context(s) for s in items)
             async with sem:
-                try:
-                    result = await self._call_module(
-                        self._agenda_extractor,
-                        stage="agenda_extraction",
-                        batch_id=f"{len(batch)}-sections",
-                        section_context=combined_context,
-                        source_name=source_name,
-                    )
-                    return result.agendas or []
-                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _run_batch)
-                    logger.warning("Agenda extraction failed for '%s': %s", source_name, exc)
-                    return []
+                result = await self._call_module(
+                    self._agenda_extractor,
+                    stage="agenda_extraction",
+                    batch_id=f"{len(items)}-sections",
+                    section_context=combined_context,
+                    source_name=source_name,
+                )
+            return result.agendas or []
 
         all_agendas: list[ExtractedAgenda] = []
-        for i in range(0, len(sections), _BATCH_SIZE):
-            batch = sections[i : i + _BATCH_SIZE]
-            results = await _run_batch(batch)
-            all_agendas.extend(results)
+        for batch in _plan_section_batches(sections):
+            results = await self._recorded_section_batch(batch, _call, stage="agenda_extraction")
+            for chunk in results or []:
+                all_agendas.extend(chunk)
 
         return dedupe_named_items(all_agendas)
 
@@ -2948,27 +3245,23 @@ class Analyzer(BaseAgent):
 
         sem = asyncio.Semaphore(_EXTRACTION_CONCURRENCY)
 
-        async def _run_batch(batch: list[_SectionDigest]) -> list[ExtractedTopology]:
-            combined_context = "\n\n---SECTION---\n\n".join(self._format_section_context(section) for section in batch)
+        async def _call(items: Sequence[_SectionDigest]) -> list[ExtractedTopology]:
+            combined_context = "\n\n---SECTION---\n\n".join(self._format_section_context(s) for s in items)
             async with sem:
-                try:
-                    result = await self._call_module(
-                        self._topology_extractor,
-                        stage="topology_extraction",
-                        batch_id=f"{len(batch)}-sections",
-                        section_context=combined_context,
-                        source_name=source_name,
-                    )
-                    return result.topologies or []
-                except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _run_batch)
-                    logger.warning("Topology extraction failed for '%s': %s", source_name, exc)
-                    return []
+                result = await self._call_module(
+                    self._topology_extractor,
+                    stage="topology_extraction",
+                    batch_id=f"{len(items)}-sections",
+                    section_context=combined_context,
+                    source_name=source_name,
+                )
+            return result.topologies or []
 
         all_topologies: list[ExtractedTopology] = []
-        for i in range(0, len(sections), _BATCH_SIZE):
-            batch = sections[i : i + _BATCH_SIZE]
-            results = await _run_batch(batch)
-            all_topologies.extend(results)
+        for batch in _plan_section_batches(sections):
+            results = await self._recorded_section_batch(batch, _call, stage="topology_extraction")
+            for chunk in results or []:
+                all_topologies.extend(chunk)
 
         # Deduplication for topologies (by from/to/type)
         seen = set()

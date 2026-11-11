@@ -20,6 +20,47 @@ def test_a_very_short_job_still_gets_a_usable_limit():
 
 
 @pytest.mark.unit
+def test_the_limit_scales_with_the_estimated_calls():
+    # 500 calls × 6 s/call = 3000 s, above the 40-minute floor, inside a 4 h job.
+    assert agent.analyze_timeout_for_job(24 * 60 * 60, estimated_calls=500) == 500 * 6
+
+
+@pytest.mark.unit
+def test_the_scaled_limit_never_drops_below_the_forty_minute_floor():
+    assert agent.analyze_timeout_for_job(24 * 60 * 60, estimated_calls=1) == 40 * 60
+    assert agent.analyze_timeout_for_job(24 * 60 * 60, estimated_calls=0) == 40 * 60
+
+
+@pytest.mark.unit
+def test_the_scaled_limit_still_fits_inside_the_job():
+    # Even an absurd estimate cannot push the stage past the job's own deadline.
+    assert agent.analyze_timeout_for_job(45 * 60, estimated_calls=100_000) == 40 * 60
+
+
+@pytest.mark.unit
+def test_the_floor_and_per_call_budget_are_settings():
+    import os
+
+    old_floor = os.environ.get("MONITOR_ANALYZE_TIMEOUT_FLOOR")
+    old_per_call = os.environ.get("MONITOR_ANALYZE_SECONDS_PER_CALL")
+    try:
+        os.environ["MONITOR_ANALYZE_TIMEOUT_FLOOR"] = str(60 * 60)
+        os.environ["MONITOR_ANALYZE_SECONDS_PER_CALL"] = "10"
+        # Re-read: the module reads the environment at call time.
+        assert agent.analyze_timeout_for_job(24 * 60 * 60, estimated_calls=1) == 60 * 60
+        assert agent.analyze_timeout_for_job(24 * 60 * 60, estimated_calls=500) == 500 * 10
+    finally:
+        if old_floor is None:
+            os.environ.pop("MONITOR_ANALYZE_TIMEOUT_FLOOR", None)
+        else:
+            os.environ["MONITOR_ANALYZE_TIMEOUT_FLOOR"] = old_floor
+        if old_per_call is None:
+            os.environ.pop("MONITOR_ANALYZE_SECONDS_PER_CALL", None)
+        else:
+            os.environ["MONITOR_ANALYZE_SECONDS_PER_CALL"] = old_per_call
+
+
+@pytest.mark.unit
 async def test_clearing_old_chunks_targets_only_this_source():
     from unittest.mock import AsyncMock, MagicMock, patch
     from uuid import uuid4

@@ -16,7 +16,7 @@ from monitor_data.schemas.knowledge_packs import (
 )
 
 from monitor_agents.analyzer import Analyzer
-from monitor_agents.analyzer.analyzer import BatchedExtractionModule
+from monitor_agents.analyzer.analyzer import BatchedExtractionModule, SectionSummaryItem
 from monitor_agents.utils.analyzer_support import (
     SectionDigest,
     build_source_profile_seed,
@@ -604,7 +604,16 @@ async def test_synthesize_mindscape_persists_real_chunk_and_section_artifacts(mo
     async def fake_call_module(_module, **kwargs):
         stage = kwargs.get("stage")
         if stage == "section_summary":
-            return SimpleNamespace(summary="Summarizes the Iron Ring and its scavenger factions.", themes=["scarcity"])
+            # Batched summary reply (I-17): one entry per section, heading echoed.
+            return SimpleNamespace(
+                summaries=[
+                    SectionSummaryItem(
+                        heading_path="Chapter 1 > Iron Ring",
+                        summary="Summarizes the Iron Ring and its scavenger factions.",
+                        themes=["scarcity"],
+                    )
+                ]
+            )
         if stage == "mindscape_synthesis":
             return SimpleNamespace(
                 global_summary="A bleak sci-fi sourcebook about survival among desperate scavengers.",
@@ -635,6 +644,8 @@ async def test_synthesize_mindscape_persists_real_chunk_and_section_artifacts(mo
     assert len(captured["chunk_summaries"]) == 2
     assert captured["chunk_summaries"][0].chunk_id == "chunk-1"
     assert captured["section_summaries"][0].chunk_ids == ["chunk-1", "chunk-2"]
+    assert captured["section_summaries"][0].summary.startswith("Summarizes the Iron Ring")
+    assert captured["section_summaries"][0].confidence == 0.8
     analyzer._project_mindscape_to_qdrant.assert_awaited_once()
 
 
