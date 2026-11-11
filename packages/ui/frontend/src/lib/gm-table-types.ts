@@ -171,3 +171,9 @@ export interface SessionLogProposeResponse {
   items: SessionLogItem[];
   proposal_errors: string[];
 }
+
+export interface SessionLogProposalRetractResponse {
+  proposal_id: string;
+  status: string;
+  reason: string;
+}

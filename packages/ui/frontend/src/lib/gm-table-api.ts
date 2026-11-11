@@ -16,6 +16,7 @@ import type {
   PrepThreadItem,
   RulesAnswer,
   SessionLogProposeResponse,
+  SessionLogProposalRetractResponse,
 } from "./gm-table-types";
 
 export const gmTableApi = {
@@ -102,4 +103,14 @@ export const gmTableApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  /** G03 (CF-1) — retract a queued candidate proposal before wrap-up. */
+  retractProposal: (proposalId: string, reason?: string) =>
+    req<SessionLogProposalRetractResponse>(
+      `/gm/session-log/proposals/${proposalId}/retract`,
+      {
+        method: "POST",
+        body: JSON.stringify(reason ? { reason } : {}),
+      },
+    ),
 };
