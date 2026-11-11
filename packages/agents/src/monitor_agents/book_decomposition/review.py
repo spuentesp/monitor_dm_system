@@ -514,6 +514,10 @@ class ReviewModel(Protocol):
     async def find_gaps(self, prompt: str) -> CoverageAudit: ...
 
 
+# A stacking answer is a short list. A cap keeps a rambling reply from running to the model's limit.
+STACK_MAX_TOKENS = 4096
+
+
 def stack_decision_from_value(raw: Any) -> StackDecision:
     """Accept the shapes a model gives for "nothing to merge": a bare list, or {"stacks": [...]}."""
     if isinstance(raw, list):
@@ -551,11 +555,12 @@ class DspyReviewModel:
         self._audit = dspy.Predict(SkipAuditSignature)
         self._gaps = dspy.Predict(ParagraphCoverageSignature)
 
-    async def _run(self, module: Any, **kwargs: str) -> Any:
+    async def _run(self, module: Any, *, max_tokens: int | None = None, **kwargs: str) -> Any:
         usage = [0, 0]
+        config = {"max_tokens": max_tokens} if max_tokens else {}
 
         def call() -> Any:
-            prediction, usage[0], usage[1] = run_metered(self._lm, lambda: module(**kwargs))
+            prediction, usage[0], usage[1] = run_metered(self._lm, lambda: module(**kwargs, config=config))
             return prediction.result
 
         async def make_call() -> Any:
@@ -572,9 +577,13 @@ class DspyReviewModel:
 
     async def stack(self, prompt: str) -> StackDecision:
         try:
-            raw = await self._run(self._stack, claims=prompt)
+            raw = await self._run(self._stack, max_tokens=STACK_MAX_TOKENS, claims=prompt)
         except Exception as exc:  # noqa: BLE001  # reason: only a parse failure whose reply is a valid stack list is recovered; others re-raise
             recovered = stack_decision_from_reply(getattr(exc, "lm_response", None))
+            if recovered is None and isinstance(exc, ValidationError):
+                # DSPy validated the answer itself and rejected a bare list; the rejected value is on the error.
+                inputs = [err.get("input") for err in exc.errors() if isinstance(err.get("input"), list)]
+                recovered = stack_decision_from_value(inputs[0]) if inputs else None
             if recovered is None:
                 raise
             return recovered

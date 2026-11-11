@@ -28,3 +28,34 @@ def test_a_rejected_reply_that_is_an_empty_stack_list_is_recovered(reply):
 @pytest.mark.parametrize("reply", [None, "", "not json", '{"something": 1}', "The request was rejected"])
 def test_other_replies_are_not_recovered(reply):
     assert stack_decision_from_reply(reply) is None
+
+
+class _Prediction:
+    def __init__(self, result):
+        self.result = result
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_stack_recovers_when_dspy_rejects_a_bare_list_and_caps_the_output(monkeypatch):
+    from pydantic import ValidationError
+
+    from monitor_agents.book_decomposition import review
+
+    seen: dict = {}
+
+    def module(**kwargs):
+        seen.update(kwargs)
+        review.StackDecision.model_validate([])  # raises the same ValidationError DSPy surfaced
+        return _Prediction(None)
+
+    monkeypatch.setattr(review, "run_metered", lambda lm, fn: (fn(), 0, 0))
+    model = review.DspyReviewModel(lm=object())
+    monkeypatch.setattr(model, "_stack", module)
+
+    with pytest.raises(ValidationError):
+        review.StackDecision.model_validate([])
+    decision = await model.stack("prompt")
+
+    assert decision.stacks == []
+    assert seen["config"] == {"max_tokens": review.STACK_MAX_TOKENS}
