@@ -21,6 +21,7 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
+  Swords,
   Upload,
   X,
   Check,
@@ -37,6 +38,7 @@ import { AskTheWorldPanel } from "@/components/gm/AskTheWorldPanel";
 import { PrepToTablePanel } from "@/components/gm/PrepToTablePanel";
 import { SessionLogPanel } from "@/components/gm/SessionLogPanel";
 import { TableLookupsPanel } from "@/components/gm/TableLookupsPanel";
+import { CombatPanel } from "@/components/gm/CombatPanel";
 import { useGmPanelPrefs, visibleOrderedPanels } from "@/lib/gm-panel-prefs";
 import { useWorldContext } from "@/lib/world-context";
 
@@ -1415,6 +1417,7 @@ const GM_PANELS = [
   { id: "recorder",       label: "Recorder",       icon: Mic },
   { id: "notebook",       label: "Scratchpad",     icon: NotebookPen },
   { id: "dice",           label: "Dice",            icon: Dices },
+  { id: "combat",         label: "Combat",          icon: Swords },
   { id: "prep-table",     label: "Tonight",        icon: ClipboardList },
   { id: "lookups",        label: "Lookups",        icon: Search },
   { id: "session-log",    label: "Session Log",    icon: FileText },
@@ -1431,6 +1434,7 @@ type GMPanel = (typeof GM_PANELS)[number]["id"];
 const TOOL_PANEL_IDS: GMPanel[] = [
   "prep-table",
   "lookups",
+  "combat",
   "session-log",
   "ask-world",
   "hooks",
@@ -1663,6 +1667,7 @@ function GMAssistantPageContent() {
                 <>
                   {effectiveToolPanel === "prep-table" && <PrepToTablePanel universeId={universeId} />}
                   {effectiveToolPanel === "lookups" && <TableLookupsPanel universeId={universeId} systemId={systemId} />}
+                  {effectiveToolPanel === "combat" && <CombatPanel universeId={universeId} systemId={systemId} />}
                   {effectiveToolPanel === "session-log" && <SessionLogPanel universeId={universeId} />}
                   {effectiveToolPanel === "ask-world" && <AskTheWorldPanel universeId={universeId} />}
                   {effectiveToolPanel === "hooks" && <PlotHooksPanel universeId={universeId} />}
@@ -1731,6 +1736,11 @@ function GMAssistantPageContent() {
               {activePanel === "lookups" && (
                 <div className="flex-1 overflow-hidden">
                   <TableLookupsPanel universeId={universeId} systemId={systemId} />
+                </div>
+              )}
+              {activePanel === "combat" && (
+                <div className="flex-1 overflow-hidden">
+                  <CombatPanel universeId={universeId} systemId={systemId} />
                 </div>
               )}
               {activePanel === "session-log" && (
