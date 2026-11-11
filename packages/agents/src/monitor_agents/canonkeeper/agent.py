@@ -850,6 +850,102 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         lines += [f"Fact: {f.get('statement')}" for f in facts if f.get("statement")]
         return lines
 
+    async def _canon_snapshot(self, universe_id: UUID) -> tuple[list[dict[str, Any]], list[Any], list[str]]:
+        """The canon of a universe: its facts, its axioms and its entity names.
+
+        Fetched once per check so the focused-context builder has everything
+        it needs to decide what bears on a candidate.
+        """
+        facts = await self._fetch_canon_facts(universe_id)
+        axioms = await self._fetch_canon_axioms(universe_id)
+        entity_names = await self._fetch_entity_names(universe_id)
+        return facts, axioms, entity_names
+
+    async def _fetch_entity_names(self, universe_id: UUID) -> list[str]:
+        """The names of the entities in a universe (for name matching)."""
+        try:
+            raw = await self.call_tool(
+                "neo4j_list_entities",
+                {"filters": {"universe_id": str(universe_id), "limit": 200}},
+            )
+            if isinstance(raw, str):
+                raw = json.loads(raw)
+            if isinstance(raw, dict):
+                raw = raw.get("entities") or []
+            if not isinstance(raw, list):
+                return []
+            names: list[str] = []
+            for entity in raw:
+                if isinstance(entity, dict) and entity.get("name"):
+                    names.append(str(entity["name"]))
+            return names
+        except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _fetch_entity_names)
+            logger.warning("Could not fetch entity names for universe %s: %s", universe_id, e)
+            return []
+
+    async def direct_contradiction_flags(
+        self,
+        universe_id: UUID,
+        statements: list[str],
+    ) -> list[dict[str, Any]]:
+        """Flag statements that *directly* contradict a universe's canon (G08).
+
+        The direct check is the one that can gate canon: it fires when the
+        candidate denies a canon fact outright. This method runs it one
+        candidate at a time, with the context narrowed to the canon that
+        bears on that candidate — the shape the per-class measurement
+        (``scripts/eval_canonkeeper_recall.py``) found to be the reliable
+        one.
+
+        Advisory: the caller decides what to do with the flags. A failure
+        yields no flags, never a hard error.
+
+        Args:
+            universe_id: Universe whose canon facts/axioms form the context.
+            statements: Candidate statements to check.
+
+        Returns:
+            One dict per flagged statement: ``statement``, ``explanation``,
+            ``contradiction_type``, ``severity``, ``flag_kind``.
+        """
+        from monitor_data.schemas.contradiction import ContradictionSeverity, ContradictionType
+
+        from monitor_agents.canonkeeper.context import build_focused_context
+        from monitor_agents.canonkeeper.verification import ContradictionModule
+
+        candidates = [s.strip() for s in statements if s and s.strip()]
+        if not candidates:
+            return []
+
+        facts, axioms, entity_names = await self._canon_snapshot(universe_id)
+        if not facts and not axioms:
+            return []
+
+        module = ContradictionModule()
+        flags: list[dict[str, Any]] = []
+        for statement in candidates:
+            context = build_focused_context(statement, facts, axioms, entity_names)
+            if not context:
+                continue
+            try:
+                result = await asyncio.to_thread(module.forward, context=context, new_fact=statement)
+            except Exception as exc:  # noqa: BLE001  # reason: a failed check degrades to no flag, never a hard failure (in direct_contradiction_flags)
+                logger.warning("Direct contradiction check failed (candidate skipped): %s", exc)
+                continue
+            if not result.get("has_contradiction"):
+                continue
+            flags.append(
+                {
+                    "statement": statement,
+                    "explanation": str(result.get("explanation") or ""),
+                    "implications": "",
+                    "contradiction_type": ContradictionType.SEMANTIC_OPPOSITE.value,
+                    "severity": ContradictionSeverity.HIGH.value,
+                    "flag_kind": "direct_contradiction",
+                }
+            )
+        return flags
+
     @staticmethod
     def _proposal_statements(proposals: list[dict[str, Any]]) -> list[tuple[str, str]]:
         """Extract the ``(proposal_id, statement)`` pairs from proposal dicts."""
@@ -881,6 +977,12 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         nothing here rejects a proposal, and the severity is HIGH at most
         (see ``GAP_REMEDIATION_PLAN.md`` §G-9).
 
+        The *shape* of the check is configurable (G08 phase 2). The batched
+        form asks the model to hold fifteen candidates and a whole canon in
+        its head at once; the per-candidate form asks it about one statement
+        with only the canon that bears on it. Both are measured by
+        ``scripts/eval_canonkeeper_recall.py`` against the per-class corpus.
+
         Args:
             universe_id: Universe whose canon facts/axioms form the context.
             statements: Candidate statements to check.
@@ -897,6 +999,13 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         if not candidates:
             return []
 
+        per_candidate = settings.canonkeeper_per_candidate_checks
+        focused = settings.canonkeeper_focused_context
+
+        facts, axioms, entity_names = await self._canon_snapshot(universe_id)
+        if not facts and not axioms:
+            return []
+
         context_lines = await self._canon_context_lines(universe_id)
         if not context_lines:
             return []
@@ -905,6 +1014,34 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         module = ImplicationContradictionModule()
         chunk_size = settings.canonkeeper_implication_chunk_size
         flags: list[dict[str, Any]] = []
+
+        if per_candidate:
+            from monitor_agents.canonkeeper.context import build_focused_context
+
+            for statement in candidates:
+                scoped = build_focused_context(statement, facts, axioms, entity_names) if focused else context
+                if not scoped:
+                    continue
+                try:
+                    flagged = await asyncio.to_thread(module.forward, context=scoped, new_facts=f"1. {statement}")
+                except Exception as exc:  # noqa: BLE001  # reason: a failed check degrades to no flag, never a hard failure (in implication_conflict_flags)
+                    logger.warning("Implication contradiction check failed (candidate skipped): %s", exc)
+                    continue
+                for one_based_idx, detail in flagged.items():
+                    if one_based_idx != 1:
+                        continue
+                    flags.append(
+                        {
+                            "statement": statement,
+                            "explanation": detail.get("explanation", ""),
+                            "implications": detail.get("implications", ""),
+                            "contradiction_type": ContradictionType.IMPLICATION_CONFLICT.value,
+                            "severity": ContradictionSeverity.HIGH.value,
+                            "flag_kind": "implication_contradiction",
+                        }
+                    )
+            return flags
+
         for start in range(0, len(candidates), chunk_size):
             chunk = candidates[start : start + chunk_size]
             numbered = "\n".join(f"{i + 1}. {text}" for i, text in enumerate(chunk))
@@ -923,6 +1060,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                             "implications": detail.get("implications", ""),
                             "contradiction_type": ContradictionType.IMPLICATION_CONFLICT.value,
                             "severity": ContradictionSeverity.HIGH.value,
+                            "flag_kind": "implication_contradiction",
                         }
                     )
         return flags

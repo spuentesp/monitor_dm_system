@@ -456,6 +456,16 @@ from monitor_data.tools.mongodb_tools.working_state import (
 )
 
 # World Clock operations (CF-11 Advance World Time)
+# Per-character knowledge audit (CF-15 / G09)
+from monitor_data.tools.mongodb_tools.knowledge_audit import (
+    mongodb_list_knowledge_audit,
+)
+
+# Canon override audit trail (G08)
+from monitor_data.tools.mongodb_tools.canon_audit import (
+    mongodb_list_canon_overrides,
+    mongodb_record_canon_override,
+)
 from monitor_data.tools.mongodb_tools.world_clock import (
     mongodb_advance_world_clock,
     mongodb_get_world_clock,
@@ -492,6 +502,9 @@ __all__ = [
     # Proposals
     "_convert_proposed_change_doc_to_response",
     "mongodb_create_proposed_change",
+    "mongodb_list_canon_overrides",
+    "mongodb_list_knowledge_audit",
+    "mongodb_record_canon_override",
     "mongodb_defer_proposed_change",
     "mongodb_edit_proposed_change",
     "mongodb_get_proposed_change",

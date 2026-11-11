@@ -16,6 +16,7 @@ from monitor_data.schemas.base import (
 from monitor_data.schemas.proposed_changes import (
     DecisionMetadata,
     Evidence,
+    ProposalReviewFlag,
     ProposedChangeCreate,
     ProposedChangeFilter,
     ProposedChangeListResponse,
@@ -74,7 +75,17 @@ def _convert_proposed_change_doc_to_response(
             decided_at=dm["decided_at"],
             reason=dm["reason"],
             canonical_ref=(UUID(dm["canonical_ref"]) if dm.get("canonical_ref") else None),
+            override_reason=dm.get("override_reason"),
         )
+
+    # G08 — the structured review flags. A malformed flag is skipped rather
+    # than failing the whole read: the queue must still render.
+    review_flags: list[ProposalReviewFlag] = []
+    for raw_flag in doc.get("review_flags") or []:
+        try:
+            review_flags.append(ProposalReviewFlag.model_validate(raw_flag))
+        except Exception as exc:  # noqa: BLE001  # reason: a malformed flag is skipped, not fatal
+            log.warning("proposal_review_flag_skipped", error=str(exc))
 
     return ProposedChangeResponse(
         proposal_id=UUID(doc["proposal_id"]),
@@ -100,6 +111,7 @@ def _convert_proposed_change_doc_to_response(
         needs_review=bool(doc.get("needs_review", False)),
         review_reason=doc.get("review_reason"),
         review_source=doc.get("review_source"),
+        review_flags=review_flags,
         created_at=doc["created_at"],
         updated_at=doc.get("updated_at") or doc["created_at"],
     )
@@ -173,6 +185,7 @@ def mongodb_create_proposed_change(
         "needs_review": params.needs_review,
         "review_reason": params.review_reason,
         "review_source": params.review_source,
+        "review_flags": [_flag_to_doc(f) for f in params.review_flags],
         "created_at": created_at,
         "updated_at": created_at,
     }
@@ -213,6 +226,7 @@ def mongodb_create_proposed_change(
         needs_review=params.needs_review,
         review_reason=params.review_reason,
         review_source=params.review_source,
+        review_flags=list(params.review_flags),
         created_at=created_at,
         updated_at=created_at,
     )
@@ -304,11 +318,23 @@ def mongodb_list_proposed_changes(
     )
 
 
+def _flag_to_doc(flag: ProposalReviewFlag | dict[str, Any]) -> dict[str, Any]:
+    """A review flag as a storable document.
+
+    Accepts a model or a plain dict: over MCP the flags arrive as JSON, and
+    a caller in-process may hand over the model.
+    """
+    if isinstance(flag, ProposalReviewFlag):
+        return flag.model_dump(mode="json")
+    return ProposalReviewFlag.model_validate(flag).model_dump(mode="json")
+
+
 def mongodb_flag_proposal_review(
     proposal_id: UUID,
     needs_review: bool = True,
     reason: str | None = None,
     source: str | None = None,
+    flags: list[ProposalReviewFlag] | None = None,
 ) -> dict[str, Any]:
     """
     Stamp (or clear) the advisory review flag on a proposal.
@@ -321,11 +347,17 @@ def mongodb_flag_proposal_review(
     flag is set by the deterministic transition rules and, once Phase 3 lands,
     by the implication-level check too.
 
+    G08 adds the *structured* flags: ``flags`` records what was found (the
+    kind, the explanation, the reasoning chain), so the CF-8 queue can show
+    a specific warning instead of a flat string, and so the accept path can
+    tell a direct contradiction from a transition-rule violation.
+
     Args:
         proposal_id: The proposal to flag.
         needs_review: True to flag, False to clear.
         reason: Why it was flagged (human-readable).
         source: Which rule flagged it (e.g. 'transition_rule').
+        flags: The structured flags behind the advisory flag.
 
     Returns:
         Dict with the proposal_id and the flag state.
@@ -336,22 +368,25 @@ def mongodb_flag_proposal_review(
     if not coll.find_one({"proposal_id": str(proposal_id)}, {"proposal_id": 1}):
         raise ValueError(f"Proposal {proposal_id} not found")
 
+    update: dict[str, Any] = {
+        "needs_review": needs_review,
+        "review_reason": reason,
+        "review_source": source,
+        "updated_at": datetime.now(UTC),
+    }
+    if flags is not None:
+        update["review_flags"] = [_flag_to_doc(f) for f in flags]
+
     coll.update_one(
         {"proposal_id": str(proposal_id)},
-        {
-            "$set": {
-                "needs_review": needs_review,
-                "review_reason": reason,
-                "review_source": source,
-                "updated_at": datetime.now(UTC),
-            }
-        },
+        {"$set": update},
     )
     return {
         "proposal_id": str(proposal_id),
         "needs_review": needs_review,
         "review_reason": reason,
         "review_source": source,
+        "review_flags": [_flag_to_doc(f) for f in (flags or [])],
     }
 
 
@@ -610,6 +645,8 @@ def mongodb_update_proposed_change(proposal_id: UUID, params: ProposedChangeUpda
         "canonical_ref": (
             str(params.decision_metadata.canonical_ref) if params.decision_metadata.canonical_ref else None
         ),
+        # G08 — why a flagged proposal was accepted anyway.
+        "override_reason": params.decision_metadata.override_reason,
     }
 
     update_doc = {

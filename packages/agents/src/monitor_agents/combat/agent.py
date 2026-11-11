@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TypeVar
 from uuid import UUID
 
 import structlog
@@ -39,6 +40,8 @@ from monitor_agents.base import BaseAgent
 from monitor_agents.combat.module import CombatModule
 
 log = structlog.get_logger()
+
+_T = TypeVar("_T")
 
 # The data-layer MCP server reports a refused or failed tool as text.
 _TOOL_ERROR_PREFIXES = ("Authorization error:", "Validation error:", "Error executing tool:")
@@ -219,6 +222,6 @@ class CombatAgent(BaseAgent):
         return await _to_thread(self.module.summarize_encounter, payload)
 
 
-async def _to_thread(fn: Any, *args: Any) -> Any:
+async def _to_thread(fn: Callable[..., _T], *args: Any) -> _T:
     """Run a blocking DSPy call off the event loop (mirrors dspy runtime use)."""
     return await asyncio.to_thread(fn, *args)

@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID
 
 import structlog
 from monitor_agents.base import BaseAgent
 from monitor_agents.cast import filter_visible_facts
+from pydantic import BaseModel
+
 from monitor_data.schemas.player_share import (
     PlayerArtifactSummary,
     PlayerShare,
@@ -39,6 +41,8 @@ from monitor_data.schemas.player_share import (
 )
 
 log = structlog.get_logger()
+
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 
 class ShareError(Exception):
@@ -394,7 +398,7 @@ class ShareAgent(BaseAgent):
         return raw if isinstance(raw, dict) else None
 
     @classmethod
-    def _as_model(cls, raw: Any, model: type) -> Any:
+    def _as_model(cls, raw: Any, model: type[_ModelT]) -> _ModelT | None:
         if isinstance(raw, model):
             return raw
         data = cls._as_dict(raw)
@@ -406,9 +410,9 @@ class ShareAgent(BaseAgent):
             return None
 
     @classmethod
-    def _as_models(cls, raw: Any, model: type) -> list[Any]:
+    def _as_models(cls, raw: Any, model: type[_ModelT]) -> list[_ModelT]:
         items = cls._as_list(raw)
-        models: list[Any] = []
+        models: list[_ModelT] = []
         for item in items:
             try:
                 models.append(model.model_validate(item))

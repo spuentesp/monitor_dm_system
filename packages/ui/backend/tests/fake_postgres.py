@@ -23,6 +23,7 @@ class FakePostgres:
         self.tokens: dict[UUID, dict] = {}
         self._token_id_by_hash: dict[str, UUID] = {}
         self.oauth_accounts: dict[tuple[str, str], dict] = {}
+        self.prefs: dict[tuple[UUID, str], dict] = {}
         self.__init_registry__()
 
     async def user_create(self, user: dict) -> dict:
@@ -133,6 +134,16 @@ class FakePostgres:
     # ------------------------------------------------------------------
     # Ownership registry (multiverses / worlds)
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Per-user preferences (JSONB blobs, e.g. the CanonKeeper settings)
+    # ------------------------------------------------------------------
+
+    async def pref_get(self, user_id: UUID, key: str) -> dict | None:
+        return self.prefs.get((_uid(user_id), key))
+
+    async def pref_set(self, user_id: UUID, key: str, value: dict) -> None:
+        self.prefs[(_uid(user_id), key)] = dict(value)
 
     def __init_registry__(self) -> None:
         self.multiverses: dict[str, dict] = {}

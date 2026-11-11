@@ -24,6 +24,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 from monitor_agents.base import BaseAgent
+from monitor_data.schemas.game_systems import EncounterDifficulty
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,13 @@ class SessionPrep(BaseModel):
     npc_reminders: list[str] = Field(default_factory=list, description="NPCs the GM should remember")
     world_state_changes: list[str] = Field(default_factory=list, description="Recent changes to the world state")
     checklist: list[PrepItem] = Field(default_factory=list, description="Actionable prep checklist")
+    encounter_difficulty: EncounterDifficulty | None = Field(
+        default=None,
+        description=(
+            "How fair the proposed encounter is for this party (CF-13). "
+            "None when the party or the proposed opponents carry no numbers."
+        ),
+    )
 
 
 class Handout(BaseModel):
@@ -452,7 +460,45 @@ class PlotHookAgent(BaseAgent):
             npc_reminders=list(set(npc_reminders))[:5],
             world_state_changes=world_changes,
             checklist=checklist,
+            encounter_difficulty=await self._estimate_encounter(universe_id, story_id, hooks),
         )
+
+    async def _estimate_encounter(
+        self,
+        universe_id: UUID,
+        story_id: UUID | None,
+        hooks: list[PlotHook],
+    ) -> EncounterDifficulty | None:
+        """Rate the encounter a combat hook proposes (CF-13).
+
+        Only combat hooks propose a fight; when tonight's prep suggests no
+        fight, there is nothing to rate and the estimate stays absent.
+        """
+        foes: list[str] = []
+        for hook in hooks:
+            if hook.suggested_scene_type != "combat":
+                continue
+            for name in hook.connected_entities:
+                cleaned = str(name).strip()
+                if cleaned and cleaned not in foes:
+                    foes.append(cleaned)
+        if not foes:
+            return None
+
+        from monitor_agents.encounter_difficulty import EncounterDifficultyAgent
+
+        try:
+            estimate = await EncounterDifficultyAgent().estimate_for_story(
+                universe_id=universe_id,
+                story_id=story_id,
+                foe_names=foes,
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: the estimate is enrichment; the prep must still come back
+            logger.warning("Encounter difficulty estimate failed: %s", exc)
+            return None
+        if not estimate.rated:
+            return None
+        return estimate.to_report()
 
     async def generate_prep_item(
         self,

@@ -20,6 +20,8 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_agents.combat import CombatAgent, ConditionExplanation
+from monitor_agents.encounter_difficulty import EncounterDifficultyAgent
+from monitor_agents.knowledge_audit import KnowledgeAuditAgent
 from monitor_agents.gm_table import (
     GmTableAgent,
     PartyKnowledgeAnswer,
@@ -71,6 +73,7 @@ from monitor_data.schemas.proposed_changes import (
     ProposedChangeCreate,
     ProposedChangeFilter,
 )
+from monitor_data.schemas.knowledge_audit import KnowledgeChallenge, KnowledgeItem
 from monitor_data.schemas.player_share import ShareArtifactType, ShareSpoilerLevel
 from monitor_data.schemas.relationships import RelationshipFilter, RelationshipResponse
 from monitor_data.schemas.stories import StoryLedgerEntry
@@ -106,7 +109,10 @@ from monitor_data.tools.neo4j_tools import (
 from monitor_data.utils.dice import roll_dice
 from monitor_ui.auth import Principal, get_current_user, get_postgres
 from monitor_ui.ownership import require_story_owner, require_universe_owner, resource_route_guard
-from monitor_ui.routers.chat_game_system import resolve_universe_system_binding
+from monitor_ui.routers.chat_game_system import (
+    get_game_system_doc,
+    resolve_universe_system_binding,
+)
 from monitor_ui.routers.chat_persistence import db_load_messages, db_load_sessions
 from pydantic import BaseModel, Field
 
@@ -2231,9 +2237,7 @@ async def combat_next_round_route(
     await require_universe_owner(db, principal, req.universe_id)
     agent = CombatAgent()
     try:
-        return await agent.next_round(
-            CombatNextRound(universe_id=req.universe_id, session_id=session_id)
-        )
+        return await agent.next_round(CombatNextRound(universe_id=req.universe_id, session_id=session_id))
     except ValueError as exc:
         raise _combat_error(exc) from exc
     except Exception as exc:
@@ -2278,9 +2282,7 @@ async def combat_end_route(
         )
 
     try:
-        state = await agent.end_encounter(
-            CombatEnd(universe_id=req.universe_id, session_id=session_id)
-        )
+        state = await agent.end_encounter(CombatEnd(universe_id=req.universe_id, session_id=session_id))
     except ValueError as exc:
         raise _combat_error(exc) from exc
     except Exception as exc:
@@ -2370,9 +2372,7 @@ async def combat_explain_condition(
         system_name = binding.get("system_name")
     agent = CombatAgent()
     try:
-        return await agent.explain_condition(
-            req.condition, system_id=system_id, system_name=system_name
-        )
+        return await agent.explain_condition(req.condition, system_id=system_id, system_name=system_name)
     except Exception as exc:
         log.warning(
             "combat_condition_explain_failed",
@@ -2380,6 +2380,201 @@ async def combat_explain_condition(
             condition=req.condition,
             error=str(exc),
         )
-        raise HTTPException(
-            status_code=500, detail=f"Failed to explain condition: {exc}"
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Failed to explain condition: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Encounter difficulty (CF-13 / G06)
+# ---------------------------------------------------------------------------
+# "Is this fight fair?" — the prep assistant suggests encounters and
+# improvises NPCs, but nothing compared a suggested fight to the party that
+# would actually fight it. The estimate is arithmetic (see
+# ``monitor_agents.game_system.difficulty``) and shows its working, because
+# a difficulty label the GM cannot check is a difficulty label they will
+# not trust.
+
+
+class EncounterFoeRequest(BaseModel):
+    """One opponent in a proposed encounter."""
+
+    name: str = Field(min_length=1, max_length=200)
+    count: int = Field(default=1, ge=1, le=100)
+    hit_points: int | None = Field(default=None, ge=0)
+    attack_bonus: int | None = Field(default=None)
+    entity_id: UUID | None = Field(default=None, description="Resolve the missing numbers from this entity")
+
+
+class EncounterPartyMemberRequest(BaseModel):
+    """One member of the party that would face the encounter."""
+
+    name: str = Field(min_length=1, max_length=200)
+    level: int | None = Field(default=None, ge=0)
+    hit_points: int | None = Field(default=None, ge=0)
+    character_id: UUID | None = Field(default=None, description="Resolve the missing numbers from this character")
+
+
+class EncounterCheckRequest(BaseModel):
+    """A proposed encounter and the party facing it."""
+
+    universe_id: UUID
+    foes: list[EncounterFoeRequest] = Field(min_length=1)
+    party: list[EncounterPartyMemberRequest] = Field(min_length=1)
+
+
+class EncounterCheckResponse(BaseModel):
+    """The difficulty verdict and the arithmetic behind it."""
+
+    label: str
+    rationale: str
+    threat: float = 0.0
+    party_budget: float = 0.0
+    ratio: float | None = None
+    basis: str = "unrated"
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/gm/encounter/check", response_model=EncounterCheckResponse)
+async def check_encounter_difficulty(
+    req: EncounterCheckRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> EncounterCheckResponse:
+    """Estimate how fair a proposed encounter is for a party (CF-13).
+
+    The bound game system's own difficulty rules are used when it has any;
+    otherwise the generic convention applies. A universe whose party or
+    foes carry no numbers gets ``unrated`` rather than a guess.
+    """
+    await require_universe_owner(db, principal, req.universe_id)
+    system_doc = await asyncio.to_thread(get_game_system_doc, str(req.universe_id))
+    try:
+        estimate = await EncounterDifficultyAgent().estimate(
+            universe_id=req.universe_id,
+            foes=[foe.model_dump(mode="json") for foe in req.foes],
+            party=[member.model_dump(mode="json") for member in req.party],
+            system_doc=system_doc,
+        )
+    except Exception as exc:
+        log.warning(
+            "encounter_difficulty_failed",
+            universe_id=str(req.universe_id),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to estimate encounter difficulty: {exc}") from exc
+    return EncounterCheckResponse(
+        label=estimate.label,
+        rationale=estimate.rationale,
+        threat=estimate.threat,
+        party_budget=estimate.party_budget,
+        ratio=estimate.ratio,
+        basis=estimate.basis,
+        details=estimate.details,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Knowledge inspector (CF-15 / G09)
+# ---------------------------------------------------------------------------
+# "What do they know?" is answerable ("/gm/lookup/party-knowledge"). "Is
+# that right?" was not: there was no view of the facts and memories the
+# system attributes to a character, with their provenance, and no way to
+# correct one that is wrong.
+
+
+class KnowledgeAuditRequest(BaseModel):
+    """Which character's knowledge to audit."""
+
+    universe_id: UUID
+    entity_id: UUID
+
+
+class KnowledgeAuditResponse(BaseModel):
+    """Everything the system attributes to the character."""
+
+    entity_id: UUID
+    universe_id: UUID | None = None
+    items: list[KnowledgeItem] = Field(default_factory=list)
+    fact_count: int = 0
+    memory_count: int = 0
+    proposal_count: int = 0
+    suspicious_count: int = 0
+
+
+class KnowledgeChallengeRequest(BaseModel):
+    """A GM disputing one attribution."""
+
+    universe_id: UUID
+    statement: str = Field(min_length=1, max_length=2000)
+    reason: str = Field(min_length=1, max_length=2000)
+    item_id: str = Field(min_length=1, max_length=200)
+    item_kind: Literal["fact", "memory", "proposal"] = "memory"
+    action: Literal["retract", "correct"] = "retract"
+    story_id: UUID | None = None
+    scene_id: UUID | None = None
+
+
+class KnowledgeChallengeResponse(BaseModel):
+    """The staged correction."""
+
+    proposal_id: str
+    entity_id: UUID
+
+
+@router.get("/gm/knowledge/{entity_id}", response_model=KnowledgeAuditResponse)
+async def audit_character_knowledge(
+    entity_id: str,
+    universe_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> KnowledgeAuditResponse:
+    """What the system believes a character knows, with its provenance (CF-15).
+
+    Every item says where it came from — the scene it was formed in, the
+    fact they witnessed, the proposal still waiting for review — and the
+    doubtful attributions are marked.
+    """
+    uid = _uuid_or_400(universe_id, "universe_id")
+    eid = _uuid_or_400(entity_id, "entity_id")
+    await require_universe_owner(db, principal, uid)
+    try:
+        audit = await KnowledgeAuditAgent().audit(entity_id=eid, universe_id=uid)
+    except Exception as exc:
+        log.warning("knowledge_audit_failed", entity_id=str(eid), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to audit knowledge: {exc}") from exc
+    return KnowledgeAuditResponse(**audit.model_dump())
+
+
+@router.post("/gm/knowledge/{entity_id}/challenge", response_model=KnowledgeChallengeResponse)
+async def challenge_character_knowledge(
+    entity_id: str,
+    req: KnowledgeChallengeRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> KnowledgeChallengeResponse:
+    """Challenge one attribution: stage a correction for the CF-8 queue (CF-15).
+
+    The correction is a proposal, not a write — CanonKeeper decides, and the
+    GM's objection shows up in the review trail like any other change.
+    """
+    eid = _uuid_or_400(entity_id, "entity_id")
+    await require_universe_owner(db, principal, req.universe_id)
+    try:
+        proposal_id = await KnowledgeAuditAgent().challenge(
+            entity_id=eid,
+            universe_id=req.universe_id,
+            challenge=KnowledgeChallenge(
+                item_id=req.item_id,
+                kind=req.item_kind,
+                statement=req.statement,
+                reason=req.reason,
+                action=req.action,
+            ),
+            story_id=req.story_id,
+            scene_id=req.scene_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        log.warning("knowledge_challenge_failed", entity_id=str(eid), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to stage the correction: {exc}") from exc
+    return KnowledgeChallengeResponse(proposal_id=proposal_id, entity_id=eid)

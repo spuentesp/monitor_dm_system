@@ -275,7 +275,7 @@ class RecapAgent(BaseAgent):
             detail=detail_level.value,
             role=ModelRole.STANDARD,
         )
-        recap_markdown = campaign_prediction.recap_markdown  # type: ignore[union-attr]
+        recap_markdown = campaign_prediction.recap_markdown
 
         # 8. Scene watermark: how far into the campaign this recap reaches.
         watermark = max((str(s.get("updated_at") or "") for s in scenes), default="")
@@ -289,7 +289,7 @@ class RecapAgent(BaseAgent):
             last_scene_id=UUID(scene_entries[-1]["scene_id"]) if scene_entries and scene_entries[-1].get("scene_id") else None,
         )
         if persist:
-            return await run_sync_read(mongodb_save_arc_recap, create)  # type: ignore[return-value]
+            return await run_sync_read(mongodb_save_arc_recap, create)
 
         now = datetime.now(UTC)
         return ArcRecap(
