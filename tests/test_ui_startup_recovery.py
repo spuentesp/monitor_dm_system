@@ -82,6 +82,7 @@ def test_shutdown_ingest_runtime_marks_jobs_interrupted_and_stops_executor(monke
 
     token = ingest._reserve_ingest_slot("Queued Book")
     ingest._mark_ingest_started(token, "Queued Book")
+    ingest._attach_job_id_to_request(token, "job-own-1")
 
     monkeypatch.setattr(ingest, "get_mongodb_client", lambda: fake_mongo)
     monkeypatch.setattr(ingest, "_ingest_executor", fake_executor)
@@ -90,7 +91,11 @@ def test_shutdown_ingest_runtime_marks_jobs_interrupted_and_stops_executor(monke
 
     assert result["cleared_active"] == 1
     assert result["recovered_jobs"] == 2
-    assert fake_mongo.collection.query == {"status": {"$in": ["pending", "running"]}}
+    # I-17: only this process's own jobs fail; another backend's or a CLI run's stay running.
+    assert fake_mongo.collection.query == {
+        "status": {"$in": ["pending", "running"]},
+        "job_id": {"$in": ["job-own-1"]},
+    }
     assert fake_mongo.collection.update["$set"]["status"] == "failed"
     assert (
         "Server shutdown requested" in fake_mongo.collection.update["$push"]["errors"]["$each"][0]
@@ -98,6 +103,26 @@ def test_shutdown_ingest_runtime_marks_jobs_interrupted_and_stops_executor(monke
     assert fake_executor.calls == [{"wait": False, "cancel_futures": True}]
     assert not ingest._ingest_active_requests
     assert not ingest._ingest_pending_requests
+
+
+def test_shutdown_with_no_jobs_of_its_own_fails_no_other_process_job(monkeypatch):
+    fake_mongo = _FakeMongo()
+    monkeypatch.setattr(ingest, "get_mongodb_client", lambda: fake_mongo)
+    monkeypatch.setattr(ingest, "_ingest_executor", _FakeExecutor())
+    monkeypatch.setattr(ingest, "_ingest_active_job_id", None)
+
+    ingest.shutdown_ingest_runtime("Server shutdown requested")
+
+    assert fake_mongo.collection.query["job_id"] == {"$in": []}
+
+
+def test_force_unlock_still_fails_every_pending_or_running_job(monkeypatch):
+    fake_mongo = _FakeMongo()
+    monkeypatch.setattr(ingest, "get_mongodb_client", lambda: fake_mongo)
+
+    ingest._interrupt_ingest_runtime("Force-unlocked", close_executor=False)
+
+    assert fake_mongo.collection.query == {"status": {"$in": ["pending", "running"]}}
 
 
 @pytest.mark.asyncio

@@ -187,22 +187,40 @@ def prepare_ingest_runtime() -> None:
         _ingest_executor = _build_ingest_executor()
 
 
-def _interrupt_ingest_runtime(reason: str, *, close_executor: bool) -> dict[str, Any]:
-    """Clear in-memory ingest state and fail any queued/running DB jobs."""
+def _own_job_ids() -> set[str]:
+    """Job ids this process is running or has queued (caller holds `_ingest_lock`)."""
+    ids = {str(entry["job_id"]) for entry in _ingest_active_requests.values() if entry.get("job_id")}
+    ids |= {str(entry["job_id"]) for entry in _ingest_pending_requests if entry.get("job_id")}
+    if _ingest_active_job_id:
+        ids.add(str(_ingest_active_job_id))
+    return ids | set(_decomposition_active)
+
+
+def _interrupt_ingest_runtime(reason: str, *, close_executor: bool, own_jobs_only: bool = False) -> dict[str, Any]:
+    """Clear in-memory ingest state and fail queued/running DB jobs.
+
+    ``own_jobs_only`` limits the DB update to jobs this process started. A shutdown
+    must not fail jobs another backend or a CLI run owns in the shared database
+    (I-17: a short-lived process's shutdown failed a live 40-minute decomposition).
+    """
     global _ingest_executor, _decomposition_executor
 
     with _ingest_lock:
         prev = _ingest_active_title
         pending_count = len(_ingest_pending_requests)
         active_count = len(_ingest_active_requests)
+        own_ids = _own_job_ids()
 
     _clear_ingest_slot()
 
     recovered_jobs = 0
     try:
         mongodb = get_mongodb_client()
+        query: dict[str, Any] = {"status": {"$in": ["pending", "running"]}}
+        if own_jobs_only:
+            query["job_id"] = {"$in": sorted(own_ids)}
         result = mongodb.get_collection("ingestion_jobs").update_many(
-            {"status": {"$in": ["pending", "running"]}},
+            query,
             {
                 "$set": {
                     "status": "failed",
@@ -250,7 +268,7 @@ def shutdown_ingest_runtime(
     reason: str = "Process was interrupted; server shutdown while the job was queued or running",
 ) -> dict[str, Any]:
     """Fail queued/running ingest work and close the shared executor during app shutdown."""
-    return _interrupt_ingest_runtime(reason, close_executor=True)
+    return _interrupt_ingest_runtime(reason, close_executor=True, own_jobs_only=True)
 
 
 def _reserve_ingest_slot(source_title: str | None, *, source_id: str | None = None) -> str:
