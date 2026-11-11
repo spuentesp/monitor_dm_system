@@ -20,13 +20,14 @@
 
 ## Where we are
 
-Branch `gap/wave1-integration`, commits `42e9dac..HEAD` unpushed (8 → 14
-commits; nothing pushed, no PR).
+Branch `gap/wave1-integration`, commits `42e9dac..HEAD` unpushed (4 new
+commits on top of the previous 8; nothing pushed, no PR).
 
 Quality gates at `HEAD`:
 
-- `uv run pytest packages tests -q -n auto` — green (10k+ tests; the
-  exact count is in the last commit's CI run).
+- `uv run pytest packages tests -q -n auto` — **10,341 passed, 235
+  skipped** (one CLI test flaked under load and passes in isolation and
+  under `-n auto` for the whole CLI package).
 - `uv run ruff check packages scripts` — clean.
 - `uv run mypy packages/data-layer/src packages/agents/src packages/cli/src
   packages/ui/backend/src --cache-dir /tmp/mypy-cache` — **clean**. (Note:
@@ -34,6 +35,11 @@ Quality gates at `HEAD`:
   errors in `player_share.py`, `combat/agent.py` and `recap/agent.py`; they
   are fixed now.)
 - `python scripts/check_layer_dependencies.py` — clean.
+- `uv run pytest tests/verification -q` — 9 passed (the sealed DST suite).
+- Frontend: `npx vitest run` in `packages/ui/frontend` — **87 files, 576
+  tests passed**; `npx tsc --noEmit` clean. (`npm run lint` is broken in
+  this checkout — an ESLint 9 / @rushstack/eslint-patch incompatibility
+  that predates this work.)
 
 Shipped in this session:
 
