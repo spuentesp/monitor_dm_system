@@ -1,6 +1,9 @@
 # G01 — At-the-table combat & initiative tracker (proposed CF-9)
 
-> **Status:** proposed 2026-11-11. Gap: the `/gm` surface has a dice roller
+> **Status:** implemented 2026-11-11 as **CF-9** (data-layer combat tools +
+> CombatAgent + `/gm/combat` routes + CombatPanel; spec
+> `docs/use-cases/epic-7-copilot-CF/CF-9/CF-9-specification.md`). Originally
+> proposed 2026-11-11. Gap: the `/gm` surface has a dice roller
 > (`POST /gm/roll`) and rules *lookup* (`POST /gm/lookup/rules`) but no
 > initiative order, no HP/condition tracking for PCs or enemies, no enemy
 > stat blocks. Initiative logic exists only in the autonomous loop

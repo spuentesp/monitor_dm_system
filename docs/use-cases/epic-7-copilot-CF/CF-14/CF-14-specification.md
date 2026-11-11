@@ -1,5 +1,7 @@
 # CF-14: Share Session Artifacts with Players
 
+**Status:** done — implemented 2026-11-11 (gap G07, plan `docs/architecture/gm-assistant-gap-plans/G07-player-facing-sharing-CF-14.md`)
+
 **Actor:** Human GM (publish), Player with the link (read)
 **Trigger:** Wrap-up / Handouts panel → Publish; player opens `/share/{token}`
 

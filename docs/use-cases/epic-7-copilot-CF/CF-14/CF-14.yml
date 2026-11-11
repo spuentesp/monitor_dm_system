@@ -6,7 +6,7 @@ title: "Share Session Artifacts with Players"
 category: "cf"
 epic: 7
 priority: "medium"
-status: "proposed"
+status: "done"
 
 summary: |
   Story-scoped share link (unguessable token, owner-revocable) behind which

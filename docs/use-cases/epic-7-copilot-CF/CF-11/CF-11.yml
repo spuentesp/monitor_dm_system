@@ -6,7 +6,7 @@ title: "Advance World Time"
 category: "cf"
 epic: 7
 priority: "medium"
-status: "proposed"
+status: "done"
 
 summary: |
   Per-story world clock the GM advances explicitly ("+3 days", "+2 hours", or

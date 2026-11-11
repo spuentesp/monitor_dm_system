@@ -67,5 +67,5 @@ path).
 
 ---
 
-**Status:** proposed 2026-11-11 (gap plan
+**Status:** done — implemented 2026-11-11 (gap G01, plan
 [docs/architecture/gm-assistant-gap-plans/G01-combat-tracker-CF-9.md](../../../architecture/gm-assistant-gap-plans/G01-combat-tracker-CF-9.md)).

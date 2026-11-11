@@ -1,6 +1,7 @@
 # G10 — Spec/doc drift cleanup (DOC-1)
 
-> **Status:** proposed 2026-11-11. Gap: every CF spec still documents a
+> **Status:** implemented 2026-11-11 (DOC-1; docs-only cleanup, shipped with the
+> wave-1 gap merges). Originally proposed 2026-11-11. Gap: every CF spec still documents a
 > `monitor copilot …` CLI as its Layer 3 surface, but the settled decision
 > (GAP_REMEDIATION_PLAN §G-5 Option A, adopted in `GM_ASSISTANT_MODE_PLAN.md`)
 > is web-only `/gm`. Meanwhile the CF yml files say `status: done` while

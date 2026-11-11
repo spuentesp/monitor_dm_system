@@ -1,6 +1,9 @@
 # G07 — Player-facing recap & handout sharing (proposed CF-14)
 
-> **Status:** proposed 2026-11-11. Gap: CF-2/CF-6 promise "export as
+> **Status:** implemented 2026-11-11 as **CF-14** (share tokens + ShareAgent +
+> public `/share/{token}` page + Markdown export; spec
+> `docs/use-cases/epic-7-copilot-CF/CF-14/CF-14-specification.md`). Originally
+> proposed 2026-11-11. Gap: CF-2/CF-6 promise "export as
 > Markdown, share with players", but the only affordance today is a
 > client-side Copy button (`RecapModal.tsx:13-29`). No export endpoint, no
 > read-only player view — the players, who most need the recap, get nothing

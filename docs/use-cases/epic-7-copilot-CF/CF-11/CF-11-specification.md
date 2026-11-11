@@ -3,7 +3,7 @@
 **Actor:** Human GM
 **Trigger:** Co-Pilot → Prep (mid- or post-session) — clock control in the
 `PrepToTablePanel` and the recorder `WrapUpModal`
-**Status:** proposed (gap plan [G04](../../../architecture/gm-assistant-gap-plans/G04-world-clock-CF-11.md))
+**Status:** done — implemented 2026-11-11 (gap G04, plan [G04](../../../architecture/gm-assistant-gap-plans/G04-world-clock-CF-11.md))
 
 **Purpose:** Give each story an in-fiction world clock the GM advances
 explicitly ("+3 days", "+2 hours", or to an absolute date), have deadlines

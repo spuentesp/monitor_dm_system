@@ -1,6 +1,9 @@
 # G04 — In-fiction world clock & time advancement (proposed CF-11)
 
-> **Status:** proposed 2026-11-11. Gap: the CF-7 briefing schema has
+> **Status:** implemented 2026-11-11 as **CF-11** (world-clock tools + advance
+> briefing + clock UI in prep/wrap-up; spec
+> `docs/use-cases/epic-7-copilot-CF/CF-11/CF-11-specification.md`). Originally
+> proposed 2026-11-11. Gap: the CF-7 briefing schema has
 > `world_date` and `urgent_deadlines`, but nothing advances in-fiction time
 > between sessions. Deadlines are listed, never triggered; "three days
 > pass" is invisible to the system.

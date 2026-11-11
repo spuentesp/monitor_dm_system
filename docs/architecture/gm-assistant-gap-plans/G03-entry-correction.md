@@ -1,6 +1,8 @@
 # G03 — Mid-session strike/edit of captured entries (CF-1 amendment)
 
-> **Status:** proposed 2026-11-11. Gap: CF-1's spec has the GM annotating
+> **Status:** implemented 2026-11-11 (CF-1 amendment: entry edit/strike/restore +
+> proposal retract; `docs/use-cases/epic-7-copilot-CF/CF-1/CF-1-specification.md`
+> amended). Originally proposed 2026-11-11. Gap: CF-1's spec has the GM annotating
 > live ("this is important", "this should not be canon"), and session-log
 > proposals exist (`POST /gm/session-log/propose`) — but there is no
 > strike/edit/delete of an already-logged entry or a queued candidate fact
