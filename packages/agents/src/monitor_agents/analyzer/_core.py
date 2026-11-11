@@ -174,7 +174,7 @@ from monitor_agents.analyzer._game_system_persistence import save_game_system
 from monitor_agents.analyzer._mindscape_projection import project_mindscape_to_qdrant
 from monitor_agents.analyzer._models import AnalysisRunResult, LLMExecutionSummary
 from monitor_agents.base import BaseAgent
-from monitor_agents.llm_errors import LLMErrorClass
+from monitor_agents.llm_errors import LLMErrorClass, classify_llm_error
 from monitor_agents.llm_execution import (
     LLMAttemptRecord,
     LLMAttemptStatus,
@@ -398,6 +398,11 @@ class Analyzer(BaseAgent):
             # output. Without this, whole extraction batches were silently lost.
             msg = f"{type(exc).__name__}: {exc}".lower()
             if "adapterparseerror" in msg or "failed to parse" in msg:
+                if classify_llm_error(exc).error_class == LLMErrorClass.CONTENT_REFUSED:
+                    # PART 5A (I-2): a content refusal is not retried unchanged —
+                    # the identical request comes back refused. The batch caller
+                    # splits the batch instead (monitor_agents.book_batching).
+                    raise
                 logger.warning(
                     "Module %s parse failure; retrying once: %s",
                     context.stage,

@@ -30,7 +30,23 @@ class LLMErrorClass(StrEnum):
     MISCONFIGURATION = "misconfiguration"
     VALIDATION = "validation"
     CANCELLED = "cancelled"
+    CONTENT_REFUSED = "content_refused"
     UNKNOWN = "unknown"
+
+
+# Refusal wording, in one place. Live: on 2026-11-10 MiMo v2.6 Flash refused 3 of 59
+# extraction batches with the first phrase, surfaced as a JSON parse failure whose LM
+# response was the refusal text itself. Not retryable as-is: the same request is
+# refused again. Callers split the batch instead (monitor_agents.book_batching).
+REFUSAL_PHRASES: tuple[str, ...] = (
+    "the request was rejected because it was considered high risk",
+    "rejected as a result of our safety system",
+    "content management policy",
+    "content policy",
+    "prohibited_content",
+    "harmful content",
+    "responsible ai policy",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +77,31 @@ def _retry_after_seconds(message: str) -> float | None:
         return None
 
 
+def _looks_structured(text: str) -> bool:
+    """True when a reply carries the JSON object/array structured output needs."""
+    stripped = text.strip()
+    return bool(stripped) and ("{" in stripped or "[" in stripped)
+
+
+def _content_refused(exc: BaseException, message: str, lowered: str) -> LLMErrorInfo | None:
+    """CONTENT_REFUSED for provider refusal wording, or an empty/non-structured reply.
+
+    A refusal arrives either as an error carrying the provider's wording, or as a
+    200 response whose body is the refusal (or nothing at all) where structured
+    output was required — in which case the adapter raises a parse error and the
+    raw reply rides along on `lm_response`.
+    """
+    if any(phrase in lowered for phrase in REFUSAL_PHRASES):
+        return LLMErrorInfo(LLMErrorClass.CONTENT_REFUSED, retryable=False, message=message)
+    lm_response = getattr(exc, "lm_response", None)
+    if isinstance(lm_response, str):
+        if any(phrase in lm_response.lower() for phrase in REFUSAL_PHRASES):
+            return LLMErrorInfo(LLMErrorClass.CONTENT_REFUSED, retryable=False, message=message)
+        if not _looks_structured(lm_response):
+            return LLMErrorInfo(LLMErrorClass.CONTENT_REFUSED, retryable=False, message=message)
+    return None
+
+
 def classify_llm_error(exc: BaseException) -> LLMErrorInfo:
     """Classify an LLM/provider error into retryable and non-retryable groups."""
     if isinstance(exc, asyncio.CancelledError):
@@ -74,6 +115,11 @@ def classify_llm_error(exc: BaseException) -> LLMErrorInfo:
 
     message = _message(exc)
     lowered = message.lower()
+
+    refused = _content_refused(exc, message, lowered)
+    if refused is not None:
+        return refused
+
     type_name = exc.__class__.__name__.lower()
 
     if any(
@@ -206,6 +252,11 @@ class LLMProviderUnavailable(RuntimeError):
             return "The GM's AI provider has hit its usage limit. Please wait a moment and try again."
         if self.info.error_class == LLMErrorClass.AUTH:
             return "The GM's AI provider rejected the request (authentication issue)."
+        if self.info.error_class == LLMErrorClass.CONTENT_REFUSED:
+            return (
+                "The GM's AI provider refused to process this content (safety filter). "
+                "Retrying the same request will not help."
+            )
         if self.info.error_class == LLMErrorClass.MISCONFIGURATION:
             return "The GM's AI provider is misconfigured. Contact an administrator."
         return "The GM's AI provider is temporarily unavailable. Please try again shortly."
