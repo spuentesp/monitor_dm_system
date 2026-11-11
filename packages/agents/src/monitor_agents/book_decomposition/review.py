@@ -43,6 +43,7 @@ from monitor_data.schemas.book_graph import (
 )
 from pydantic import BaseModel, Field, ValidationError
 
+from monitor_agents.book_prompts import apply_fiction_preamble
 from monitor_agents.book_decomposition.checks import (
     ClaimFlag,
     check_names,
@@ -429,6 +430,9 @@ class ClaimVerificationSignature(dspy.Signature):  # type: ignore[misc]
     result: VerificationBatch = dspy.OutputField()
 
 
+apply_fiction_preamble(ClaimVerificationSignature)
+
+
 class ClaimStackingSignature(dspy.Signature):  # type: ignore[misc]
     """Decide how similar claims from one book relate. Most will simply be different claims.
 
@@ -454,6 +458,9 @@ class ClaimStackingSignature(dspy.Signature):  # type: ignore[misc]
     result: StackDecision = dspy.OutputField()
 
 
+apply_fiction_preamble(ClaimStackingSignature)
+
+
 class SkipAuditSignature(dspy.Signature):  # type: ignore[misc]
     """Find usable claims an extractor missed in sentences it chose to skip.
 
@@ -470,6 +477,9 @@ class SkipAuditSignature(dspy.Signature):  # type: ignore[misc]
     result: SkipAudit = dspy.OutputField()
 
 
+apply_fiction_preamble(SkipAuditSignature)
+
+
 class ParagraphCoverageSignature(dspy.Signature):  # type: ignore[misc]
     """Find what each paragraph of a tabletop RPG book says that its claims leave out.
 
@@ -483,6 +493,9 @@ class ParagraphCoverageSignature(dspy.Signature):  # type: ignore[misc]
 
     paragraphs: str = dspy.InputField(desc="Each paragraph with its label and its claims")
     result: CoverageAudit = dspy.OutputField()
+
+
+apply_fiction_preamble(ParagraphCoverageSignature)
 
 
 class ReviewModel(Protocol):

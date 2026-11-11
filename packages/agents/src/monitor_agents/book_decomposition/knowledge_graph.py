@@ -19,6 +19,7 @@ import structlog
 from monitor_data.schemas.book_graph import BookTree, ReviewedClaim
 from pydantic import BaseModel, Field
 
+from monitor_agents.book_prompts import apply_fiction_preamble
 from monitor_agents.book_decomposition.extractor import run_metered
 from monitor_agents.book_decomposition.pacing import RunGuard, RunStopped
 from monitor_agents.book_decomposition.review import _heading_path, _nearest_headings
@@ -330,11 +331,17 @@ class _GraphSignature(dspy.Signature):  # type: ignore[misc]
     result: GraphBatch = dspy.OutputField()
 
 
+apply_fiction_preamble(_GraphSignature)
+
+
 class _MergeSignature(dspy.Signature):  # type: ignore[misc]
     __doc__ = MERGE_INSTRUCTIONS
 
     names: str = dspy.InputField(desc="One node name per line")
     result: MergeAnswer = dspy.OutputField()
+
+
+apply_fiction_preamble(_MergeSignature)
 
 
 class DspyGraphModel:

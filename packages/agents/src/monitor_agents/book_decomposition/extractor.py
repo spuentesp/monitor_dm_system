@@ -17,6 +17,7 @@ from monitor_data.schemas.book_graph import WindowExtraction
 from monitor_data.schemas.llm_config import ModelRole
 from pydantic import ValidationError
 
+from monitor_agents.book_prompts import apply_fiction_preamble
 from monitor_agents.book_decomposition.windows import Window
 from monitor_agents.dspy_runtime import get_dspy_lm
 
@@ -160,6 +161,9 @@ class WindowExtractionSignature(dspy.Signature):  # type: ignore[misc]
     context: str = dspy.InputField(desc="Read-only text just before this passage. Do not cite it.")
     units: str = dspy.InputField(desc="The passage, one labelled unit per line (S=sentence, T=table)")
     result: WindowExtraction = dspy.OutputField()
+
+
+apply_fiction_preamble(WindowExtractionSignature)
 
 
 def build_lm(model: str, reasoning_effort: str | None = None) -> dspy.LM:
