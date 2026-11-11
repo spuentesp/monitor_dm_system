@@ -63,13 +63,24 @@ from monitor_data.schemas.proposed_changes import (
 from monitor_data.schemas.relationships import RelationshipFilter, RelationshipResponse
 from monitor_data.schemas.stories import StoryLedgerEntry
 from monitor_data.schemas.story_outlines import PlotThreadCreate
+from monitor_data.schemas.world_clock import (
+    ClockAdvanceRecord,
+    OffScreenSummaryRecord,
+    WorldClockDeadlineUpsert,
+    WorldClockDeadlineView,
+    WorldClockQuery,
+    WorldClockResponse,
+)
 from monitor_data.tools.mongodb_tools import (
     STRIKE_REASON,
     mongodb_create_proposed_change,
     mongodb_get_gm_prep_bundle,
+    mongodb_get_world_clock,
     mongodb_list_proposed_changes,
     mongodb_list_story_ledger_entries,
+    mongodb_record_offscreen_summary,
     mongodb_upsert_gm_prep_bundle,
+    mongodb_upsert_world_deadline,
 )
 from monitor_data.tools.neo4j_tools import (
     neo4j_create_plot_thread,
@@ -708,6 +719,52 @@ class PrepBundleGetResponse(BaseModel):
     bundle: GmPrepBundleResponse | None = None
 
 
+# ---------------------------------------------------------------------------
+# World clock (CF-11 Advance World Time) — request / response schemas
+# ---------------------------------------------------------------------------
+
+
+class ClockGetResponse(BaseModel):
+    """The story's world clock briefing (CF-7), when one has been set."""
+
+    found: bool
+    clock: WorldClockResponse | None = None
+
+
+class ClockAdvanceRequest(BaseModel):
+    """Advance in-fiction time: a relative delta or an absolute target."""
+
+    universe_id: UUID
+    story_id: UUID
+    delta: str | None = Field(default=None, description="Relative advance, e.g. '+3 days'")
+    target_time: datetime | None = Field(default=None, description="Absolute world time to jump to")
+
+
+class ClockAdvanceResponse(BaseModel):
+    """Post-advance briefing: clock, deadline flips, summary, staged proposals."""
+
+    clock: WorldClockResponse
+    changed: bool
+    initialized: bool
+    crossed: list[WorldClockDeadlineView] = Field(default_factory=list)
+    due: list[WorldClockDeadlineView] = Field(default_factory=list)
+    offscreen_summary: str = ""
+    npc_activities: list[str] = Field(default_factory=list)
+    staged_proposal_ids: list[str] = Field(default_factory=list)
+    staging_errors: list[str] = Field(default_factory=list)
+
+
+class ClockDeadlineRequest(BaseModel):
+    """Create or replace one deadline on the story's world clock."""
+
+    universe_id: UUID
+    story_id: UUID
+    title: str = Field(min_length=1, max_length=300)
+    due_at: datetime
+    notes: str = Field(default="", max_length=2000)
+    deadline_id: str | None = Field(default=None, description="Set to replace an existing deadline")
+
+
 class NpcLookupRequest(BaseModel):
     """Look up one NPC (or entity) dossier at the table."""
 
@@ -760,6 +817,11 @@ class LastSessionResponse(BaseModel):
     session_title: str | None = None
     ledger_entry: StoryLedgerEntry | None = None
     transcript: list[TranscriptLine] = Field(default_factory=list)
+    world_time: str = Field(default="", description="Current world-clock readout (CF-11)")
+    time_line: list[ClockAdvanceRecord] = Field(
+        default_factory=list,
+        description="World-clock advances, newest first — the recap's time line (CF-2)",
+    )
     note: str = ""
 
 
@@ -966,6 +1028,176 @@ async def prep_get(
     return PrepBundleGetResponse(found=True, bundle=bundle)
 
 
+# ---------------------------------------------------------------------------
+# World clock (CF-11 Advance World Time)
+#
+# The GM moves in-fiction time explicitly. Deadline flips are deterministic
+# (Layer 1), the off-screen NPC summary is the agent's typed LLM call, and
+# crossed deadlines are staged as ProposedChange items for the CF-8 queue —
+# the clock itself is story-scoped MongoDB scratch state, so no Neo4j write
+# happens here (CanonKeeper remains the only Neo4j writer).
+# ---------------------------------------------------------------------------
+
+
+def _stage_crossed_deadlines(
+    story_id: UUID,
+    crossed: list[WorldClockDeadlineView],
+    world_time: datetime,
+) -> tuple[list[str], list[str]]:
+    """Stage one FACT proposal per deadline crossed by an advance (CF-11 → CF-8).
+
+    Best-effort: one rejected staging must not lose the advance itself.
+    """
+    ids: list[str] = []
+    errors: list[str] = []
+    for deadline in crossed:
+        source = f"world_clock:{story_id}:{deadline.id}:{world_time.isoformat()}"
+        try:
+            proposal = mongodb_create_proposed_change(
+                ProposedChangeCreate(
+                    story_id=story_id,
+                    change_type=ProposalType.FACT,
+                    content={
+                        "statement": (f"{deadline.title} — deadline reached (world time {world_time.isoformat()})"),
+                        "fact_type": "state",
+                        "canon_level": "proposed",
+                        "deadline_id": deadline.id,
+                        "due_at": deadline.due_at.isoformat(),
+                    },
+                    confidence=0.7,
+                    authority=Authority.GM,
+                    proposer="GM",
+                    source=source,
+                    proposal_type="world_clock_deadline",
+                    needs_review=True,
+                    review_reason="World-clock deadline crossed — confirm the canon effect of time passing",
+                    review_source="world_clock",
+                )
+            )
+            ids.append(str(proposal.proposal_id))
+        except Exception as exc:  # noqa: BLE001  # reason: one rejected staging must not lose the advance (in _stage_crossed_deadlines)
+            log.warning("clock_deadline_staging_failed", deadline=deadline.title, error=str(exc))
+            errors.append(f"{deadline.title}: {exc}")
+    return ids, errors
+
+
+@router.get("/gm/clock/{story_id}", response_model=ClockGetResponse)
+async def get_world_clock(
+    story_id: str,
+    universe_id: str,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ClockGetResponse:
+    """The story's world clock briefing: readout, deadlines, last off-screen tick (CF-7)."""
+    story_uuid = _uuid_or_400(story_id, "story_id")
+    universe_uuid = _uuid_or_400(universe_id, "universe_id")
+    await require_universe_owner(db, principal, universe_uuid)
+    clock = await asyncio.to_thread(
+        mongodb_get_world_clock,
+        WorldClockQuery(universe_id=universe_uuid, story_id=story_uuid),
+    )
+    if clock is None:
+        return ClockGetResponse(found=False)
+    return ClockGetResponse(found=True, clock=clock)
+
+
+@router.post("/gm/clock/advance", response_model=ClockAdvanceResponse)
+async def advance_world_clock(
+    req: ClockAdvanceRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ClockAdvanceResponse:
+    """Advance in-fiction time; return deadlines and the off-screen tick (CF-11).
+
+    Tenancy: session/story ownership follows the universe owner (SYS-6).
+    Backwards moves and deltas before the clock exists come back as 422 (the
+    agent surfaces tool errors as ``ValueError``). Deadlines crossed by this
+    advance are staged as pending CF-8 proposals — never written to Neo4j.
+    """
+    await require_universe_owner(db, principal, req.universe_id)
+    if (req.delta is None) == (req.target_time is None):
+        raise HTTPException(status_code=422, detail="Provide exactly one of 'delta' or 'target_time'.")
+    agent = GmTableAgent()
+    try:
+        outcome = await agent.advance_and_summarize(
+            universe_id=req.universe_id,
+            story_id=req.story_id,
+            delta=req.delta,
+            target_time=req.target_time,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        log.warning("clock_advance_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to advance world time: {exc}") from exc
+
+    offscreen_summary = outcome.offscreen.summary if outcome.offscreen else ""
+    npc_activities = list(outcome.offscreen.npc_activities) if outcome.offscreen else []
+    if outcome.offscreen is not None and outcome.changed:
+        # The advance already happened — a failed summary persist must not
+        # undo it; log and keep the response useful.
+        try:
+            await asyncio.to_thread(
+                mongodb_record_offscreen_summary,
+                OffScreenSummaryRecord(
+                    universe_id=req.universe_id,
+                    story_id=req.story_id,
+                    summary=offscreen_summary,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: summary persistence must not fail the advance (in advance_world_clock)
+            log.warning("clock_summary_persist_failed", universe_id=str(req.universe_id), error=str(exc))
+
+    staged: list[str] = []
+    staging_errors: list[str] = []
+    if outcome.changed and outcome.crossed:
+        staged, staging_errors = await asyncio.to_thread(
+            _stage_crossed_deadlines,
+            req.story_id,
+            outcome.crossed,
+            outcome.clock.current_at,
+        )
+
+    return ClockAdvanceResponse(
+        clock=outcome.clock,
+        changed=outcome.changed,
+        initialized=outcome.initialized,
+        crossed=outcome.crossed,
+        due=outcome.due,
+        offscreen_summary=offscreen_summary,
+        npc_activities=npc_activities,
+        staged_proposal_ids=staged,
+        staging_errors=staging_errors,
+    )
+
+
+@router.post("/gm/clock/deadline", response_model=WorldClockResponse)
+async def upsert_clock_deadline(
+    req: ClockDeadlineRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> WorldClockResponse:
+    """Attach a deadline to the story's world clock (CF-11; surfaces via CF-3)."""
+    await require_universe_owner(db, principal, req.universe_id)
+    try:
+        return await asyncio.to_thread(
+            mongodb_upsert_world_deadline,
+            WorldClockDeadlineUpsert(
+                universe_id=req.universe_id,
+                story_id=req.story_id,
+                title=req.title,
+                due_at=req.due_at,
+                notes=req.notes,
+                deadline_id=req.deadline_id,
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        log.warning("clock_deadline_failed", universe_id=str(req.universe_id), error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to save deadline: {exc}") from exc
+
+
 @router.post("/gm/lookup/npc", response_model=NpcDossierResponse)
 async def lookup_npc(
     req: NpcLookupRequest,
@@ -1065,6 +1297,9 @@ async def lookup_last_session(
         entries = mongodb_list_story_ledger_entries(req.story_id, limit=2)
         return entries[-1] if entries else None
 
+    def _clock() -> WorldClockResponse | None:
+        return mongodb_get_world_clock(WorldClockQuery(universe_id=req.universe_id, story_id=req.story_id))
+
     def _prior_session() -> tuple[str | None, str | None, list[TranscriptLine]]:
         sessions = [s for s in db_load_sessions() if str(s.get("story_id") or "") == str(req.story_id)]
         if not sessions:
@@ -1085,15 +1320,26 @@ async def lookup_last_session(
         ]
         return session_id, str(session.get("title") or "") or None, lines
 
-    entry, (session_id, session_title, transcript) = await asyncio.to_thread(lambda: (_ledger(), _prior_session()))
+    entry, clock, (session_id, session_title, transcript) = await asyncio.to_thread(
+        lambda: (_ledger(), _clock(), _prior_session())
+    )
+    world_time = clock.display if clock else ""
+    time_line = list(clock.advances) if clock else []
     if entry is None and session_id is None:
-        return LastSessionResponse(found=False, note="No previous session found for this story.")
+        return LastSessionResponse(
+            found=False,
+            note="No previous session found for this story.",
+            world_time=world_time,
+            time_line=time_line,
+        )
     return LastSessionResponse(
         found=True,
         session_id=session_id,
         session_title=session_title,
         ledger_entry=entry,
         transcript=transcript,
+        world_time=world_time,
+        time_line=time_line,
     )
 
 

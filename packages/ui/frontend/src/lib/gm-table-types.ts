@@ -137,7 +137,56 @@ export interface LastSessionResponse {
   session_title: string | null;
   ledger_entry: LedgerEntry | null;
   transcript: TranscriptLine[];
+  world_time: string;
+  time_line: ClockAdvanceRecord[];
   note: string;
+}
+
+// World clock (CF-11 Advance World Time)
+export type DeadlineStatus = "upcoming" | "due" | "overdue";
+
+export interface WorldClockDeadline {
+  id: string;
+  title: string;
+  due_at: string;
+  notes: string;
+  status: DeadlineStatus;
+}
+
+export interface ClockAdvanceRecord {
+  from_at: string | null;
+  to_at: string;
+  delta: string;
+  advanced_at: string;
+}
+
+export interface WorldClock {
+  universe_id: string;
+  story_id: string;
+  current_at: string;
+  display: string;
+  deadlines: WorldClockDeadline[];
+  advances: ClockAdvanceRecord[];
+  offscreen_summary: string;
+  offscreen_summary_at: string | null;
+  updated_at: string;
+}
+
+export interface ClockGetResponse {
+  found: boolean;
+  clock: WorldClock | null;
+}
+
+export interface ClockAdvanceResponse {
+  clock: WorldClock;
+  changed: boolean;
+  initialized: boolean;
+  crossed: WorldClockDeadline[];
+  due: WorldClockDeadline[];
+  offscreen_summary: string;
+  npc_activities: string[];
+  staged_proposal_ids: string[];
+  staging_errors: string[];
 }
 
 export interface ImproviseResponse {

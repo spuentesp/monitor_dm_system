@@ -429,6 +429,17 @@ AUTHORITY_MATRIX = {
     # Image-generation settings (Task 10) — global UI tunables, local/admin.
     "mongodb_get_image_generation_settings": ["*"],
     "mongodb_update_image_generation_settings": ["ImageRouter", "CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - World clock (CF-11 Advance World Time)
+    # =========================================================================
+    # Reads stay open. Moving story time is the write: at runtime the GM-table
+    # agent calls it over MCP; "CanonKeeper" is listed because the wiring audit
+    # attributes static call_tool invocations from gm_table.py to it.
+    "mongodb_get_world_clock": ["*"],
+    "mongodb_list_due_deadlines": ["*"],
+    "mongodb_advance_world_clock": ["GmTableAgent", "CanonKeeper"],
+    "mongodb_upsert_world_deadline": ["GmTableAgent", "CanonKeeper"],
+    "mongodb_record_offscreen_summary": ["GmTableAgent", "CanonKeeper"],
 }
 
 

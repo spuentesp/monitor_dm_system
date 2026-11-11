@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   BookOpen,
   CheckCircle2,
+  Clock,
   Flag,
   GitBranch,
   Loader2,
@@ -18,6 +19,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { chatApi } from "@/lib/api";
+import { gmTableApi } from "@/lib/gm-table-api";
 import type { WrapUpCanonItem } from "@/lib/types";
 import { DialogShell } from "@/components/DialogShell";
 import { cn } from "@/lib/utils";
@@ -62,6 +64,130 @@ function CanonItemRow({ item }: { item: WrapUpCanonItem }) {
 }
 
 /**
+ * CF-11 — world clock readout + advance control in the recorder wrap-up.
+ * Two-step confirmation mirrors the prep panel: type a delta (or an absolute
+ * time), confirm, and the briefing shows what moved.
+ */
+function WorldClockSection({ universeId, storyId }: { universeId: string; storyId: string }) {
+  const qc = useQueryClient();
+  const [timeInput, setTimeInput] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [info, setInfo] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const clockQuery = useQuery({
+    queryKey: ["gm-clock", universeId, storyId],
+    queryFn: () => gmTableApi.getClock(universeId, storyId),
+    staleTime: 5_000,
+  });
+  const clock = clockQuery.data?.found && clockQuery.data.clock ? clockQuery.data.clock : null;
+
+  const advance = useMutation({
+    mutationFn: () => {
+      const raw = timeInput.trim();
+      const isAbsolute = /^\d{4}-\d{2}-\d{2}/.test(raw);
+      return gmTableApi.advanceClock({
+        universe_id: universeId,
+        story_id: storyId,
+        ...(isAbsolute ? { target_time: raw } : { delta: raw }),
+      });
+    },
+    onSuccess: (data) => {
+      setConfirming(false);
+      setTimeInput("");
+      setError(null);
+      setInfo(
+        data.changed
+          ? `World time is now ${data.clock.display}.` +
+              (data.crossed.length ? ` Crossed: ${data.crossed.map((d) => d.title).join(", ")}.` : "")
+          : "That time is already reached — the clock did not move.",
+      );
+      qc.invalidateQueries({ queryKey: ["gm-clock", universeId, storyId] });
+    },
+    onError: (err: unknown) => {
+      setConfirming(false);
+      setError(err instanceof Error ? err.message : "Failed to advance world time.");
+    },
+  });
+
+  return (
+    <section data-testid="wrap-up-clock" className="space-y-2">
+      <SectionHeading icon={Clock}>World clock</SectionHeading>
+      {clock ? (
+        <div className="space-y-1">
+          <p data-testid="clock-readout" className="text-sm font-mono text-cyan-200">
+            {clock.display}
+          </p>
+          {clock.offscreen_summary && (
+            <p className="text-[11px] text-slate-500 italic">{clock.offscreen_summary}</p>
+          )}
+        </div>
+      ) : (
+        <p className="text-[11px] text-slate-600">
+          No clock yet — set an absolute world time below (e.g. 1012-03-01T09:00).
+        </p>
+      )}
+      <div className="flex gap-1.5">
+        <input
+          value={timeInput}
+          onChange={(e) => {
+            setTimeInput(e.target.value);
+            setConfirming(false);
+          }}
+          placeholder="+1 day / 1012-03-02T09:00"
+          aria-label="Advance world time"
+          className="input-cyber flex-1 py-1 text-xs"
+          spellCheck={false}
+        />
+        {!confirming ? (
+          <button
+            type="button"
+            onClick={() => timeInput.trim() && setConfirming(true)}
+            disabled={!timeInput.trim()}
+            className={cn(
+              "btn-cyber text-xs py-1 px-3",
+              !timeInput.trim() && "opacity-40 cursor-not-allowed",
+            )}
+          >
+            Advance
+          </button>
+        ) : (
+          <div className="flex gap-1">
+            <button
+              type="button"
+              data-testid="confirm-advance"
+              onClick={() => advance.mutate()}
+              disabled={advance.isPending}
+              className="btn-cyber text-xs py-1 px-3"
+            >
+              {advance.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}{" "}
+              Confirm {timeInput.trim()}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="text-xs px-2 py-1 rounded border border-white/10 text-slate-400 hover:bg-white/5"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+      {info && (
+        <p data-testid="clock-info" className="text-[11px] text-emerald-400">
+          {info}
+        </p>
+      )}
+      {error && (
+        <p data-testid="clock-error" className="text-[11px] text-red-400">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
  * P1.3 — Guided end-of-session wrap-up digest for gm_assistant recordings.
  *
  * Mounting the modal fires POST /chat/{id}/wrap-up, which canonizes the open
@@ -69,7 +195,17 @@ function CanonItemRow({ item }: { item: WrapUpCanonItem }) {
  * teaser. That is several LLM calls, so the modal owns a progress state and
  * an error state with retry (agents run sequentially server-side in v1).
  */
-export function WrapUpModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+export function WrapUpModal({
+  sessionId,
+  onClose,
+  universeId,
+  storyId,
+}: {
+  sessionId: string;
+  onClose: () => void;
+  universeId?: string | null;
+  storyId?: string | null;
+}) {
   const qc = useQueryClient();
   const wrapUp = useMutation({
     mutationFn: () => chatApi.wrapUp(sessionId),
@@ -129,6 +265,9 @@ export function WrapUpModal({ sessionId, onClose }: { sessionId: string; onClose
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{digest.recap}</ReactMarkdown>
               </div>
             </section>
+
+            {/* World clock (CF-11) — readout + advance for the finished session */}
+            {universeId && storyId && <WorldClockSection universeId={universeId} storyId={storyId} />}
 
             {/* Canon changes */}
             <section data-testid="wrap-up-canon" className="space-y-2">

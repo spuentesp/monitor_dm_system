@@ -437,6 +437,15 @@ from monitor_data.tools.mongodb_tools.working_state import (
     mongodb_update_working_state,
 )
 
+# World Clock operations (CF-11 Advance World Time)
+from monitor_data.tools.mongodb_tools.world_clock import (
+    mongodb_advance_world_clock,
+    mongodb_get_world_clock,
+    mongodb_list_due_deadlines,
+    mongodb_record_offscreen_summary,
+    mongodb_upsert_world_deadline,
+)
+
 __all__ = [
     # Scenes
     "get_mongodb_client",
@@ -729,4 +738,10 @@ __all__ = [
     "mongodb_pack_quality_report",
     "mongodb_publish_knowledge_pack",
     "mongodb_list_published_packs",
+    # World clock (CF-11 Advance World Time)
+    "mongodb_get_world_clock",
+    "mongodb_advance_world_clock",
+    "mongodb_list_due_deadlines",
+    "mongodb_upsert_world_deadline",
+    "mongodb_record_offscreen_summary",
 ]

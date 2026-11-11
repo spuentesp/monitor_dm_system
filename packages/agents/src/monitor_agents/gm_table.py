@@ -5,8 +5,8 @@ LAYER: 2 (agents)
 IMPORTS FROM: monitor_data.schemas (ModelRole only), monitor_agents.base
 CALLED BY: UI backend routers/gm_tools.py (GM Assistant /gm page)
 
-Phase 7 Part B. Three flows, each one typed LLM call (no keyword tables, no
-counters — the DE-heuristic principle):
+Phase 7 Part B. Four flows, each one typed LLM call where judgment is
+needed (no keyword tables, no counters — the DE-heuristic principle):
 
 1. **Prep to table (CF-7).** The GM's session notes are extracted into
    tonight's NPCs (name, description, what they want), locations and plot
@@ -17,6 +17,11 @@ counters — the DE-heuristic principle):
 3. **After the session (CF-5/CF-8).** A pasted session log is extracted into
    world-state statements that the router stages as ProposedChange items and
    checks against canon (direct + G-9 implication depth).
+4. **World clock (CF-11).** ``advance_and_summarize`` moves the story's
+   in-fiction time, reports the deadlines that flipped (deterministic,
+   Layer 1), and — when time actually passed — drafts the "what NPCs did
+   off-screen" paragraph for the next prep briefing as one typed LLM call
+   over canon.
 
 Every fetch of world data goes through ``call_tool`` (MCP). Every judgment
 goes through ``call_llm_structured`` with a Pydantic response model — the
@@ -26,6 +31,7 @@ caller (the router turns them into 500s): nothing here silently degrades.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -33,6 +39,11 @@ from pydantic import BaseModel, Field
 
 from monitor_agents.base import BaseAgent
 from monitor_data.schemas.llm_config import ModelRole
+from monitor_data.schemas.world_clock import (
+    WorldClockAdvanceResult,
+    WorldClockDeadlineView,
+    WorldClockResponse,
+)
 
 # =============================================================================
 # RESPONSE SCHEMAS
@@ -131,6 +142,27 @@ class SessionLogExtraction(BaseModel):
     """World-state claims extracted from a session log."""
 
     statements: list[SessionLogStatement] = Field(default_factory=list)
+
+
+class OffScreenSummary(BaseModel):
+    """What the NPCs/world did while the clock advanced (CF-7 prep briefing)."""
+
+    summary: str = Field(default="", description="Two or three sentences of off-screen activity")
+    npc_activities: list[str] = Field(
+        default_factory=list,
+        description="One short off-screen activity per NPC, each grounded in the provided canon",
+    )
+
+
+class AdvanceOutcome(BaseModel):
+    """Result of ``advance_and_summarize``: clock, deadline flips, summary."""
+
+    clock: WorldClockResponse
+    changed: bool = False
+    initialized: bool = False
+    crossed: list[WorldClockDeadlineView] = Field(default_factory=list)
+    due: list[WorldClockDeadlineView] = Field(default_factory=list)
+    offscreen: OffScreenSummary | None = None
 
 
 # =============================================================================
@@ -536,6 +568,132 @@ class GmTableAgent(BaseAgent):
             max_tokens=2048,
         )
         return session_log
+
+    # ------------------------------------------------------------------
+    # World clock (CF-11)
+    # ------------------------------------------------------------------
+
+    async def advance_and_summarize(
+        self,
+        universe_id: UUID,
+        story_id: UUID,
+        delta: str | None = None,
+        target_time: datetime | None = None,
+    ) -> AdvanceOutcome:
+        """Advance the story's world clock and draft the off-screen tick (CF-11).
+
+        The clock move and the deadline flip are deterministic: Layer 1
+        enforces monotonicity and computes due/overdue statuses, and this
+        method only narrows them to the current ``due`` set and the deadlines
+        this move crossed. Only the "what the NPCs did while time passed"
+        paragraph goes through the LLM, a generation over canon (facts and
+        names fetched via MCP) — not a simulation. The caller persists the
+        summary onto the clock for the next CF-7 prep briefing.
+        """
+        key = {"universe_id": str(universe_id), "story_id": str(story_id)}
+
+        advance_raw = await self.call_tool(
+            "mongodb_advance_world_clock",
+            {
+                **key,
+                "delta": delta,
+                "target_time": target_time.isoformat() if target_time is not None else None,
+            },
+        )
+        parsed = _parse_tool_result(advance_raw, default=None)
+        if not isinstance(parsed, dict):
+            # Tool errors come back as raw text ("Error executing tool: …");
+            # surface them as ValueError so the router maps them to 422s.
+            raise ValueError(str(advance_raw))
+        advance = WorldClockAdvanceResult.model_validate(parsed)
+        clock = advance.clock
+        due = [d for d in clock.deadlines if d.status in ("due", "overdue")]
+
+        if not advance.changed or advance.initialized:
+            return AdvanceOutcome(
+                clock=clock,
+                changed=advance.changed,
+                initialized=advance.initialized,
+                crossed=advance.crossed,
+                due=due,
+            )
+
+        # Time actually passed — ground the off-screen generation in canon.
+        names_result = await self.call_tool(
+            "neo4j_list_entities",
+            {"filters": {"universe_id": str(universe_id), "limit": 100}},
+        )
+        entities = _parse_tool_result(names_result, "entities", []) or []
+        known_names = [str(e.get("name") or "") for e in entities if isinstance(e, dict) and e.get("name")]
+
+        facts_result = await self.call_tool(
+            "neo4j_list_facts",
+            {"filters": {"universe_id": str(universe_id), "limit": 30}},
+        )
+        raw_facts = _parse_tool_result(facts_result, "facts", []) or []
+        statements = [str(f.get("statement") or "") for f in raw_facts if isinstance(f, dict) and f.get("statement")]
+
+        last = clock.advances[0] if clock.advances else None
+        elapsed = last.delta if last else "unknown"
+
+        if not known_names and not statements and not advance.crossed:
+            # Nothing to ground on — deterministic fallback, no LLM call.
+            return AdvanceOutcome(
+                clock=clock,
+                changed=True,
+                crossed=advance.crossed,
+                due=due,
+                offscreen=OffScreenSummary(
+                    summary=f"Time passed ({elapsed}); the world now reads {clock.display}.",
+                    npc_activities=[],
+                ),
+            )
+
+        crossed_lines = (
+            "\n".join(f"- {d.title} (due {d.due_at.date().isoformat()}) — {d.status}" for d in advance.crossed)
+            or "(none crossed by this advance)"
+        )
+        due_lines = "\n".join(f"- {d.title} (due {d.due_at.date().isoformat()}) — {d.status}" for d in due) or "(none)"
+
+        offscreen: OffScreenSummary = await self.call_llm_structured(
+            OffScreenSummary,
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "A human GM advanced the story's world clock between sessions. "
+                        "Write the off-screen tick for the next prep briefing: two or "
+                        "three sentences about what the NPCs and the world did while "
+                        "that time passed. This is a generation over the CANON provided "
+                        "— not a simulation: never invent people, places, or permanent "
+                        "world changes. Crossed deadlines are established facts; fold "
+                        "them in. In 'npc_activities', list one short activity per NPC "
+                        "that plausibly follows from the canon facts; leave it empty "
+                        "when nothing can be grounded."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"TIME ADVANCED BY: {elapsed}\n"
+                        f"WORLD TIME NOW: {clock.display}\n"
+                        f"NEWLY CROSSED DEADLINES:\n{crossed_lines}\n\n"
+                        f"DUE / OVERDUE DEADLINES:\n{due_lines}\n\n"
+                        f"KNOWN NAMES:\n{chr(10).join(known_names) or '(none yet)'}\n\n"
+                        f"RECENT CANON FACTS:\n"
+                        f"{chr(10).join(f'{i + 1}. {s}' for i, s in enumerate(statements)) or '(none yet)'}"
+                    ),
+                },
+            ],
+            max_tokens=1024,
+        )
+        return AdvanceOutcome(
+            clock=clock,
+            changed=True,
+            crossed=advance.crossed,
+            due=due,
+            offscreen=offscreen,
+        )
 
 
 # LIGHT-tier instance factory for on-demand improv (names, complications).
