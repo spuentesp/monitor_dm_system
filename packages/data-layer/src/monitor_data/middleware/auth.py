@@ -145,9 +145,26 @@ AUTHORITY_MATRIX = {
     # =========================================================================
     "mongodb_get_session_entry": ["*"],
     "mongodb_list_session_entries": ["*"],
-    "mongodb_update_session_entry": ["SessionIngestAgent", "CaptureInsightAgent", "CanonKeeper"],
-    "mongodb_delete_session_entry": ["SessionIngestAgent", "CaptureInsightAgent", "CanonKeeper"],
-    "mongodb_restore_session_entry": ["SessionIngestAgent", "CaptureInsightAgent", "CanonKeeper"],
+    # "IngestionPipeline" — the wiring audit attributes static call_tool
+    # invocations from ingestion/*.py to that agent type.
+    "mongodb_update_session_entry": [
+        "SessionIngestAgent",
+        "CaptureInsightAgent",
+        "IngestionPipeline",
+        "CanonKeeper",
+    ],
+    "mongodb_delete_session_entry": [
+        "SessionIngestAgent",
+        "CaptureInsightAgent",
+        "IngestionPipeline",
+        "CanonKeeper",
+    ],
+    "mongodb_restore_session_entry": [
+        "SessionIngestAgent",
+        "CaptureInsightAgent",
+        "IngestionPipeline",
+        "CanonKeeper",
+    ],
     # =========================================================================
     # MONGODB OPERATIONS - Proposals (Legacy - kept for backward compatibility)
     # =========================================================================
@@ -168,8 +185,18 @@ AUTHORITY_MATRIX = {
     "mongodb_edit_proposed_change": ["CanonKeeper"],
     # G03 (CF-1 amendment) — the GM's at-table retract/undo of a queued
     # capture proposal; pending → rejected with the strike reason.
-    "mongodb_retract_proposed_change": ["CaptureInsightAgent", "SessionIngestAgent", "CanonKeeper"],
-    "mongodb_restore_retracted_proposal": ["CaptureInsightAgent", "SessionIngestAgent", "CanonKeeper"],
+    "mongodb_retract_proposed_change": [
+        "CaptureInsightAgent",
+        "SessionIngestAgent",
+        "IngestionPipeline",
+        "CanonKeeper",
+    ],
+    "mongodb_restore_retracted_proposal": [
+        "CaptureInsightAgent",
+        "SessionIngestAgent",
+        "IngestionPipeline",
+        "CanonKeeper",
+    ],
     # G-9 Phase 2 — stamping the advisory review flag is a CanonKeeper write.
     "mongodb_flag_proposal_review": ["CanonKeeper"],
     # (Memory operations moved to DL-7 section below)
@@ -455,15 +482,17 @@ AUTHORITY_MATRIX = {
     "mongodb_upsert_world_deadline": ["GmTableAgent", "CanonKeeper"],
     "mongodb_record_offscreen_summary": ["GmTableAgent", "CanonKeeper"],
     # Player share links + shared artifacts (CF-14) — only ShareAgent reads or
-    # writes them; the public /share/* routes go through ShareAgent exclusively.
-    "mongodb_create_player_share": ["ShareAgent"],
-    "mongodb_get_player_share_by_token": ["ShareAgent"],
-    "mongodb_get_player_share_for_story": ["ShareAgent"],
-    "mongodb_revoke_player_share": ["ShareAgent"],
-    "mongodb_create_shared_artifact": ["ShareAgent"],
-    "mongodb_get_shared_artifact": ["ShareAgent"],
-    "mongodb_list_shared_artifacts": ["ShareAgent"],
-    "mongodb_set_shared_artifact_published": ["ShareAgent"],
+    # writes them over MCP; the public /share/* routes go through ShareAgent
+    # exclusively. "CanonKeeper" is listed because the wiring audit attributes
+    # static call_tool invocations from player_share.py to it.
+    "mongodb_create_player_share": ["ShareAgent", "CanonKeeper"],
+    "mongodb_get_player_share_by_token": ["ShareAgent", "CanonKeeper"],
+    "mongodb_get_player_share_for_story": ["ShareAgent", "CanonKeeper"],
+    "mongodb_revoke_player_share": ["ShareAgent", "CanonKeeper"],
+    "mongodb_create_shared_artifact": ["ShareAgent", "CanonKeeper"],
+    "mongodb_get_shared_artifact": ["ShareAgent", "CanonKeeper"],
+    "mongodb_list_shared_artifacts": ["ShareAgent", "CanonKeeper"],
+    "mongodb_set_shared_artifact_published": ["ShareAgent", "CanonKeeper"],
 }
 
 

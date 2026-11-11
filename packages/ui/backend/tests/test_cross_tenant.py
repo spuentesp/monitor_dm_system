@@ -674,12 +674,45 @@ BODIES: dict[tuple[str, str], dict] = {
     ("POST", "/api/ingest/jobs/{job_id}/held-claims/{claim_id}"): {"decision": "accept"},
     ("POST", "/api/chat/{session_id}/send"): {"content": "hello"},
     ("POST", "/api/chat/{session_id}/greet"): {},
+    # CF-9 combat routes carry universe_id in the body; "$kind" values are
+    # resolved against the seeded ids by _substitute_body.
+    ("POST", "/api/gm/combat/{session_id}/initiative"): {
+        "universe_id": "$universe",
+        "entries": [{"combatant_id": "$uuid", "initiative": 10}],
+    },
+    ("POST", "/api/gm/combat/{session_id}/next-round"): {"universe_id": "$universe"},
+    ("POST", "/api/gm/combat/{session_id}/end"): {"universe_id": "$universe"},
+    ("PATCH", "/api/gm/combat/{session_id}/combatant/{combatant_id}"): {"universe_id": "$universe"},
 }
 
 # Required query parameters for generated requests (seeded substitution).
 QUERIES: dict[tuple[str, str], dict] = {
     ("POST", "/api/chat/{session_id}/greet"): {"character_id": "character"},
+    ("GET", "/api/gm/combat/{session_id}"): {"universe_id": "universe"},
 }
+
+
+def _substitute_body(body: dict | None, seeded: dict[str, str]) -> dict | None:
+    """Resolve "$kind" sentinel values in a BODIES entry against the seeded ids.
+
+    ``"$uuid"`` becomes a fresh uuid4 string; other sentinels map to
+    ``seeded[kind]``. Values without the sentinel are sent verbatim, so
+    bodies carrying a resource id can reach the ownership checks.
+    """
+    if body is None:
+        return None
+
+    def resolve(value):
+        if isinstance(value, str) and value.startswith("$"):
+            kind = value[1:]
+            return str(uuid4()) if kind == "uuid" else seeded[kind]
+        if isinstance(value, dict):
+            return {k: resolve(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [resolve(v) for v in value]
+        return value
+
+    return resolve(body)
 
 
 def _sweep_cases(app: FastAPI) -> list[tuple[str, str, str, dict[str, str]]]:
@@ -762,7 +795,7 @@ def test_generated_route_table_sweep(users, seeded, monkeypatch: pytest.MonkeyPa
             path = path.replace("{" + param + "}", seeded[kind])
         # any remaining placeholder is not an ownable id (index, claim, ...)
         path = re.sub(r"\{[^}]+\}", str(uuid4()), path)
-        body = BODIES.get((method, path_template))
+        body = _substitute_body(BODIES.get((method, path_template)), seeded)
         query = {k: seeded[v] for k, v in QUERIES.get((method, path_template), {}).items()}
         kwargs: dict[str, Any] = {"headers": _csrf(users.b)}
         if query:
