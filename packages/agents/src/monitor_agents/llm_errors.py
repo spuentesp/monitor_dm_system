@@ -77,27 +77,20 @@ def _retry_after_seconds(message: str) -> float | None:
         return None
 
 
-def _looks_structured(text: str) -> bool:
-    """True when a reply carries the JSON object/array structured output needs."""
-    stripped = text.strip()
-    return bool(stripped) and ("{" in stripped or "[" in stripped)
-
-
 def _content_refused(exc: BaseException, message: str, lowered: str) -> LLMErrorInfo | None:
-    """CONTENT_REFUSED for provider refusal wording, or an empty/non-structured reply.
+    """CONTENT_REFUSED when the provider's refusal wording is present.
 
-    A refusal arrives either as an error carrying the provider's wording, or as a
-    200 response whose body is the refusal (or nothing at all) where structured
-    output was required — in which case the adapter raises a parse error and the
-    raw reply rides along on `lm_response`.
+    A refusal arrives either as an error carrying the wording, or as a 200 response
+    whose body is the refusal where structured output was required, in which case
+    the adapter raises a parse error and the raw reply rides along on `lm_response`.
+    An empty or prose reply without that wording is an ordinary parse failure: it
+    is often transient, and gameplay callers recover from it.
     """
     if any(phrase in lowered for phrase in REFUSAL_PHRASES):
         return LLMErrorInfo(LLMErrorClass.CONTENT_REFUSED, retryable=False, message=message)
     lm_response = getattr(exc, "lm_response", None)
     if isinstance(lm_response, str):
         if any(phrase in lm_response.lower() for phrase in REFUSAL_PHRASES):
-            return LLMErrorInfo(LLMErrorClass.CONTENT_REFUSED, retryable=False, message=message)
-        if not _looks_structured(lm_response):
             return LLMErrorInfo(LLMErrorClass.CONTENT_REFUSED, retryable=False, message=message)
     return None
 

@@ -55,11 +55,12 @@ def test_refusal_inside_a_parse_error_classifies_as_content_refused() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize("reply", ["", "   ", "Sorry, I cannot help with that request."])
-def test_empty_or_non_structured_reply_where_structured_output_was_required(reply: str) -> None:
+def test_empty_or_prose_reply_without_refusal_wording_is_not_a_refusal(reply: str) -> None:
+    """Only the provider's wording marks a refusal: an empty or prose reply is an
+    ordinary parse failure, which gameplay callers recover from."""
     exc = AdapterParseError("ChatAdapter", WindowExtractionSignature, reply)
     info = classify_llm_error(exc)
-    assert info.error_class == LLMErrorClass.CONTENT_REFUSED
-    assert info.retryable is False
+    assert info.error_class != LLMErrorClass.CONTENT_REFUSED
 
 
 @pytest.mark.unit
