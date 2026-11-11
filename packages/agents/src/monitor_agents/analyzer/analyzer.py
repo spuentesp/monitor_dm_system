@@ -51,6 +51,8 @@ from monitor_data.schemas.plot_threads import ExtractedPlotThread
 from monitor_data.schemas.llm_config import ModelRole
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from monitor_agents.book_prompts import apply_fiction_preamble
 from monitor_agents.dspy_runtime import dspy_context_for
 
@@ -1577,6 +1579,13 @@ class BatchedExtractionSignature(dspy.Signature):  # type: ignore[misc]
     lore_facts: list[ExtractedLoreFact] = dspy.OutputField(
         desc="Specific lore facts tied to named entities or places. Include evidence_refs, canon_level, and knowledge_scope."
     )
+    sections_covered: list[str] = dspy.OutputField(
+        desc=(
+            "The heading path of EVERY section you processed, copied exactly from the "
+            "'# Section: ...' lines — including sections that yielded nothing. This list "
+            "must be complete; it is how a truncated reply is detected."
+        )
+    )
 
 
 apply_fiction_preamble(BatchedExtractionSignature)
@@ -1623,6 +1632,50 @@ class SectionSummaryModule(_AnalyzerModule):
     # SectionSummary is called once per section in synthesize_mindscape. On a
     # 295 MB PDF this is hundreds of calls; routing to local qwen made it
     # unrunnable. HEAVY routes to MiniMax-M3 (or gemini-2.5-flash).
+
+
+class SectionSummaryItem(BaseModel):
+    """One section's summary inside a batched summary reply (I-17)."""
+
+    heading_path: str
+    summary: str = ""
+    themes: list[str] = Field(default_factory=list)
+
+
+class BatchedSectionSummarySignature(dspy.Signature):  # type: ignore[misc]
+    """Summarize several TTRPG document sections in one pass (I-17).
+
+    Sections are separated by '---SECTION---'; each starts with
+    '# Section: <heading path>'. Produce one summary per section, even for
+    sections with nothing worth summarizing (an empty summary is fine), and
+    copy every heading path exactly as given.
+    """
+
+    sections_context: str = dspy.InputField(
+        desc=(
+            "Several sections separated by '---SECTION---'. Each starts with "
+            "'# Section: <heading path>' followed by the section text."
+        )
+    )
+    source_name: str = dspy.InputField(desc="Name of the source document")
+    summaries: list[SectionSummaryItem] = dspy.OutputField(
+        desc=(
+            "Exactly one entry per input section, in input order, with heading_path "
+            "copied verbatim from each '# Section:' line — including sections that "
+            "yielded nothing. This completeness is how a truncated reply is detected."
+        )
+    )
+
+
+apply_fiction_preamble(BatchedSectionSummarySignature)
+
+
+class BatchedSectionSummaryModule(_AnalyzerModule):
+    """Summarize up to MONITOR_ANALYZER_SUMMARY_BATCH sections per call (I-17)."""
+
+    _signature = BatchedSectionSummarySignature
+    _role = ModelRole.HEAVY
+    _max_tokens = 8192
 
 
 class ModuleIntroExtractionSignature(dspy.Signature):  # type: ignore[misc]

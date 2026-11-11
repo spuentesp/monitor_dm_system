@@ -23,6 +23,7 @@ This package was split from a single 2717-line module into focused sub-modules:
 """
 
 # Re-export the main public API — consumers import from monitor_agents.analyzer
+from monitor_agents.analyzer._cancel import AnalysisCancelledError
 from monitor_agents.analyzer._core import AnalysisRunResult, Analyzer
 
-__all__ = ["AnalysisRunResult", "Analyzer"]
+__all__ = ["AnalysisCancelledError", "AnalysisRunResult", "Analyzer"]

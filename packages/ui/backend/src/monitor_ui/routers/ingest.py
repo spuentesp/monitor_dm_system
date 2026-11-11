@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from monitor_agents.canonkeeper.agent import CanonKeeper
+from monitor_agents.analyzer import AnalysisCancelledError
 from monitor_agents.book_decomposition.held_claims import HeldClaimConflict, HeldClaimNotFound
 from monitor_agents.ingestion.agent import IngestionPipeline, analyze_timeout_for_job
 from monitor_agents.ingestion.book_stage import (
@@ -368,18 +369,27 @@ def _run_ingest_in_thread(
     content_type: str | None,
     reuse_source_id: UUID | None = None,
     reuse_doc_id: UUID | None = None,
+    estimated_calls: int | None = None,
+    resume_job_id: UUID | None = None,
 ) -> None:
     """Run the ingest pipeline in a dedicated thread with its own event loop.
 
     This prevents the long-running sync+async pipeline calls from blocking
     uvicorn's main event loop. The executor limits concurrent pipelines.  An overall timeout of _JOB_TIMEOUT_SECS is enforced via
     asyncio.wait_for so a stalled LLM call cannot block the executor forever.
+
+    ``estimated_calls`` (a previous run's attempt count, when there is one)
+    scales the per-stage analysis limit (I-17 task 15). ``resume_job_id`` makes
+    the pipeline re-run the analysis on an existing job, reusing its saved
+    batches (I-17 task 14).
     """
     global _ingest_active_title, _ingest_active_job_id
 
     # Capture the job id once the pipeline records it so the cancel endpoint
     # can look it up even while ingest is in flight.
     _captured_job_id: list[str | None] = [None]
+    if resume_job_id is not None:
+        _captured_job_id[0] = str(resume_job_id)
 
     async def _run() -> None:
         pipeline = IngestionPipeline()
@@ -407,7 +417,8 @@ def _run_ingest_in_thread(
                     reuse_source_id=reuse_source_id,
                     reuse_doc_id=reuse_doc_id,
                     on_job_created=_capture_job,
-                    analyze_timeout_seconds=analyze_timeout_for_job(_JOB_TIMEOUT_SECS),
+                    analyze_timeout_seconds=analyze_timeout_for_job(_JOB_TIMEOUT_SECS, estimated_calls),
+                    resume_job_id=resume_job_id,
                 )
             )
 
@@ -444,12 +455,13 @@ def _run_ingest_in_thread(
                 _maybe_start_decomposition(ingest_results[0], file_bytes, filename, source_title, pack_type_enum)
         except TimeoutError:
             logger.error(
-                "Ingestion timed out after %ds for '%s' (job=%s)",
+                "Ingestion timed out after %ds for '%s' (job=%s) — pausing as resumable",
                 _JOB_TIMEOUT_SECS,
                 source_title,
                 _captured_job_id[0],
             )
-            # Mark the job failed so the UI reflects the timeout.
+            # I-17 task 15: a timeout pauses the job as resumable; it does not
+            # cancel or fail it. Saved batches make the resume cheap.
             if _captured_job_id[0]:
                 try:
                     from monitor_data.schemas.base import (
@@ -462,16 +474,24 @@ def _run_ingest_in_thread(
                         mongodb_update_ingestion_job,
                     )
 
+                    pause_message = (
+                        f"Job timed out after {_JOB_TIMEOUT_SECS // 60} minutes — "
+                        "paused as resumable; resume to continue"
+                    )
                     mongodb_update_ingestion_job(
                         UUID(_captured_job_id[0]),
                         IngestionJobUpdate(
-                            status=IngestionStatus.FAILED,
-                            errors=[f"Job timed out after {_JOB_TIMEOUT_SECS // 60} minutes"],
-                            completed_at=datetime.now(UTC),
+                            status=IngestionStatus.PAUSED,
+                            warnings=[pause_message],
+                            activity_log=[pause_message],
                         ),
                     )
                 except Exception:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _patched_create_job)
                     log.warning("timeout status update failed", exc_info=True)
+        except AnalysisCancelledError:
+            # The cancel endpoint owns the record; stop quietly (the job status
+            # was already set to cancelled and must not be touched).
+            logger.info("Ingestion stopped for cancelled job (job=%s)", _captured_job_id[0])
         except Exception as exc:
             logger.exception("Background ingestion failed for '%s': %s", source_title, exc)
 
@@ -533,8 +553,13 @@ def _start_decomposition(
 
 
 def _maybe_start_decomposition(ingest_job: Any, file_bytes: bytes, filename: str, title: str, pack_type: Any) -> None:
-    """Start decomposing a finished PDF ingest, if the flag is on. Failure can't harm the ingest."""
-    finished = (IngestionStatus.COMPLETED, IngestionStatus.PARTIAL)
+    """Start decomposing a finished PDF ingest, if the flag is on. Failure can't harm the ingest.
+
+    I-17 task 16: a resumable (paused) or partial Analyzer result still starts
+    the decomposition job — decomposition runs on its own worker with its own
+    job record, so it does not need the analysis to have finished cleanly.
+    """
+    finished = (IngestionStatus.COMPLETED, IngestionStatus.PARTIAL, IngestionStatus.PAUSED)
     if (
         not book_decomposition_enabled()
         or not filename.lower().endswith(".pdf")
@@ -1242,6 +1267,9 @@ async def rescan_source(
                     content_type=rescan_content_type,
                     reuse_source_id=src_uid,
                     reuse_doc_id=doc.doc_id,
+                    # I-17 task 15: the previous run's real call count scales
+                    # this run's analysis limit (floor 40 minutes).
+                    estimated_calls=(prev_job.total_attempts if prev_job and prev_job.total_attempts else None),
                 ),
             )
             fut.add_done_callback(lambda f: _ingest_futures.pop(queue_token, None))
@@ -1336,7 +1364,13 @@ async def cancel_job(job_id: str, principal: Principal = Depends(get_current_use
 
 @router.post("/jobs/{job_id}/resume", status_code=202)
 async def resume_job(job_id: str, principal: Principal = Depends(get_current_user)) -> dict[str, str]:
-    """Resume a paused or interrupted book decomposition. Finished work isn't repeated."""
+    """Resume a paused job: book decomposition in place, analysis via a new run.
+
+    A paused analysis job re-runs the pipeline on the same job row and document
+    (I-17 task 14): finished batches are loaded from the document's saved
+    batches, so the resume repeats no call that already succeeded. Finished
+    work isn't repeated for decomposition either.
+    """
     uid = validate_uuid(job_id, "job_id")
     with db_op("Database unavailable"):
         job = mongodb_get_ingestion_job(uid)
@@ -1344,7 +1378,9 @@ async def resume_job(job_id: str, principal: Principal = Depends(get_current_use
         raise HTTPException(404, "Not found")
     _check_job_owner(principal, job)
     if not is_decomposition_job(job):
-        raise HTTPException(409, "Only book decomposition jobs can be resumed")
+        if job.status != IngestionStatus.PAUSED:
+            raise HTTPException(409, f"Job can't be resumed (status={job.status.value})")
+        return await _resume_analysis_job(uid, job)
     resumable = (IngestionStatus.PAUSED, IngestionStatus.FAILED)
     if job.status not in resumable or str(uid) in _decomposition_active:
         raise HTTPException(409, f"Job can't be resumed (status={job.status.value})")
@@ -1356,6 +1392,51 @@ async def resume_job(job_id: str, principal: Principal = Depends(get_current_use
     title = job.source_title.removesuffix(" (decomposition)")
     _start_decomposition(uid, file_bytes, job.doc_id, title, stored_pack_type(job.doc_id), job.source_id)
     return {"job_id": job_id, "status": "running", "message": "Decomposition resumed"}
+
+
+async def _resume_analysis_job(uid: UUID, job: Any) -> dict[str, str]:
+    """Requeue the ingest for a paused analysis job, reusing its saved batches (I-17)."""
+    with db_op("Could not retrieve document record"):
+        doc = mongodb_get_document(job.doc_id)
+    if doc is None:
+        raise HTTPException(404, "Source document record not found")
+    try:
+        file_bytes = await get_minio_client().download(doc.minio_ref)
+    except Exception as exc:
+        raise HTTPException(500, f"Could not retrieve stored file: {exc}") from exc
+
+    reservation_title = f"source:{str(job.source_id)[:8]}"
+    queue_token = _reserve_ingest_slot(reservation_title, source_id=str(job.source_id))
+    _rename_ingest_request(queue_token, job.source_title)
+    try:
+        prepare_ingest_runtime()
+        loop = asyncio.get_running_loop()
+        executor = _ingest_executor
+        if executor is None:
+            raise RuntimeError("Ingest executor is unavailable during shutdown")
+        fut = loop.run_in_executor(
+            executor,
+            lambda: _run_ingest_in_thread(
+                queue_token=queue_token,
+                file_bytes=file_bytes,
+                filename=doc.filename or f"{uid}.pdf",
+                source_title=job.source_title,
+                universe_uid=job.universe_id,
+                pack_type_enum=stored_pack_type(job.doc_id),
+                selected_layers=list(job.processing_checklist or []),
+                content_type=None,
+                reuse_source_id=job.source_id,
+                reuse_doc_id=job.doc_id,
+                estimated_calls=job.total_attempts or None,
+                resume_job_id=uid,
+            ),
+        )
+        fut.add_done_callback(lambda f: _ingest_futures.pop(queue_token, None))
+        _ingest_futures[queue_token] = fut
+    except Exception as exc:
+        _clear_ingest_slot(queue_token=queue_token)
+        raise HTTPException(500, f"Could not queue resume: {exc}") from exc
+    return {"job_id": str(uid), "status": "running", "message": "Analysis resumed"}
 
 
 class HeldClaimDecisionRequest(BaseModel):
