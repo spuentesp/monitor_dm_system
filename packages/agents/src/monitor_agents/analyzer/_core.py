@@ -175,6 +175,7 @@ from monitor_agents.analyzer._mindscape_projection import project_mindscape_to_q
 from monitor_agents.analyzer._models import AnalysisRunResult, LLMExecutionSummary
 from monitor_agents.base import BaseAgent
 from monitor_agents.book_batching import run_batch_with_refusal_split
+from monitor_agents.lenient_parsing import recover_parse_failure
 from monitor_agents.llm_errors import LLMErrorClass, classify_llm_error
 from monitor_agents.llm_execution import (
     LLMAttemptRecord,
@@ -404,6 +405,12 @@ class Analyzer(BaseAgent):
                     # the identical request comes back refused. The batch caller
                     # splits the batch instead (monitor_agents.book_batching).
                     raise
+                recovered = recover_parse_failure(exc)
+                if recovered is not None:
+                    # PART 5A (I-2): the reply was field-for-field recoverable
+                    # after lenient repair (unknown enum → other, JSON-string
+                    # object parsed), so keep the batch instead of retrying it.
+                    return recovered
                 logger.warning(
                     "Module %s parse failure; retrying once: %s",
                     context.stage,
