@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 import dspy
+import structlog
 from dspy.utils.exceptions import AdapterParseError
 from monitor_data.schemas.book_graph import WindowExtraction
 from monitor_data.schemas.llm_config import ModelRole
@@ -21,6 +22,8 @@ from monitor_agents.book_prompts import apply_fiction_preamble
 from monitor_agents.book_decomposition.settings import DecompositionSettings
 from monitor_agents.book_decomposition.windows import Window
 from monitor_agents.dspy_runtime import get_dspy_lm
+
+log = structlog.get_logger()
 
 _MINIMAX_PREFIX = "minimax/"
 _MINIMAX_DEFAULT_BASE = "https://api.minimax.io/anthropic"
@@ -173,6 +176,23 @@ class WindowExtractionSignature(dspy.Signature):  # type: ignore[misc]
 apply_fiction_preamble(WindowExtractionSignature)
 
 
+def extra_body_from_env() -> dict[str, Any]:
+    """Provider options for every book call, from MONITOR_BOOK_LLM_EXTRA_BODY (a JSON object).
+
+    MiMo v2.6 Flash thinks before it answers and bills the thinking against the output cap, so one
+    stacking call ran to 32,768 tokens and took minutes. `{"thinking": {"type": "disabled"}}` turns it off.
+    """
+    raw = os.environ.get("MONITOR_BOOK_LLM_EXTRA_BODY", "").strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        log.warning("book_llm_extra_body_invalid", value=raw[:80])
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def build_lm(model: str, reasoning_effort: str | None = None) -> dspy.LM:
     """Build an LM from a LiteLLM model name, or `minimax/<model>` for MiniMax.
 
@@ -184,12 +204,14 @@ def build_lm(model: str, reasoning_effort: str | None = None) -> dspy.LM:
     ANTHROPIC_API_KEY and bill that account instead (see `get_dspy_lm`).
     """
     if not model.startswith(_MINIMAX_PREFIX):
+        extra = extra_body_from_env()
         return MeteredLM(
             model,
             max_tokens=max_output_tokens(),
             temperature=0.0,
             timeout=_REQUEST_TIMEOUT_SECONDS,
             num_retries=_LM_RETRIES,
+            **({"extra_body": extra} if extra else {}),
         )
     api_key = os.environ.get("MINIMAX_API_KEY", "").strip()
     if not api_key:

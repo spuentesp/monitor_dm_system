@@ -514,8 +514,10 @@ class ReviewModel(Protocol):
     async def find_gaps(self, prompt: str) -> CoverageAudit: ...
 
 
-# A stacking answer is a short list. A cap keeps a rambling reply from running to the model's limit.
-STACK_MAX_TOKENS = 4096
+# A stacking answer is a short list, so a cap bounds a rambling reply. Off by default: a model that
+# thinks before it answers spends the cap on thinking and returns nothing (seen live at 4096).
+# Turn thinking off with MONITOR_BOOK_LLM_EXTRA_BODY, then a cap is safe.
+STACK_MAX_TOKENS = int(os.environ.get("MONITOR_BOOK_STACK_MAX_TOKENS", "0") or 0) or None
 
 
 def stack_decision_from_value(raw: Any) -> StackDecision:

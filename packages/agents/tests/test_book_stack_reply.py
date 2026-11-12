@@ -49,6 +49,7 @@ async def test_stack_recovers_when_dspy_rejects_a_bare_list_and_caps_the_output(
         review.StackDecision.model_validate([])  # raises the same ValidationError DSPy surfaced
         return _Prediction(None)
 
+    monkeypatch.setattr(review, "STACK_MAX_TOKENS", 4096)
     monkeypatch.setattr(review, "run_metered", lambda lm, fn: (fn(), 0, 0))
     model = review.DspyReviewModel(lm=object())
     monkeypatch.setattr(model, "_stack", module)
@@ -58,4 +59,17 @@ async def test_stack_recovers_when_dspy_rejects_a_bare_list_and_caps_the_output(
     decision = await model.stack("prompt")
 
     assert decision.stacks == []
-    assert seen["config"] == {"max_tokens": review.STACK_MAX_TOKENS}
+    assert seen["config"] == {"max_tokens": 4096}
+
+
+@pytest.mark.unit
+def test_extra_body_comes_from_the_environment(monkeypatch):
+    from monitor_agents.book_decomposition.extractor import extra_body_from_env
+
+    monkeypatch.delenv("MONITOR_BOOK_LLM_EXTRA_BODY", raising=False)
+    assert extra_body_from_env() == {}
+    monkeypatch.setenv("MONITOR_BOOK_LLM_EXTRA_BODY", '{"thinking": {"type": "disabled"}}')
+    assert extra_body_from_env() == {"thinking": {"type": "disabled"}}
+    for bad in ("not json", "[1]", '"x"'):
+        monkeypatch.setenv("MONITOR_BOOK_LLM_EXTRA_BODY", bad)
+        assert extra_body_from_env() == {}
