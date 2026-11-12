@@ -49,7 +49,7 @@ async def test_stack_recovers_when_dspy_rejects_a_bare_list_and_caps_the_output(
         review.StackDecision.model_validate([])  # raises the same ValidationError DSPy surfaced
         return _Prediction(None)
 
-    monkeypatch.setattr(review, "STACK_MAX_TOKENS", 4096)
+    monkeypatch.setenv("MONITOR_BOOK_STACK_MAX_TOKENS", "4096")
     monkeypatch.setattr(review, "run_metered", lambda lm, fn: (fn(), 0, 0))
     model = review.DspyReviewModel(lm=object())
     monkeypatch.setattr(model, "_stack", module)
@@ -60,6 +60,55 @@ async def test_stack_recovers_when_dspy_rejects_a_bare_list_and_caps_the_output(
 
     assert decision.stacks == []
     assert seen["config"] == {"max_tokens": 4096}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_stack_leaves_the_output_uncapped_by_default(monkeypatch):
+    from monitor_agents.book_decomposition import review
+
+    seen: dict = {}
+
+    def module(**kwargs):
+        seen.update(kwargs)
+        return _Prediction({"stacks": []})
+
+    monkeypatch.delenv("MONITOR_BOOK_STACK_MAX_TOKENS", raising=False)
+    monkeypatch.setattr(review, "run_metered", lambda lm, fn: (fn(), 0, 0))
+    model = review.DspyReviewModel(lm=object())
+    monkeypatch.setattr(model, "_stack", module)
+
+    decision = await model.stack("prompt")
+
+    assert decision.stacks == []
+    assert seen["config"] == {}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_stack_reraises_the_original_error_when_the_rejected_list_is_not_a_valid_answer(monkeypatch):
+    from pydantic import ValidationError
+
+    from monitor_agents.book_decomposition import review
+
+    raised: list[ValidationError] = []
+
+    def module(**kwargs):
+        try:
+            review.StackDecision.model_validate([1, 2])  # a bare list of non-stacks is not recoverable
+        except ValidationError as exc:
+            raised.append(exc)
+            raise
+        return _Prediction(None)
+
+    monkeypatch.setattr(review, "run_metered", lambda lm, fn: (fn(), 0, 0))
+    model = review.DspyReviewModel(lm=object())
+    monkeypatch.setattr(model, "_stack", module)
+
+    with pytest.raises(ValidationError) as excinfo:
+        await model.stack("prompt")
+
+    assert excinfo.value is raised[0]
 
 
 @pytest.mark.unit

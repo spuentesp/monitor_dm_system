@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import datetime, timedelta, UTC
 from types import SimpleNamespace
 
 import pytest

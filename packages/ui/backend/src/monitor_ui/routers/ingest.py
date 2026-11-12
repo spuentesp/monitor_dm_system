@@ -189,8 +189,8 @@ def prepare_ingest_runtime() -> None:
 
 def _own_job_ids() -> set[str]:
     """Job ids this process is running or has queued (caller holds `_ingest_lock`)."""
-    ids = {str(entry["job_id"]) for entry in _ingest_active_requests.values() if entry.get("job_id")}
-    ids |= {str(entry["job_id"]) for entry in _ingest_pending_requests if entry.get("job_id")}
+    entries = [*_ingest_active_requests.values(), *_ingest_pending_requests]
+    ids = {str(entry["job_id"]) for entry in entries if entry.get("job_id")}
     if _ingest_active_job_id:
         ids.add(str(_ingest_active_job_id))
     return ids | set(_decomposition_active)
@@ -209,7 +209,7 @@ def _interrupt_ingest_runtime(reason: str, *, close_executor: bool, own_jobs_onl
         prev = _ingest_active_title
         pending_count = len(_ingest_pending_requests)
         active_count = len(_ingest_active_requests)
-        own_ids = _own_job_ids()
+        own_ids = _own_job_ids() if own_jobs_only else set()
 
     _clear_ingest_slot()
 

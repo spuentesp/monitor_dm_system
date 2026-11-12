@@ -177,7 +177,10 @@ apply_fiction_preamble(WindowExtractionSignature)
 
 
 def extra_body_from_env() -> dict[str, Any]:
-    """Provider options for every book call, from MONITOR_BOOK_LLM_EXTRA_BODY (a JSON object).
+    """Provider options for every non-MiniMax book call, from MONITOR_BOOK_LLM_EXTRA_BODY (a JSON object).
+
+    MiniMax rejects turning reasoning off, so its calls are configured through `reasoning_effort`
+    instead (see `build_lm`).
 
     MiMo v2.6 Flash thinks before it answers and bills the thinking against the output cap, so one
     stacking call ran to 32,768 tokens and took minutes. `{"thinking": {"type": "disabled"}}` turns it off.

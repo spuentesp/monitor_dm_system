@@ -514,10 +514,14 @@ class ReviewModel(Protocol):
     async def find_gaps(self, prompt: str) -> CoverageAudit: ...
 
 
-# A stacking answer is a short list, so a cap bounds a rambling reply. Off by default: a model that
-# thinks before it answers spends the cap on thinking and returns nothing (seen live at 4096).
-# Turn thinking off with MONITOR_BOOK_LLM_EXTRA_BODY, then a cap is safe.
-STACK_MAX_TOKENS = int(os.environ.get("MONITOR_BOOK_STACK_MAX_TOKENS", "0") or 0) or None
+def stack_max_tokens() -> int | None:
+    """Output cap for one stacking call, or None when off (`MONITOR_BOOK_STACK_MAX_TOKENS`, default off).
+
+    A stacking answer is a short list, so a cap bounds a rambling reply. Off by default: a model that
+    thinks before it answers spends the cap on thinking and returns nothing (seen live at 4096).
+    Turn thinking off with MONITOR_BOOK_LLM_EXTRA_BODY, then a cap is safe.
+    """
+    return DecompositionSettings.from_env().stack_max_tokens or None
 
 
 def stack_decision_from_value(raw: Any) -> StackDecision:
@@ -579,13 +583,17 @@ class DspyReviewModel:
 
     async def stack(self, prompt: str) -> StackDecision:
         try:
-            raw = await self._run(self._stack, max_tokens=STACK_MAX_TOKENS, claims=prompt)
+            raw = await self._run(self._stack, max_tokens=stack_max_tokens(), claims=prompt)
         except Exception as exc:  # noqa: BLE001  # reason: only a parse failure whose reply is a valid stack list is recovered; others re-raise
             recovered = stack_decision_from_reply(getattr(exc, "lm_response", None))
             if recovered is None and isinstance(exc, ValidationError):
                 # DSPy validated the answer itself and rejected a bare list; the rejected value is on the error.
                 inputs = [err.get("input") for err in exc.errors() if isinstance(err.get("input"), list)]
-                recovered = stack_decision_from_value(inputs[0]) if inputs else None
+                if inputs:
+                    try:
+                        recovered = stack_decision_from_value(inputs[0])
+                    except ValueError:
+                        pass  # the rejected list is not a valid stacking answer; re-raise the original error
             if recovered is None:
                 raise
             return recovered
