@@ -112,6 +112,47 @@ describe("CharacterChat — streaming send", () => {
     expect(screen.getAllByText("Wisp").length).toBeGreaterThan(1);
   });
 
+  it("reopening a persisted conversation loads its transcript and does not start a new one", async () => {
+    const start = vi.spyOn(api.entitiesApi, "startCharacterConversation");
+    vi.spyOn(lightRpApi, "getConversationTurns").mockResolvedValue({
+      conversation_id: "conv-old",
+      status: "active",
+      turns: [
+        { turn_index: 0, speaker_role: "npc", entity_name: "Wisp", text: "Well met, traveller.", emotional_state: null, timestamp: null },
+        { turn_index: 1, speaker_role: "player", entity_name: "Player", text: "Hi Wisp", emotional_state: null, timestamp: null },
+        { turn_index: 2, speaker_role: "npc", entity_name: "Wisp", text: "The road winds on.", emotional_state: "calm", timestamp: null },
+      ],
+    });
+    const sendStream = vi.spyOn(lightRpApi, "sendStream").mockReturnValue(
+      fakeStream([
+        {
+          type: "done",
+          conversation_id: "conv-old",
+          text: "Glad to see you again.",
+          emotional_state: "warm",
+          relationship_snapshot: {},
+        },
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<CharacterChat character={char} onBack={() => {}} resumeConversationId="conv-old" />);
+
+    // History renders, no new conversation is started.
+    expect(await screen.findByText("Hi Wisp")).toBeInTheDocument();
+    expect(screen.getByText("The road winds on.")).toBeInTheDocument();
+    expect(start).not.toHaveBeenCalled();
+
+    // Sending continues the SAME conversation.
+    await user.type(screen.getByPlaceholderText(/message wisp/i), "You still there?");
+    await user.click(screen.getByRole("button", { name: /send/i }));
+    await waitFor(() =>
+      expect(sendStream).toHaveBeenCalledWith("c-1", "conv-old", "You still there?", {
+        include_cross_incarnation: false,
+      }),
+    );
+    expect(await screen.findByText("Glad to see you again.")).toBeInTheDocument();
+  });
+
   it("opening a pre-started conversation does not start another one", async () => {
     const start = vi.spyOn(api.entitiesApi, "startCharacterConversation");
     render(

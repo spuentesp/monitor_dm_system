@@ -1434,3 +1434,60 @@ class TestLightRPHardening:
         assert len(loop.state.turns) == 2
         assert loop.state.turns_count == 1
         mongo.get_collection.return_value.update_one.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# get_conversation_transcript
+# ---------------------------------------------------------------------------
+
+
+class TestGetConversationTranscript:
+    def test_returns_turns_oldest_first_and_scopes_query_to_character(self):
+        """Transcript read is scoped to the character's entity; timestamps ISO-format."""
+        from datetime import datetime
+        from uuid import uuid4
+
+        entity_id, conv_id = str(uuid4()), str(uuid4())
+        ts = datetime.now(UTC)
+        doc = {
+            "conversation_id": conv_id,
+            "status": "active",
+            "turns": [
+                {"turn_index": 0, "speaker_role": "npc", "entity_name": "Maeve", "text": "well met",
+                 "emotional_state": "calm", "timestamp": ts},
+                {"turn_index": 1, "speaker_role": "player", "entity_name": "Player", "text": "hi", "timestamp": None},
+            ],
+        }
+        mongo = MagicMock()
+        mongo.get_collection.return_value.find_one.return_value = doc
+
+        with (
+            patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
+            patch.object(cc, "get_character", return_value={"id": "char-1", "entity_id": entity_id}),
+        ):
+            out = cc.get_conversation_transcript("char-1", conv_id)
+
+        assert out is not None
+        assert out["conversation_id"] == conv_id
+        assert out["status"] == "active"
+        assert [t["text"] for t in out["turns"]] == ["well met", "hi"]
+        assert out["turns"][0]["timestamp"] == ts.isoformat()
+        assert out["turns"][1]["timestamp"] is None
+        mongo.get_collection.return_value.find_one.assert_called_once_with(
+            {"conversation_id": conv_id, "npc_ids": entity_id}
+        )
+
+    def test_returns_none_when_session_belongs_to_another_character(self):
+        from uuid import uuid4
+
+        mongo = MagicMock()
+        mongo.get_collection.return_value.find_one.return_value = None
+        with (
+            patch("monitor_data.db.mongodb.get_mongodb_client", return_value=mongo),
+            patch.object(cc, "get_character", return_value={"id": "char-1", "entity_id": "ent-1"}),
+        ):
+            assert cc.get_conversation_transcript("char-1", str(uuid4())) is None
+
+    def test_returns_none_without_backing_entity(self):
+        with patch.object(cc, "get_character", return_value={"id": "char-1", "entity_id": None}):
+            assert cc.get_conversation_transcript("char-1", "any") is None
