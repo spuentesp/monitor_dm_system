@@ -193,6 +193,17 @@ def _evict_messages_cache() -> None:
         del _MESSAGES[oldest]
 
 
+def invalidate_messages_cache(session_id: str) -> None:
+    """Drop the in-process message cache for a session.
+
+    G03 (CF-1 amendment): the GM's entry edit/strike/undo routes in
+    ``gm_tools`` write the transcript through the data-layer tools, so this
+    cache must be evicted or the next ``GET .../messages`` would serve the
+    pre-correction copy.
+    """
+    _MESSAGES.pop(session_id, None)
+
+
 # ---------------------------------------------------------------------------
 # Thin helpers (kept for backward-compat with tests that monkeypatch them)
 # ---------------------------------------------------------------------------
@@ -807,6 +818,19 @@ async def wrap_up_session(session_id: str, principal: Principal = Depends(get_cu
     session["wrapped_up_at"] = now
     session["updated_at"] = now
     _db_save_session(session)
+
+    # CF-12: auto-refresh the campaign-level arc recap on session wrap-up
+    # (best-effort — a failure here must not fail the wrap-up).
+    if story_id and universe_id:
+        try:
+            from monitor_agents.recap.agent import RecapAgent
+
+            await RecapAgent().generate_arc_recap(
+                story_id=uuid.UUID(story_id),
+                universe_id=uuid.UUID(universe_id),
+            )
+        except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in wrap_up_session)
+            logger.warning("Wrap-up arc recap refresh failed (session=%s): %s", session_id, exc)
 
     return WrapUpDigest(
         recap=recap_text,

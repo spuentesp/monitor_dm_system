@@ -229,6 +229,25 @@ async def require_chat_session_owner(principal: Principal, session_id: str) -> d
     return dict(doc)
 
 
+async def require_session_log_entry_owner(db: PostgresClient, principal: Principal, log_entry_id: str) -> None:
+    """A Session Recorder entry belongs to the chat session it was logged in.
+
+    G03 (CF-1 amendment): only the session owner may edit/strike/restore a
+    logged entry. The message doc carries the ``session_id``; ownership then
+    chains through ``require_chat_session_owner``. Foreign and missing entry
+    ids get the same generic 404.
+    """
+    if _is_local_mode(principal):
+        return
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    col = get_mongodb_client().get_collection("chat_messages")
+    doc = col.find_one({"id": log_entry_id}, {"session_id": 1})
+    if not isinstance(doc, dict) or not doc.get("session_id"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
+    await require_chat_session_owner(principal, str(doc["session_id"]))
+
+
 def _conversations_collection() -> Any:
     """Mongo ``conversations`` collection (light-RP transcripts)."""
     from monitor_data.db.mongodb import get_mongodb_client
@@ -645,6 +664,10 @@ _SCOPE_RESOLVERS: dict[str, Callable[..., Awaitable[Any]]] = {
     "pack_id": require_pack_owner,
     "party_id": require_party_owner,
     "entry_id": require_lorebook_entry_owner,
+    # G03 — Session Recorder entries (chat messages) are owned through their
+    # session. Distinct param name so the guard never routes these through
+    # the lorebook resolver above.
+    "log_entry_id": require_session_log_entry_owner,
     "template_id": require_template_owner,
     "asset_id": require_asset_id_owner,
     "collection_id": require_collection_owner,

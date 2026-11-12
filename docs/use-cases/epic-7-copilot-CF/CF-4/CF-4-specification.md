@@ -45,12 +45,18 @@ mongodb_get_scene(current_scene_id)                # Current situation
 - `Narrator.generate_hooks(context, count=5)` — LLM generation
 - `Orchestrator.save_plot_thread(hook)` — If GM accepts
 
-**Layer 3 (CLI):**
-```bash
-monitor copilot suggest --story <UUID>
-monitor copilot suggest --story <UUID> --type combat
-monitor copilot suggest --story <UUID> --involving <ENTITY_ID>
+**Layer 3 (Surface):**
+The GM Assistant lives in the web UI at `/gm` (Plot Hooks panel) — there is
+no CLI `monitor copilot` (decision: GM_ASSISTANT_MODE_PLAN, G-5 Option A). The
+CLI examples describe the intended workflow; the wired surface is the web API.
+```text
+/gm → Plot Hooks panel
+    → POST /gm/hooks          (generate suggestions)
+    → POST /gm/hooks/save     (save one as a story plot thread)
 ```
+
+> Not shipped (web-only decision): `monitor copilot suggest --story <UUID>
+> [--type combat] [--involving <ENTITY_ID>]`
 
 **Hook Generation Prompt:**
 ```python

@@ -141,6 +141,31 @@ AUTHORITY_MATRIX = {
     "mongodb_get_turns": ["*"],
     "mongodb_undo_turn": ["*"],
     # =========================================================================
+    # MONGODB OPERATIONS - Session Recorder entries (CF-1 / G03)
+    # =========================================================================
+    "mongodb_get_session_entry": ["*"],
+    "mongodb_list_session_entries": ["*"],
+    # "IngestionPipeline" — the wiring audit attributes static call_tool
+    # invocations from ingestion/*.py to that agent type.
+    "mongodb_update_session_entry": [
+        "SessionIngestAgent",
+        "CaptureInsightAgent",
+        "IngestionPipeline",
+        "CanonKeeper",
+    ],
+    "mongodb_delete_session_entry": [
+        "SessionIngestAgent",
+        "CaptureInsightAgent",
+        "IngestionPipeline",
+        "CanonKeeper",
+    ],
+    "mongodb_restore_session_entry": [
+        "SessionIngestAgent",
+        "CaptureInsightAgent",
+        "IngestionPipeline",
+        "CanonKeeper",
+    ],
+    # =========================================================================
     # MONGODB OPERATIONS - Proposals (Legacy - kept for backward compatibility)
     # =========================================================================
     "mongodb_create_proposal": ["Narrator", "Resolver", "CanonKeeper"],
@@ -158,6 +183,20 @@ AUTHORITY_MATRIX = {
     # authority when invoked through MCP.
     "mongodb_defer_proposed_change": ["CanonKeeper"],
     "mongodb_edit_proposed_change": ["CanonKeeper"],
+    # G03 (CF-1 amendment) — the GM's at-table retract/undo of a queued
+    # capture proposal; pending → rejected with the strike reason.
+    "mongodb_retract_proposed_change": [
+        "CaptureInsightAgent",
+        "SessionIngestAgent",
+        "IngestionPipeline",
+        "CanonKeeper",
+    ],
+    "mongodb_restore_retracted_proposal": [
+        "CaptureInsightAgent",
+        "SessionIngestAgent",
+        "IngestionPipeline",
+        "CanonKeeper",
+    ],
     # G-9 Phase 2 — stamping the advisory review flag is a CanonKeeper write.
     "mongodb_flag_proposal_review": ["CanonKeeper"],
     # (Memory operations moved to DL-7 section below)
@@ -277,6 +316,12 @@ AUTHORITY_MATRIX = {
     "mongodb_append_story_ledger_entry": ["story", "CanonKeeper"],
     "mongodb_list_story_ledger_entries": ["*"],
     # =========================================================================
+    # MONGODB OPERATIONS - Arc Recaps (CF-12)
+    # =========================================================================
+    # The RecapAgent writes the per-story arc recap; reads stay open.
+    "mongodb_save_arc_recap": ["RecapAgent", "CanonKeeper"],
+    "mongodb_get_arc_recap": ["*"],
+    # =========================================================================
     # QDRANT OPERATIONS - Vectors (DL-10)
     # =========================================================================
     "qdrant_upsert": ["Indexer"],
@@ -311,6 +356,14 @@ AUTHORITY_MATRIX = {
     "mongodb_remove_combat_participant": ["Resolver", "CanonKeeper"],
     "mongodb_add_combat_log_entry": ["Resolver", "CanonKeeper"],
     "mongodb_set_combat_outcome": ["Resolver", "CanonKeeper"],
+    # Session combat tracker (CF-9) — ephemeral table state; only the
+    # human-GM surface's CombatAgent mutates it. Reads stay open.
+    "mongodb_combat_start": ["CombatAgent"],
+    "mongodb_combat_get": ["*"],
+    "mongodb_combat_update_combatant": ["CombatAgent"],
+    "mongodb_combat_set_initiative": ["CombatAgent"],
+    "mongodb_combat_next_round": ["CombatAgent"],
+    "mongodb_combat_end": ["CombatAgent"],
     # =========================================================================
     # MONGODB OPERATIONS - Resolutions (DL-24)
     # =========================================================================
@@ -417,6 +470,29 @@ AUTHORITY_MATRIX = {
     # Image-generation settings (Task 10) — global UI tunables, local/admin.
     "mongodb_get_image_generation_settings": ["*"],
     "mongodb_update_image_generation_settings": ["ImageRouter", "CanonKeeper"],
+    # =========================================================================
+    # MONGODB OPERATIONS - World clock (CF-11 Advance World Time)
+    # =========================================================================
+    # Reads stay open. Moving story time is the write: at runtime the GM-table
+    # agent calls it over MCP; "CanonKeeper" is listed because the wiring audit
+    # attributes static call_tool invocations from gm_table.py to it.
+    "mongodb_get_world_clock": ["*"],
+    "mongodb_list_due_deadlines": ["*"],
+    "mongodb_advance_world_clock": ["GmTableAgent", "CanonKeeper"],
+    "mongodb_upsert_world_deadline": ["GmTableAgent", "CanonKeeper"],
+    "mongodb_record_offscreen_summary": ["GmTableAgent", "CanonKeeper"],
+    # Player share links + shared artifacts (CF-14) — only ShareAgent reads or
+    # writes them over MCP; the public /share/* routes go through ShareAgent
+    # exclusively. "CanonKeeper" is listed because the wiring audit attributes
+    # static call_tool invocations from player_share.py to it.
+    "mongodb_create_player_share": ["ShareAgent", "CanonKeeper"],
+    "mongodb_get_player_share_by_token": ["ShareAgent", "CanonKeeper"],
+    "mongodb_get_player_share_for_story": ["ShareAgent", "CanonKeeper"],
+    "mongodb_revoke_player_share": ["ShareAgent", "CanonKeeper"],
+    "mongodb_create_shared_artifact": ["ShareAgent", "CanonKeeper"],
+    "mongodb_get_shared_artifact": ["ShareAgent", "CanonKeeper"],
+    "mongodb_list_shared_artifacts": ["ShareAgent", "CanonKeeper"],
+    "mongodb_set_shared_artifact_published": ["ShareAgent", "CanonKeeper"],
 }
 
 

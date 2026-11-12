@@ -85,12 +85,90 @@ rate limits, password change, session control). Verified against code:
   `/api/admin` (user list, ban/unban, role, self-guards), frontend `/login` and
   `/admin` pages.
 
-Still open after PR #138 (verified 2026-11-09): provider API keys are plaintext
-`TEXT` in Postgres (`db/postgres.py:88`); no per-user LLM spend/model quota (only
-image budgets in `monitor_ui/image_budget.py`); one shared hidden "Conversatory"
-universe (`routers/character_conversation.py:56`); and no idempotent pre-auth
-backfill tool (plan Phase 3 / §7) — pre-auth rows without `owner_id` are only
-reachable in `MONITOR_AUTH_DISABLED` local mode.
+Re-verified against the code 2026-11-11: three of the four items this paragraph
+listed as open are **done**, and the fourth was a real gap — now closed.
+
+- **Provider API keys are encrypted at rest** — `encrypt_provider_api_key` /
+  `provider_key_encryption_enabled` (`db/postgres.py`), Fernet-keyed. The key
+  comes from `MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`; **unset, the key is stored
+  in plaintext** and the data layer warns once. Setting the env var is an
+  operator action, not a code change.
+- **Per-user LLM spend quota exists** — `monitor_data/usage.py` records tokens
+  and calls *per model call* for the acting owner and refuses the next call
+  once the owner is over their daily cap; the caps are per-user overrides
+  (`user_usage_limits`), settable from the admin console
+  (`PUT /admin/usage/{user_id}/limits`) and exposed as `GET /admin/usage`.
+  The HTTP `usage_quota_guard` is the pre-request face of the same check.
+- **The hidden Conversatory universe is per-owner** —
+  `ensure_conversatory_universe(owner_id)` looks the world up in the
+  ownership registry (`worlds.kind = 'conversatory'`), never by name. (The
+  shared sentinel *player* entity is deliberate: it keys NPCVoice's
+  relationship tracking across a character's conversations.)
+- **The pre-auth owner backfill is now a tool** — `POST
+  /admin/ownership/backfill` (`PostgresClient.ownership_backfill`) claims the
+  rows that still carry no `owner_id` for one owner, idempotently: a second
+  run claims nothing, and rows that already have an owner are never
+  touched.
+
+## GM Assistant wave (2026-11-11)
+
+Four of the six remaining GM-assistant gaps shipped on
+`gap/wave1-integration`, plus the behaviour tests that were the stated first
+priority. Everything below is code-level done; the human table test (G11)
+has still not been run, so none of it is field-validated.
+
+- **Behaviour tests for the basic workings** — a hermetic stack
+  (`tests/behavior/_hermetic_stack.py`) that runs the *real* MCP tool path
+  over a mongomock Mongo and a quiet graph, so a behaviour test exercises
+  the shipped code rather than a pile of doubles. Covers the shipped GM
+  surfaces (share CF-14, combat CF-9, world clock CF-11, arc recap CF-12,
+  recorder corrections G03, canon queue CF-8) and the autonomous play
+  loop's resolve/persist/scene-end nodes.
+- **G08 — contradiction hardening.** A labelled, per-class recall corpus
+  (`canonkeeper/recall_corpus.py`: 26 violating probes over four classes,
+  20 known-good probes) and a repeatable harness
+  (`scripts/eval_canonkeeper_recall.py`) that reports recall *per class* —
+  the 2026-11-07 measurement was one percentage over eight cases. Measured
+  against `mimo-v2.6-flash`: **per-candidate checking reaches 100% on
+  direct negations, status antonyms and timeline violations, 83% on
+  reasoning chains, with a 5.0% false-positive rate** — every class at or
+  above its floor, where the batched shape missed a direct negation and
+  three chains. The shipped defaults follow the measurement
+  (`CANONKEEPER_PER_CANDIDATE_CHECKS=true`,
+  `CANONKEEPER_FOCUSED_CONTEXT=false`; the focused-context builder stays
+  available but costs one status-antonym case). Record:
+  `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`. The CF-8
+  accept path now refuses a contradiction silently: a proposal carrying a
+  direct-contradiction flag needs an explicit `override_reason`, the
+  override is written to a Mongo audit trail
+  (`canon_override_audit`), and an owner in hard-rejection mode
+  (`CANONKEEPER_HARD_REJECTION_DEFAULT`, off, per-owner via
+  `user_preferences_by_user`) gets a flat 409 instead.
+- **G06 — encounter difficulty (CF-13).** Deterministic arithmetic
+  (`game_system/difficulty.py`): the bound game system's own difficulty
+  rules when it has any, the generic convention otherwise, and `unrated`
+  rather than a guess when there is nothing to compare. `POST
+  /gm/encounter/check` answers "is this fight fair?" and shows its
+  working; the CF-7 session prep carries the estimate for a combat hook,
+  with a badge that shows the arithmetic next to the label.
+- **G09 — knowledge inspector (CF-15).** `GET /gm/knowledge/{entity_id}`
+  lists every fact, memory and pending proposal the system attributes to a
+  character, each with its provenance, with the doubtful attributions
+  marked by an explicit heuristic. `POST
+  /gm/knowledge/{entity_id}/challenge` stages the GM's objection as a CF-8
+  proposal — it never writes canon. The lookups panel gained a Knowledge
+  tab that shows the audit and stages the challenge.
+- **G02 — audio capture (CF-10), backend first.** A pluggable
+  transcription registry (`llm/transcription_providers.py`): a hosted
+  OpenAI-compatible endpoint (any provider row with
+  `role='transcription'` — OpenAI, Groq, Azure, or a self-hosted gateway
+  fronting the workspace's own models) or a local whisper install
+  (`MONITOR_TRANSCRIPTION_COMMAND`), chosen by configuration rather than
+  code. `POST /gm/audio/transcribe` stores the recording under an
+  owner-scoped key and transcribes it; `POST
+  /gm/audio/transcripts/{id}/queue` turns a reviewed segment into the same
+  capture proposals a typed entry produces, and the recorder panel gained
+  the upload-and-review surface. **Not shipped:** the live pass (phase 5).
 
 ## Shipped (verified 2026-07-23)
 
@@ -374,6 +452,16 @@ Tracked in `docs/architecture/GAP_REMEDIATION_PLAN.md`. Summary:
    `scripts/eval_canonkeeper_depth.py` now reports that rate for both checks
    (implication + deterministic rules) but still needs a populated universe to
    run against. Still open: switching Phase 3 on once measured.
+   **Updated 2026-11-11 (G08):** the 25% figure above was measured over
+   eight hand-written cases, which was too small to act on. The per-class
+   corpus and harness (`canonkeeper/recall_corpus.py`,
+   `scripts/eval_canonkeeper_recall.py`) measure recall per class of
+   violation; per-candidate checking reaches 100/100/100/83% across
+   direct-negation / status-antonym / timeline / reasoning-chain classes
+   with a 5.0% false-positive rate. The CF-8 accept path now warns on a
+   direct contradiction and requires an explicit override reason, and hard
+   rejection is available per owner (off by default). Record:
+   `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`.
 
 ## Latency
 

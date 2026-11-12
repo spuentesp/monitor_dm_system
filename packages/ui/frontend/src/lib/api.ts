@@ -39,6 +39,9 @@ import type {
   RPGSystem,
   SceneReview,
   Session,
+  SessionLogEntryPatchResponse,
+  SessionLogEntryRestoreResponse,
+  SessionLogEntryStrikeResponse,
   SlowQuery,
   Source,
   Character,
@@ -73,12 +76,21 @@ import type {
   StoryThread,
   SceneSummary,
   SceneTurn,
+  ArcRecap,
+  ArcRecapDetail,
   PlotHook,
   Contradiction,
   CaptureInsight,
   SessionPrep,
   WrapUpDigest,
   Handout,
+  PlayerShareView,
+  ShareArtifactSummary,
+  ShareArtifactType,
+  ShareCharacter,
+  ShareLink,
+  SharePublishResult,
+  SharedArtifact,
   EntityTemplate,
   EntityTemplateListResponse,
   InstantiateTemplateResponse,
@@ -1514,6 +1526,13 @@ export const storiesApi = {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
+  // CF-12 — campaign-level (story-arc) recap.
+  getArcRecap: (storyId: string) => req<ArcRecap>(`/stories/${storyId}/arc-recap`),
+  refreshArcRecap: (storyId: string, detail: ArcRecapDetail = "standard") =>
+    req<ArcRecap>(`/stories/${storyId}/arc-recap`, {
+      method: "POST",
+      body: JSON.stringify({ detail }),
+    }),
 };
 
 // ─── GM Assistant (CF-4, CF-5, CF-6, CF-7) ──────────────────
@@ -1644,7 +1663,7 @@ export const gmApi = {
 
   generateHandout: (
     universeId: string,
-    options?: { handout_type?: string; focus_entity_id?: string; tone?: string; spoiler_level?: string },
+    options?: { handout_type?: string; focus_entity_id?: string; tone?: string; spoiler_level?: string; story_id?: string },
   ) =>
     req<{ handout: Handout }>("/gm/handouts", {
       method: "POST",
@@ -1654,6 +1673,7 @@ export const gmApi = {
         focus_entity_id: options?.focus_entity_id,
         tone: options?.tone ?? "mysterious",
         spoiler_level: options?.spoiler_level ?? "safe",
+        story_id: options?.story_id,
       }),
     }),
 
@@ -1694,6 +1714,31 @@ export const gmApi = {
       }),
     }),
 
+  // G03 (CF-1 amendment) — mid-session strike/edit of captured entries.
+  updateSessionEntry: (
+    entryId: string,
+    body: {
+      universe_id: string;
+      text: string;
+      story_id?: string | null;
+      scene_id?: string | null;
+    },
+  ) =>
+    req<SessionLogEntryPatchResponse>(`/gm/session-log/entries/${entryId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  strikeSessionEntry: (entryId: string) =>
+    req<SessionLogEntryStrikeResponse>(`/gm/session-log/entries/${entryId}`, {
+      method: "DELETE",
+    }),
+
+  restoreSessionEntry: (entryId: string) =>
+    req<SessionLogEntryRestoreResponse>(`/gm/session-log/entries/${entryId}/restore`, {
+      method: "POST",
+    }),
+
   // P2.3 — per-universe scratchpad (server-backed; replaces localStorage)
   getNotes: (universeId: string) =>
     req<{ universe_id: string; content: string; updated_at: string }>(
@@ -1703,6 +1748,37 @@ export const gmApi = {
     req<{ universe_id: string; content: string; updated_at: string }>(
       `/gm/notes/${universeId}`,
       { method: "PUT", body: JSON.stringify({ content }) },
+    ),
+
+  // CF-14 — player-facing share links (owner-checked server-side)
+  shareLink: (universeId: string, storyId: string) =>
+    req<ShareLink>("/gm/share/link", {
+      query: { universe_id: universeId, story_id: storyId },
+    }),
+  sharePublish: (body: {
+    universe_id: string;
+    story_id: string;
+    artifact_type: ShareArtifactType;
+    title: string;
+    content: string;
+    spoiler_level?: "party" | "character";
+    scope_character_id?: string | null;
+    source_fact_ids?: string[];
+    session_id?: string | null;
+  }) =>
+    req<SharePublishResult>(
+      "/gm/share/publish",
+      withCsrf({ method: "POST", body: JSON.stringify(body) }),
+    ),
+  shareUnpublish: (body: { universe_id: string; artifact_id: string }) =>
+    req<{ artifact_id: string; published: boolean }>(
+      "/gm/share/unpublish",
+      withCsrf({ method: "POST", body: JSON.stringify(body) }),
+    ),
+  shareRevoke: (body: { universe_id: string; story_id: string }) =>
+    req<{ story_id: string; revoked: boolean }>(
+      "/gm/share/revoke",
+      withCsrf({ method: "POST", body: JSON.stringify(body) }),
     ),
 };
 
@@ -2132,4 +2208,27 @@ export const adminApi = {
   setRole: (userId: string, isAdmin: boolean) =>
     req<AdminUser>(`/admin/users/${userId}/role`,
       withCsrf({ method: "POST", body: JSON.stringify({ is_admin: isAdmin }) })),
+};
+
+// ─── Player-facing share links (CF-14 / G07) ────────────────
+// Public surface: the unguessable token in the path is the credential —
+// no session, no CSRF. Export URLs are plain <a download> links.
+
+export const shareApi = {
+  view: (token: string, viewerCharacter?: string | null) =>
+    req<PlayerShareView>(`/share/${encodeURIComponent(token)}`, {
+      query: viewerCharacter ? { viewer_character: viewerCharacter } : undefined,
+    }),
+  recap: (token: string, artifactId: string, viewerCharacter?: string | null) =>
+    req<SharedArtifact>(`/share/${encodeURIComponent(token)}/recap/${artifactId}`, {
+      query: viewerCharacter ? { viewer_character: viewerCharacter } : undefined,
+    }),
+  handout: (token: string, artifactId: string, viewerCharacter?: string | null) =>
+    req<SharedArtifact>(`/share/${encodeURIComponent(token)}/handout/${artifactId}`, {
+      query: viewerCharacter ? { viewer_character: viewerCharacter } : undefined,
+    }),
+  exportUrl: (token: string, artifactId: string, viewerCharacter?: string | null) => {
+    const base = apiUrl(`/share/${encodeURIComponent(token)}/export/${artifactId}.md`);
+    return viewerCharacter ? `${base}?viewer_character=${encodeURIComponent(viewerCharacter)}` : base;
+  },
 };

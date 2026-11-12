@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BookOpen, Dices, History, Loader2, Search, User, Users, Wand2 } from "lucide-react";
+import { BookOpen, Brain, Dices, History, Loader2, Search, User, Users, Wand2 } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { entitiesApi, storiesApi } from "@/lib/api";
 import { gmTableApi } from "@/lib/gm-table-api";
@@ -13,12 +13,21 @@ import type {
   RulesAnswer,
 } from "@/lib/gm-table-types";
 import { cn } from "@/lib/utils";
+import { KnowledgePanel } from "./KnowledgePanel";
 
-type LookupTab = "npc" | "party" | "last-session" | "name" | "complication" | "rules";
+type LookupTab =
+  | "npc"
+  | "party"
+  | "knowledge"
+  | "last-session"
+  | "name"
+  | "complication"
+  | "rules";
 
 const LOOKUP_TABS: Array<{ id: LookupTab; label: string; icon: typeof User }> = [
   { id: "npc", label: "NPC", icon: User },
   { id: "party", label: "Party knows", icon: Users },
+  { id: "knowledge", label: "Knowledge", icon: Brain },
   { id: "last-session", label: "Last session", icon: History },
   { id: "name", label: "Name", icon: Wand2 },
   { id: "complication", label: "Complication", icon: Dices },
@@ -91,6 +100,7 @@ export function TableLookupsPanel({
       <div className="flex-1 overflow-y-auto px-3 py-3">
         {tab === "npc" && <NpcLookup universeId={universeId} />}
         {tab === "party" && <PartyLookup universeId={universeId} />}
+        {tab === "knowledge" && <KnowledgePanel universeId={universeId} />}
         {tab === "last-session" && <LastSessionLookup universeId={universeId} />}
         {tab === "name" && <ImproviseLookup universeId={universeId} kind="name" />}
         {tab === "complication" && <ImproviseLookup universeId={universeId} kind="complication" />}
@@ -354,6 +364,23 @@ function LastSessionLookup({ universeId }: { universeId: string }) {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+          {/* CF-2 / CF-11: the recap's time line — how in-fiction time moved. */}
+          {result.time_line.length > 0 && (
+            <div data-testid="recap-time-line" className="glass-dark rounded-xl border border-white/5 p-2 space-y-1">
+              <h4 className="text-[9px] font-bold tracking-widest uppercase text-cyan-400">Time passed</h4>
+              {result.world_time && (
+                <p className="text-[10px] text-slate-400">World time: {result.world_time}</p>
+              )}
+              {result.time_line.map((a, i) => (
+                <p key={i} className="text-[10px] text-slate-500">
+                  • {a.delta}{" "}
+                  {a.from_at
+                    ? `(${a.from_at.slice(0, 10)} → ${a.to_at.slice(0, 10)})`
+                    : `(set ${a.to_at.slice(0, 10)})`}
+                </p>
+              ))}
             </div>
           )}
           {result.transcript.length > 0 && (

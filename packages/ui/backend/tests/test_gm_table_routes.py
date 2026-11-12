@@ -19,6 +19,8 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from monitor_agents.gm_table import (
+    AdvanceOutcome,
+    OffScreenSummary,
     PartyKnowledgeAnswer,
     PrepExtraction,
     PrepNpcItem,
@@ -34,6 +36,11 @@ from monitor_data.schemas.gm_prep import (
     GmPrepThread,
 )
 from monitor_data.schemas.stories import StoryLedgerEntry
+from monitor_data.schemas.world_clock import (
+    ClockAdvanceRecord,
+    WorldClockDeadlineView,
+    WorldClockResponse,
+)
 from monitor_ui.main import app
 
 pytestmark = pytest.mark.usefixtures("local_auth_mode")
@@ -71,6 +78,261 @@ def _ledger_entry(story_id):
         end_time=datetime.now(UTC),
         created_at=datetime.now(UTC),
     )
+
+
+def _clock_response(universe_id, story_id, current_at: datetime | None = None):
+    current = current_at or datetime(1012, 3, 4, 9, 0, tzinfo=UTC)
+    return WorldClockResponse(
+        universe_id=universe_id,
+        story_id=story_id,
+        current_at=current,
+        display=current.isoformat(),
+        advances=[
+            ClockAdvanceRecord(
+                from_at=datetime(1012, 3, 1, 9, 0, tzinfo=UTC),
+                to_at=current,
+                delta="+3 days",
+                advanced_at=datetime(2026, 11, 10, tzinfo=UTC),
+            )
+        ],
+        updated_at=current,
+    )
+
+
+# ---------------------------------------------------------------------------
+# World clock (CF-11)
+# ---------------------------------------------------------------------------
+
+
+class TestWorldClockRoutes:
+    def test_get_clock_miss_reports_not_found(self):
+        with patch("monitor_ui.routers.gm_tools.mongodb_get_world_clock", return_value=None):
+            resp = client.get(f"/api/gm/clock/{uuid4()}?universe_id={uuid4()}")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["found"] is False
+        assert body["clock"] is None
+
+    def test_get_clock_returns_the_briefing_with_expected_query(self):
+        universe_id = uuid4()
+        story_id = uuid4()
+        clock = _clock_response(universe_id, story_id)
+        with patch(
+            "monitor_ui.routers.gm_tools.mongodb_get_world_clock",
+            return_value=clock,
+        ) as mock_get:
+            resp = client.get(f"/api/gm/clock/{story_id}?universe_id={universe_id}")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["found"] is True
+        # CF-7 briefing content: readout, advance time line, summary slot.
+        assert body["clock"]["display"] == "1012-03-04T09:00:00+00:00"
+        assert body["clock"]["advances"][0]["delta"] == "+3 days"
+        assert body["clock"]["offscreen_summary"] == ""
+        mock_get.assert_called_once()
+        query = mock_get.call_args.args[0]
+        assert query.universe_id == universe_id
+        assert query.story_id == story_id
+
+    def test_advance_delegates_persists_summary_and_stages_crossed_deadlines(self):
+        universe_id = uuid4()
+        story_id = uuid4()
+        crossed_view = WorldClockDeadlineView(
+            id="d-ritual",
+            title="The ritual completes",
+            due_at=datetime(1012, 3, 3, tzinfo=UTC),
+            status="overdue",
+        )
+        outcome = AdvanceOutcome(
+            clock=_clock_response(universe_id, story_id),
+            changed=True,
+            crossed=[crossed_view],
+            due=[crossed_view],
+            offscreen=OffScreenSummary(
+                summary="The cult finished the rite beneath the chapel.",
+                npc_activities=["Mara chanted through the night"],
+            ),
+        )
+        proposal_id = uuid4()
+        with (
+            patch("monitor_ui.routers.gm_tools.GmTableAgent") as mock_agent_cls,
+            patch("monitor_ui.routers.gm_tools.mongodb_create_proposed_change") as mock_proposal,
+            patch("monitor_ui.routers.gm_tools.mongodb_record_offscreen_summary") as mock_summary,
+        ):
+            mock_agent_cls.return_value.advance_and_summarize = AsyncMock(return_value=outcome)
+            mock_proposal.return_value = SimpleNamespace(proposal_id=proposal_id)
+            resp = client.post(
+                "/api/gm/clock/advance",
+                json={
+                    "universe_id": str(universe_id),
+                    "story_id": str(story_id),
+                    "delta": "+3 days",
+                },
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["changed"] is True
+        assert body["clock"]["display"] == "1012-03-04T09:00:00+00:00"
+        assert [d["title"] for d in body["crossed"]] == ["The ritual completes"]
+        assert [d["title"] for d in body["due"]] == ["The ritual completes"]
+        assert body["offscreen_summary"] == "The cult finished the rite beneath the chapel."
+        assert body["npc_activities"] == ["Mara chanted through the night"]
+        assert body["staged_proposal_ids"] == [str(proposal_id)]
+        assert body["staging_errors"] == []
+
+        mock_agent_cls.return_value.advance_and_summarize.assert_awaited_once_with(
+            universe_id=universe_id,
+            story_id=story_id,
+            delta="+3 days",
+            target_time=None,
+        )
+        # The off-screen summary is persisted onto the clock for the next prep.
+        mock_summary.assert_called_once()
+        record = mock_summary.call_args.args[0]
+        assert record.story_id == story_id
+        assert record.summary == "The cult finished the rite beneath the chapel."
+        # The crossed deadline becomes ONE pending CF-8 proposal — MongoDB
+        # staging only; no Neo4j write path exists in this route.
+        mock_proposal.assert_called_once()
+        proposal = mock_proposal.call_args.args[0]
+        assert proposal.proposal_type == "world_clock_deadline"
+        assert proposal.story_id == story_id
+        assert "The ritual completes" in proposal.content["statement"]
+        assert proposal.source.startswith(f"world_clock:{story_id}:d-ritual")
+
+    def test_advance_without_crossed_deadlines_stages_nothing(self):
+        universe_id = uuid4()
+        story_id = uuid4()
+        outcome = AdvanceOutcome(
+            clock=_clock_response(universe_id, story_id),
+            changed=True,
+            crossed=[],
+            due=[],
+            offscreen=OffScreenSummary(summary="A quiet few days in town."),
+        )
+        with (
+            patch("monitor_ui.routers.gm_tools.GmTableAgent") as mock_agent_cls,
+            patch("monitor_ui.routers.gm_tools.mongodb_create_proposed_change") as mock_proposal,
+            patch("monitor_ui.routers.gm_tools.mongodb_record_offscreen_summary") as mock_summary,
+        ):
+            mock_agent_cls.return_value.advance_and_summarize = AsyncMock(return_value=outcome)
+            resp = client.post(
+                "/api/gm/clock/advance",
+                json={"universe_id": str(universe_id), "story_id": str(story_id), "delta": "+1 day"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["staged_proposal_ids"] == []
+        mock_proposal.assert_not_called()
+        mock_summary.assert_called_once()
+
+    def test_idempotent_noop_neither_persists_nor_stages(self):
+        universe_id = uuid4()
+        story_id = uuid4()
+        outcome = AdvanceOutcome(
+            clock=_clock_response(universe_id, story_id),
+            changed=False,
+            offscreen=None,
+        )
+        with (
+            patch("monitor_ui.routers.gm_tools.GmTableAgent") as mock_agent_cls,
+            patch("monitor_ui.routers.gm_tools.mongodb_create_proposed_change") as mock_proposal,
+            patch("monitor_ui.routers.gm_tools.mongodb_record_offscreen_summary") as mock_summary,
+        ):
+            mock_agent_cls.return_value.advance_and_summarize = AsyncMock(return_value=outcome)
+            resp = client.post(
+                "/api/gm/clock/advance",
+                json={"universe_id": str(universe_id), "story_id": str(story_id), "delta": "+3 days"},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["changed"] is False
+        assert body["offscreen_summary"] == ""
+        mock_proposal.assert_not_called()
+        mock_summary.assert_not_called()
+
+    def test_advance_requires_exactly_one_mode(self):
+        universe_id = str(uuid4())
+        story_id = str(uuid4())
+        # Neither delta nor target → 422 before any agent work.
+        resp = client.post(
+            "/api/gm/clock/advance",
+            json={"universe_id": universe_id, "story_id": story_id},
+        )
+        assert resp.status_code == 422
+        # Both → 422 as well.
+        resp = client.post(
+            "/api/gm/clock/advance",
+            json={
+                "universe_id": universe_id,
+                "story_id": story_id,
+                "delta": "+3 days",
+                "target_time": "1012-03-04T09:00:00+00:00",
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_advance_maps_tool_errors_to_422(self):
+        universe_id = uuid4()
+        story_id = uuid4()
+        with patch("monitor_ui.routers.gm_tools.GmTableAgent") as mock_agent_cls:
+            mock_agent_cls.return_value.advance_and_summarize = AsyncMock(
+                side_effect=ValueError("No world clock yet for this story"),
+            )
+            resp = client.post(
+                "/api/gm/clock/advance",
+                json={"universe_id": str(universe_id), "story_id": str(story_id), "delta": "+3 days"},
+            )
+
+        assert resp.status_code == 422
+        assert "No world clock" in resp.json()["detail"]
+
+    def test_deadline_upsert_delegates_with_expected_request(self):
+        universe_id = uuid4()
+        story_id = uuid4()
+        clock = _clock_response(universe_id, story_id)
+        with patch(
+            "monitor_ui.routers.gm_tools.mongodb_upsert_world_deadline",
+            return_value=clock,
+        ) as mock_up:
+            resp = client.post(
+                "/api/gm/clock/deadline",
+                json={
+                    "universe_id": str(universe_id),
+                    "story_id": str(story_id),
+                    "title": "The ransom is due",
+                    "due_at": "1012-03-03T00:00:00+00:00",
+                    "notes": "Baron Vasz demands the silver",
+                },
+            )
+
+        assert resp.status_code == 200
+        request = mock_up.call_args.args[0]
+        assert request.title == "The ransom is due"
+        assert request.due_at == datetime(1012, 3, 3, tzinfo=UTC)
+        assert request.deadline_id is None
+
+    def test_deadline_upsert_maps_missing_clock_to_422(self):
+        with patch(
+            "monitor_ui.routers.gm_tools.mongodb_upsert_world_deadline",
+            side_effect=ValueError("No world clock yet for this story"),
+        ):
+            resp = client.post(
+                "/api/gm/clock/deadline",
+                json={
+                    "universe_id": str(uuid4()),
+                    "story_id": str(uuid4()),
+                    "title": "Too early",
+                    "due_at": "1012-03-03T00:00:00+00:00",
+                },
+            )
+
+        assert resp.status_code == 422
+        assert "No world clock" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -357,11 +619,16 @@ class TestLastSessionLookup:
         universe_id = uuid4()
         story_id = uuid4()
         entry = _ledger_entry(story_id)
+        clock = _clock_response(universe_id, story_id)
         with (
             patch(
                 "monitor_ui.routers.gm_tools.mongodb_list_story_ledger_entries",
                 return_value=[entry],
             ) as mock_ledger,
+            patch(
+                "monitor_ui.routers.gm_tools.mongodb_get_world_clock",
+                return_value=clock,
+            ),
             patch(
                 "monitor_ui.routers.gm_tools.db_load_sessions",
                 return_value=[
@@ -385,6 +652,9 @@ class TestLastSessionLookup:
         assert body["ledger_entry"]["summary"].startswith("The party returned")
         assert body["session_id"] == "s-new"
         assert body["transcript"] == [{"role": "gm", "content": "The gate opens.", "timestamp": "t1"}]
+        # CF-2: the recap carries the world time and the advance time line.
+        assert body["world_time"] == "1012-03-04T09:00:00+00:00"
+        assert [a["delta"] for a in body["time_line"]] == ["+3 days"]
         mock_ledger.assert_called_once_with(story_id, limit=2)
         mock_messages.assert_called_once_with("s-new")
 
@@ -393,6 +663,7 @@ class TestLastSessionLookup:
         story_id = uuid4()
         with (
             patch("monitor_ui.routers.gm_tools.mongodb_list_story_ledger_entries", return_value=[]),
+            patch("monitor_ui.routers.gm_tools.mongodb_get_world_clock", return_value=None),
             patch("monitor_ui.routers.gm_tools.db_load_sessions", return_value=[]),
         ):
             resp = client.post(
@@ -400,7 +671,11 @@ class TestLastSessionLookup:
                 json={"universe_id": str(universe_id), "story_id": str(story_id)},
             )
         assert resp.status_code == 200
-        assert resp.json()["found"] is False
+        body = resp.json()
+        assert body["found"] is False
+        # No clock set yet → empty time line, never a failure.
+        assert body["time_line"] == []
+        assert body["world_time"] == ""
 
 
 class TestImproviseLookup:

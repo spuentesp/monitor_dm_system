@@ -78,6 +78,43 @@ export interface Message {
   metadata: Record<string, unknown>;
   chat_mode?: "ic" | "ooc";
   character_id?: string | null;
+  // G03 (CF-1 amendment) — mid-session strike/edit of logged entries.
+  struck?: boolean;
+  struck_at?: string | null;
+  edited_at?: string | null;
+}
+
+/** One logged (or struck) recorder entry as the G03 correction routes see it. */
+export interface SessionLogEntryInfo {
+  id: string;
+  session_id: string;
+  role: string;
+  content: string;
+  timestamp: string;
+  struck: boolean;
+  struck_at: string | null;
+  struck_reason: string | null;
+  edited_at: string | null;
+}
+
+export interface SessionLogEntryPatchResponse {
+  entry: SessionLogEntryInfo;
+  insight: CaptureInsight | null;
+  insight_skipped: boolean;
+  proposal_ids: string[];
+  proposal_errors: string[];
+}
+
+export interface SessionLogEntryStrikeResponse {
+  entry: SessionLogEntryInfo;
+  retracted_proposal_ids: string[];
+  retract_errors: string[];
+}
+
+export interface SessionLogEntryRestoreResponse {
+  entry: SessionLogEntryInfo;
+  restored_proposal_ids: string[];
+  restore_errors: string[];
 }
 
 export interface ChatSessionState {
@@ -334,7 +371,7 @@ export interface LLMConnection {
   status: "connected" | "error" | "unconfigured";
   latency_ms: number | null;
   is_default: boolean;
-  role: "light" | "standard" | "heavy" | "embedding" | "image";
+  role: "light" | "standard" | "heavy" | "embedding" | "image" | "transcription";
 }
 
 export interface NodeAssignment {
@@ -1289,6 +1326,21 @@ export interface SceneTurn {
   timestamp?: string | null;
 }
 
+// CF-12 — campaign-level (story-arc) recap, persisted per story.
+export type ArcRecapDetail = "short" | "standard" | "detailed";
+
+export interface ArcRecap {
+  story_id: string;
+  universe_id: string | null;
+  recap: string;
+  detail: ArcRecapDetail;
+  scene_count: number;
+  scenes_watermark: string;
+  last_scene_id: string | null;
+  generated_at: string;
+  persisted: boolean;
+}
+
 export interface StoryThread {
   id?: string | null;
   title: string;
@@ -1431,6 +1483,18 @@ export interface PrepItem {
   generated_content?: string | null;
 }
 
+// CF-13 (G06) — how fair the proposed encounter is for this party.
+// Carries its own working, so the GM can see the arithmetic.
+export interface EncounterDifficulty {
+  label: string;
+  rationale: string;
+  threat: number;
+  party_budget: number;
+  ratio: number | null;
+  basis: string;
+  details: Record<string, unknown>;
+}
+
 export interface SessionPrep {
   recap: string;
   open_threads: string[];
@@ -1438,6 +1502,7 @@ export interface SessionPrep {
   npc_reminders: string[];
   world_state_changes: string[];
   checklist?: PrepItem[];
+  encounter_difficulty?: EncounterDifficulty | null;
 }
 
 // P1.3 — guided end-of-session wrap-up digest (gm_assistant recordings).
@@ -1461,10 +1526,57 @@ export interface WrapUpDigest {
 export interface Handout {
   title: string;
   content: string;
-  handout_type: "letter" | "map_note" | "prophecy" | "journal_entry" | "notice" | "rumor";
+  handout_type: "letter" | "map_note" | "prophecy" | "journal_entry" | "notice" | "rumor" | "campaign_summary";
   related_entities: string[];
   tone: "mysterious" | "urgent" | "warm" | "ominous" | "neutral";
   spoiler_level: "safe" | "partial" | "full";
+}
+
+// ─── Player-facing sharing (CF-14 / G07) ────────────────────
+
+export type ShareArtifactType = "recap" | "handout";
+export type ShareSpoilerLevel = "party" | "character";
+
+export interface ShareArtifactSummary {
+  id: string;
+  artifact_type: ShareArtifactType;
+  title: string;
+  spoiler_level: ShareSpoilerLevel;
+  updated_at: string;
+}
+
+export interface SharedArtifact extends ShareArtifactSummary {
+  story_id: string;
+  content: string;
+  scope_character_id: string | null;
+  published: boolean;
+  created_at: string;
+}
+
+export interface ShareCharacter {
+  id: string;
+  name: string;
+}
+
+export interface PlayerShareView {
+  story_id: string;
+  character_id: string | null;
+  artifacts: ShareArtifactSummary[];
+  characters: ShareCharacter[];
+}
+
+export interface ShareLink {
+  story_id: string;
+  token: string;
+  share_path: string;
+  revoked: boolean;
+}
+
+export interface SharePublishResult {
+  artifact_id: string;
+  token: string;
+  share_path: string;
+  published: boolean;
 }
 
 // ─── Entity Template Types (M-31, CF-2) ─────────────────────

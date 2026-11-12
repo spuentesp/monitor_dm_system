@@ -65,6 +65,12 @@ from monitor_data.tools.mongodb_tools.combat import (
     _convert_combat_doc_to_response,
     mongodb_add_combat_log_entry,
     mongodb_add_combat_participant,
+    mongodb_combat_end,
+    mongodb_combat_get,
+    mongodb_combat_next_round,
+    mongodb_combat_set_initiative,
+    mongodb_combat_start,
+    mongodb_combat_update_combatant,
     mongodb_create_combat,
     mongodb_delete_combat,
     mongodb_get_combat,
@@ -143,6 +149,16 @@ from monitor_data.tools.mongodb_tools.gm_notes import (
 from monitor_data.tools.mongodb_tools.gm_prep import (
     mongodb_get_gm_prep_bundle,
     mongodb_upsert_gm_prep_bundle,
+)
+from monitor_data.tools.mongodb_tools.player_share import (
+    mongodb_create_player_share,
+    mongodb_create_shared_artifact,
+    mongodb_get_player_share_by_token,
+    mongodb_get_player_share_for_story,
+    mongodb_get_shared_artifact,
+    mongodb_list_shared_artifacts,
+    mongodb_revoke_player_share,
+    mongodb_set_shared_artifact_published,
 )
 
 # Ingestion Job operations
@@ -315,7 +331,19 @@ from monitor_data.tools.mongodb_tools.proposals import (
     mongodb_get_proposed_change,
     mongodb_list_proposed_changes,
     mongodb_flag_proposal_review,
+    mongodb_retract_proposed_change,
+    mongodb_restore_retracted_proposal,
     mongodb_update_proposed_change,
+)
+
+# Session Recorder entries (CF-1 / G03 — mid-session strike/edit)
+from monitor_data.tools.mongodb_tools.session_entries import (
+    STRIKE_REASON,
+    mongodb_delete_session_entry,
+    mongodb_get_session_entry,
+    mongodb_list_session_entries,
+    mongodb_restore_session_entry,
+    mongodb_update_session_entry,
 )
 
 # Random Table operations
@@ -368,8 +396,10 @@ from monitor_data.tools.mongodb_tools.stories import (
     _convert_story_outline_doc_to_response,
     mongodb_append_story_ledger_entry,
     mongodb_create_story_outline,
+    mongodb_get_arc_recap,
     mongodb_get_story_outline,
     mongodb_list_story_ledger_entries,
+    mongodb_save_arc_recap,
     mongodb_update_story_outline,
 )
 
@@ -425,6 +455,34 @@ from monitor_data.tools.mongodb_tools.working_state import (
     mongodb_update_working_state,
 )
 
+# World Clock operations (CF-11 Advance World Time)
+# Audio capture transcripts (CF-10 / G02)
+from monitor_data.tools.mongodb_tools.transcripts import (
+    mongodb_create_transcript,
+    mongodb_delete_transcript,
+    mongodb_get_transcript,
+    mongodb_list_transcripts,
+    mongodb_update_transcript,
+)
+
+# Per-character knowledge audit (CF-15 / G09)
+from monitor_data.tools.mongodb_tools.knowledge_audit import (
+    mongodb_list_knowledge_audit,
+)
+
+# Canon override audit trail (G08)
+from monitor_data.tools.mongodb_tools.canon_audit import (
+    mongodb_list_canon_overrides,
+    mongodb_record_canon_override,
+)
+from monitor_data.tools.mongodb_tools.world_clock import (
+    mongodb_advance_world_clock,
+    mongodb_get_world_clock,
+    mongodb_list_due_deadlines,
+    mongodb_record_offscreen_summary,
+    mongodb_upsert_world_deadline,
+)
+
 __all__ = [
     # Scenes
     "get_mongodb_client",
@@ -453,12 +511,29 @@ __all__ = [
     # Proposals
     "_convert_proposed_change_doc_to_response",
     "mongodb_create_proposed_change",
+    "mongodb_list_canon_overrides",
+    "mongodb_list_knowledge_audit",
+    "mongodb_create_transcript",
+    "mongodb_delete_transcript",
+    "mongodb_get_transcript",
+    "mongodb_list_transcripts",
+    "mongodb_update_transcript",
+    "mongodb_record_canon_override",
     "mongodb_defer_proposed_change",
     "mongodb_edit_proposed_change",
     "mongodb_get_proposed_change",
     "mongodb_list_proposed_changes",
     "mongodb_flag_proposal_review",
+    "mongodb_retract_proposed_change",
+    "mongodb_restore_retracted_proposal",
     "mongodb_update_proposed_change",
+    # Session Recorder entries (CF-1 / G03)
+    "STRIKE_REASON",
+    "mongodb_get_session_entry",
+    "mongodb_list_session_entries",
+    "mongodb_update_session_entry",
+    "mongodb_delete_session_entry",
+    "mongodb_restore_session_entry",
     # Stories
     "_convert_story_outline_doc_to_response",
     "_calculate_pacing_metrics",
@@ -467,6 +542,8 @@ __all__ = [
     "mongodb_update_story_outline",
     "mongodb_append_story_ledger_entry",
     "mongodb_list_story_ledger_entries",
+    "mongodb_save_arc_recap",
+    "mongodb_get_arc_recap",
     # Combat
     "_convert_combat_doc_to_response",
     "mongodb_create_combat",
@@ -479,6 +556,13 @@ __all__ = [
     "mongodb_remove_combat_participant",
     "mongodb_add_combat_log_entry",
     "mongodb_set_combat_outcome",
+    # Session combat tracker (CF-9)
+    "mongodb_combat_start",
+    "mongodb_combat_get",
+    "mongodb_combat_update_combatant",
+    "mongodb_combat_set_initiative",
+    "mongodb_combat_next_round",
+    "mongodb_combat_end",
     # Resolutions
     "_convert_resolution_doc_to_response",
     "mongodb_create_resolution",
@@ -622,6 +706,15 @@ __all__ = [
     # GM Prep bundles (CF-7 prep-to-table)
     "mongodb_get_gm_prep_bundle",
     "mongodb_upsert_gm_prep_bundle",
+    # Player share links + shared artifacts (CF-14)
+    "mongodb_create_player_share",
+    "mongodb_get_player_share_by_token",
+    "mongodb_get_player_share_for_story",
+    "mongodb_revoke_player_share",
+    "mongodb_create_shared_artifact",
+    "mongodb_get_shared_artifact",
+    "mongodb_list_shared_artifacts",
+    "mongodb_set_shared_artifact_published",
     # World Snapshots
     "mongodb_create_world_snapshot",
     "mongodb_get_world_snapshot",
@@ -708,4 +801,10 @@ __all__ = [
     "mongodb_pack_quality_report",
     "mongodb_publish_knowledge_pack",
     "mongodb_list_published_packs",
+    # World clock (CF-11 Advance World Time)
+    "mongodb_get_world_clock",
+    "mongodb_advance_world_clock",
+    "mongodb_list_due_deadlines",
+    "mongodb_upsert_world_deadline",
+    "mongodb_record_offscreen_summary",
 ]

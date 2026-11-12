@@ -802,6 +802,20 @@ from monitor_data.schemas.gm_profiles import (
     GMProfileResponse,
     GMProfileUpdate,
 )
+from monitor_data.schemas.world_clock import (
+    ClockAdvanceRecord,
+    DeadlineStatus,
+    OffScreenSummaryRecord,
+    WorldClockAdvance,
+    WorldClockAdvanceResult,
+    WorldClockDeadline,
+    WorldClockDeadlineUpsert,
+    WorldClockDeadlineView,
+    WorldClockQuery,
+    WorldClockResponse,
+    deadline_status,
+    parse_time_delta,
+)
 
 __all__ += [
     "AppendConversationTurn",
@@ -828,6 +842,21 @@ __all__ += [
     "GmPrepLocation",
     "GmPrepNpc",
     "GmPrepThread",
+]
+__all__ += [
+    # World clock (CF-11 Advance World Time)
+    "ClockAdvanceRecord",
+    "DeadlineStatus",
+    "OffScreenSummaryRecord",
+    "WorldClockAdvance",
+    "WorldClockAdvanceResult",
+    "WorldClockDeadline",
+    "WorldClockDeadlineUpsert",
+    "WorldClockDeadlineView",
+    "WorldClockQuery",
+    "WorldClockResponse",
+    "deadline_status",
+    "parse_time_delta",
 ]
 __all__ += [
     "RoleplayError",

@@ -16,9 +16,11 @@ import {
   Loader2,
   MapPin,
   Mic,
+  Pencil,
   Plus,
   Send,
   ShieldCheck,
+  Trash2,
   User,
   Users,
 } from "lucide-react";
@@ -66,6 +68,10 @@ export function SessionRecorder({
   const [entryInsights, setEntryInsights] = useState<
     Array<{ messageText: string; insight: CaptureInsight }>
   >([]);
+  // G03 (CF-1 amendment) — mid-session strike/edit of captured entries.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [showStruck, setShowStruck] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const { data: allSessions = [], isLoading: sessionsLoading } = useQuery({
@@ -191,6 +197,64 @@ export function SessionRecorder({
       .finally(() => setWaiting(false));
   };
 
+  // G03 — strike/edit of captured entries. All three corrections invalidate
+  // the transcript plus the canon queues (striking retracts this entry's
+  // pending proposals; the undo puts them back).
+  const invalidateEntryQueries = () => {
+    void qc.invalidateQueries({ queryKey: ["chat", activeId, "messages"] });
+    void qc.invalidateQueries({ queryKey: ["canon-queue"] });
+    void qc.invalidateQueries({ queryKey: ["canon-review"] });
+  };
+
+  const startEdit = (m: Message) => {
+    setEditingId(m.id);
+    setEditText(m.content);
+    setFailure(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText("");
+  };
+
+  const saveEdit = async () => {
+    if (!editingId || !editText.trim()) return;
+    const text = editText.trim();
+    try {
+      await gmApi.updateSessionEntry(editingId, {
+        universe_id: universeId,
+        text,
+        story_id: active?.story_id ?? null,
+        scene_id: active?.scene_id ?? null,
+      });
+      cancelEdit();
+      invalidateEntryQueries();
+    } catch (err: unknown) {
+      setFailure(err instanceof Error ? err.message : "Edit failed");
+    }
+  };
+
+  const strikeEntry = async (id: string) => {
+    try {
+      await gmApi.strikeSessionEntry(id);
+      invalidateEntryQueries();
+    } catch (err: unknown) {
+      setFailure(err instanceof Error ? err.message : "Strike failed");
+    }
+  };
+
+  const restoreEntry = async (id: string) => {
+    try {
+      await gmApi.restoreSessionEntry(id);
+      invalidateEntryQueries();
+    } catch (err: unknown) {
+      setFailure(err instanceof Error ? err.message : "Restore failed");
+    }
+  };
+
+  const visibleMessages = messages.filter((m) => !m.struck);
+  const struckMessages = messages.filter((m) => m.struck);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Toolbar */}
@@ -303,8 +367,9 @@ export function SessionRecorder({
         <>
           {/* Transcript */}
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
-            {messages.map((m) => {
+            {visibleMessages.map((m) => {
               const isGM = m.role === "gm";
+              const isEditing = editingId === m.id;
               const liveAlert = entryAlerts.find((a) => a.messageText === m.content)?.alert;
               const insight = entryInsights.find((i) => i.messageText === m.content)?.insight;
               const hasInsight =
@@ -334,13 +399,79 @@ export function SessionRecorder({
                     >
                       {isGM ? <Bot className="w-3 h-3" /> : <User className="w-3 h-3" />}
                       {isGM ? "Co-pilot" : "Logged"}
-                      <span className="font-normal text-slate-600 ml-auto">
-                        {formatRelativeTime(m.timestamp)}
-                      </span>
+                      {!isGM && (
+                        <span className="flex items-center gap-1 ml-auto">
+                          {!isEditing && (
+                            <>
+                              <button
+                                aria-label="Edit entry"
+                                onClick={() => startEdit(m)}
+                                className="p-0.5 rounded hover:bg-white/10 text-slate-500 hover:text-slate-200"
+                                title="Edit this entry"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                              <button
+                                aria-label="Strike entry"
+                                onClick={() => strikeEntry(m.id)}
+                                className="p-0.5 rounded hover:bg-white/10 text-slate-500 hover:text-red-300"
+                                title="Strike this entry (kept in the struck list)"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </>
+                          )}
+                          <span className="font-normal text-slate-600">
+                            {formatRelativeTime(m.timestamp)}
+                          </span>
+                        </span>
+                      )}
+                      {isGM && (
+                        <span className="font-normal text-slate-600 ml-auto">
+                          {formatRelativeTime(m.timestamp)}
+                        </span>
+                      )}
                     </div>
-                    <div className="prose-bubble">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                    </div>
+                    {isEditing ? (
+                      <div className="space-y-1.5">
+                        <textarea
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          rows={3}
+                          aria-label="Edit entry text"
+                          className="w-full bg-transparent text-xs text-slate-200 border border-white/10 rounded-lg px-2 py-1.5 resize-none focus:outline-none"
+                        />
+                        <div className="flex justify-end gap-1.5">
+                          <button
+                            aria-label="Cancel edit"
+                            onClick={cancelEdit}
+                            className="text-[10px] py-0.5 px-2 rounded border border-white/10 text-slate-400 hover:text-slate-200"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            aria-label="Save entry edit"
+                            onClick={() => void saveEdit()}
+                            disabled={!editText.trim()}
+                            className={cn(
+                              "text-[10px] py-0.5 px-2 rounded border",
+                              editText.trim()
+                                ? "border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10"
+                                : "border-white/8 text-slate-600 cursor-not-allowed",
+                            )}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="prose-bubble">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                        {m.edited_at && (
+                          <span className="block text-[9px] text-slate-600 mt-1">edited</span>
+                        )}
+                      </div>
+                    )}
                   </motion.div>
                   {liveAlert && (
                     <div
@@ -417,6 +548,36 @@ export function SessionRecorder({
                 </div>
               );
             })}
+            {struckMessages.length > 0 && (
+              <div data-testid="struck-audit" className="mt-2 pt-2 border-t border-white/5 space-y-1.5">
+                <button
+                  onClick={() => setShowStruck((v) => !v)}
+                  className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-500 hover:text-slate-300"
+                >
+                  <Trash2 className="w-3 h-3" /> Struck entries ({struckMessages.length})
+                </button>
+                {showStruck &&
+                  struckMessages.map((m) => (
+                    <div
+                      key={m.id}
+                      className="rounded-xl border border-white/8 bg-white/2 px-3 py-2 text-xs space-y-1"
+                    >
+                      <p className="text-slate-500 line-through">{m.content}</p>
+                      <div className="flex items-center gap-2 text-[10px] text-slate-600">
+                        <span>struck {formatRelativeTime(m.struck_at ?? m.timestamp)}</span>
+                        <button
+                          aria-label="Restore entry"
+                          onClick={() => void restoreEntry(m.id)}
+                          className="ml-auto text-[10px] py-0.5 px-2 rounded border border-white/10 text-slate-400 hover:text-slate-200"
+                          title="Undo the strike — restores the entry and its retracted proposals"
+                        >
+                          Undo strike
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
             {waiting && (
               <div className="flex items-center gap-2 text-[11px] text-slate-600 px-1">
                 <Loader2 className="w-3 h-3 animate-spin" /> co-pilot is reading…
@@ -495,7 +656,12 @@ export function SessionRecorder({
         <RecapModal sessionId={activeId} onClose={() => setShowRecap(false)} />
       )}
       {showWrapUp && activeId && (
-        <WrapUpModal sessionId={activeId} onClose={() => setShowWrapUp(false)} />
+        <WrapUpModal
+          sessionId={activeId}
+          universeId={universeId}
+          storyId={active?.story_id ?? null}
+          onClose={() => setShowWrapUp(false)}
+        />
       )}
     </div>
   );

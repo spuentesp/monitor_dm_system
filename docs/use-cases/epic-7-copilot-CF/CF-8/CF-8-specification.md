@@ -52,6 +52,20 @@ and are listed separately; edits merge a content patch before the final verdict.
 Capture-created facts carry `source_excerpt`, participants, locations, and
 snippet evidence so the review lane can show the transcript context inline.
 
+**Layer 3 (Surface):**
+The review queue lives in the web UI at `/forge/review` (`CanonReviewPanel`)
+— there is no CLI `monitor copilot` (decision: GM_ASSISTANT_MODE_PLAN, G-5
+Option A). The CLI examples describe the intended workflow; the wired surface
+is the web API.
+```text
+/forge/review → CanonReviewPanel
+    → GET  /scenes/{scene_id}/canon-review
+    → GET  /stories/{story_id}/canon-queue
+    → POST /canon-review/{proposal_id}/accept|reject|defer|edit
+    → POST /canon-review/verdicts, /canon-review/verdicts/by-filter,
+           /canon-review/by-ingest/{ingestion_job_id}/commit
+```
+
 **UI expectations:**
 
 | Panel | Purpose |

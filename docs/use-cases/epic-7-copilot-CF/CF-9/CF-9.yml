@@ -1,0 +1,37 @@
+# CF-9: Run an Encounter at the Table
+# ====================================
+
+id: "CF-9"
+title: "Run an Encounter at the Table"
+category: "cf"
+epic: 7
+priority: "high"
+status: "done"
+
+summary: |
+  At-the-table combat tracker in /gm: start an encounter, roll and track
+  initiative, adjust HP and conditions per combatant, advance rounds, and end
+  the encounter — staging permanent world effects as ProposedChange items for
+  the CF-8 queue, never writing Neo4j directly.
+
+acceptance_criteria:
+  - "The GM can run a full encounter from the /gm Combat panel without leaving the page: start → initiative → rounds with damage/conditions → end."
+  - "End-of-encounter stages ProposedChange items (casualties, GM-declared world effects) visible in the CF-8 queue; no direct Neo4j writes anywhere in the flow."
+  - "Initiative ordering is deterministic: score, then tie-break score, then name."
+
+depends_on: ["CF-8"]
+
+blocks: []
+
+implementation:
+  layer: 1
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/combat.py (session-combat section)"
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools/combat.py (mongodb_combat_* tools)"
+      - "packages/data-layer/tests/test_tools/test_combat_tools.py"
+    modify:
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+  patterns:
+    - "Ephemeral session state in MongoDB keyed by (universe_id, session_id); never Neo4j."
+    - "Deterministic HP math (temp HP absorbs first) and initiative sort in plain code."

@@ -13,6 +13,7 @@ summary: |
 
 acceptance_criteria:
   - "GM can create a recording, log text entries, and see candidate facts queued as story-scoped draft proposals with capture evidence."
+  - "GM can edit or strike a logged entry in real time and retract a queued candidate proposal before wrap-up."
 
 depends_on: []
 blocks: []

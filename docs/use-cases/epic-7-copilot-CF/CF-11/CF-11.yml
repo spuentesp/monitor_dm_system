@@ -1,0 +1,74 @@
+# CF-11: Advance World Time
+# =========================
+
+id: "CF-11"
+title: "Advance World Time"
+category: "cf"
+epic: 7
+priority: "medium"
+status: "done"
+
+summary: |
+  Per-story world clock the GM advances explicitly ("+3 days", "+2 hours", or
+  to an absolute date). Deadlines flip to due/overdue deterministically and
+  stage CF-8 proposals when crossed; the elapsed time, due/overdue deadlines
+  and an off-screen NPC tick surface in the CF-7 prep briefing, and the CF-2
+  recap payload gains a world-clock time line.
+
+acceptance_criteria:
+  - "The GM can advance time mid- or post-session with confirmation; the clock is monotonic and advancing is idempotent, with an audit log of advances."
+  - "The next CF-7 briefing shows elapsed time, due/overdue deadlines and an off-screen NPC summary grounded in canon."
+  - "Crossed deadlines are staged as pending ProposedChange items for CF-8 (never direct Neo4j writes) and surface as overdue in the threads view."
+  - "The CF-2 last-session payload carries world_time and a time_line of advances."
+  - "Only the session (universe) owner may advance time (SYS-6)."
+
+depends_on: ["CF-7", "CF-2"]
+blocks: []
+
+implementation:
+  layer: 1
+  files:
+    create:
+      - "packages/data-layer/src/monitor_data/schemas/world_clock.py"
+      - "packages/data-layer/src/monitor_data/tools/mongodb_tools/world_clock.py"
+      - "packages/data-layer/tests/test_world_clock_tools.py"
+      - "docs/use-cases/epic-7-copilot-CF/CF-11/CF-11-specification.md"
+    modify:
+      - "packages/data-layer/src/monitor_data/middleware/auth.py"
+      - "packages/agents/src/monitor_agents/gm_table.py"
+      - "packages/ui/backend/src/monitor_ui/routers/gm_tools.py"
+      - "packages/ui/frontend/src/components/gm/PrepToTablePanel.tsx"
+      - "packages/ui/frontend/src/components/gm/WrapUpModal.tsx"
+      - "packages/ui/frontend/src/components/gm/TableLookupsPanel.tsx"
+  patterns:
+    - "Prep bundle tools (packages/data-layer/src/monitor_data/tools/mongodb_tools/gm_prep.py) for the (universe, story) keyed document"
+    - "GmTableAgent typed LLM calls (packages/agents/src/monitor_agents/gm_table.py)"
+
+testing:
+  unit_tests:
+    - "packages/data-layer/tests/test_world_clock_tools.py — advance, overdue computation, idempotency, audit log"
+    - "packages/agents/tests/test_gm_table.py — advance_and_summarize wiring, no-op, first-set, tool errors, empty-canon fallback"
+    - "packages/ui/backend/tests/test_gm_table_routes.py — clock routes, 422 mappings, CF-8 staging, CF-2 time line"
+    - "packages/ui/frontend/src/components/gm/PrepToTablePanel.test.tsx — readout, confirmation, errors, deadline creation"
+  integration_tests:
+    - "No integration suite (coordinator runs tests/ separately)"
+
+coverage_minimum: 80
+
+github:
+  labels:
+    - "enhancement"
+    - "co-pilot"
+
+  milestone: "v0.1.0"
+
+assignees: []
+
+references:
+  docs:
+    - "docs/architecture/gm-assistant-gap-plans/G04-world-clock-CF-11.md"
+    - "docs/use-cases/epic-7-copilot-CF/CF-7/CF-7-specification.md"
+  code:
+    - "packages/data-layer/src/monitor_data/schemas/world_clock.py"
+    - "packages/agents/src/monitor_agents/gm_table.py"
+  external: []

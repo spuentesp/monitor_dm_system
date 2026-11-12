@@ -90,4 +90,79 @@ describe("SessionLogPanel (CF-5/CF-8)", () => {
 
     expect(await screen.findByText(/analysis failed/i)).toBeInTheDocument();
   });
+
+  // G03 (CF-1 amendment) — retract a queued candidate proposal in one click.
+  it("retracts a staged proposal from its row", async () => {
+    vi.spyOn(gmTableApi, "proposeSessionLog").mockResolvedValue({
+      batch_id: "b1b1b1b1-0000-0000-0000-000000000000",
+      items: [
+        {
+          statement: "the key is now with Mira",
+          participants: [],
+          locations: [],
+          proposal_id: "p-1",
+          flags: [],
+        },
+        {
+          statement: "the docks burned",
+          participants: [],
+          locations: [],
+          proposal_id: "p-2",
+          flags: [],
+        },
+      ],
+      proposal_errors: [],
+    });
+    const retractSpy = vi.spyOn(gmTableApi, "retractProposal").mockResolvedValue({
+      proposal_id: "p-1",
+      status: "rejected",
+      reason: "struck at the table",
+    });
+    const user = userEvent.setup();
+    renderPanel("u-1");
+
+    await user.type(
+      screen.getByPlaceholderText(/paste or type what happened/i),
+      "Mira took back the key. The docks burned.",
+    );
+    await user.click(screen.getByRole("button", { name: /propose canon changes/i }));
+
+    await user.click(await screen.findByRole("button", { name: /Retract proposal p-1/ }));
+
+    await waitFor(() => expect(retractSpy).toHaveBeenCalledWith("p-1"));
+    expect(await screen.findByTestId("retracted-p-1")).toBeInTheDocument();
+    // The other row stays retractable.
+    expect(screen.getByRole("button", { name: /Retract proposal p-2/ })).toBeEnabled();
+  });
+
+  it("surfaces a failed retract without marking the row retracted", async () => {
+    vi.spyOn(gmTableApi, "proposeSessionLog").mockResolvedValue({
+      batch_id: "b1b1b1b1-0000-0000-0000-000000000000",
+      items: [
+        {
+          statement: "the key is now with Mira",
+          participants: [],
+          locations: [],
+          proposal_id: "p-1",
+          flags: [],
+        },
+      ],
+      proposal_errors: [],
+    });
+    vi.spyOn(gmTableApi, "retractProposal").mockRejectedValue(
+      new Error("Proposal already decided"),
+    );
+    const user = userEvent.setup();
+    renderPanel("u-1");
+
+    await user.type(
+      screen.getByPlaceholderText(/paste or type what happened/i),
+      "Mira took back the key.",
+    );
+    await user.click(screen.getByRole("button", { name: /propose canon changes/i }));
+    await user.click(await screen.findByRole("button", { name: /Retract proposal p-1/ }));
+
+    expect(await screen.findByText(/retract failed/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("retracted-p-1")).toBeNull();
+  });
 });

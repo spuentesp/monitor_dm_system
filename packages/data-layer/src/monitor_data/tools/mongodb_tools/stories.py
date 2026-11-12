@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.db.neo4j import get_neo4j_client
+from monitor_data.schemas.arc_recaps import ArcRecap, ArcRecapCreate
 from monitor_data.schemas.base import BeatStatus
 from monitor_data.schemas.stories import (
     StoryLedgerEntry,
@@ -26,6 +27,10 @@ from monitor_data.tenancy import assert_story_write
 # The ledger is append-only: every finished scene adds one entry and nothing
 # is ever rewritten, so the campaign's memory cannot be lost by a later write.
 STORY_LEDGER_COLLECTION = "story_ledger"
+
+# One arc-recap document per story (CF-12): upserted on every refresh, so
+# persistence is idempotent and a story can never hold two diverging recaps.
+ARC_RECAP_COLLECTION = "arc_recaps"
 
 # =============================================================================
 # STORY OUTLINE OPERATIONS (DL-6)
@@ -471,3 +476,93 @@ def mongodb_list_story_ledger_entries(
         docs = docs[-limit:]
 
     return [_ledger_doc_to_entry(doc) for doc in docs]
+
+
+# =============================================================================
+# ARC RECAP OPERATIONS (CF-12)
+# =============================================================================
+
+
+def _arc_recap_doc_to_response(doc: dict[str, Any]) -> ArcRecap:
+    """Convert an arc_recap document from MongoDB to an ArcRecap."""
+    return ArcRecap(
+        recap_id=UUID(doc["recap_id"]),
+        story_id=UUID(doc["story_id"]),
+        universe_id=UUID(doc["universe_id"]) if doc.get("universe_id") else None,
+        recap_markdown=doc.get("recap_markdown", ""),
+        detail=doc.get("detail", "standard"),
+        scene_count=int(doc.get("scene_count", 0)),
+        scenes_watermark=doc.get("scenes_watermark", ""),
+        last_scene_id=UUID(doc["last_scene_id"]) if doc.get("last_scene_id") else None,
+        generated_at=doc["generated_at"],
+        updated_at=doc["updated_at"],
+    )
+
+
+def mongodb_save_arc_recap(params: ArcRecapCreate) -> ArcRecap:
+    """
+    Save (upsert) a story's campaign-level arc recap (CF-12).
+
+    Authority: RecapAgent
+    Use Case: CF-12
+
+    There is exactly one arc_recap document per story: saving again replaces
+    the recap in place (same recap_id), which makes persistence idempotent —
+    refreshing after each session never accumulates stale copies. The doc
+    carries `generated_at` plus a scene watermark (`scene_count`,
+    `scenes_watermark`, `last_scene_id`) describing how far into the
+    campaign the recap reaches.
+
+    Args:
+        params: The recap to store.
+
+    Returns:
+        The stored recap.
+    """
+    assert_story_write(params.story_id, universe_id=params.universe_id, resource="arc_recap")
+    client = get_mongodb_client()
+    recaps = client.get_collection(ARC_RECAP_COLLECTION)
+
+    now = datetime.now(UTC)
+    existing = recaps.find_one({"story_id": str(params.story_id)})
+    recap_id = UUID(existing["recap_id"]) if existing and existing.get("recap_id") else uuid4()
+
+    doc = {
+        "recap_id": str(recap_id),
+        "story_id": str(params.story_id),
+        "universe_id": str(params.universe_id) if params.universe_id else None,
+        "recap_markdown": params.recap_markdown,
+        "detail": params.detail.value,
+        "scene_count": params.scene_count,
+        "scenes_watermark": params.scenes_watermark,
+        "last_scene_id": str(params.last_scene_id) if params.last_scene_id else None,
+        "generated_at": now,
+        "updated_at": now,
+    }
+
+    recaps.update_one({"story_id": str(params.story_id)}, {"$set": doc}, upsert=True)
+
+    return _arc_recap_doc_to_response(doc)
+
+
+def mongodb_get_arc_recap(story_id: UUID) -> ArcRecap | None:
+    """
+    Get the persisted arc recap for a story (CF-12).
+
+    Authority: All agents
+    Use Case: CF-12
+
+    Args:
+        story_id: The story whose recap is read.
+
+    Returns:
+        The persisted recap, or None when the story has none yet.
+    """
+    client = get_mongodb_client()
+    recaps = client.get_collection(ARC_RECAP_COLLECTION)
+
+    doc = recaps.find_one({"story_id": str(story_id)})
+    if not doc:
+        return None
+
+    return _arc_recap_doc_to_response(doc)

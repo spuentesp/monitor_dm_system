@@ -11,16 +11,19 @@ Run:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 
 from monitor_agents.gm_table import (
+    AdvanceOutcome,
     ComplicationSuggestions,
     GmTableAgent,
     KnownFact,
     NameSuggestions,
+    OffScreenSummary,
     PartyKnowledgeAnswer,
     PrepExtraction,
     PrepLocationItem,
@@ -33,6 +36,12 @@ from monitor_agents.gm_table import (
     light_table_agent,
 )
 from monitor_data.schemas.llm_config import ModelRole
+from monitor_data.schemas.world_clock import (
+    ClockAdvanceRecord,
+    WorldClockAdvanceResult,
+    WorldClockDeadlineView,
+    WorldClockResponse,
+)
 
 
 def _agent_with_mcp(responses: dict[str, object]) -> tuple[GmTableAgent, AsyncMock]:
@@ -320,3 +329,230 @@ class TestFailurePropagation:
 
         with pytest.raises(RuntimeError, match="provider down"):
             await agent.extract_prep(uuid4(), "notes")
+
+
+# ---------------------------------------------------------------------------
+# World clock (CF-11)
+# ---------------------------------------------------------------------------
+
+
+def _deadline(title: str, due_at: datetime, status: str) -> WorldClockDeadlineView:
+    return WorldClockDeadlineView(
+        id=title.lower().replace(" ", "-"),
+        title=title,
+        due_at=due_at,
+        status=status,  # type: ignore[arg-type]
+    )
+
+
+def _advance_payload(
+    universe_id,
+    story_id,
+    *,
+    changed: bool = True,
+    initialized: bool = False,
+    deadlines: list[WorldClockDeadlineView] | None = None,
+    crossed: list[WorldClockDeadlineView] | None = None,
+    advances: list[ClockAdvanceRecord] | None = None,
+    current_at: datetime = datetime(1012, 3, 4, 9, 0, tzinfo=UTC),
+) -> dict:
+    """A JSON-shaped ``mongodb_advance_world_clock`` result, as MCP returns it."""
+    clock = WorldClockResponse(
+        universe_id=universe_id,
+        story_id=story_id,
+        current_at=current_at,
+        display=current_at.isoformat(),
+        deadlines=deadlines or [],
+        advances=advances or [],
+        updated_at=current_at,
+    )
+    return WorldClockAdvanceResult(
+        clock=clock,
+        changed=changed,
+        initialized=initialized,
+        crossed=crossed or [],
+    ).model_dump(mode="json")
+
+
+class TestAdvanceAndSummarize:
+    @pytest.mark.asyncio
+    async def test_advances_fetches_canon_and_grounds_the_offscreen_llm_call(self):
+        universe_id = uuid4()
+        story_id = uuid4()
+        due = _deadline("The ransom is due", datetime(1012, 3, 4, tzinfo=UTC), "due")
+        overdue = _deadline("The old promise", datetime(1012, 2, 20, tzinfo=UTC), "overdue")
+        upcoming = _deadline("Midsummer festival", datetime(1012, 6, 1, tzinfo=UTC), "upcoming")
+        payload = _advance_payload(
+            universe_id,
+            story_id,
+            deadlines=[due, overdue, upcoming],
+            crossed=[due],
+            advances=[
+                ClockAdvanceRecord(
+                    from_at=datetime(1012, 3, 1, 9, 0, tzinfo=UTC),
+                    to_at=datetime(1012, 3, 4, 9, 0, tzinfo=UTC),
+                    delta="+3 days",
+                    advanced_at=datetime(2026, 11, 10, tzinfo=UTC),
+                )
+            ],
+        )
+        agent, call_tool = _agent_with_mcp(
+            {
+                "mongodb_advance_world_clock": payload,
+                "neo4j_list_entities": {"entities": [{"name": "Mira"}]},
+                "neo4j_list_facts": [{"statement": "Mira owes the guild a debt"}],
+            }
+        )
+        llm = AsyncMock(
+            return_value=OffScreenSummary(
+                summary="Three days passed; the guild grew impatient with Mira.",
+                npc_activities=["Mira met the guild's collectors at the dock"],
+            )
+        )
+        agent.call_llm_structured = llm  # type: ignore[assignment]
+
+        result = await agent.advance_and_summarize(universe_id, story_id, delta="+3 days")
+
+        # The advance is the single deterministic clock call, flat kwargs.
+        call_tool.assert_any_await(
+            "mongodb_advance_world_clock",
+            {
+                "universe_id": str(universe_id),
+                "story_id": str(story_id),
+                "delta": "+3 days",
+                "target_time": None,
+            },
+        )
+        # Canon grounding fetched over MCP before the LLM call.
+        call_tool.assert_any_await(
+            "neo4j_list_entities",
+            {"filters": {"universe_id": str(universe_id), "limit": 100}},
+        )
+        call_tool.assert_any_await(
+            "neo4j_list_facts",
+            {"filters": {"universe_id": str(universe_id), "limit": 30}},
+        )
+        # One typed LLM call; prompt carries elapsed time, deadlines and canon.
+        llm.assert_awaited_once()
+        assert llm.call_args.args[0] is OffScreenSummary
+        prompt = llm.call_args.args[1][1]["content"]
+        assert "+3 days" in prompt
+        assert "The ransom is due" in prompt
+        assert "The old promise" in prompt
+        # Upcoming deadlines are not part of the briefing content.
+        assert "Midsummer festival" not in prompt
+        assert "Mira" in prompt
+        assert "Mira owes the guild a debt" in prompt
+
+        # Deterministic outcome: due set excludes upcoming, crossed preserved.
+        assert isinstance(result, AdvanceOutcome)
+        assert result.changed is True
+        assert result.initialized is False
+        assert [d.title for d in result.due] == ["The ransom is due", "The old promise"]
+        assert [d.title for d in result.crossed] == ["The ransom is due"]
+        assert result.offscreen is not None
+        assert result.offscreen.npc_activities == ["Mira met the guild's collectors at the dock"]
+
+    @pytest.mark.asyncio
+    async def test_idempotent_noop_skips_the_llm_and_extra_fetches(self):
+        universe_id = uuid4()
+        story_id = uuid4()
+        payload = _advance_payload(
+            universe_id,
+            story_id,
+            changed=False,
+            deadlines=[_deadline("Soon", datetime(1012, 3, 4, tzinfo=UTC), "due")],
+        )
+        agent, call_tool = _agent_with_mcp({"mongodb_advance_world_clock": payload})
+        llm = AsyncMock(return_value=OffScreenSummary())
+        agent.call_llm_structured = llm  # type: ignore[assignment]
+
+        result = await agent.advance_and_summarize(
+            universe_id,
+            story_id,
+            target_time=datetime(1012, 3, 4, 9, 0, tzinfo=UTC),
+        )
+
+        # Absolute target serialized for the wire; nothing else was called.
+        call_tool.assert_awaited_once_with(
+            "mongodb_advance_world_clock",
+            {
+                "universe_id": str(universe_id),
+                "story_id": str(story_id),
+                "delta": None,
+                "target_time": "1012-03-04T09:00:00+00:00",
+            },
+        )
+        llm.assert_not_awaited()
+        assert result.changed is False
+        assert result.offscreen is None
+        # The deterministic due set still comes back for the briefing.
+        assert [d.title for d in result.due] == ["Soon"]
+
+    @pytest.mark.asyncio
+    async def test_first_set_initializes_without_llm(self):
+        universe_id = uuid4()
+        story_id = uuid4()
+        payload = _advance_payload(universe_id, story_id, initialized=True, advances=[])
+        agent, call_tool = _agent_with_mcp({"mongodb_advance_world_clock": payload})
+        llm = AsyncMock(return_value=OffScreenSummary())
+        agent.call_llm_structured = llm  # type: ignore[assignment]
+
+        result = await agent.advance_and_summarize(
+            universe_id,
+            story_id,
+            target_time=datetime(1012, 3, 1, 9, 0, tzinfo=UTC),
+        )
+
+        call_tool.assert_awaited_once()
+        llm.assert_not_awaited()
+        assert result.initialized is True
+        assert result.changed is True
+        assert result.offscreen is None
+
+    @pytest.mark.asyncio
+    async def test_tool_errors_surface_as_value_error_for_422s(self):
+        universe_id = uuid4()
+        agent, _call_tool = _agent_with_mcp(
+            {"mongodb_advance_world_clock": "Error executing tool: No world clock yet for this story"},
+        )
+        llm = AsyncMock()
+        agent.call_llm_structured = llm  # type: ignore[assignment]
+
+        with pytest.raises(ValueError, match="No world clock"):
+            await agent.advance_and_summarize(universe_id, uuid4(), delta="+3 days")
+        llm.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_canon_to_ground_falls_back_without_an_llm_call(self):
+        universe_id = uuid4()
+        story_id = uuid4()
+        payload = _advance_payload(
+            universe_id,
+            story_id,
+            advances=[
+                ClockAdvanceRecord(
+                    from_at=datetime(1012, 3, 1, 9, 0, tzinfo=UTC),
+                    to_at=datetime(1012, 3, 4, 9, 0, tzinfo=UTC),
+                    delta="+3 days",
+                    advanced_at=datetime(2026, 11, 10, tzinfo=UTC),
+                )
+            ],
+        )
+        agent, _call_tool = _agent_with_mcp(
+            {
+                "mongodb_advance_world_clock": payload,
+                "neo4j_list_entities": {"entities": []},
+                "neo4j_list_facts": [],
+            }
+        )
+        llm = AsyncMock()
+        agent.call_llm_structured = llm  # type: ignore[assignment]
+
+        result = await agent.advance_and_summarize(universe_id, story_id, delta="+3 days")
+
+        llm.assert_not_awaited()
+        assert result.changed is True
+        assert result.offscreen is not None
+        assert result.offscreen.summary.startswith("Time passed (+3 days)")
+        assert result.offscreen.npc_activities == []

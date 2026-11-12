@@ -58,6 +58,33 @@ class DecisionMetadata(BaseModel):
         None,
         description="UUID of the created canonical entity in Neo4j (if accepted)",
     )
+    override_reason: str | None = Field(
+        None,
+        max_length=2000,
+        description=(
+            "Why the GM accepted a proposal that carried a contradiction flag. "
+            "Set only when a flagged proposal is accepted with an explicit override."
+        ),
+    )
+
+
+class ProposalReviewFlag(BaseModel):
+    """One recorded reason a proposal needs a human's eyes (G08).
+
+    A proposal can carry several: a deterministic transition-rule violation
+    and a contradiction the model found are different kinds of warning, and
+    the review queue shows both.
+    """
+
+    kind: str = Field(
+        description=("direct_contradiction | implication_contradiction | transition_rule"),
+        max_length=64,
+    )
+    severity: str = Field(default="high", max_length=32)
+    explanation: str = Field(default="", max_length=2000)
+    implications: str = Field(default="", max_length=2000)
+    rule: str = Field(default="", max_length=200)
+    detected_at: datetime | None = None
 
 
 # =============================================================================
@@ -101,6 +128,10 @@ class ProposedChangeCreate(BaseModel):
         max_length=100,
         description="Which rule flagged it (e.g. 'transition_rule')",
     )
+    # G08 — the structured flags behind the advisory review flag. The CF-8
+    # queue shows them, and the accept path refuses a flagged proposal
+    # without an explicit override reason.
+    review_flags: list[ProposalReviewFlag] = Field(default_factory=list)
 
     # --- Entity promotion (ENTITY proposals only; see docs/2_architecture/data_model_workflow.md) ---
     promotion_intent: PromotionIntent | None = Field(
@@ -193,10 +224,31 @@ class ProposedChangeResponse(BaseModel):
     needs_review: bool = False
     review_reason: str | None = None
     review_source: str | None = None
+    # G08 — the structured flags behind the advisory review flag.
+    review_flags: list[ProposalReviewFlag] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CanonOverrideRecord(BaseModel):
+    """One override: a flagged proposal the GM accepted anyway (G08).
+
+    The audit trail answers "who let this contradiction into canon, and why".
+    """
+
+    proposal_id: UUID
+    owner_id: str = Field(max_length=200)
+    reason: str = Field(min_length=1, max_length=2000)
+    universe_id: UUID | None = None
+    story_id: UUID | None = None
+    scene_id: UUID | None = None
+    flag_kinds: list[str] = Field(default_factory=list)
+    hard_mode: bool = Field(
+        default=False,
+        description="Whether the owner's hard-rejection mode was on when this was overridden",
+    )
 
 
 class ProposedChangeFilter(BaseModel):

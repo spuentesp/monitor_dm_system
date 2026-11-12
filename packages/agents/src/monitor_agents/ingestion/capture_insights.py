@@ -46,6 +46,20 @@ class CaptureInsight(BaseModel):
     advances_thread: str = Field(default="", description="Open thread this entry advances, or empty string")
 
 
+def _proposal_result(result: Any, proposal_id: str) -> dict[str, Any]:
+    """Normalize an MCP proposal tool result into a dict.
+
+    ``BaseAgent.call_tool`` returns tool failures as the raw string
+    ``"Error executing tool: ..."`` — surface those as ValueError so the
+    router can map them to 404/409 responses.
+    """
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, str) and result.startswith("Error executing tool:"):
+        raise ValueError(result.removeprefix("Error executing tool:").strip())
+    raise ValueError(f"Proposal {proposal_id} could not be updated")
+
+
 # =============================================================================
 # CAPTURE INSIGHT AGENT
 # =============================================================================
@@ -132,6 +146,40 @@ class CaptureInsightAgent(BaseAgent):
                 error=str(exc),
             )
             return CaptureInsight()
+
+    # ------------------------------------------------------------------
+    # Proposal correction (G03 — CF-1 amendment)
+    # ------------------------------------------------------------------
+
+    async def retract_proposal(
+        self,
+        proposal_id: str,
+        reason: str = "struck at the table",
+        entry_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Retract a pending candidate proposal (pending → rejected).
+
+        The reason lands in the proposal's decision metadata so CF-8 shows
+        why it disappeared. ``entry_id`` ties the retract to the struck
+        session entry that caused it.
+        """
+        args: dict[str, Any] = {"proposal_id": proposal_id, "reason": reason}
+        if entry_id is not None:
+            args["entry_id"] = entry_id
+        result = await self.call_tool("mongodb_retract_proposed_change", args)
+        return _proposal_result(result, proposal_id)
+
+    async def restore_proposal(
+        self,
+        proposal_id: str,
+        reason: str = "struck at the table",
+    ) -> dict[str, Any]:
+        """Undo a GM retract: flip the matching rejected proposal back to pending."""
+        result = await self.call_tool(
+            "mongodb_restore_retracted_proposal",
+            {"proposal_id": proposal_id, "reason": reason},
+        )
+        return _proposal_result(result, proposal_id)
 
     # ------------------------------------------------------------------
     # BaseAgent compliance

@@ -23,11 +23,14 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_data.schemas.base import ProposalStatus, ProposalType
 from monitor_data.schemas.proposed_changes import (
+    CanonOverrideRecord,
     DecisionMetadata,
+    ProposalReviewFlag,
     ProposedChangeFilter,
     ProposedChangeResponse,
     ProposedChangeUpdate,
@@ -36,10 +39,15 @@ from monitor_data.db.postgres import PostgresClient
 from monitor_data.tools.mongodb_tools import (
     mongodb_defer_proposed_change,
     mongodb_edit_proposed_change,
+    mongodb_flag_proposal_review,
     mongodb_get_ingestion_job,
+    mongodb_get_proposed_change,
+    mongodb_get_scene,
     mongodb_list_proposed_changes,
+    mongodb_record_canon_override,
     mongodb_update_proposed_change,
 )
+from monitor_data.config import get_settings
 from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
 from monitor_ui.ownership import (
     require_proposal_owner,
@@ -54,6 +62,7 @@ from .ingest_shared import db_op, validate_uuid
 
 
 router = APIRouter(dependencies=[Depends(resource_route_guard)])
+log = structlog.get_logger()
 
 
 # ---------------------------------------------------------------------------
@@ -690,15 +699,215 @@ async def apply_verdicts_by_filter(
     return VerdictByFilterResponse(affected_count=len(ids), results=results, errors=errors)
 
 
+# ---------------------------------------------------------------------------
+# G08 — contradiction flags at the accept decision (CF-5 / CF-8)
+# ---------------------------------------------------------------------------
+#
+# A proposal can carry flags: a deterministic state-transition violation, or
+# a contradiction the model found in the canon. Until now those flags were
+# advisory and never reached the decision point — the GM could accept a
+# proposal that contradicted canon without being told.
+#
+# The rule now:
+#
+# - **Soft block (default).** A proposal carrying a direct-contradiction
+#   flag cannot be accepted without an explicit ``override_reason``. The
+#   reason is persisted on the proposal and written to the override audit
+#   trail, so "who let this through, and why" has an answer later.
+# - **Hard rejection (opt-in, per owner).** With hard mode on, a flagged
+#   proposal is refused with 409 and cannot be overridden. The default for
+#   an owner who has expressed no preference comes from
+#   ``CANONKEEPER_HARD_REJECTION_DEFAULT`` (off).
+#
+# A *failed* check never blocks an acceptance: the check is advisory, and a
+# broken check must not stop a GM from doing their job.
+
+CANONKEEPER_PREF_KEY = "canonkeeper"
+
+# The flag kinds that block an acceptance.
+CONTRADICTION_FLAG_KINDS: frozenset[str] = frozenset({"direct_contradiction"})
+# The flag kinds that hard mode refuses outright.
+HARD_REFUSABLE_FLAG_KINDS: frozenset[str] = frozenset({"direct_contradiction", "transition_rule"})
+
+
+def _proposal_statement(proposal: ProposedChangeResponse) -> str:
+    """The sentence a proposal asserts (what the canon is checked against)."""
+    content = proposal.content or {}
+    for key in ("statement", "summary", "description", "name", "title", "text"):
+        value = content.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _proposal_universe_id(proposal: ProposedChangeResponse) -> str | None:
+    """The universe a proposal belongs to (its content, else its scene)."""
+    content = proposal.content or {}
+    universe_id = content.get("universe_id")
+    if universe_id:
+        return str(universe_id)
+    if proposal.scene_id:
+        try:
+            scene = mongodb_get_scene(proposal.scene_id)
+        except Exception:  # noqa: BLE001  # reason: an unreadable scene means "cannot check", not "must block"
+            return None
+        if scene is not None:
+            return str(scene.universe_id)
+    return None
+
+
+async def _owner_canon_settings(db: PostgresClient, principal: Principal) -> dict[str, Any]:
+    """The owner's CanonKeeper settings (per-owner, SYS-6 style).
+
+    Stored as a JSON blob under the owner's preferences, so one owner can
+    run strict mode while another keeps the advisory default.
+    """
+    from monitor_data.config import get_settings
+
+    stored: dict[str, Any] = {}
+    try:
+        stored = await db.pref_get(principal.user_id, CANONKEEPER_PREF_KEY) or {}
+    except Exception:  # noqa: BLE001  # reason: an unreadable preference falls back to the global default
+        stored = {}
+    settings = dict(stored)
+    if "hard_rejection" not in settings:
+        settings["hard_rejection"] = get_settings().canonkeeper_hard_rejection_default
+    return settings
+
+
+async def _detect_direct_contradiction(
+    proposal: ProposedChangeResponse,
+) -> list[ProposalReviewFlag]:
+    """Check one proposal against the canon and record what was found.
+
+    Best-effort: a failure yields no flags, because a check that cannot run
+    is not evidence of a contradiction.
+    """
+    universe_id = _proposal_universe_id(proposal)
+    statement = _proposal_statement(proposal)
+    if not universe_id or not statement:
+        return []
+    try:
+        found = await CanonKeeper().direct_contradiction_flags(UUID(universe_id), [statement])
+    except Exception as exc:  # noqa: BLE001  # reason: an unavailable model must not block a GM's decision
+        log.warning("canon contradiction check failed (proposal=%s): %s", proposal.proposal_id, exc)
+        return []
+
+    now = datetime.now(UTC)
+    flags: list[ProposalReviewFlag] = []
+    for flag in found:
+        flags.append(
+            ProposalReviewFlag(
+                kind=str(flag.get("flag_kind") or "direct_contradiction"),
+                severity=str(flag.get("severity") or "high"),
+                explanation=str(flag.get("explanation") or ""),
+                implications=str(flag.get("implications") or ""),
+                detected_at=now,
+            )
+        )
+    return flags
+
+
+async def _resolve_review_flags(
+    proposal: ProposedChangeResponse,
+) -> list[ProposalReviewFlag]:
+    """The flags that apply to a proposal, checking the canon if needed.
+
+    Flags already on the proposal are trusted. A proposal with none is
+    checked once; anything found is stamped on the proposal so the review
+    UI shows the warning next to the item.
+    """
+    if proposal.review_flags:
+        return list(proposal.review_flags)
+    flags = await _detect_direct_contradiction(proposal)
+    if not flags:
+        return []
+    try:
+        mongodb_flag_proposal_review(
+            proposal.proposal_id,
+            needs_review=True,
+            reason=flags[0].explanation or "Contradicts established canon.",
+            source=flags[0].kind,
+            flags=flags,
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: a failed stamp must not block the decision
+        log.warning("could not stamp review flags on proposal %s: %s", proposal.proposal_id, exc)
+    return flags
+
+
+def _blocking_flag_kinds(flags: list[ProposalReviewFlag]) -> set[str]:
+    """The kinds of flag that block an acceptance."""
+    return {f.kind for f in flags} & CONTRADICTION_FLAG_KINDS
+
+
+def _hard_flag_kinds(flags: list[ProposalReviewFlag]) -> set[str]:
+    """The kinds of flag that hard mode refuses outright."""
+    return {f.kind for f in flags} & HARD_REFUSABLE_FLAG_KINDS
+
+
 @router.post("/canon-review/{proposal_id}/accept", response_model=ProposedChangeResponse)
 async def accept_proposal(
-    proposal_id: str, reason: str = Query(..., min_length=1, max_length=2000)
+    proposal_id: str,
+    reason: str = Query(..., min_length=1, max_length=2000),
+    override_reason: str | None = Query(
+        None,
+        min_length=1,
+        max_length=2000,
+        description=(
+            "Why a flagged proposal is accepted anyway. Required when the proposal carries a direct-contradiction flag."
+        ),
+    ),
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
 ) -> ProposedChangeResponse:
-    """Single-shot accept for a proposal."""
+    """Single-shot accept for a proposal.
+
+    A proposal that contradicts canon cannot be accepted silently (G08): it
+    needs an explicit override reason, and the override is audited. With
+    the owner's hard-rejection mode on, it cannot be accepted at all.
+    """
     proposal_uuid = validate_uuid(proposal_id, "proposal_id")
     with db_op():
+        proposal = mongodb_get_proposed_change(proposal_uuid)
+    if proposal is None:
+        # 409, not 404: the sibling verdict routes answer a missing
+        # proposal the same way, and the accept path's contract has always
+        # been "you cannot decide this".
+        raise HTTPException(status_code=409, detail="Proposal not found.")
+    if proposal.status != ProposalStatus.PENDING:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Proposal is already {proposal.status.value}.",
+        )
+
+    owner_settings = await _owner_canon_settings(db, principal)
+    hard_mode = bool(owner_settings.get("hard_rejection"))
+    require_override = get_settings().canonkeeper_require_override_reason
+
+    flags = await _resolve_review_flags(proposal)
+    blocking = _blocking_flag_kinds(flags)
+    hard_kinds = _hard_flag_kinds(flags)
+
+    if hard_kinds and hard_mode:
+        kinds = ", ".join(sorted(hard_kinds))
+        detail = (
+            f"This proposal contradicts established canon ({kinds}) and hard "
+            "rejection is on for this account. Reject it, or edit it so it "
+            "no longer conflicts."
+        )
+        raise HTTPException(status_code=409, detail=detail)
+
+    if blocking and require_override and not override_reason:
+        detail = (
+            "This proposal contradicts established canon. Accept it with an "
+            "explicit override reason (override_reason) to record why, or "
+            "reject it."
+        )
+        raise HTTPException(status_code=409, detail=detail)
+
+    with db_op():
         try:
-            return mongodb_update_proposed_change(
+            updated = mongodb_update_proposed_change(
                 proposal_uuid,
                 ProposedChangeUpdate(
                     status=ProposalStatus.ACCEPTED,
@@ -706,11 +915,32 @@ async def accept_proposal(
                         decided_by="GM",
                         decided_at=datetime.now(UTC),
                         reason=reason,
+                        override_reason=override_reason if blocking else None,
                     ),
                 ),
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if override_reason and blocking:
+        with db_op():
+            try:
+                mongodb_record_canon_override(
+                    CanonOverrideRecord(
+                        proposal_id=proposal_uuid,
+                        owner_id=str(principal.user_id),
+                        reason=override_reason,
+                        universe_id=UUID(_proposal_universe_id(proposal)) if _proposal_universe_id(proposal) else None,
+                        story_id=proposal.story_id,
+                        scene_id=proposal.scene_id,
+                        flag_kinds=sorted(blocking),
+                        hard_mode=hard_mode,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001  # reason: the audit write must not undo the acceptance
+                log.warning("could not record canon override for %s: %s", proposal_id, exc)
+
+    return updated
 
 
 @router.post("/canon-review/{proposal_id}/reject", response_model=ProposedChangeResponse)
