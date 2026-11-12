@@ -132,6 +132,26 @@ Measurement record: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`
     are as fast as the LIGHT provider, and a 1B model can take 120 s. Check
     the LIGHT row before a table session.
 
+## Unmerged work sitting on a backup branch
+
+`backup/g09-g08-review-fixes-20261112` (commit `b5df647`, pushed) holds
+uncommitted review fixes found in the `gap/wave1-integration` worktree *after*
+PR #147 merged. Not reviewed, not tested, not merged — **do not delete it
+without reading it first.** The interesting parts:
+
+- The G08 soft block was only wired into the single accept route. These
+  changes route the batch verdict paths (`apply_verdicts`,
+  `apply_verdicts_by_filter`) through `accept_proposal` too, so a batch
+  accept cannot sidestep the override requirement. That is a real hole in
+  what shipped.
+- The by-filter verdict path owner-checks each matched proposal (it did not).
+- `_resolve_review_flags` merges existing flags with newly detected ones;
+  the merged version returns early on *any* flag and drops existing ones when
+  stamping new ones.
+- `knowledge_audit` fetches the universe's facts and filters afterwards —
+  a witness need not be involved in a fact, so filtering by `entity_id`
+  missed exactly the facts the inspector is for.
+
 ## Repo state
 
 - Branch: `gap/wave1-integration` — commits `42e9dac..HEAD` unpushed.
