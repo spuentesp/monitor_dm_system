@@ -24,6 +24,7 @@ COVERAGE_SAMPLE = "MONITOR_BOOK_COVERAGE_SAMPLE"
 COVERAGE_MIN_PARAGRAPHS = "MONITOR_BOOK_COVERAGE_MIN_PARAGRAPHS"
 SKIP_AUDIT_BATCH = "MONITOR_BOOK_SKIP_AUDIT_BATCH"
 SKIP_NON_CONTENT = "MONITOR_BOOK_SKIP_NON_CONTENT"
+STACK_MAX_TOKENS = "MONITOR_BOOK_STACK_MAX_TOKENS"
 # Estimate-only proxies: what a book will yield, before any model has run.
 CLAIMS_PER_SENTENCE = "MONITOR_BOOK_CLAIMS_PER_SENTENCE"
 SKIP_SHARE = "MONITOR_BOOK_SKIP_SHARE"
@@ -84,6 +85,7 @@ class DecompositionSettings:
     coverage_sample: float = 0.10  # OLD 1.0. Share of audited paragraphs actually checked (task 8).
     coverage_min_paragraphs: int = 64  # Below this many paragraphs, sampling saves nothing: check all.
     skip_audit_batch: int = 70  # OLD 25. Skipped sentences per second-look call (same size as a review batch).
+    stack_max_tokens: int = 0  # Off. Output cap for one stacking call (see review.stack_max_tokens).
     # What is never sent for extraction (task 9).
     skip_non_content: bool = True  # OLD False. Front matter and contents/index/credits divisions.
     # Estimate-only proxies (task 10): what the book will yield, guessed until measured.
@@ -107,6 +109,7 @@ class DecompositionSettings:
             coverage_min_paragraphs=_int(COVERAGE_MIN_PARAGRAPHS, cls.coverage_min_paragraphs),
             skip_audit_batch=_int(SKIP_AUDIT_BATCH, cls.skip_audit_batch),
             skip_non_content=_bool(SKIP_NON_CONTENT, cls.skip_non_content),
+            stack_max_tokens=_int(STACK_MAX_TOKENS, cls.stack_max_tokens),
             claims_per_sentence=_float(CLAIMS_PER_SENTENCE, cls.claims_per_sentence),
             skip_share=_float(SKIP_SHARE, cls.skip_share),
             stack_share=_float(STACK_SHARE, cls.stack_share),
