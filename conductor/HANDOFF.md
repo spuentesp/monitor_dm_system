@@ -152,6 +152,16 @@ without reading it first.** The interesting parts:
   a witness need not be involved in a fact, so filtering by `entity_id`
   missed exactly the facts the inspector is for.
 
+A second snapshot, `backup/g09-g08-review-fixes-2-20261112` (pushed), was taken
+later the same day: more live edits appeared in the worktree after the first
+snapshot (new tests for the batch-accept fix, frontend work in
+`AudioTranscriptPanel`/`SessionRecorder`/`page.tsx`). That one is a stash
+commit — `git checkout backup/g09-g08-review-fixes-2-20261112` restores it, or
+`git stash apply dabbb72` on a matching base.
+
+**Another session was actively editing this worktree while this was written.**
+Before you assume a branch is up to date, run `git status`.
+
 ## Repo state
 
 - Branch: `gap/wave1-integration` — commits `42e9dac..HEAD` unpushed.
