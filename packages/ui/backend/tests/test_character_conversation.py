@@ -1434,3 +1434,31 @@ class TestLightRPHardening:
         assert len(loop.state.turns) == 2
         assert loop.state.turns_count == 1
         mongo.get_collection.return_value.update_one.assert_called_once()
+
+
+def test_long_card_description_fits_the_entity_cap_and_keeps_the_full_text():
+    from monitor_data.schemas.entities import EntityCreate
+
+    from monitor_ui.routers.character_conversation import card_entity_fields
+
+    full = "x" * 3415
+    description, properties = card_entity_fields({"id": "c1", "name": "Yu", "description": full})
+
+    assert len(description) == 2000
+    assert properties["card_description"] == full
+    EntityCreate(
+        universe_id="00000000-0000-0000-0000-000000000001",
+        name="Yu",
+        entity_type="character",
+        description=description,
+        properties=properties,
+    )
+
+
+def test_short_card_description_is_unchanged():
+    from monitor_ui.routers.character_conversation import card_entity_fields
+
+    description, properties = card_entity_fields({"id": "c1", "name": "Yu", "description": "short"})
+
+    assert description == "short"
+    assert "card_description" not in properties

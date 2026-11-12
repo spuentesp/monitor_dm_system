@@ -176,6 +176,22 @@ async def draft_card(
 # ---------------------------------------------------------------------------
 
 
+_ENTITY_DESCRIPTION_MAX = 2000  # EntityCreate.description max_length
+
+
+def card_entity_fields(char: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """The entity description and properties for a card, within EntityCreate's description cap."""
+    full = char.get("description", "") or ""
+    properties: dict[str, Any] = {
+        "role": "character",
+        "standalone_character_id": char["id"],
+        "generation_source": "character_card_expansion",
+    }
+    if len(full) > _ENTITY_DESCRIPTION_MAX:
+        properties["card_description"] = full
+    return full[:_ENTITY_DESCRIPTION_MAX], properties
+
+
 def _provision_entity_and_profile(universe_id: str, char: dict[str, Any], fields: dict[str, Any]) -> str:
     """Create the EntityInstance + NPCProfile. Returns the new entity id (str).
 
@@ -193,18 +209,17 @@ def _provision_entity_and_profile(universe_id: str, char: dict[str, Any], fields
     from monitor_data.schemas.npc_profiles import BehavioralTrigger, NPCProfileCreate
     from monitor_data.tools.mongodb_tools import mongodb_create_npc_profile
 
+    description, properties = card_entity_fields(char)
     entity_create = EntityCreate(
         universe_id=uuid.UUID(universe_id),
         name=char["name"],
         entity_type=EntityType.CHARACTER,
         sub_type="npc",
         is_archetype=False,
-        description=char.get("description", "") or "",
-        properties={
-            "role": "character",
-            "standalone_character_id": char["id"],
-            "generation_source": "character_card_expansion",
-        },
+        # EntityCreate caps description at 2000 characters; imported cards run longer (3,400+ seen).
+        # The entity keeps the opening and the full card text rides along in properties.
+        description=description,
+        properties=properties,
         authority=Authority.SYSTEM,
         canon_level=CanonLevel.CANON,
         confidence=1.0,
