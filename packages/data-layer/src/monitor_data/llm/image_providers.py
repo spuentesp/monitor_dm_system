@@ -53,6 +53,9 @@ _TIMEOUT = 90.0  # image generation is slow; chat timeouts don't apply
 # but the orchestration layer still validates the request side of the contract.
 _MINIMAX_SUPPORTED_ASPECT_RATIOS: frozenset[str] = frozenset({"1:1", "16:9", "9:16", "4:3", "3:4"})
 _GEMINI_SUPPORTED_ASPECT_RATIOS: frozenset[str] = frozenset({"1:1", "16:9", "9:16", "4:3", "3:4"})
+# MiniMax rejects prompts of 1500+ chars with HTTP 200 and a base_resp error
+# (status 2013), so clamp here instead of surfacing an empty "no image data".
+_MINIMAX_MAX_PROMPT_CHARS = 1500
 
 
 class ImageProviderError(RuntimeError):
@@ -205,19 +208,29 @@ class MiniMaxImageAdapter:
         caps = self.capabilities()
         _validate_aspect_ratio(caps, input.aspect_ratio)
         base = _minimax_base(self.base_url)
+        prompt = input.prompt
+        if len(prompt) >= _MINIMAX_MAX_PROMPT_CHARS - 1:  # the API rejects prompts of 1500+ chars
+            prompt = prompt[: _MINIMAX_MAX_PROMPT_CHARS - 4] + "..."
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
                 f"{base}/v1/image_generation",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json={
                     "model": self.model,
-                    "prompt": input.prompt,
+                    "prompt": prompt,
                     "aspect_ratio": input.aspect_ratio,
                     "response_format": "url",
                 },
             )
             resp.raise_for_status()
-            data = (resp.json() or {}).get("data") or {}
+            payload = resp.json() or {}
+            # MiniMax reports API-level failures in base_resp with HTTP 200.
+            base_resp = payload.get("base_resp") or {}
+            if base_resp.get("status_code") not in (0, None):
+                raise ImageProviderError(
+                    f"MiniMax image API error {base_resp.get('status_code')}: {base_resp.get('status_msg')}"
+                )
+            data = payload.get("data") or {}
 
             # Base64 payloads arrive inline regardless of requested format.
             b64_list = data.get("image_base64") or []
