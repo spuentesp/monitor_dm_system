@@ -98,7 +98,7 @@ export default function LightRpPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 p-8">
+    <div className="mx-auto flex h-full max-w-6xl flex-col gap-6 overflow-y-auto p-8">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-100">Light RP</h1>

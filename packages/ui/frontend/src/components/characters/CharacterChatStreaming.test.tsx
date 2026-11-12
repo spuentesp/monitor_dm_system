@@ -83,6 +83,35 @@ describe("CharacterChat — streaming send", () => {
     expect((await screen.findAllByText("calm")).length).toBeGreaterThan(0);
   });
 
+  it("labels each speaker and strips the model's 'Name:' prefix from character replies", async () => {
+    vi.spyOn(lightRpApi, "sendStream").mockReturnValue(
+      fakeStream([
+        { type: "token", text: "Wisp: Hello, traveller." },
+        {
+          type: "done",
+          conversation_id: "conv-1",
+          text: "Wisp: Hello, traveller.",
+          emotional_state: null,
+          relationship_snapshot: {},
+        },
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<CharacterChat character={char} onBack={() => {}} />);
+    expect(await screen.findByText("Well met, traveller.")).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText(/message wisp/i), "Hi Wisp");
+    await user.click(screen.getByRole("button", { name: /send/i }));
+
+    // The character bubble shows the reply without the "Wisp:" prefix...
+    expect(await screen.findByText("Hello, traveller.")).toBeInTheDocument();
+    // ...the player's own line is visible and labelled...
+    expect(screen.getByText("Hi Wisp")).toBeInTheDocument();
+    expect(screen.getByText("You")).toBeInTheDocument();
+    // ...and character messages carry the character's name as a label.
+    expect(screen.getAllByText("Wisp").length).toBeGreaterThan(1);
+  });
+
   it("opening a pre-started conversation does not start another one", async () => {
     const start = vi.spyOn(api.entitiesApi, "startCharacterConversation");
     render(

@@ -333,6 +333,36 @@ def test_update_conversation_status_to_completed(mock_mongo: Mock) -> None:
 
 
 @patch("monitor_data.tools.mongodb_tools.conversations.get_mongodb_client")
+def test_update_conversation_with_legacy_turn_missing_timestamp(mock_mongo: Mock) -> None:
+    """Turns written before the timestamp field existed must not KeyError the update path."""
+    universe_id = uuid4()
+    npc_id = uuid4()
+    conv_id = uuid4()
+    legacy_turn = {
+        "turn_index": 0,
+        "speaker_role": "npc",
+        "entity_id": str(npc_id),
+        "entity_name": "Yuki",
+        "text": "hi",
+        "emotional_state": "neutral",
+        # no "timestamp" — written by an older version
+    }
+    doc = _make_conv_doc(conv_id, universe_id, [npc_id], turns=[legacy_turn])
+    updated_doc = {**doc, "status": "completed", "completed_at": _NOW}
+
+    mock_col = Mock()
+    mock_col.find_one.side_effect = [doc, updated_doc]
+    mock_col.update_one.return_value = Mock(matched_count=1)
+    mock_mongo.return_value.__getitem__ = Mock(return_value=mock_col)
+
+    result = mongodb_update_conversation(conv_id, ConversationSessionUpdate(status=ConversationStatus.COMPLETED))
+
+    assert result.status == ConversationStatus.COMPLETED
+    assert result.turns[0].text == "hi"
+    assert result.turns[0].timestamp is not None
+
+
+@patch("monitor_data.tools.mongodb_tools.conversations.get_mongodb_client")
 def test_update_nonexistent_session_raises(mock_mongo: Mock) -> None:
     """Updating a non-existent session raises ValueError."""
     mock_col = Mock()
