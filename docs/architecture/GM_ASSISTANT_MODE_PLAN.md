@@ -30,7 +30,7 @@
 | P2.1 server-authoritative dice | `POST /gm/roll` (no `Math.random` left in `page.tsx`) | 2026-07-23 |
 | P2.2 universe-aware rules panel | `default_game_system_id` plumbing + `systemOverridden` | 2026-07-23 |
 | P2.3 scratchpad persistence | `routers/gm_notes.py`, `schemas/gm_notes.py`, `mongodb_tools/gm_notes.py` (PR #137) | 2026-11-10 |
-| P3.1 audio descope (decision) | §P3.1 below | 2026-11-06 |
+| P3.1 audio descope (decision) | §P3.1 below — **reversed 2026-11-11**: G02 shipped the capture flow (CF-10) | 2026-11-06 |
 | P3.2 option (a) ingest hint | `data-testid="ingest-hint"` in `app/gm/page.tsx` | 2026-11-06 |
 | P3.3 recording archive metadata | `SessionPatch.archived`, recorder dropdown groups | 2026-11-06 |
 | Phase A live verification | `docs/testing/live_gm_assistant_phase_a_2026-11-06.md` (11/11) | 2026-11-06 |
@@ -45,8 +45,8 @@
 | Phase 7 Part B task 5 — table test | needs a human GM (one real ≥2 h session) | `docs/testing/GM_TABLE_TEST_PROTOCOL.md` |
 | Phase 7 Part B task 6 — fix the top five | input is the table test's ranked problems | same |
 | P3.2 option (b) — thread `story_id` from scratchpad ingest | deferred product call (`FORGE_EXPANSION.md` §17) | §P3.2 |
-| G-9 Phase 3 — hard rejection on transition violations | gated on implication-check recall, stays opt-in off | `GAP_REMEDIATION_PLAN.md` §G-9 |
-| Implication-check recall (25% on the synthetic measurement) | follow-up work per the G-9 measurement | `docs/testing/canonkeeper_depth_measurement_2026-11-07.md` |
+| ~~G-9 Phase 3 — hard rejection on transition violations~~ | **done 2026-11-11 (G08)**: the CF-8 accept path warns on a direct contradiction and needs an explicit override reason; hard rejection is per-owner and off by default | `GAP_REMEDIATION_PLAN.md` §G-9 |
+| ~~Implication-check recall (25% on the synthetic measurement)~~ | **done 2026-11-11 (G08)**: a per-class corpus and harness; the per-candidate shape measures 100/100/100/83% across direct-negation / status-antonym / timeline / reasoning-chain classes, every class at or above its floor | `docs/testing/canonkeeper_recall_measurement_2026-11-11.md` |
 
 ---
 
@@ -734,8 +734,8 @@ tabbed mobile, user-modifiable panel order/visibility):
   and lookup-log template ready in `docs/testing/GM_TABLE_TEST_PROTOCOL.md`.
 - P3.2 option (b) (thread `story_id` through scratchpad ingest) — deferred
   product call.
-- G-9 Phase 3 hard rejection and implication-check recall — gated per
-  `GAP_REMEDIATION_PLAN.md` §G-9.
+- G-9 Phase 3 hard rejection and implication-check recall — **both closed
+  2026-11-11 (G08)**; see the status board above.
 
 ### What Part B added (design notes)
 

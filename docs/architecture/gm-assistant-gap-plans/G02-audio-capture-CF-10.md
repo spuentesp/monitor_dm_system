@@ -55,11 +55,33 @@ manually), on-device transcription.
 - PII consideration documented: diarized speech is personal data; retention
   and deletion path defined.
 
+## Which backends can actually transcribe (probed 2026-11-11)
+
+The vendor decision became a *configuration* decision, so the question became
+"can the providers this workspace already has transcribe?". Probed against
+the live registry (a one-second WAV posted to each candidate endpoint):
+
+| Provider | Base URL | Audio endpoint |
+|---|---|---|
+| MiMo v2.6 Flash (`custom`) | `token-plan-sgp.xiaomimimo.com/v1` | **404** — the gateway exposes chat only |
+| MiniMax M2.7 (`minimax`) | `api.minimax.io/anthropic` | Anthropic-compatible chat; no OpenAI-style audio route. Its registry rows also carry **no credential** — the key never made it into the registry — so they cannot be called at all. |
+| Ollama (`ollama`) | `localhost:11434` | no audio models |
+
+**So no configured provider can transcribe today.** That is a configuration
+gap, not a code gap: the registry accepts a row with `role='transcription'`
+(the /config page has a "Transcription" role tier), and any OpenAI-compatible
+audio endpoint works — OpenAI, Groq, Azure, or a self-hosted gateway in front
+of the workspace's own models. The local path (`MONITOR_TRANSCRIPTION_COMMAND`)
+needs a whisper install and nothing else.
+
+The **live pass** (phase 5) therefore remains open: the capture flow was
+verified against the live stack with a scripted local backend, but no real
+speech-to-text model was available in this environment to verify the
+transcription itself.
+
 ## Open decisions
 
-- **Transcription vendor** (hosted vs. local) — gates everything; cost and
-  data-egress tradeoff, per-owner opt-in.
 - Real-time vs. post-session only: v1 is post-session; live transcription is
   a later phase.
-- This plan **reverses the P3.1 descope**; update
-  `GM_ASSISTANT_MODE_PLAN.md` §P3.1 and the CF-1 spec when phase 1 lands.
+- This plan **reverses the P3.1 descope**; `GM_ASSISTANT_MODE_PLAN.md` §P3.1
+  and the CF-1 spec are updated.

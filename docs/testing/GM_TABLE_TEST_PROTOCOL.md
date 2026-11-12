@@ -19,6 +19,13 @@ long did it take, and every time the GM gave up and did it by hand.
 
 ## Before the session (15–30 min)
 
+0. **Pre-flight the build** (2 min) — `uv run python
+   scripts/gm_table_test_preflight.py --base-url http://127.0.0.1:8123
+   --universe-id <the campaign's universe>`. It exercises every endpoint
+   below and tells you whether the build is ready, or which lookup will
+   fail in the middle of the session. Do not start a two-hour session on a
+   red pre-flight. (First run: 2026-11-11,
+   [`gm_table_test_preflight_2026-11-11.md`](gm_table_test_preflight_2026-11-11.md).)
 1. Stack up: `./dev.sh` (see `AGENTS.md`). A universe with real canon and a
    story for the campaign must exist (apply a pack or use an existing world).
 2. Open `/gm`, select the universe. Confirm the rules panel shows the bound

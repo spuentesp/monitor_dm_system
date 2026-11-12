@@ -59,7 +59,12 @@ Measurement record: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`
 
 - **G11 — the human table test** (protocol:
   `docs/testing/GM_TABLE_TEST_PROTOCOL.md`). This is the last thing; until
-  it runs, every "done" in this repo means code-level done.
+  it runs, every "done" in this repo means code-level done. **A pre-flight
+  now exists** — `scripts/gm_table_test_preflight.py` exercises every
+  endpoint the protocol touches against a live backend and gates the
+  session (first run: `docs/testing/gm_table_test_preflight_2026-11-11.md`,
+  which found and fixed a 500 in the Complication lookup and a latency
+  problem in the Name lookup).
 - **G02 phase 4 — the segment review UI** (the backend is there: the GM
   can transcribe, read and queue a segment; there is no panel to review
   them in).
@@ -116,6 +121,16 @@ Measurement record: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`
     the column is `provider` (`openai`, `custom`, `minimax`, …), and
     `provider_type` reads as NULL in a query. The transcription registry
     (`llm/transcription_providers.py`) keys off `provider` and `role`.
+12. **New: `pkill -f "<the command you are running>"` kills your own shell** —
+    the pattern matches the wrapper's own command line. Find the PID with
+    `ps` and kill that.
+13. **New: the LIGHT tier's default model cannot follow the structured
+    output contract.** `llama3.2:1b` wrote a JSON string where an array
+    belongs and every GM-table lookup that asks for a list 500'd. Fixed with
+    `recover_instructor_failure` + a provider fallback
+    (`BaseAgent.call_llm_structured`), but the latency remains: those lookups
+    are as fast as the LIGHT provider, and a 1B model can take 120 s. Check
+    the LIGHT row before a table session.
 
 ## Repo state
 

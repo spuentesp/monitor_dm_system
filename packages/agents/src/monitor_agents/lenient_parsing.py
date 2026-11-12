@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from types import UnionType
-from typing import Any, Union, get_args, get_origin
+from typing import Any, TypeVar, Union, cast, get_args, get_origin
 
 import json_repair
 import structlog
@@ -31,7 +31,13 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 log = structlog.get_logger()
 
+_T = TypeVar("_T")
+
 _TEXT_LIMIT = 200
+
+# Keys a model uses when it writes its schema back around a value instead of
+# the value itself: {"type": "string", "value": "..."}.
+_WRAPPER_KEYS = ("value", "text", "content", "name")
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +96,35 @@ def _repair(value: Any, annotation: Any, path: str, repairs: list[Repair]) -> An
         return value
     if isinstance(annotation, type) and issubclass(annotation, Enum):
         return _repair_enum(value, annotation, path, repairs)
+    if isinstance(value, dict) and annotation in (str, int, float, bool):
+        # A model that writes its schema back: {"type": "string", "value":
+        # "..."}. Unwrap the one key that carries the answer. Explicit list,
+        # not "any key with a scalar" — a dict that means something else must
+        # still be rejected.
+        for key in _WRAPPER_KEYS:
+            if key in value:
+                repairs.append(
+                    Repair(
+                        path=path,
+                        kind="wrapped_scalar",
+                        original=_short(str(value)),
+                        repaired=_short(str(value[key])),
+                    )
+                )
+                return _repair(value[key], annotation, path, repairs)
+    if annotation is str and isinstance(value, (list, tuple, set)):
+        # A single string arrived as a one-item list.
+        items = list(value)
+        if len(items) == 1:
+            repairs.append(
+                Repair(
+                    path=path,
+                    kind="single_item_list",
+                    original=_short(str(value)),
+                    repaired=_short(str(items[0])),
+                )
+            )
+            return _repair(items[0], annotation, path, repairs)
     if isinstance(annotation, type) and issubclass(annotation, BaseModel):
         if isinstance(value, str):
             parsed = json_repair.loads(value)
@@ -162,6 +197,75 @@ def _split_chat_sections(completion: str) -> dict[str, str]:
         else:
             sections[-1][1].append(line)
     return {key: "\n".join(lines).strip() for key, lines in sections if key is not None}
+
+
+def _payload_from_completion(completion: Any) -> Any:
+    """The model's structured answer from one attempt's partial completion.
+
+    Tool-calling providers put it in ``tool_calls[0].function.arguments``;
+    text providers put JSON in the message body. Returns None when the
+    attempt produced neither.
+    """
+    choices = getattr(completion, "choices", None) or []
+    if not choices:
+        return None
+    message = getattr(choices[0], "message", None)
+    if message is None:
+        return None
+    tool_calls = getattr(message, "tool_calls", None) or []
+    if tool_calls:
+        raw = getattr(getattr(tool_calls[0], "function", None), "arguments", None)
+        if isinstance(raw, str) and raw.strip():
+            try:
+                return json_repair.loads(raw)
+            except Exception:  # noqa: BLE001  # reason: an unparsable answer is not recoverable
+                return None
+    content = getattr(message, "content", None)
+    if isinstance(content, str) and content.strip():
+        try:
+            return json_repair.loads(content)
+        except Exception:  # noqa: BLE001  # reason: prose is not a structured answer
+            return None
+    return None
+
+
+def recover_instructor_failure(exc: BaseException, response_model: type[_T]) -> _T | None:
+    """Recover a usable answer from an instructor failure, leniently.
+
+    A model that writes ``{"complications": "[\"a\", \"b\"]"}`` — a JSON
+    string where an array belongs — is one repair away from a usable answer,
+    and a stray enum value the same. Instructor's retry loop throws that
+    answer away; this walks the attempts it recorded and validates each
+    candidate through :func:`lenient_validate`, so a table lookup answers
+    instead of failing.
+
+    Returns None when no attempt can be repaired into ``response_model``,
+    so the caller falls back to its own error handling.
+    """
+    attempts = getattr(exc, "failed_attempts", None) or []
+    for attempt in attempts:
+        payload = _payload_from_completion(getattr(attempt, "completion", None))
+        if payload is None:
+            continue
+        try:
+            value, repairs = lenient_validate(response_model, payload)
+        except Exception as exc:  # noqa: BLE001  # reason: this attempt is not recoverable; try the next
+            log.debug(
+                "lenient_recovery_skipped",
+                response_model=getattr(response_model, "__name__", str(response_model)),
+                error=str(exc)[:200],
+            )
+            continue
+        for repair in repairs:
+            log.warning(
+                "lenient_parse_repair",
+                path=f"{getattr(response_model, '__name__', str(response_model))}{repair.path}",
+                kind=repair.kind,
+                original=repair.original,
+                repaired=repair.repaired,
+            )
+        return cast(_T, value)
+    return None
 
 
 def recover_parse_failure(exc: BaseException) -> Prediction | None:

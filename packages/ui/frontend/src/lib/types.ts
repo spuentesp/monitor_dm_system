@@ -371,7 +371,7 @@ export interface LLMConnection {
   status: "connected" | "error" | "unconfigured";
   latency_ms: number | null;
   is_default: boolean;
-  role: "light" | "standard" | "heavy" | "embedding" | "image";
+  role: "light" | "standard" | "heavy" | "embedding" | "image" | "transcription";
 }
 
 export interface NodeAssignment {

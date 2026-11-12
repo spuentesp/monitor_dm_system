@@ -120,7 +120,7 @@ function AddProviderForm({
     api_key: "",
     base_url: "",
     is_default: false,
-    role: "standard" as "light" | "standard" | "heavy" | "embedding" | "image",
+    role: "standard" as "light" | "standard" | "heavy" | "embedding" | "image" | "transcription",
   });
 
   const models = availableModels(form.provider);
@@ -251,7 +251,18 @@ function AddProviderForm({
           <label className="text-xs text-slate-500">Role tier</label>
           <select
             value={form.role}
-            onChange={(e) => setForm({ ...form, role: e.target.value as "light" | "standard" | "heavy" | "embedding" | "image" })}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                role: e.target.value as
+                  | "light"
+                  | "standard"
+                  | "heavy"
+                  | "embedding"
+                  | "image"
+                  | "transcription",
+              })
+            }
             className="input-cyber"
             aria-label="Role tier"
           >
@@ -260,6 +271,7 @@ function AddProviderForm({
             <option value="heavy">Heavy — most capable</option>
             <option value="embedding">Embedding — vector embeddings</option>
             <option value="image">Image — image generation</option>
+            <option value="transcription">Transcription — speech to text</option>
           </select>
         </div>
       </div>
@@ -443,6 +455,7 @@ function ProviderCard({ conn, models }: { conn: LLMConnection; models: string[] 
               <option value="heavy">Heavy — most capable</option>
               <option value="embedding">Embedding — vector embeddings</option>
               <option value="image">Image — image generation</option>
+              <option value="transcription">Transcription — speech to text</option>
             </select>
           </div>
         ) : (
