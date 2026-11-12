@@ -53,12 +53,15 @@ export function CharacterChat({
   onBack,
   personaId,
   initialConversation,
+  resumeConversationId,
 }: {
   character: StandaloneCharacter;
   onBack: () => void;
   personaId?: string | null;
   /** A conversation already opened elsewhere (one-click universe start). */
   initialConversation?: ConversationStartResult | null;
+  /** Reopen this persisted conversation (transcript loads; loop rehydrates on next send). */
+  resumeConversationId?: string | null;
 }) {
   const { notify } = useNotify();
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -75,8 +78,34 @@ export function CharacterChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const convRef = useRef<string | null>(null);
 
-  // Adopt a pre-opened conversation (one-click start), or open one on mount.
+  // Adopt a pre-opened conversation (one-click start), reopen a persisted
+  // one (resume), or open a fresh one on mount.
   useEffect(() => {
+    if (resumeConversationId) {
+      let active = true;
+      setStarting(true);
+      lightRpApi
+        .getConversationTurns(character.id, resumeConversationId)
+        .then((t) => {
+          if (!active) return;
+          convRef.current = t.conversation_id;
+          setConversationId(t.conversation_id);
+          setMessages(
+            t.turns.map((turn) => ({
+              id: `t-${turn.turn_index}`,
+              role: turn.speaker_role === "player" ? ("user" as const) : ("char" as const),
+              text: turn.text,
+              emotional_state: turn.emotional_state ?? null,
+            })),
+          );
+        })
+        .catch((e) => active && notify("error", `Couldn't load chat: ${errorMessage(e)}`))
+        .finally(() => active && setStarting(false));
+      // A resumed chat stays open server-side when the user goes back.
+      return () => {
+        active = false;
+      };
+    }
     if (initialConversation) {
       convRef.current = initialConversation.conversation_id;
       setConversationId(initialConversation.conversation_id);
@@ -104,7 +133,7 @@ export function CharacterChat({
       if (cid) entitiesApi.endCharacterConversation(character.id, cid).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [character.id]);
+  }, [character.id, resumeConversationId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });

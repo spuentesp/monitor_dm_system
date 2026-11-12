@@ -22,6 +22,9 @@ export default function LightRpPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState<StandaloneCharacter | null>(null);
   const [activeStarted, setActiveStarted] = useState<ConversationStartResult | null>(null);
+  // Reopening a past chat from the Recent chats rail: load its transcript
+  // instead of starting a new conversation.
+  const [resumeId, setResumeId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   // The user's persona — bound by name + description into every chat started
   // from this page (the cast rule keeps the character from speaking for it).
@@ -88,9 +91,11 @@ export default function LightRpPage() {
           character={active}
           personaId={personaId || null}
           initialConversation={activeStarted}
+          resumeConversationId={resumeId}
           onBack={() => {
             setActive(null);
             setActiveStarted(null);
+            setResumeId(null);
           }}
         />
       </div>
@@ -134,7 +139,7 @@ export default function LightRpPage() {
             ref={fileRef}
             id="import-card"
             type="file"
-            accept=".json,.png"
+            accept=".json,.png,.charx"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
@@ -165,10 +170,19 @@ export default function LightRpPage() {
         </div>
       ) : (
         <>
-          <RecentChatsRail characters={charactersQ.data ?? []} />
+          <RecentChatsRail
+            characters={charactersQ.data ?? []}
+            onOpen={(c, conversationId) => {
+              setActive(c);
+              setResumeId(conversationId);
+            }}
+          />
           <CharacterCardGrid
             characters={charactersQ.data ?? []}
-            onChat={setActive}
+            onChat={(c) => {
+              setActive(c);
+              setResumeId(null);
+            }}
             onGeneratePortrait={(c) => void generatePortrait(c)}
             onEditVisualIdentity={setIdentityFor}
             onVisualReferences={setGalleryFor}

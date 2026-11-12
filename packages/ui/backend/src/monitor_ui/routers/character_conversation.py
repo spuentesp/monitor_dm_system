@@ -1182,6 +1182,42 @@ def list_conversations(entity_id: str, limit: int = 20) -> list[dict[str, Any]]:
     return out
 
 
+def get_conversation_transcript(character_id: str, conversation_id: str) -> dict[str, Any] | None:
+    """Full transcript of one of this character's sessions, oldest first.
+
+    Returns None when the character is unknown, has no backing entity, or the
+    session does not belong to it. Used by the Conversatory to reopen a past
+    chat; the send path rehydrates the live loop from the same doc.
+    """
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    char = get_character(character_id)
+    entity_id = (char or {}).get("entity_id")
+    if not char or not entity_id:
+        return None
+    doc = (
+        get_mongodb_client()
+        .get_collection("conversations")
+        .find_one({"conversation_id": str(conversation_id), "npc_ids": entity_id})
+    )
+    if not doc:
+        return None
+    turns: list[dict[str, Any]] = []
+    for i, t in enumerate(doc.get("turns", [])):
+        ts = t.get("timestamp")
+        turns.append(
+            {
+                "turn_index": t.get("turn_index", i),
+                "speaker_role": t.get("speaker_role"),
+                "entity_name": t.get("entity_name"),
+                "text": t.get("text", ""),
+                "emotional_state": t.get("emotional_state"),
+                "timestamp": ts.isoformat() if hasattr(ts, "isoformat") else (str(ts) if ts else None),
+            }
+        )
+    return {"conversation_id": doc.get("conversation_id"), "status": doc.get("status"), "turns": turns}
+
+
 # ---------------------------------------------------------------------------
 # "What this character remembers about you" (Phase 7, task 5)
 # ---------------------------------------------------------------------------

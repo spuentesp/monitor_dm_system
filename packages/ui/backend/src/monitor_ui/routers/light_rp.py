@@ -14,6 +14,7 @@ LAYER: 3 (UI backend / FastAPI router)
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, AsyncIterator, cast
 
@@ -92,6 +93,25 @@ class StreamSendRequest(BaseModel):
 
     text: str = Field(..., min_length=1)
     include_cross_incarnation: bool = False
+
+
+class ConversationTurnOut(BaseModel):
+    """One persisted turn of a light-RP conversation."""
+
+    turn_index: int
+    speaker_role: str
+    entity_name: str | None = None
+    text: str
+    emotional_state: str | None = None
+    timestamp: str | None = None
+
+
+class ConversationTranscriptResponse(BaseModel):
+    """Full transcript of a conversation, oldest first — used to reopen a past chat."""
+
+    conversation_id: str
+    status: str
+    turns: list[ConversationTurnOut] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +226,23 @@ async def stream_character_message(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get(
+    "/characters/{character_id}/conversations/{conversation_id}/turns",
+    response_model=ConversationTranscriptResponse,
+)
+async def get_conversation_turns(
+    character_id: str,
+    conversation_id: str,
+    principal: Principal = Depends(get_current_user),
+) -> ConversationTranscriptResponse:
+    """Full transcript of a light-RP chat, oldest first — for reopening a past conversation."""
+    await require_character_owner(principal, character_id)
+    transcript = await asyncio.to_thread(cc.get_conversation_transcript, character_id, conversation_id)
+    if transcript is None:
+        raise HTTPException(status_code=404, detail="Conversation not found for this character.")
+    return ConversationTranscriptResponse(**transcript)
 
 
 # ---------------------------------------------------------------------------
