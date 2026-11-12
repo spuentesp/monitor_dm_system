@@ -509,3 +509,46 @@ async def test_respond_actor_no_insight_no_proposals(
     )
 
     assert result["proposals"] == []
+
+
+# =============================================================================
+# _clamp / _persist_npc_turn TESTS
+# =============================================================================
+
+
+def test_clamp_trims_to_limit() -> None:
+    """_clamp keeps short values, trims long ones to the cap, maps empty/None to None."""
+    from monitor_agents.npc_voice.agent import _clamp
+
+    assert _clamp(None, 100) is None
+    assert _clamp("", 100) is None
+    assert _clamp("   ", 100) is None
+    assert _clamp("calm", 100) == "calm"
+    clamped = _clamp("x" * 500, 100)
+    assert clamped is not None and len(clamped) <= 100
+
+
+@pytest.mark.asyncio
+async def test_persist_npc_turn_clamps_overlong_model_fields() -> None:
+    """A rambling model reply must not fail turn persistence (schema caps: text 8000, emotional_state 100)."""
+    from monitor_data.schemas.conversations import AppendConversationTurn
+
+    agent = NPCVoice()
+    captured: dict[str, Any] = {}
+
+    async def fake_call_tool(name: str, params: dict) -> None:
+        captured[name] = params
+
+    agent.call_tool = fake_call_tool  # type: ignore[method-assign]
+    await agent._persist_npc_turn(
+        conversation_id=uuid4(),
+        npc_id=uuid4(),
+        npc_name="Yuki",
+        text="x" * 9000,
+        emotional_state="desperate, " * 30,
+    )
+    params = captured["mongodb_append_conversation_turn"]["params"]
+    # Validates against the tool schema — would raise if over the caps.
+    parsed = AppendConversationTurn(**params)
+    assert len(parsed.text) <= 8000
+    assert parsed.emotional_state is not None and len(parsed.emotional_state) <= 100

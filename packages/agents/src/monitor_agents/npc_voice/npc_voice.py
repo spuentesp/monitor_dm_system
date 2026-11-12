@@ -38,6 +38,10 @@ class NPCDirectVoiceSignature(dspy.Signature):  # type: ignore[misc]
 
     Use the NPC's personality profile, current emotional state, memories,
     and known facts to produce an authentic, consistent response.
+
+    Answer what the player JUST said. Never repeat or paraphrase a reply you
+    already gave in this conversation — check the history and say something
+    new. Do not restate the character card or your own previous lines.
     """
 
     # ── Inputs ──────────────────────────────────────────────────────────────
