@@ -2,11 +2,12 @@
 
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Images, MessageCircle, Palette, Sparkles, Upload } from "lucide-react";
+import { Images, MessageCircle, Palette, Plus, Sparkles, Upload } from "lucide-react";
 import { entitiesApi, imageApi } from "@/lib/api";
 import { CharacterChat } from "@/components/characters/CharacterChat";
 import { DialogShell } from "@/components/DialogShell";
 import { CharacterCardGrid } from "@/components/lightrp/CharacterCardGrid";
+import { CharacterCreateDialog } from "@/components/lightrp/CharacterCreateDialog";
 import { RecentChatsRail } from "@/components/lightrp/RecentChatsRail";
 import { UniverseCharacterPicker } from "@/components/lightrp/UniverseCharacterPicker";
 import { AssetGallery, PendingAssetPreview } from "@/components/visual/AssetGallery";
@@ -26,6 +27,7 @@ export default function LightRpPage() {
   // instead of starting a new conversation.
   const [resumeId, setResumeId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [creating, setCreating] = useState(false);
   // The user's persona — bound by name + description into every chat started
   // from this page (the cast rule keeps the character from speaking for it).
   const [personaId, setPersonaId] = useState<string>("");
@@ -146,6 +148,13 @@ export default function LightRpPage() {
               if (f) void importCard(f);
             }}
           />
+          <button
+            type="button"
+            className="btn-ghost flex items-center gap-2 px-4 py-2 text-sm"
+            onClick={() => setCreating(true)}
+          >
+            <Plus className="h-4 w-4" /> New character
+          </button>
           <label htmlFor="import-card" className="btn-cyber flex cursor-pointer items-center gap-2 px-4 py-2 text-sm">
             <Upload className="h-4 w-4" /> {importing ? "Importing…" : "Import card"}
           </label>
@@ -245,6 +254,16 @@ export default function LightRpPage() {
             />
           </div>
         </DialogShell>
+      )}
+
+      {creating && (
+        <CharacterCreateDialog
+          onCreated={() => {
+            setCreating(false);
+            void qc.invalidateQueries({ queryKey: ["standalone-characters"] });
+          }}
+          onClose={() => setCreating(false)}
+        />
       )}
 
       {pickUniverseCharacter && (
