@@ -173,7 +173,7 @@ has still not been run, so none of it is field-validated.
 ### GM Assistant follow-up (2026-11-12/13)
 
 Post-#147 review fixes plus the remaining phase-4 panels, on
-`gap/wave1-integration` (local commits, not pushed):
+`gap/wave1-integration` (merged as PR #154, `b80ed01`):
 
 - **Knowledge corrections are now end-to-end.** The inspector's Challenge
   flow stages a CF-8 proposal that can retract an attribution

@@ -187,10 +187,12 @@ Before you assume a branch is up to date, run `git status`.
 
 ## Repo state
 
-- Branch: `gap/wave1-integration` — pushed; **PR #154** (2026-11-13) carries
-  the post-#147 follow-up: review fixes + knowledge corrections + G02/G09
-  phase-4 panels (`cdf597a`), P3.2(b) story attribution (`4d50d62`), and
-  the docs close-outs (`543b932`, `a8be570`). Nothing merged yet.
+- Branch: `gap/wave1-integration` — **PR #154 merged** (2026-11-13,
+  `b80ed01`): the post-#147 follow-up — review fixes + knowledge
+  corrections + G02/G09 phase-4 panels (`cdf597a`), P3.2(b) story
+  attribution (`4d50d62`), the correction auto-reconciler (`4c4d207`),
+  the general lifecycle behaviour test (`e272874`), and the docs
+  close-outs. The branch stays as the working branch for what comes next.
 - `gap/g05-recap` fully merged (safe to delete).
 - The local Postgres has a **live provider registry** (MiniMax M2.7,
   MiMo v2.6 Flash, Ollama qwen2.5:7b / llama3.2:1b). The measurement runs
