@@ -62,6 +62,7 @@ class KnowledgeAuditAgent(BaseAgent):
         self,
         entity_id: UUID,
         universe_id: UUID | None = None,
+        offset: int = 0,
     ) -> KnowledgeAudit:
         """What the system believes this character knows, with provenance.
 
@@ -81,17 +82,17 @@ class KnowledgeAuditAgent(BaseAgent):
                     "entity_id": str(entity_id),
                     "universe_id": str(universe_id) if universe_id else None,
                     "limit": 200,
+                    "offset": offset,
                 }
             },
         )
         payload = _as_dict(raw)
         if not payload:
-            return KnowledgeAudit(entity_id=entity_id, universe_id=universe_id)
+            raise RuntimeError(f"Knowledge audit could not be read: {raw}")
         try:
             return KnowledgeAudit.model_validate(payload)
-        except Exception as exc:  # noqa: BLE001  # reason: a malformed audit degrades to an empty one
-            log.warning("knowledge audit payload was malformed: %s", exc)
-            return KnowledgeAudit(entity_id=entity_id, universe_id=universe_id)
+        except Exception as exc:
+            raise RuntimeError("Knowledge audit payload was malformed") from exc
 
     async def challenge(
         self,
@@ -120,14 +121,31 @@ class KnowledgeAuditAgent(BaseAgent):
         Raises:
             ValueError: When the proposal cannot be staged (no scope).
         """
+        if scene_id is None and story_id is None:
+            raise ValueError("A story or scene is required for the review queue.")
+        if universe_id is None:
+            raise ValueError("A universe is required for a knowledge challenge.")
+        offset = 0
+        item = None
+        while True:
+            audit = await self.audit(entity_id=entity_id, universe_id=universe_id, offset=offset)
+            item = next((row for row in audit.items if row.id == challenge.item_id and row.kind == challenge.kind), None)
+            if item is not None or audit.next_offset is None:
+                break
+            if audit.next_offset <= offset:
+                raise ValueError("Invalid knowledge audit pagination")
+            offset = audit.next_offset
+        if item is None:
+            raise ValueError("The challenged attribution is not in this character's knowledge audit.")
         content: dict[str, Any] = {
-            "statement": challenge.statement,
+            "statement": item.statement if challenge.action == "retract" else challenge.statement,
             "participants": [str(entity_id)],
             "knowledge_correction": {
                 "action": challenge.action,
                 "item_id": challenge.item_id,
                 "item_kind": challenge.kind,
                 "reason": challenge.reason,
+                "original_statement": item.statement,
             },
         }
         if universe_id is not None:

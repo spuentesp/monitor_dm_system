@@ -342,6 +342,8 @@ def mongodb_update_memory(memory_id: UUID, params: MemoryUpdate) -> MemoryRespon
 
     # Build update dict
     update_dict: dict[str, Any] = {}
+    if params.text is not None:
+        update_dict["text"] = params.text
     if params.importance is not None:
         update_dict["importance"] = params.importance
     if params.certainty is not None:

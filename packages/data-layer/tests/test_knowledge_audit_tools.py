@@ -41,6 +41,9 @@ def mock_mongo(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(mongodb_module, "get_mongodb_client", lambda: holder)
     monkeypatch.setattr(audit_module, "get_mongodb_client", lambda: holder)
+    from monitor_data.tools.neo4j_tools import facts as facts_module
+
+    monkeypatch.setattr(facts_module, "neo4j_list_facts", lambda filters=None: [])
     return client
 
 
@@ -83,6 +86,7 @@ def _patch_facts(monkeypatch, facts) -> None:
             self.witnesses = payload.get("witnesses", [])
             self.canon_level = payload.get("canon_level", "canon")
             self.confidence = payload.get("confidence", 1.0)
+            self.properties = payload.get("properties", {})
 
     monkeypatch.setattr(
         facts_module, "neo4j_list_facts", lambda filters=None: [_Fact(f) for f in facts]
@@ -90,6 +94,69 @@ def _patch_facts(monkeypatch, facts) -> None:
 
 
 class TestKnowledgeAudit:
+    def test_audit_pages_past_the_limit_without_skipping_excluded_proposals(
+        self, entity_id, universe_id, mock_mongo
+    ) -> None:
+        db = mock_mongo["monitor"]
+        db["character_memories"].insert_many([
+            _memory_doc(entity_id, universe_id, text=f"memory {index}") for index in range(3)
+        ])
+        for index in range(4):
+            db["proposed_changes"].insert_one({
+                "proposal_id": f"proposal-{index}", "status": "pending",
+                "content": {"universe_id": str(universe_id), "participants": [str(entity_id)],
+                            "statement": f"proposal {index}",
+                            "properties": {"knowledge_excluded": [str(entity_id)]} if index == 0 else {}},
+            })
+        first = mongodb_list_knowledge_audit(KnowledgeAuditFilter(entity_id=entity_id, universe_id=universe_id, limit=2))
+        second = mongodb_list_knowledge_audit(KnowledgeAuditFilter(entity_id=entity_id, universe_id=universe_id, limit=2, offset=2))
+        assert first.next_offset == 2
+        assert second.next_offset is None
+        assert {item.statement for item in first.items + second.items} == {
+            "memory 0", "memory 1", "memory 2", "proposal 1", "proposal 2", "proposal 3"
+        }
+
+    def test_an_explicitly_excluded_fact_is_not_in_the_character_audit(
+        self, entity_id, universe_id, mock_mongo, monkeypatch
+    ) -> None:
+        _patch_facts(monkeypatch, [{"id": uuid4(), "statement": "The gate opened",
+                                   "properties": {"knowledge_excluded": [str(entity_id)]}}])
+        audit = mongodb_list_knowledge_audit(KnowledgeAuditFilter(entity_id=entity_id, universe_id=universe_id))
+        assert audit.fact_count == 0
+
+    def test_facts_are_paged_before_filtering_by_witness(
+        self, entity_id, universe_id, mock_mongo, monkeypatch
+    ) -> None:
+        from types import SimpleNamespace
+        from monitor_data.tools.neo4j_tools import facts as facts_module
+
+        calls = []
+        def list_facts(filters):
+            calls.append(filters)
+            if filters.offset == 0:
+                return [SimpleNamespace(id=uuid4(), statement="Private", witnesses=[uuid4()],
+                                        canon_level="canon", confidence=1.0) for _ in range(100)]
+            return [SimpleNamespace(id=uuid4(), statement="Witnessed", witnesses=[entity_id],
+                                    canon_level="canon", confidence=1.0)]
+
+        monkeypatch.setattr(facts_module, "neo4j_list_facts", list_facts)
+        audit = mongodb_list_knowledge_audit(KnowledgeAuditFilter(entity_id=entity_id, universe_id=universe_id))
+        assert [item.statement for item in audit.items] == ["Witnessed"]
+        assert [call.offset for call in calls] == [0, 100]
+        assert all(call.entity_id is None for call in calls)
+
+    def test_graph_failure_is_not_reported_as_an_empty_audit(
+        self, entity_id, universe_id, mock_mongo, monkeypatch
+    ) -> None:
+        from monitor_data.tools.neo4j_tools import facts as facts_module
+
+        def unavailable(filters):
+            raise RuntimeError("graph unavailable")
+
+        monkeypatch.setattr(facts_module, "neo4j_list_facts", unavailable)
+        with pytest.raises(RuntimeError, match="graph unavailable"):
+            mongodb_list_knowledge_audit(KnowledgeAuditFilter(entity_id=entity_id, universe_id=universe_id))
+
     def test_a_character_with_nothing_knows_nothing(
         self, entity_id, universe_id, mock_mongo
     ) -> None:
@@ -200,6 +267,21 @@ class TestKnowledgeAudit:
 
         assert audit.proposal_count == 1
         assert audit.items[0].source == "proposal"
+
+    def test_proposals_with_universe_in_content_are_found_after_unrelated_rows(
+        self, entity_id, universe_id, mock_mongo
+    ) -> None:
+        coll = mock_mongo["monitor"]["proposed_changes"]
+        coll.insert_many([
+            {"proposal_id": str(uuid4()), "status": "pending", "universe_id": str(universe_id),
+             "content": {"participants": [str(uuid4())], "statement": "unrelated"}}
+            for _ in range(105)
+        ])
+        coll.insert_one({"proposal_id": str(uuid4()), "status": "pending", "content": {
+            "universe_id": str(universe_id), "participants": [str(entity_id)], "statement": "Relevant"
+        }})
+        audit = mongodb_list_knowledge_audit(KnowledgeAuditFilter(entity_id=entity_id, universe_id=universe_id))
+        assert [item.statement for item in audit.items] == ["Relevant"]
 
 
 class TestSuspicion:

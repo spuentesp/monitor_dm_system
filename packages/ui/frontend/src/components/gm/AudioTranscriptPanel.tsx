@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AudioLines, Loader2, Mic, Send } from "lucide-react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { gmAudioApi, type AudioTranscript, type TranscriptSegment } from "@/lib/gm-audio-api";
 import { cn } from "@/lib/utils";
 
@@ -32,9 +32,21 @@ export function AudioTranscriptPanel({
   storyId,
 }: AudioTranscriptPanelProps) {
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const playerRef = useRef<HTMLAudioElement | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [transcript, setTranscript] = useState<AudioTranscript | null>(null);
   const [edits, setEdits] = useState<Record<number, string>>({});
+  const [speakers, setSpeakers] = useState<Record<number, string>>({});
   const [queued, setQueued] = useState<Record<number, number>>({});
+
+  useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
+  useEffect(() => () => {
+    recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
+  }, []);
 
   const transcribe = useMutation({
     mutationFn: (file: File) =>
@@ -46,6 +58,7 @@ export function AudioTranscriptPanel({
     onSuccess: (data) => {
       setTranscript(data);
       setEdits({});
+      setSpeakers({});
       setQueued({});
     },
   });
@@ -56,13 +69,38 @@ export function AudioTranscriptPanel({
         transcript!.transcript_id,
         segment.index,
         edits[segment.index] ?? segment.text,
+        speakers[segment.index] ?? segment.speaker ?? "",
       ),
-    onSuccess: (_data, segment) =>
+    onSuccess: (data, segment) => {
       setQueued((prev) => ({
         ...prev,
-        [segment.index]: (prev[segment.index] ?? 0) + 1,
-      })),
+        [segment.index]: data.proposal_ids.length,
+      }));
+      void queryClient.invalidateQueries({ queryKey: ["chat", sessionId, "messages"] });
+    },
   });
+
+  const startRecording = async () => {
+    try {
+      setRecordingError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setRecording(false);
+        const file = new File(chunks, "recording.webm", { type: recorder.mimeType || "audio/webm" });
+        setAudioUrl(URL.createObjectURL(file));
+        transcribe.mutate(file);
+      };
+      recorder.start();
+      setRecording(true);
+    } catch {
+      setRecordingError("Could not start the microphone.");
+    }
+  };
 
   if (!universeId) {
     return (
@@ -81,9 +119,17 @@ export function AudioTranscriptPanel({
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (file) transcribe.mutate(file);
+            if (file) {
+              setAudioUrl(URL.createObjectURL(file));
+              transcribe.mutate(file);
+            }
           }}
         />
+        <button type="button" className="btn-cyber text-xs py-1 px-3"
+          disabled={transcribe.isPending}
+          onClick={() => recording ? recorderRef.current?.stop() : void startRecording()}>
+          {recording ? "Stop recording" : "Record audio"}
+        </button>
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
@@ -105,6 +151,9 @@ export function AudioTranscriptPanel({
         )}
       </div>
 
+      {recordingError && <p className="text-[10px] text-red-400">{recordingError}</p>}
+      {audioUrl && <audio ref={playerRef} controls src={audioUrl} className="w-full" />}
+
       {transcribe.isError && (
         <p className="text-[10px] text-red-400">The recording could not be transcribed.</p>
       )}
@@ -125,26 +174,42 @@ export function AudioTranscriptPanel({
                   <span>
                     {segment.start.toFixed(1)}s – {segment.end.toFixed(1)}s
                   </span>
-                  {segment.speaker && <span>· {segment.speaker}</span>}
+                  {audioUrl && <button type="button" onClick={() => {
+                    if (playerRef.current) {
+                      playerRef.current.currentTime = segment.start;
+                      void playerRef.current.play();
+                    }
+                  }}>Play from segment</button>}
                 </div>
+                <label className="block text-[9px] text-slate-500">
+                  Speaker
+                  <input aria-label={`Speaker for segment ${segment.index + 1}`}
+                    value={speakers[segment.index] ?? segment.speaker ?? ""}
+                    onChange={(e) => setSpeakers((prev) => ({ ...prev, [segment.index]: e.target.value }))}
+                    className="input-cyber ml-2 text-[10px]" />
+                </label>
                 <textarea
                   value={value}
+                  maxLength={4000}
                   aria-label={`Segment ${segment.index + 1}`}
                   onChange={(e) =>
                     setEdits((prev) => ({ ...prev, [segment.index]: e.target.value }))
                   }
                   className="input-cyber w-full text-[11px] min-h-[48px]"
                 />
+                {value.trim().length > 4000 && (
+                  <p className="text-[10px] text-amber-400">Shorten this segment to 4000 characters before queueing.</p>
+                )}
                 <div className="flex items-center justify-end gap-2">
-                  {queuedCount > 0 && (
+                  {segment.index in queued && (
                     <span className="text-[9px] text-emerald-400">
-                      queued as {queuedCount} proposal{queuedCount > 1 ? "s" : ""}
+                      Entry queued ({queuedCount} new proposal{queuedCount === 1 ? "" : "s"})
                     </span>
                   )}
                   <button
                     type="button"
                     onClick={() => queue.mutate(segment)}
-                    disabled={queue.isPending || !value.trim()}
+                    disabled={queue.isPending || !value.trim() || value.trim().length > 4000}
                     className="btn-cyber text-[10px] py-1 px-2 flex items-center gap-1"
                     aria-label={`Queue segment ${segment.index + 1}`}
                   >
@@ -164,7 +229,7 @@ export function AudioTranscriptPanel({
 
       {queue.isError && (
         <p className={cn("text-[10px] text-red-400")}>
-          The segment could not be queued — it needs a scene or a story to belong to.
+          The segment could not be queued. Check the active recording and try again.
         </p>
       )}
     </div>

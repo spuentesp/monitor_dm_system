@@ -227,11 +227,13 @@ class TestExecute:
         mock_list.return_value = _list_response(proposals)
         mock_update.side_effect = lambda pid, _u: next(p for p in proposals if p.proposal_id == pid)
 
-        token = client.post("/api/canon-review/verdicts/by-filter", json=_body()).json()["preview_token"]
-        resp = client.post(
-            "/api/canon-review/verdicts/by-filter",
-            json=_body(dry_run=False, preview_token=token),
-        )
+        token = client.post("/api/canon-review/verdicts/by-filter", json=_body(decided_by="Reviewer")).json()["preview_token"]
+        with patch("monitor_ui.routers.canon_review.mongodb_get_proposed_change",
+                   side_effect=lambda pid: next(p for p in proposals if p.proposal_id == pid)):
+            resp = client.post(
+                "/api/canon-review/verdicts/by-filter",
+                json=_body(dry_run=False, preview_token=token, decided_by="Reviewer"),
+            )
         assert resp.status_code == 200
         data = resp.json()
         assert data["affected_count"] == 2
@@ -243,7 +245,7 @@ class TestExecute:
             update = call.args[1]
             assert update.status == ProposalStatus.ACCEPTED
             assert update.decision_metadata.reason == "Triage sweep"
-            assert update.decision_metadata.decided_by == "GM"
+            assert update.decision_metadata.decided_by == "Reviewer"
 
     @patch("monitor_ui.routers.canon_review.mongodb_update_proposed_change")
     @patch("monitor_ui.routers.canon_review.mongodb_list_proposed_changes")
@@ -260,10 +262,12 @@ class TestExecute:
         mock_update.side_effect = _update
 
         token = client.post("/api/canon-review/verdicts/by-filter", json=_body()).json()["preview_token"]
-        resp = client.post(
-            "/api/canon-review/verdicts/by-filter",
-            json=_body(dry_run=False, preview_token=token),
-        )
+        with patch("monitor_ui.routers.canon_review.mongodb_get_proposed_change",
+                   side_effect=lambda pid: next(p for p in (ok, failing) if p.proposal_id == pid)):
+            resp = client.post(
+                "/api/canon-review/verdicts/by-filter",
+                json=_body(dry_run=False, preview_token=token),
+            )
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["results"]) == 1

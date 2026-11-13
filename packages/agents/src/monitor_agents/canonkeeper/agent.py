@@ -2588,6 +2588,121 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             verdict.canon_properties if hasattr(verdict, "canon_properties") else None,
         )
 
+    async def apply_knowledge_correction(
+        self, content: dict[str, Any], *, memory_already_absent: bool = False,
+    ) -> None:
+        """Apply a reviewed character-knowledge correction through MCP tools."""
+        correction = content.get("knowledge_correction") or {}
+        participants = content.get("participants") or []
+        if len(participants) != 1 or not content.get("universe_id"):
+            raise ValueError("A knowledge correction must identify one character and universe")
+        entity_id = str(UUID(str(participants[0])))
+        universe_id = str(UUID(str(content["universe_id"])))
+        entity = self._parse_tool_result(await self.call_tool("neo4j_get_entity", {"entity_id": entity_id}))
+        if not entity or str(entity.get("universe_id")) != universe_id:
+            raise ValueError("The character is no longer available in this universe")
+        item_id = str(UUID(str(correction.get("item_id"))))
+        kind = correction.get("item_kind")
+        action = correction.get("action")
+        original_statement = correction.get("original_statement")
+        if original_statement is None and action == "retract":
+            original_statement = content.get("statement")
+        if action == "retract" and not str(original_statement or "").strip():
+            raise ValueError("The original statement is required for a retraction")
+        if action == "correct" and not str(original_statement or "").strip():
+            raise ValueError("The original statement is missing; restage this correction for review")
+
+        def check_statement(current: Any) -> None:
+            if original_statement is None:
+                return  # Older staged challenges did not retain the original text.
+            acceptable = {str(original_statement)}
+            if action == "correct":
+                acceptable.add(str(content.get("statement") or ""))  # Safe retry after an applied write.
+            if str(current or "") not in acceptable:
+                raise ValueError("The attribution changed after this challenge was staged; review it again")
+
+        if action not in ("retract", "correct") or kind not in ("fact", "memory", "proposal"):
+            raise ValueError("This kind of knowledge correction is not supported")
+
+        if kind == "proposal":
+            target = self._parse_tool_result(await self.call_tool("mongodb_get_proposed_change", {"proposal_id": item_id}))
+            target_content = target.get("content") or {}
+            if (target.get("status") != "pending" or target.get("change_type") != "fact"
+                    or str(target_content.get("universe_id")) != universe_id
+                    or entity_id not in {str(value) for value in (target_content.get("participants") or [])}):
+                raise ValueError("The pending proposal no longer belongs to this character and universe")
+            check_statement(target_content.get("statement"))
+            patch: dict[str, Any]
+            if action == "retract":
+                props = dict(target_content.get("properties") or {})
+                excluded = {str(value) for value in (props.get("knowledge_excluded") or [])}
+                excluded.add(entity_id)
+                props["knowledge_excluded"] = sorted(excluded)
+                patch = {"properties": props}
+            else:
+                patch = {"statement": str(content.get("statement") or "").strip()}
+                if not patch["statement"]:
+                    raise ValueError("A corrected statement is required")
+            result = await self.call_tool("mongodb_edit_proposed_change", {
+                "proposal_id": item_id, "content_patch": patch,
+                "reason": str(correction.get("reason") or "Reviewed knowledge correction"),
+            })
+            self._check_tool_error(result, "mongodb_edit_proposed_change")
+            return
+
+        if kind == "fact":
+            raw = await self.call_tool("neo4j_get_fact", {"fact_id": item_id})
+            fact = self._parse_tool_result(raw)
+            if not fact or str(fact.get("universe_id")) != universe_id:
+                raise ValueError("The fact is no longer available in this universe")
+            check_statement(fact.get("statement"))
+            updates: dict[str, Any]
+            if action == "retract":
+                props = dict(fact.get("properties") or {})
+                excluded = {str(value) for value in (props.get("knowledge_excluded") or [])}
+                excluded.add(entity_id)
+                props["knowledge_excluded"] = sorted(excluded)
+                updates = {"properties": props}
+            else:
+                statement = str(content.get("statement") or "").strip()
+                if not statement:
+                    raise ValueError("A corrected statement is required")
+                updates = {"statement": statement}
+            result = await self.call_tool("neo4j_update_fact", {"fact_id": item_id, "params": updates})
+            self._check_tool_error(result, "neo4j_update_fact")
+            return
+
+        memory: dict[str, Any] = {}
+        if not (action == "retract" and memory_already_absent):
+            raw = await self.call_tool("mongodb_get_memory", {"memory_id": item_id})
+            memory = self._parse_tool_result(raw)
+            if not memory or str(memory.get("universe_id")) != universe_id or str(memory.get("entity_id")) != entity_id:
+                raise ValueError("The memory no longer belongs to this character")
+            check_statement(memory.get("text"))
+        if action == "retract":
+            result = await self.call_tool("qdrant_delete", {"params": {"collection": "memories", "id": item_id}})
+            self._check_tool_error(result, "qdrant_delete")
+            if not self._parse_tool_result(result).get("success"):
+                raise ValueError("The memory vector could not be removed")
+            if not memory_already_absent:
+                result = await self.call_tool("mongodb_delete_memory", {"memory_id": item_id})
+                if result is not True:
+                    raise ValueError("The memory could not be removed")
+        else:
+            statement = str(content.get("statement") or "").strip()
+            if not statement:
+                raise ValueError("A corrected statement is required")
+            params = {"memory_id": item_id, "universe_id": universe_id, "entity_id": entity_id,
+                      "text": statement, "scene_id": memory.get("scene_id"),
+                      "importance": memory.get("importance", 0.5),
+                      "metadata": {"story_id": (memory.get("metadata") or {}).get("story_id")}}
+            result = await self.call_tool("qdrant_embed_memory", {"params": params})
+            self._check_tool_error(result, "qdrant_embed_memory")
+            if not self._parse_tool_result(result).get("success"):
+                raise ValueError("The corrected memory could not be indexed")
+            result = await self.call_tool("mongodb_update_memory", {"memory_id": item_id, "params": {"text": statement}})
+            self._check_tool_error(result, "mongodb_update_memory")
+
     async def _commit_entity_relationship(
         self,
         proposals_coll: Any,
@@ -3154,6 +3269,8 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
     ) -> None:
         """Shared logic for fact/event/lore_fact branches."""
         payload = proposal.get("payload", {}) or proposal.get("content", {}) or {}
+        if payload.get("knowledge_correction"):
+            raise ValueError("Knowledge corrections cannot yet be committed safely")
         # Coerce the LLM-supplied fact_type to a valid FactType enum value.
         # Extraction sometimes emits free-form types (e.g. 'lore', 'rule',
         # 'description') that neo4j_create_fact rejects, silently dropping facts.

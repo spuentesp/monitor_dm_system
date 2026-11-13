@@ -804,6 +804,7 @@ export interface ProposalItem {
   needs_review?: boolean;
   review_reason?: string | null;
   review_source?: string | null;
+  review_flags?: Array<{ kind: string; explanation?: string }>;
 }
 
 // ─── CanonKeeper Review (CF-8) ────────────────────────────────

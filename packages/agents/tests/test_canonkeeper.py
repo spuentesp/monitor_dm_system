@@ -366,6 +366,27 @@ class TestFetchRelatedCanon:
 
 class TestCommitToNeo4j:
     @pytest.mark.asyncio
+    async def test_knowledge_correction_is_not_silently_marked_committed(self, monkeypatch):
+        _patch_commit_mongo(monkeypatch)
+        ck = CanonKeeper.__new__(CanonKeeper)
+        ck.call_tool = AsyncMock()
+        proposal = _proposal(change_type="fact", payload={"knowledge_correction": {"action": "retract"}})
+        proposal["proposal_type"] = "knowledge_retract"
+        with pytest.raises(ValueError, match="cannot yet be committed"):
+            await ck._commit_to_neo4j(_verdict(canon_node_type="fact"), proposal)
+        ck.call_tool.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_already_applied_knowledge_correction_is_not_applied_twice(self, monkeypatch):
+        _patch_commit_mongo(monkeypatch)
+        ck = CanonKeeper.__new__(CanonKeeper)
+        ck.call_tool = AsyncMock()
+        proposal = _proposal(change_type="fact", payload={"knowledge_correction": {"action": "retract"}})
+        proposal["knowledge_correction_applied"] = True
+        await ck._commit_to_neo4j(_verdict(canon_node_type="fact"), proposal)
+        ck.call_tool.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_entity_change_type_calls_neo4j_create_entity(self, monkeypatch):
         _patch_commit_mongo(monkeypatch)
         ck = CanonKeeper.__new__(CanonKeeper)

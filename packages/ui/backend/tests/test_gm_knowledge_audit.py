@@ -23,6 +23,27 @@ client = TestClient(app)
 _local_auth = pytest.mark.usefixtures("local_auth_mode")
 
 
+@pytest.mark.asyncio
+async def test_character_listing_scopes_the_database_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    from monitor_ui.routers.entities import _query_npcs
+    from monitor_data.db import neo4j
+
+    calls = []
+
+    class Graph:
+        def execute_read(self, query, params):
+            calls.append((query, params))
+            return [{"total": 0}] if "count(" in query else []
+
+    monkeypatch.setattr(neo4j, "get_neo4j_client", lambda: Graph())
+    universe_id = str(uuid4())
+    items, total = await _query_npcs(None, 10, 0, ["character"], universe_id)
+    assert items == [] and total == 0
+    assert len(calls) == 2
+    assert all("e.universe_id = $universe_id" in query and params["universe_id"] == universe_id
+               for query, params in calls)
+
+
 @pytest.fixture
 def hermetic(monkeypatch: pytest.MonkeyPatch) -> Any:
     stack = HermeticStack()
@@ -103,12 +124,38 @@ class TestKnowledgeAuditRoute:
 
 class TestKnowledgeChallengeRoute:
     @pytest.mark.usefixtures("local_auth_mode")
+    def test_challenge_can_target_a_memory_on_a_later_page(self, hermetic: HermeticStack) -> None:
+        universe_id, entity_id, scene_id = uuid4(), uuid4(), uuid4()
+        memories = [_memory(hermetic, entity_id, universe_id) for _ in range(201)]
+        memory = sorted(memories, key=lambda row: row["memory_id"])[-1]
+        hermetic.seed("scenes", [{"scene_id": str(scene_id), "universe_id": str(universe_id)}])
+        response = client.post(f"/api/gm/knowledge/{entity_id}/challenge", json={
+            "universe_id": str(universe_id), "scene_id": str(scene_id),
+            "item_id": memory["memory_id"], "item_kind": "memory", "statement": memory["text"],
+            "reason": "The character was elsewhere", "action": "retract",
+        })
+        assert response.status_code == 200, response.text
+        assert len(hermetic.calls_to("mongodb_list_knowledge_audit")) == 2
+
+    @pytest.mark.usefixtures("local_auth_mode")
+    def test_challenge_refuses_an_item_from_another_character(self, hermetic: HermeticStack) -> None:
+        universe_id, entity_id, scene_id = uuid4(), uuid4(), uuid4()
+        memory = _memory(hermetic, uuid4(), universe_id)
+        resp = client.post(f"/api/gm/knowledge/{entity_id}/challenge", json={
+            "universe_id": str(universe_id), "scene_id": str(scene_id),
+            "item_id": memory["memory_id"], "item_kind": "memory", "statement": "A memory",
+            "reason": "Wrong character", "action": "retract",
+        })
+        assert resp.status_code == 422
+        assert hermetic.collection("proposed_changes").count_documents({}) == 0
+
+    @pytest.mark.usefixtures("local_auth_mode")
     def test_a_challenge_stages_a_proposal(self, hermetic: HermeticStack) -> None:
         universe_id = uuid4()
         entity_id = uuid4()
         story_id = uuid4()
         scene_id = uuid4()
-        _memory(hermetic, entity_id, universe_id)
+        memory = _memory(hermetic, entity_id, universe_id)
         hermetic.seed(
             "scenes",
             [
@@ -131,7 +178,7 @@ class TestKnowledgeChallengeRoute:
                 "universe_id": str(universe_id),
                 "story_id": str(story_id),
                 "scene_id": str(scene_id),
-                "item_id": "memory-1",
+                "item_id": memory["memory_id"],
                 "item_kind": "memory",
                 "statement": "Mira was not at the council.",
                 "reason": "She was at the docks that night.",
@@ -147,6 +194,7 @@ class TestKnowledgeChallengeRoute:
         assert staged is not None
         assert staged["status"] == "pending"
         assert staged["content"]["knowledge_correction"]["action"] == "retract"
+        assert staged["content"]["statement"] == memory["text"]
         assert staged["content"]["knowledge_correction"]["reason"].startswith("She was at")
 
     @pytest.mark.usefixtures("local_auth_mode")

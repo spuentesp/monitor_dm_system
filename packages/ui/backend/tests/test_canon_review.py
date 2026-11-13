@@ -128,16 +128,17 @@ class TestBatchVerdicts:
 
         mock_update.side_effect = _update
 
-        resp = client.post(
-            "/api/canon-review/verdicts",
-            json={
-                "decided_by": "GM",
-                "items": [
-                    {"proposal_id": str(ok.proposal_id), "decision": "accepted", "reason": "good"},
-                    {"proposal_id": str(failing_id), "decision": "rejected", "reason": "bad"},
-                ],
-            },
-        )
+        with patch("monitor_ui.routers.canon_review.mongodb_get_proposed_change", return_value=ok):
+            resp = client.post(
+                "/api/canon-review/verdicts",
+                json={
+                    "decided_by": "GM",
+                    "items": [
+                        {"proposal_id": str(ok.proposal_id), "decision": "accepted", "reason": "good"},
+                        {"proposal_id": str(failing_id), "decision": "rejected", "reason": "bad"},
+                    ],
+                },
+            )
         assert resp.status_code == 200
         data = resp.json()
 

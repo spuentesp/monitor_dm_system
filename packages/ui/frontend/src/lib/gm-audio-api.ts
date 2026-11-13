@@ -58,12 +58,12 @@ export const gmAudioApi = {
     }),
 
   /** Queue one reviewed segment into the capture flow. */
-  queueSegment: (transcriptId: string, segmentIndex: number, text?: string) =>
+  queueSegment: (transcriptId: string, segmentIndex: number, text?: string, speaker?: string) =>
     req<{ transcript_id: string; segment_index: number; proposal_ids: string[] }>(
       `/gm/audio/transcripts/${transcriptId}/queue`,
       {
         method: "POST",
-        body: JSON.stringify({ segment_index: segmentIndex, text: text ?? null }),
+        body: JSON.stringify({ segment_index: segmentIndex, text: text ?? null, speaker: speaker ?? null }),
       },
     ),
 };

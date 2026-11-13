@@ -135,7 +135,8 @@ _settings = get_settings()
 
 
 async def _query_npcs(
-    q: str | None, limit: int, offset: int, entity_types: list[str] | None = None
+    q: str | None, limit: int, offset: int, entity_types: list[str] | None = None,
+    universe_id: str | None = None,
 ) -> tuple[list[NPC], int]:
     """Query Neo4j for entities of any type."""
     try:
@@ -145,6 +146,10 @@ async def _query_npcs(
 
         where_parts: list[str] = []
         params: dict[str, Any] = {}
+
+        if universe_id:
+            where_parts.append("e.universe_id = $universe_id")
+            params["universe_id"] = universe_id
 
         if entity_types:
             where_parts.append("e.entity_type IN $entity_types")
@@ -479,11 +484,15 @@ def _persist_generated_entity(
 async def list_npcs(
     q: str | None = Query(default=None, description="Search term"),
     entity_type: str | None = Query(default=None, description="Comma-separated entity types to include"),
+    universe_id: str | None = Query(default=None, description="Restrict to one universe"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> PaginatedNPCs:
     entity_types = [t.strip() for t in entity_type.split(",") if t.strip()] if entity_type else None
-    items, total = await _query_npcs(q, limit, offset, entity_types)
+    if universe_id:
+        items, total = await _query_npcs(q, limit, offset, entity_types, universe_id)
+    else:
+        items, total = await _query_npcs(q, limit, offset, entity_types)
     return PaginatedNPCs(items=items, total=total, limit=limit, offset=offset)
 
 

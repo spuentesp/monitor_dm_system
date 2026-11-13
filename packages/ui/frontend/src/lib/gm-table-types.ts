@@ -250,4 +250,6 @@ export interface KnowledgeAudit {
   memory_count: number;
   proposal_count: number;
   suspicious_count: number;
+  offset?: number;
+  next_offset?: number | null;
 }

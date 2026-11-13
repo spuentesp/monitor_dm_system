@@ -49,7 +49,6 @@ import { PrepToTablePanel } from "@/components/gm/PrepToTablePanel";
 import { SessionLogPanel } from "@/components/gm/SessionLogPanel";
 import { TableLookupsPanel } from "@/components/gm/TableLookupsPanel";
 import { CombatPanel } from "@/components/gm/CombatPanel";
-import { AudioTranscriptPanel } from "@/components/gm/AudioTranscriptPanel";
 import { DifficultyBadge } from "@/components/gm/DifficultyBadge";
 import { useGmPanelPrefs, visibleOrderedPanels } from "@/lib/gm-panel-prefs";
 import { useWorldContext } from "@/lib/world-context";
@@ -1847,13 +1846,7 @@ function GMAssistantPageContent() {
               {activePanel === "recorder" && (
                 <div className="flex-1 overflow-hidden flex flex-col">
                   {universeId ? (
-                    <>
-                      {/* Audio capture (CF-10): a recording instead of typing. */}
-                      <div className="px-4 py-3 border-b border-white/5 flex-shrink-0">
-                        <AudioTranscriptPanel universeId={universeId} />
-                      </div>
-                      <SessionRecorder universeId={universeId} universeLabel={universeLabel} />
-                    </>
+                    <SessionRecorder universeId={universeId} universeLabel={universeLabel} />
                   ) : (
                     <div className="flex-1 flex flex-col items-center justify-center text-center space-y-2 px-4">
                       <Mic className="w-8 h-8 text-slate-700" />

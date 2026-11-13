@@ -125,6 +125,475 @@ def _stub_check(monkeypatch: pytest.MonkeyPatch, flags: list[dict[str, Any]]) ->
     return flags
 
 
+@pytest.mark.usefixtures("local_auth_mode")
+def test_batch_accept_does_not_bypass_contradiction(hermetic: HermeticStack) -> None:
+    proposal_id = _pending_proposal(hermetic, flags=[_direct_flag()])
+    response = client.post("/api/canon-review/verdicts", json={
+        "items": [{"proposal_id": proposal_id, "decision": "accepted", "reason": "Approve"}]
+    })
+    assert response.status_code == 200
+    assert response.json()["results"] == []
+    assert "override reason" in response.json()["errors"][0]["error"]
+    assert hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})["status"] == "pending"
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_filtered_accept_does_not_bypass_contradiction(hermetic: HermeticStack) -> None:
+    scene_id = uuid4()
+    proposal_id = _pending_proposal(hermetic, scene_id=scene_id, flags=[_direct_flag()])
+    body = {"scene_id": str(scene_id), "decision": "accepted", "reason": "Approve", "dry_run": True}
+    preview = client.post("/api/canon-review/verdicts/by-filter", json=body)
+    assert preview.status_code == 200, preview.text
+    body.update(dry_run=False, preview_token=preview.json()["preview_token"])
+    response = client.post("/api/canon-review/verdicts/by-filter", json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()["results"] == []
+    assert "override reason" in response.json()["errors"][0]["error"]
+    assert hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})["status"] == "pending"
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_accepted_fact_challenge_changes_character_visibility(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from monitor_agents.canonkeeper.agent import CanonKeeper
+    from monitor_agents.cast import fact_visible_to
+
+    proposal_id = _pending_proposal(hermetic)
+    character_id, other_id, universe_id, fact_id = (str(uuid4()) for _ in range(4))
+    fact = {"id": fact_id, "universe_id": universe_id, "statement": "The gate opened", "properties": {}}
+
+    async def call_tool(self, name, args):
+        if name == "neo4j_get_entity":
+            return {"id": character_id, "universe_id": universe_id}
+        if name == "neo4j_get_fact":
+            return fact
+        if name == "neo4j_update_fact":
+            fact.update(args["params"])
+            return fact
+        raise AssertionError(name)
+
+    monkeypatch.setattr(CanonKeeper, "call_tool", call_tool)
+    hermetic.collection("proposed_changes").update_one(
+        {"proposal_id": proposal_id}, {"$set": {"content": {
+            "universe_id": universe_id, "participants": [character_id], "statement": fact["statement"],
+            "knowledge_correction": {"action": "retract", "item_kind": "fact", "item_id": fact_id},
+        }}}
+    )
+    response = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert response.status_code == 200, response.text
+    assert hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})["knowledge_correction_applied"] is True
+    assert not fact_visible_to(fact, character_id)
+    assert fact_visible_to(fact, other_id)
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_stale_fact_challenge_does_not_change_new_canon(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from monitor_agents.canonkeeper.agent import CanonKeeper
+
+    proposal_id = _pending_proposal(hermetic)
+    character_id, universe_id, fact_id = (str(uuid4()) for _ in range(3))
+    fact = {"id": fact_id, "universe_id": universe_id, "statement": "The gate is sealed", "properties": {}}
+    calls = []
+
+    async def call_tool(self, name, args):
+        calls.append(name)
+        if name == "neo4j_get_entity":
+            return {"id": character_id, "universe_id": universe_id}
+        if name == "neo4j_get_fact":
+            return fact
+        raise AssertionError(name)
+
+    monkeypatch.setattr(CanonKeeper, "call_tool", call_tool)
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "The gate opened",
+        "knowledge_correction": {"action": "retract", "item_kind": "fact", "item_id": fact_id,
+                                 "original_statement": "The gate opened"},
+    }}})
+    response = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert response.status_code == 409
+    assert "changed after" in response.json()["detail"]
+    assert "neo4j_update_fact" not in calls
+    assert hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})["status"] == "pending"
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_old_correction_without_original_text_must_be_restaged(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from monitor_agents.canonkeeper.agent import CanonKeeper
+
+    proposal_id = _pending_proposal(hermetic)
+    character_id, universe_id, fact_id = (str(uuid4()) for _ in range(3))
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "New statement",
+        "knowledge_correction": {"action": "correct", "item_kind": "fact", "item_id": fact_id},
+    }}})
+    async def call_tool(self, name, args):
+        if name == "neo4j_get_entity":
+            return {"id": character_id, "universe_id": universe_id}
+        raise AssertionError(name)
+
+    async def no_flags(proposal):
+        return []
+
+    monkeypatch.setattr(CanonKeeper, "call_tool", call_tool)
+    monkeypatch.setattr("monitor_ui.routers.canon_review._resolve_review_flags", no_flags)
+    response = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert response.status_code == 409
+    assert "restage" in response.json()["detail"]
+    assert hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})["status"] == "pending"
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+@pytest.mark.parametrize("malformed", [None, {}, "invalid"])
+def test_malformed_correction_cannot_be_accepted_as_an_ordinary_fact(
+    hermetic: HermeticStack, malformed: Any
+) -> None:
+    proposal_id = _pending_proposal(hermetic)
+    hermetic.collection("proposed_changes").update_one(
+        {"proposal_id": proposal_id}, {"$set": {"content.knowledge_correction": malformed}}
+    )
+    response = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert response.status_code == 409
+    assert hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})["status"] == "pending"
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_fact_challenge_uses_registered_mcp_tools(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from monitor_agents.cast import fact_visible_to
+    from monitor_data.tools.neo4j_tools import entities, facts
+
+    proposal_id = _pending_proposal(hermetic)
+    character_id, universe_id, fact_id = (str(uuid4()) for _ in range(3))
+    now = datetime.now(UTC)
+    entity = {"id": character_id, "universe_id": universe_id, "name": "Mira", "entity_type": "character",
+              "is_archetype": False, "description": "", "canon_level": "canon", "confidence": 1.0,
+              "authority": "gm", "created_at": now}
+    fact = {"id": fact_id, "universe_id": universe_id, "statement": "The door opened", "fact_type": "state",
+            "canon_level": "canon", "confidence": 1.0, "authority": "gm", "created_at": now}
+
+    class Graph:
+        def execute_read(self, query, params):
+            if "MATCH (n:Fact" in query:
+                return [{"id": fact_id}]
+            if "MATCH (e:Entity" in query:
+                return [{"e": entity, "archetype_id": None}]
+            if "MATCH (f:Fact" in query:
+                return [{"f": fact, "entity_ids": [], "source_ids": [], "scene_ids": []}]
+            raise AssertionError(query)
+
+        def execute_write(self, query, params):
+            fact["properties"] = params["properties"]
+            return []
+
+    graph = Graph()
+    monkeypatch.setattr(entities, "get_neo4j_client", lambda: graph)
+    monkeypatch.setattr(facts, "get_neo4j_client", lambda: graph)
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": fact["statement"],
+        "knowledge_correction": {"action": "retract", "item_kind": "fact", "item_id": fact_id},
+    }}})
+    response = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert response.status_code == 200, response.text
+    stored = facts.neo4j_get_fact(UUID(fact_id))
+    assert stored is not None
+    assert not fact_visible_to(stored.model_dump(mode="json"), character_id)
+    assert hermetic.called("neo4j_update_fact")
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_accepted_memory_challenge_removes_memory_and_vector(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proposal_id = _pending_proposal(hermetic)
+    character_id, universe_id, memory_id = (str(uuid4()) for _ in range(3))
+    now = datetime.now(UTC)
+    hermetic.collection("character_memories").insert_one({
+        "memory_id": memory_id, "entity_id": character_id, "universe_id": universe_id,
+        "text": "The door opened", "importance": 0.5, "certainty": 1.0,
+        "emotional_valence": 0.0, "metadata": {}, "created_at": now,
+        "last_accessed": now, "access_count": 0,
+    })
+    vectors = {memory_id}
+
+    hermetic.override("neo4j_get_entity", {"id": character_id, "universe_id": universe_id})
+    def delete_vector(params):
+        vectors.discard(params["id"])
+        return {"success": True}
+    hermetic.override("qdrant_delete", delete_vector)
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "The door opened",
+        "knowledge_correction": {"action": "retract", "item_kind": "memory", "item_id": memory_id},
+    }}})
+    response = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert response.status_code == 200, response.text
+    assert hermetic.collection("character_memories").find_one({"memory_id": memory_id}) is None
+    assert not vectors
+    assert hermetic.called("mongodb_get_memory")
+    assert hermetic.called("mongodb_delete_memory")
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_accepted_memory_correction_updates_text_and_embedding(hermetic: HermeticStack) -> None:
+    proposal_id = _pending_proposal(hermetic)
+    character_id, universe_id, memory_id = (str(uuid4()) for _ in range(3))
+    now = datetime.now(UTC)
+    hermetic.collection("character_memories").insert_one({
+        "memory_id": memory_id, "entity_id": character_id, "universe_id": universe_id,
+        "text": "The door opened", "importance": 0.5, "certainty": 1.0,
+        "emotional_valence": 0.0, "metadata": {}, "created_at": now,
+        "last_accessed": now, "access_count": 0,
+    })
+    hermetic.override("neo4j_get_entity", {"id": character_id, "universe_id": universe_id})
+    embeddings = {}
+    def embed(params):
+        embeddings[params["memory_id"]] = params["text"]
+        return {"success": True}
+    hermetic.override("qdrant_embed_memory", embed)
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "The door stayed shut",
+        "knowledge_correction": {"action": "correct", "item_kind": "memory", "item_id": memory_id,
+                                 "original_statement": "The door opened"},
+    }}})
+    response = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert response.status_code == 200, response.text
+    assert hermetic.collection("character_memories").find_one({"memory_id": memory_id})["text"] == "The door stayed shut"
+    assert embeddings[memory_id] == "The door stayed shut"
+    assert hermetic.called("mongodb_update_memory")
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_memory_retraction_can_retry_after_verdict_write_fails(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from monitor_ui.routers import canon_review
+
+    proposal_id = _pending_proposal(hermetic)
+    character_id, universe_id, memory_id = (str(uuid4()) for _ in range(3))
+    now = datetime.now(UTC)
+    hermetic.collection("character_memories").insert_one({
+        "memory_id": memory_id, "entity_id": character_id, "universe_id": universe_id,
+        "text": "The door opened", "importance": 0.5, "certainty": 1.0,
+        "emotional_valence": 0.0, "metadata": {}, "created_at": now,
+        "last_accessed": now, "access_count": 0,
+    })
+    hermetic.override("neo4j_get_entity", {"id": character_id, "universe_id": universe_id})
+    hermetic.override("qdrant_delete", {"success": True})
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "The door opened",
+        "knowledge_correction": {"action": "retract", "item_kind": "memory", "item_id": memory_id},
+    }}})
+    original_update = canon_review.mongodb_update_proposed_change
+    attempts = 0
+    def fail_once(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ValueError("simulated verdict write failure")
+        return original_update(*args, **kwargs)
+    monkeypatch.setattr(canon_review, "mongodb_update_proposed_change", fail_once)
+
+    first = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert first.status_code == 409
+    assert hermetic.collection("character_memories").find_one({"memory_id": memory_id}) is None
+    assert hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})["status"] == "pending"
+    reject = client.post(f"/api/canon-review/{proposal_id}/reject", params={"reason": "Changed mind"})
+    assert reject.status_code == 409
+    edit = client.post(f"/api/canon-review/{proposal_id}/edit", json={"content_patch": {"statement": "Changed"}})
+    assert edit.status_code == 409
+    second = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert second.status_code == 200, second.text
+    assert second.json()["status"] == "accepted"
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_memory_checkpoint_rejects_a_concurrently_edited_proposal(hermetic: HermeticStack) -> None:
+    from monitor_data.tools.mongodb_tools.proposals import prepare_knowledge_memory_change
+
+    proposal_id = _pending_proposal(hermetic)
+    character_id, universe_id, memory_id = (str(uuid4()) for _ in range(3))
+    content = {"universe_id": universe_id, "participants": [character_id], "statement": "Old",
+               "knowledge_correction": {"action": "retract", "item_kind": "memory", "item_id": memory_id}}
+    proposals = hermetic.collection("proposed_changes")
+    proposals.update_one({"proposal_id": proposal_id}, {"$set": {"content": {**content, "statement": "New"}}})
+    with pytest.raises(ValueError, match="proposal changed"):
+        prepare_knowledge_memory_change(UUID(proposal_id), content)
+    assert "knowledge_retraction_checkpoint" not in proposals.find_one({"proposal_id": proposal_id})
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_memory_correction_can_retry_after_store_and_verdict_failures(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from monitor_agents.canonkeeper.agent import CanonKeeper
+    from monitor_ui.routers import canon_review
+
+    proposal_id = _pending_proposal(hermetic)
+    character_id, universe_id, memory_id = (str(uuid4()) for _ in range(3))
+    now = datetime.now(UTC)
+    memories = hermetic.collection("character_memories")
+    memories.insert_one({
+        "memory_id": memory_id, "entity_id": character_id, "universe_id": universe_id,
+        "text": "The door opened", "importance": 0.5, "certainty": 1.0,
+        "emotional_valence": 0.0, "metadata": {}, "created_at": now,
+        "last_accessed": now, "access_count": 0,
+    })
+    hermetic.override("neo4j_get_entity", {"id": character_id, "universe_id": universe_id})
+    hermetic.override("qdrant_embed_memory", {"success": True})
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "The door stayed shut",
+        "knowledge_correction": {"action": "correct", "item_kind": "memory", "item_id": memory_id,
+                                 "original_statement": "The door opened"},
+    }}})
+    original_call = CanonKeeper.call_tool
+    original_update = canon_review.mongodb_update_proposed_change
+    calls = {"memory": 0, "verdict": 0}
+
+    async def fail_memory_once(self, name, arguments):
+        if name == "mongodb_update_memory":
+            calls["memory"] += 1
+            if calls["memory"] == 1:
+                raise RuntimeError("simulated memory write failure")
+        return await original_call(self, name, arguments)
+
+    def fail_verdict_once(*args, **kwargs):
+        if args[1].status.value == "accepted":
+            calls["verdict"] += 1
+            if calls["verdict"] == 1:
+                raise ValueError("simulated verdict write failure")
+        return original_update(*args, **kwargs)
+
+    monkeypatch.setattr(CanonKeeper, "call_tool", fail_memory_once)
+    monkeypatch.setattr(canon_review, "mongodb_update_proposed_change", fail_verdict_once)
+    url = f"/api/canon-review/{proposal_id}/accept"
+    first = client.post(url, params={"reason": "Approve"})
+    assert first.status_code == 503
+    assert memories.find_one({"memory_id": memory_id})["text"] == "The door opened"
+    assert client.post(f"/api/canon-review/{proposal_id}/reject", params={"reason": "Stop"}).status_code == 409
+    second = client.post(url, params={"reason": "Approve"})
+    assert second.status_code == 409
+    assert memories.find_one({"memory_id": memory_id})["text"] == "The door stayed shut"
+    third = client.post(url, params={"reason": "Approve"})
+    assert third.status_code == 200, third.text
+    assert third.json()["status"] == "accepted"
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_accepted_proposal_challenge_updates_target_attribution(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from monitor_agents.canonkeeper.agent import CanonKeeper
+    from monitor_agents.cast import fact_visible_to
+    from monitor_data.tools.mongodb_tools.proposals import mongodb_edit_proposed_change, mongodb_get_proposed_change
+
+    character_id, universe_id = str(uuid4()), str(uuid4())
+    target_id = _pending_proposal(hermetic)
+    correction_id = _pending_proposal(hermetic)
+    hermetic.collection("proposed_changes").update_one({"proposal_id": target_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "The door opened"
+    }}})
+    hermetic.collection("proposed_changes").update_one({"proposal_id": correction_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "The door opened",
+        "knowledge_correction": {"action": "retract", "item_kind": "proposal", "item_id": target_id},
+    }}})
+
+    async def call_tool(self, name, args):
+        if name == "neo4j_get_entity":
+            return {"id": character_id, "universe_id": universe_id}
+        if name == "mongodb_get_proposed_change":
+            return mongodb_get_proposed_change(UUID(args["proposal_id"])).model_dump(mode="json")
+        if name == "mongodb_edit_proposed_change":
+            return mongodb_edit_proposed_change(UUID(args["proposal_id"]), args["content_patch"], args["reason"]).model_dump(mode="json")
+        raise AssertionError(name)
+
+    monkeypatch.setattr(CanonKeeper, "call_tool", call_tool)
+    response = client.post(f"/api/canon-review/{correction_id}/accept", params={"reason": "Approve"})
+    assert response.status_code == 200, response.text
+    target = hermetic.collection("proposed_changes").find_one({"proposal_id": target_id})
+    assert target["status"] == "pending"
+    assert not fact_visible_to(target["content"], character_id)
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_failed_knowledge_correction_remains_pending(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from monitor_agents.canonkeeper.agent import CanonKeeper
+
+    proposal_id = _pending_proposal(hermetic)
+    universe_id, character_id, memory_id = (str(uuid4()) for _ in range(3))
+    hermetic.collection("character_memories").insert_one({
+        "memory_id": memory_id, "entity_id": character_id, "universe_id": universe_id, "text": "A memory",
+    })
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "A memory",
+        "knowledge_correction": {"action": "retract", "item_kind": "memory", "item_id": memory_id},
+    }}})
+
+    async def call_tool(self, name, args):
+        if name == "neo4j_get_entity":
+            return {"id": character_id, "universe_id": universe_id}
+        if name == "mongodb_get_memory":
+            return {"memory_id": memory_id, "entity_id": character_id, "universe_id": universe_id, "text": "A memory"}
+        if name == "qdrant_delete":
+            raise RuntimeError("vector store unavailable")
+        raise AssertionError(name)
+
+    monkeypatch.setattr(CanonKeeper, "call_tool", call_tool)
+    response = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert response.status_code == 503
+    assert hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})["status"] == "pending"
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_missing_character_does_not_lock_memory_challenge(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from monitor_agents.canonkeeper.agent import CanonKeeper
+
+    proposal_id = _pending_proposal(hermetic)
+    universe_id, character_id, memory_id = (str(uuid4()) for _ in range(3))
+    hermetic.collection("character_memories").insert_one({
+        "memory_id": memory_id, "entity_id": character_id, "universe_id": universe_id,
+    })
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "A memory",
+        "knowledge_correction": {"action": "retract", "item_kind": "memory", "item_id": memory_id},
+    }}})
+
+    async def call_tool(self, name, args):
+        assert name == "neo4j_get_entity"
+        return None
+
+    monkeypatch.setattr(CanonKeeper, "call_tool", call_tool)
+    response = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert response.status_code == 409
+    proposal = hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})
+    assert "knowledge_retraction_checkpoint" not in proposal
+    rejected = client.post(f"/api/canon-review/{proposal_id}/reject", params={"reason": "Missing character"})
+    assert rejected.status_code == 200
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_advisory_flag_does_not_suppress_direct_check(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_check(monkeypatch, [_direct_flag()])
+    advisory = {**_direct_flag(), "kind": "implication_contradiction"}
+    proposal_id = _pending_proposal(hermetic, flags=[advisory])
+    response = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert response.status_code == 409
+    stored = hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})
+    assert {flag["kind"] for flag in stored["review_flags"]} == {
+        "implication_contradiction", "direct_contradiction"
+    }
+
+
 class TestSoftBlock:
     @pytest.mark.usefixtures("local_auth_mode")
     def test_a_flagged_proposal_needs_an_override_reason(

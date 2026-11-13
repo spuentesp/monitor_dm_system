@@ -59,6 +59,7 @@ class KnowledgeAuditFilter(BaseModel):
     entity_id: UUID
     universe_id: UUID | None = None
     limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
 
 
 class KnowledgeAudit(BaseModel):
@@ -71,6 +72,8 @@ class KnowledgeAudit(BaseModel):
     memory_count: int = 0
     proposal_count: int = 0
     suspicious_count: int = 0
+    offset: int = 0
+    next_offset: int | None = None
 
 
 class KnowledgeChallenge(BaseModel):
