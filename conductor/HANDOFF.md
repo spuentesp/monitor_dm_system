@@ -65,12 +65,21 @@ Measurement record: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`
   session (first run: `docs/testing/gm_table_test_preflight_2026-11-11.md`,
   which found and fixed a 500 in the Complication lookup and a latency
   problem in the Name lookup).
-- **G02 phase 4 — the segment review UI** (the backend is there: the GM
-  can transcribe, read and queue a segment; there is no panel to review
-  them in).
 - **G02 phase 5 — the live pass** against a real recording.
-- **G06 phase 4 — the UI badge** for the difficulty estimate.
-- **G09 phase 4 — the UI panel** for the knowledge inspector.
+- ~~G02 phase 4 — the segment review UI~~ **done 2026-11-12**:
+  `AudioTranscriptPanel` (moved into `SessionRecorder`) plays a segment,
+  edits its text, maps speakers, and queues it; upload keys are
+  collision-proof and failed transcriptions clean up after themselves.
+- ~~G06 phase 4 — the UI badge~~ **done** (`DifficultyBadge`).
+- ~~G09 phase 4 — the UI panel~~ **done 2026-11-12**: `KnowledgePanel`
+  with paginated provenance and a challenge flow (retract / correct) into
+  CF-8 review; accepting a knowledge correction applies it through
+  CanonKeeper across MongoDB + Qdrant + fact properties with a retryable
+  checkpoint (`prepare_knowledge_memory_change` /
+  `apply_knowledge_correction`). **Known tradeoff:** the multi-store write
+  is not one transaction — an interrupted correction is reconciled by
+  retrying the pending review (edit/defer/reject are blocked once the
+  checkpoint exists).
 - **The STATUS.md open items** that are not gap work: co-pilot workflow
   polish (gap 4 of `GM_ASSISTANT_MODE_PLAN.md`) and the *enablement* of
   provider-key encryption (the code is there; the operator has to set
@@ -134,10 +143,15 @@ Measurement record: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`
 
 ## Unmerged work sitting on a backup branch
 
-`backup/g09-g08-review-fixes-20261112` (commit `b5df647`, pushed) holds
+**Update (2026-11-12/13): everything described below is now applied in the
+`gap/wave1-integration` worktree and committed on top of PR #147** (together
+with the knowledge-correction flow, inspector pagination, and the G02/G09
+phase-4 panels). The backup branches remain as snapshots only; they can be
+deleted once the follow-up work is pushed.
+
+`backup/g09-g08-review-fixes-20261112` (commit `b5df647`, pushed) held
 uncommitted review fixes found in the `gap/wave1-integration` worktree *after*
-PR #147 merged. Not reviewed, not tested, not merged — **do not delete it
-without reading it first.** The interesting parts:
+PR #147 merged. The interesting parts (all landed now):
 
 - The G08 soft block was only wired into the single accept route. These
   changes route the batch verdict paths (`apply_verdicts`,
@@ -164,7 +178,10 @@ Before you assume a branch is up to date, run `git status`.
 
 ## Repo state
 
-- Branch: `gap/wave1-integration` — commits `42e9dac..HEAD` unpushed.
+- Branch: `gap/wave1-integration` — commits `42e9dac..HEAD` unpushed. On top
+  of the previously recorded work sit two 2026-11-12/13 commits: the
+  GM-assistant follow-up fixes (review fixes, knowledge corrections,
+  G02/G09 phase-4 panels) and this docs refresh. Nothing is pushed; no PR.
 - `gap/g05-recap` fully merged (safe to delete).
 - The local Postgres has a **live provider registry** (MiniMax M2.7,
   MiMo v2.6 Flash, Ollama qwen2.5:7b / llama3.2:1b). The measurement runs

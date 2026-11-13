@@ -170,6 +170,34 @@ has still not been run, so none of it is field-validated.
   capture proposals a typed entry produces, and the recorder panel gained
   the upload-and-review surface. **Not shipped:** the live pass (phase 5).
 
+### GM Assistant follow-up (2026-11-12/13)
+
+Post-#147 review fixes plus the remaining phase-4 panels, on
+`gap/wave1-integration` (local commits, not pushed):
+
+- **Knowledge corrections are now end-to-end.** The inspector's Challenge
+  flow stages a CF-8 proposal that can retract an attribution
+  (`knowledge_excluded` honored by `fact_visible_to`, the audit, and the
+  proposal queue) or correct the statement; accepting it applies the
+  change through CanonKeeper across MongoDB + Qdrant + fact properties.
+  The multi-store write is checkpointed (`knowledge_retraction_checkpoint`)
+  and retryable — an interrupted correction is reconciled by retrying the
+  pending review, and edit/defer/reject are blocked mid-flight. Staged
+  challenges detect a stale attribution ("review it again") instead of
+  applying over changed text.
+- **G02 phase 4 — segment review UI.** `AudioTranscriptPanel` (now inside
+  `SessionRecorder`, session/story/scene-scoped): play the segment, edit
+  the text, map the speaker, queue as an entry. Upload keys are
+  collision-proof (`uuid4` prefix); failed transcriptions delete the
+  stored recording.
+- **G09 phase 4 — inspector panel.** `KnowledgePanel` with paginated
+  provenance (`offset`/`next_offset` through tool, agent, route, and UI),
+  a story selector, and retract/correct challenge dialogs.
+- **Review-panel fixes.** Batch verdict paths (by ids and by filter) route
+  through `accept_proposal`, so a batch accept cannot sidestep the G08
+  override requirement; the by-filter path owner-checks each match;
+  `_resolve_review_flags` merges flags instead of dropping them.
+
 ## Shipped (verified 2026-07-23)
 
 - **Core play loop** — GMAgent → Narrator → Resolver pipeline, web chat + CLI.
