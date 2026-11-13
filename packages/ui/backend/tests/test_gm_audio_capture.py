@@ -43,6 +43,29 @@ class _FakeMinio:
     async def download(self, key: str, **kwargs: Any) -> bytes:
         return self.uploads.get(key, b"")
 
+    async def delete(self, key: str, **kwargs: Any) -> None:
+        self.uploads.pop(key, None)
+
+
+@pytest.mark.asyncio
+async def test_capture_scope_rejects_scene_from_another_universe(monkeypatch):
+    from fastapi import HTTPException
+    from monitor_ui.routers import gm_tools
+
+    async def owned(*args):
+        return None
+
+    async def scene_universe(scene_id):
+        return str(uuid4())
+
+    monkeypatch.setattr(gm_tools, "is_local_mode", lambda principal: False)
+    monkeypatch.setattr(gm_tools, "require_universe_owner", owned)
+    monkeypatch.setattr(gm_tools, "require_scene_owner", owned)
+    monkeypatch.setattr(gm_tools, "_universe_of_scene", scene_universe)
+    with pytest.raises(HTTPException) as exc:
+        await gm_tools._require_capture_scope(None, None, uuid4(), None, uuid4())
+    assert exc.value.status_code == 404
+
 
 def _stub_backend(monkeypatch: pytest.MonkeyPatch, *, ok: bool = True) -> None:
     """Point the capture agent at a scripted transcription backend."""
@@ -161,6 +184,19 @@ class TestTranscribeRoute:
 
         assert resp.status_code == 422
         assert "refused the recording" in resp.json()["detail"]
+        assert not minio.uploads
+
+    @pytest.mark.usefixtures("local_auth_mode")
+    def test_recordings_with_the_same_name_have_distinct_keys(
+        self, hermetic: HermeticStack, minio: _FakeMinio, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _stub_backend(monkeypatch)
+        universe_id = str(uuid4())
+        for payload in (b"first", b"second"):
+            response = client.post("/api/gm/audio/transcribe", data={"universe_id": universe_id},
+                                   files={"file": ("take.wav", payload, "audio/wav")})
+            assert response.status_code == 200, response.text
+        assert set(minio.uploads.values()) == {b"first", b"second"}
 
     @pytest.mark.usefixtures("local_auth_mode")
     def test_an_empty_recording_is_refused(
@@ -184,18 +220,36 @@ class TestTranscribeRoute:
 
 class TestQueueSegmentRoute:
     @pytest.mark.usefixtures("local_auth_mode")
+    def test_oversized_segment_does_not_create_an_entry(
+        self, hermetic: HermeticStack, minio: _FakeMinio, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _stub_backend(monkeypatch)
+        created = client.post(
+            "/api/gm/audio/transcribe", data={"universe_id": str(uuid4())},
+            files={"file": ("take.wav", b"audio-bytes", "audio/wav")},
+        )
+        response = client.post(
+            f"/api/gm/audio/transcripts/{created.json()['transcript_id']}/queue",
+            json={"segment_index": 0, "text": "x" * 4001},
+        )
+        assert response.status_code == 422
+        assert hermetic.collection("chat_messages").count_documents({}) == 0
+
+    @pytest.mark.usefixtures("local_auth_mode")
     def test_a_reviewed_segment_becomes_a_capture_proposal(
         self, hermetic: HermeticStack, minio: _FakeMinio, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _stub_backend(monkeypatch)
         universe_id = uuid4()
         scene_id = uuid4()
+        story_id = uuid4()
+        session_id = uuid4()
         hermetic.seed(
             "scenes",
             [
                 {
                     "scene_id": str(scene_id),
-                    "story_id": str(uuid4()),
+                    "story_id": str(story_id),
                     "universe_id": str(universe_id),
                     "title": "The council",
                     "purpose": "Attend the council.",
@@ -207,7 +261,8 @@ class TestQueueSegmentRoute:
         )
         created = client.post(
             "/api/gm/audio/transcribe",
-            data={"universe_id": str(universe_id), "scene_id": str(scene_id)},
+            data={"universe_id": str(universe_id), "scene_id": str(scene_id),
+                  "story_id": str(story_id), "session_id": str(session_id)},
             files={"file": ("take.wav", b"audio-bytes", "audio/wav")},
         )
         transcript_id = created.json()["transcript_id"]
@@ -226,7 +281,7 @@ class TestQueueSegmentRoute:
 
         resp = client.post(
             f"/api/gm/audio/transcripts/{transcript_id}/queue",
-            json={"segment_index": 0, "text": "The council met at dusk."},
+            json={"segment_index": 0, "text": "The council met at dusk.", "speaker": "Mira"},
         )
 
         assert resp.status_code == 200, resp.text
@@ -239,7 +294,13 @@ class TestQueueSegmentRoute:
         assert staged is not None
         assert staged["status"] == "pending"
         assert staged["content"]["statement"] == "The harbour council met at dusk."
-        assert staged["source"] == f"audio_segment:{transcript_id}:0"
+        entry = hermetic.collection("chat_messages").find_one({"session_id": str(session_id)})
+        assert entry["content"] == "The council met at dusk."
+        assert entry["metadata"]["speaker"] == "Mira"
+        transcript = hermetic.collection("transcripts").find_one({"transcript_id": transcript_id})
+        assert transcript["segments"][0]["speaker"] == "Mira"
+        assert transcript["segments"][0]["reviewed"] is True
+        assert staged["source"] == f"capture_entry:{entry['id']}"
 
     @pytest.mark.usefixtures("local_auth_mode")
     def test_an_unknown_segment_is_refused(

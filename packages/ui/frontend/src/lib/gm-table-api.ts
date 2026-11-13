@@ -26,9 +26,9 @@ import type {
 
 export const gmTableApi = {
   /** CF-15 — what the system believes a character knows, with provenance. */
-  auditKnowledge: (universeId: string, entityId: string) =>
+  auditKnowledge: (universeId: string, entityId: string, offset = 0) =>
     req<KnowledgeAudit>(`/gm/knowledge/${entityId}`, {
-      query: { universe_id: universeId },
+      query: { universe_id: universeId, offset },
     }),
 
   /** CF-15 — challenge one attribution; stages a CF-8 proposal. */

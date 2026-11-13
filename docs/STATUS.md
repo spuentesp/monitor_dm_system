@@ -170,6 +170,50 @@ has still not been run, so none of it is field-validated.
   capture proposals a typed entry produces, and the recorder panel gained
   the upload-and-review surface. **Not shipped:** the live pass (phase 5).
 
+### GM Assistant follow-up (2026-11-12/13)
+
+Post-#147 review fixes plus the remaining phase-4 panels, on
+`gap/wave1-integration` (local commits, not pushed):
+
+- **Knowledge corrections are now end-to-end.** The inspector's Challenge
+  flow stages a CF-8 proposal that can retract an attribution
+  (`knowledge_excluded` honored by `fact_visible_to`, the audit, and the
+  proposal queue) or correct the statement; accepting it applies the
+  change through CanonKeeper across MongoDB + Qdrant + fact properties.
+  The multi-store write is checkpointed (`knowledge_retraction_checkpoint`)
+  and retryable, and an **auto-reconciler**
+  (`monitor_ui/correction_reconcile.py`, swept every
+  `MONITOR_CORRECTION_RECONCILER_INTERVAL` seconds) now completes
+  interrupted accepts on its own — no manual retry needed. Edit/defer/reject
+  stay blocked mid-flight; a correction whose target moved under it is
+  marked `knowledge_reconciliation_error` for a human instead of being
+  retried. Staged challenges detect a stale attribution ("review it again")
+  instead of applying over changed text.
+- **G02 phase 4 — segment review UI.** `AudioTranscriptPanel` (now inside
+  `SessionRecorder`, session/story/scene-scoped): play the segment, edit
+  the text, map the speaker, queue as an entry. Upload keys are
+  collision-proof (`uuid4` prefix); failed transcriptions delete the
+  stored recording.
+- **G09 phase 4 — inspector panel.** `KnowledgePanel` with paginated
+  provenance (`offset`/`next_offset` through tool, agent, route, and UI),
+  a story selector, and retract/correct challenge dialogs.
+- **Review-panel fixes.** Batch verdict paths (by ids and by filter) route
+  through `accept_proposal`, so a batch accept cannot sidestep the G08
+  override requirement; the by-filter path owner-checks each match;
+  `_resolve_review_flags` merges flags instead of dropping them.
+
+Follow-ups landed 2026-11-13:
+
+- **P3.2(b) — story attribution from scratchpad ingest.** Notes ingested
+  during a recorded session now stamp the recording's `story_id` onto the
+  ingestion job and every proposal the pack materialises (explicit on the
+  apply request, inherited from the job otherwise), so story-scoped review
+  sees them alongside the ingest job's listing.
+- **Provider-key encryption is enabled on the dev worktree** — a Fernet key
+  was generated into `.env` (`MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`) and the
+  variable documented in `env.example`. Re-save existing provider keys with
+  the stack up to encrypt rows written before the key existed.
+
 ## Shipped (verified 2026-07-23)
 
 - **Core play loop** — GMAgent → Narrator → Resolver pipeline, web chat + CLI.

@@ -188,6 +188,7 @@ class ProposedChangeUpdate(BaseModel):
 
     status: ProposalStatus = Field(description="New status for the proposal")
     decision_metadata: DecisionMetadata = Field(description="Decision metadata (required when updating status)")
+    knowledge_correction_applied: bool = False
 
 
 class ProposedChangeResponse(BaseModel):

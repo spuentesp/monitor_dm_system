@@ -158,6 +158,19 @@ def test_upload_source(mock_all_dbs):
             assert response.status_code == 201
 
 
+def test_upload_source_threads_story_id(mock_all_dbs):
+    story = str(uuid.uuid4())
+    with patch("monitor_ui.routers.ingest._run_ingest_in_thread") as _mock_run:
+        with patch("monitor_ui.routers.ingest._create_setting", return_value=(None, uuid.uuid4())):
+            response = client.post(
+                "/api/ingest/sources/upload",
+                files={"file": ("test.pdf", b"test data", "application/pdf")},
+                data={"scan_type": "setting_supplement", "ingest_now": "true", "title": "T", "story_id": story},
+            )
+            assert response.status_code == 201
+    assert str(_mock_run.call_args.kwargs["story_id"]) == story
+
+
 def test_upload_source_no_ingest(mock_all_dbs):
     with patch("monitor_ui.routers.ingest._create_setting", return_value=(None, uuid.uuid4())):
         response = client.post(

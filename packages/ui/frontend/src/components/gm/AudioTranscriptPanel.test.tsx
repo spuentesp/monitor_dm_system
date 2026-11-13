@@ -85,6 +85,7 @@ describe("AudioTranscriptPanel (CF-10)", () => {
     const field = await screen.findByDisplayValue("The council met at dusk.");
     await userEvent.clear(field);
     await userEvent.type(field, "The council met at dawn.");
+    await userEvent.type(screen.getByLabelText("Speaker for segment 1"), "Mira");
     await userEvent.click(screen.getByLabelText("Queue segment 1"));
 
     await waitFor(() => expect(gmAudioApi.queueSegment).toHaveBeenCalled());
@@ -92,8 +93,9 @@ describe("AudioTranscriptPanel (CF-10)", () => {
       "tr-1",
       0,
       "The council met at dawn.",
+      "Mira",
     ]);
-    expect(await screen.findByText(/queued as 1 proposal/)).toBeInTheDocument();
+    expect(await screen.findByText(/Entry queued \(1 new proposal\)/)).toBeInTheDocument();
   });
 
   it("says when the recording has no speech", async () => {

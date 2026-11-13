@@ -40,22 +40,27 @@ _LOW_CERTAINTY = 0.5
 _MATERIAL_IMPORTANCE = 0.6
 
 
-def _witnessed_facts(entity_id: UUID, universe_id: UUID | None, limit: int) -> list[dict[str, Any]]:
+def _witnessed_facts(entity_id: UUID, universe_id: UUID | None, limit: int, offset: int = 0) -> list[dict[str, Any]]:
     """The canon facts this character witnessed (plus common knowledge)."""
-    try:
-        from monitor_data.tools.neo4j_tools.facts import neo4j_list_facts
+    from monitor_data.tools.neo4j_tools.facts import neo4j_list_facts
 
-        filters = FactFilter(
-            universe_id=universe_id,
-            entity_id=entity_id,
-            limit=min(limit, 100),
-        )
-        facts = neo4j_list_facts(filters)
-    except Exception:  # noqa: BLE001  # reason: an unreadable graph means "no facts here", not a failure
-        return []
+    # Witnesses need not be involved in a fact, and common facts need not
+    # involve this character. Filter after fetching the universe's facts.
+    facts: list[Any] = []
+    graph_offset = 0
+    page_size = 100
+    while True:
+        page = neo4j_list_facts(FactFilter(universe_id=universe_id, limit=page_size, offset=graph_offset))
+        facts.extend(page)
+        if len(page) < page_size:
+            break
+        graph_offset += len(page)
 
     rows: list[dict[str, Any]] = []
     for fact in facts:
+        properties = getattr(fact, "properties", None) or {}
+        if str(entity_id) in {str(value) for value in properties.get("knowledge_excluded", [])}:
+            continue
         witnesses = [str(w) for w in (fact.witnesses or [])]
         if not witnesses:
             source = "common"
@@ -75,17 +80,19 @@ def _witnessed_facts(entity_id: UUID, universe_id: UUID | None, limit: int) -> l
                 "confidence": float(fact.confidence),
             }
         )
-    return rows
+        if len(rows) >= offset + limit:
+            break
+    return rows[offset:]
 
 
-def _owned_memories(entity_id: UUID, universe_id: UUID | None, limit: int) -> list[dict[str, Any]]:
+def _owned_memories(entity_id: UUID, universe_id: UUID | None, limit: int, offset: int = 0) -> list[dict[str, Any]]:
     """The character's own memories."""
     client = get_mongodb_client()
     collection = client.get_collection("character_memories")
     query: dict[str, Any] = {"entity_id": str(entity_id)}
     if universe_id is not None:
         query["universe_id"] = str(universe_id)
-    cursor = collection.find(query).sort("importance", -1).limit(limit)
+    cursor = collection.find(query).sort([("importance", -1), ("memory_id", 1)]).skip(offset).limit(limit)
     rows: list[dict[str, Any]] = []
     for doc in cursor:
         rows.append(
@@ -103,19 +110,28 @@ def _owned_memories(entity_id: UUID, universe_id: UUID | None, limit: int) -> li
     return rows
 
 
-def _pending_proposals(entity_id: UUID, universe_id: UUID | None, limit: int) -> list[dict[str, Any]]:
+def _pending_proposals(entity_id: UUID, universe_id: UUID | None, limit: int, offset: int = 0) -> list[dict[str, Any]]:
     """Proposals that would change what is attributed to the character."""
     client = get_mongodb_client()
     collection = client.get_collection("proposed_changes")
-    query: dict[str, Any] = {"status": ProposalStatus.PENDING.value}
+    query: dict[str, Any] = {
+        "status": ProposalStatus.PENDING.value,
+        "content.properties.knowledge_excluded": {"$ne": str(entity_id)},
+        "$and": [{"$or": [{"content.participants": str(entity_id)}, {"entity_id": str(entity_id)}]}],
+    }
     if universe_id is not None:
-        query["universe_id"] = str(universe_id)
-    cursor = collection.find(query).limit(limit)
+        query["$and"].append({"$or": [
+            {"universe_id": str(universe_id)}, {"content.universe_id": str(universe_id)}
+        ]})
+    cursor = collection.find(query).sort("proposal_id", 1).skip(offset).limit(limit)
     rows: list[dict[str, Any]] = []
     for doc in cursor:
         content = doc.get("content") or {}
         if not isinstance(content, dict):
             content = {}
+        properties = content.get("properties") or {}
+        if str(entity_id) in {str(value) for value in properties.get("knowledge_excluded", [])}:
+            continue
         participants = content.get("participants") or []
         mentioned = str(entity_id) in {str(p) for p in participants}
         if not mentioned and str(doc.get("entity_id") or "") != str(entity_id):
@@ -132,7 +148,7 @@ def _pending_proposals(entity_id: UUID, universe_id: UUID | None, limit: int) ->
                 "id": str(doc.get("proposal_id") or ""),
                 "statement": str(statement),
                 "source": "proposal",
-                "confidence": float(doc.get("confidence") or 1.0),
+                "confidence": float(doc["confidence"] if doc.get("confidence") is not None else 1.0),
             }
         )
     return rows
@@ -148,7 +164,7 @@ def _suspicion(memory: dict[str, Any]) -> tuple[bool, str]:
        will be recalled loudly and believed wrongly).
     3. It is anchored to a canon fact they did not witness.
     """
-    certainty = float(memory.get("certainty") or 1.0)
+    certainty = float(memory["certainty"] if memory.get("certainty") is not None else 1.0)
     importance = float(memory.get("importance") or 0.0)
     if certainty < _LOW_CERTAINTY and importance >= _MATERIAL_IMPORTANCE:
         return True, (f"Important to them ({importance:.2f}) but they are not sure of it ({certainty:.2f}).")
@@ -170,10 +186,16 @@ def mongodb_list_knowledge_audit(params: KnowledgeAuditFilter) -> KnowledgeAudit
     entity_id = params.entity_id
     universe_id = params.universe_id
     limit = params.limit
+    offset = params.offset
+
+    facts = _witnessed_facts(entity_id, universe_id, limit + 1, offset)
+    memories = _owned_memories(entity_id, universe_id, limit + 1, offset)
+    proposals = _pending_proposals(entity_id, universe_id, limit + 1, offset)
+    next_offset = offset + limit if any(len(rows) > limit for rows in (facts, memories, proposals)) else None
 
     items: list[KnowledgeItem] = []
 
-    for fact in _witnessed_facts(entity_id, universe_id, limit):
+    for fact in facts[:limit]:
         items.append(
             KnowledgeItem(
                 id=fact["id"],
@@ -186,7 +208,7 @@ def mongodb_list_knowledge_audit(params: KnowledgeAuditFilter) -> KnowledgeAudit
         )
 
     suspicious_count = 0
-    for memory in _owned_memories(entity_id, universe_id, limit):
+    for memory in memories[:limit]:
         suspicious, reason = _suspicion({**memory, "entity_id": str(entity_id)})
         if suspicious:
             suspicious_count += 1
@@ -204,7 +226,7 @@ def mongodb_list_knowledge_audit(params: KnowledgeAuditFilter) -> KnowledgeAudit
             )
         )
 
-    for proposal in _pending_proposals(entity_id, universe_id, limit):
+    for proposal in proposals[:limit]:
         items.append(
             KnowledgeItem(
                 id=proposal["id"],
@@ -218,6 +240,8 @@ def mongodb_list_knowledge_audit(params: KnowledgeAuditFilter) -> KnowledgeAudit
     return KnowledgeAudit(
         entity_id=entity_id,
         universe_id=universe_id,
+        offset=offset,
+        next_offset=next_offset,
         items=items,
         fact_count=sum(1 for item in items if item.kind == "fact"),
         memory_count=sum(1 for item in items if item.kind == "memory"),

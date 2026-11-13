@@ -407,6 +407,8 @@ def mongodb_defer_proposed_change(
     doc = coll.find_one({"proposal_id": str(proposal_id)})
     if not doc:
         raise ValueError(f"Proposal {proposal_id} not found")
+    if doc.get("knowledge_retraction_checkpoint"):
+        raise ValueError("This memory correction has started; retry acceptance to finish it before deferring")
     current_status = _coerce_proposal_status(doc.get("status", ProposalStatus.PENDING.value))
     if current_status != ProposalStatus.PENDING:
         raise ValueError(
@@ -451,6 +453,8 @@ def mongodb_edit_proposed_change(
     doc = coll.find_one({"proposal_id": str(proposal_id)})
     if not doc:
         raise ValueError(f"Proposal {proposal_id} not found")
+    if doc.get("knowledge_retraction_checkpoint"):
+        raise ValueError("This memory correction has started; retry acceptance to finish it before editing")
     current_status = _coerce_proposal_status(doc.get("status", ProposalStatus.PENDING.value))
     if current_status != ProposalStatus.PENDING:
         raise ValueError(
@@ -480,6 +484,107 @@ def mongodb_edit_proposed_change(
     if updated is None:
         raise ValueError(f"Proposal {proposal_id} not found after edit")
     return updated
+
+
+def prepare_knowledge_memory_change(proposal_id: UUID, expected_content: dict[str, Any]) -> bool:
+    """Record the verified target before a multi-store memory correction.
+
+    Return True when the memory was already removed by a previous attempt.
+    A missing memory is only accepted if this exact target was verified on a
+    prior attempt of this still-pending proposal.
+    """
+    assert_proposal_write(proposal_id, resource="proposed_change")
+    client = get_mongodb_client()
+    proposals = client.get_collection("proposed_changes")
+    doc = proposals.find_one({"proposal_id": str(proposal_id), "status": "pending"})
+    if not doc:
+        raise ValueError("The correction is no longer pending")
+    content = doc.get("content") or {}
+    if content != expected_content:
+        raise ValueError("The proposal changed while the correction was being accepted; review it again")
+    correction = content.get("knowledge_correction") or {}
+    participants = content.get("participants") or []
+    action = correction.get("action")
+    if correction.get("item_kind") != "memory" or action not in ("retract", "correct") or len(participants) != 1:
+        raise ValueError("Invalid memory correction")
+    target = {
+        "memory_id": str(UUID(str(correction.get("item_id")))),
+        "entity_id": str(UUID(str(participants[0]))),
+        "universe_id": str(UUID(str(content.get("universe_id")))),
+        "action": action,
+        "statement": str(content.get("statement") or "") if action == "correct" else "",
+    }
+    if action == "correct" and not target["statement"].strip():
+        raise ValueError("A corrected statement is required")
+    checkpoint = doc.get("knowledge_retraction_checkpoint")
+    if checkpoint is not None and checkpoint != target:
+        raise ValueError("The correction target changed after processing began")
+    memories = client.get_collection("character_memories")
+    memory = memories.find_one({"memory_id": target["memory_id"]})
+    if memory is None:
+        if action == "retract" and checkpoint == target:
+            return True
+        raise ValueError("The memory no longer belongs to this character")
+    if str(memory.get("entity_id")) != target["entity_id"] or str(memory.get("universe_id")) != target["universe_id"]:
+        raise ValueError("The memory no longer belongs to this character")
+    expected_text = correction.get("original_statement")
+    if expected_text is None and action == "retract":
+        expected_text = content.get("statement")
+    if action == "retract" and not str(expected_text or "").strip():
+        raise ValueError("The original statement is required for a retraction")
+    if action == "correct" and not str(expected_text or "").strip():
+        raise ValueError("The original statement is missing; restage this correction for review")
+    valid_texts = {str(expected_text)} if expected_text is not None else set()
+    if action == "correct" and checkpoint == target:
+        valid_texts.add(target["statement"])
+    if valid_texts and str(memory.get("text") or "") not in valid_texts:
+        raise ValueError("The attribution changed after this challenge was staged; review it again")
+    result = proposals.update_one({"proposal_id": str(proposal_id), "status": "pending", "content": expected_content},
+                                  {"$set": {"knowledge_retraction_checkpoint": target}})
+    if result.matched_count != 1:
+        raise ValueError("The correction is no longer pending")
+    return False
+
+
+def mongodb_find_interrupted_corrections(limit: int = 20) -> list[dict[str, Any]]:
+    """Pending knowledge corrections whose accept started but never finished.
+
+    They carry ``knowledge_retraction_checkpoint`` without
+    ``knowledge_correction_applied`` — the multi-store write is halfway
+    done and only completing the accept makes the stores agree again.
+    Corrections marked ``knowledge_reconciliation_error`` need a human and
+    are excluded.
+    """
+    client = get_mongodb_client()
+    proposals = client.get_collection("proposed_changes")
+    cursor = (
+        proposals.find(
+            {
+                "status": ProposalStatus.PENDING.value,
+                "knowledge_retraction_checkpoint": {"$exists": True},
+                "knowledge_correction_applied": {"$ne": True},
+                "knowledge_reconciliation_error": {"$exists": False},
+            }
+        )
+        .sort("proposal_id", 1)
+        .limit(limit)
+    )
+    return list(cursor)
+
+
+def mongodb_mark_correction_stalled(proposal_id: UUID, error: str) -> None:
+    """Record that reconciliation cannot complete this correction unaided.
+
+    The mark excludes the proposal from further sweeps so it is not
+    retried forever; it stays pending for a human to restage.
+    """
+    assert_proposal_write(proposal_id, resource="proposed_change")
+    client = get_mongodb_client()
+    proposals = client.get_collection("proposed_changes")
+    proposals.update_one(
+        {"proposal_id": str(proposal_id)},
+        {"$set": {"knowledge_reconciliation_error": error}},
+    )
 
 
 def mongodb_retract_proposed_change(
@@ -623,6 +728,9 @@ def mongodb_update_proposed_change(proposal_id: UUID, params: ProposedChangeUpda
     current_status = ProposalStatus(proposal_doc["status"])
     new_status = params.status
 
+    if proposal_doc.get("knowledge_retraction_checkpoint") and new_status == ProposalStatus.REJECTED:
+        raise ValueError("This memory correction has started; retry acceptance to finish it before rejecting")
+
     # Only allow transitions from pending to accepted or rejected
     if current_status != ProposalStatus.PENDING:
         raise ValueError(
@@ -649,11 +757,13 @@ def mongodb_update_proposed_change(proposal_id: UUID, params: ProposedChangeUpda
         "override_reason": params.decision_metadata.override_reason,
     }
 
-    update_doc = {
+    update_doc: dict[str, Any] = {
         "status": new_status.value,
         "decision_metadata": decision_metadata_doc,
         "updated_at": updated_at,
     }
+    if params.knowledge_correction_applied:
+        update_doc["knowledge_correction_applied"] = True
 
     # Update proposal
     proposed_changes_collection.update_one({"proposal_id": str(proposal_id)}, {"$set": update_doc})

@@ -17,6 +17,7 @@ IMPORTS FROM: data-layer, agents (CanonKeeper — same pattern as pack_library)
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import json
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -50,6 +51,8 @@ from monitor_data.tools.mongodb_tools import (
 from monitor_data.config import get_settings
 from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
 from monitor_ui.ownership import (
+    _universe_of_scene,
+    _universe_of_story,
     require_proposal_owner,
     require_scene_owner,
     require_story_owner,
@@ -509,6 +512,12 @@ async def apply_verdicts(
     results: list[ProposedChangeResponse] = []
     errors: list[BatchVerdictError] = []
     for item in body.items:
+        if item.decision == ProposalStatus.ACCEPTED:
+            try:
+                results.append(await accept_proposal(str(item.proposal_id), item.reason, None, principal, db, body.decided_by or "GM"))
+            except HTTPException as exc:
+                errors.append(BatchVerdictError(proposal_id=item.proposal_id, error=str(exc.detail)))
+            continue
         with db_op():
             try:
                 updated = mongodb_update_proposed_change(
@@ -657,6 +666,8 @@ async def apply_verdicts_by_filter(
             )
 
     matches = _matching_proposals(body)
+    for proposal in matches:
+        await require_proposal_owner(db, principal, proposal.proposal_id)
     ids = [str(p.proposal_id) for p in matches]
     token = _by_filter_token(body, ids)
 
@@ -680,6 +691,12 @@ async def apply_verdicts_by_filter(
     results: list[ProposedChangeResponse] = []
     errors: list[BatchVerdictError] = []
     for proposal in matches:
+        if body.decision == ProposalStatus.ACCEPTED:
+            try:
+                results.append(await accept_proposal(str(proposal.proposal_id), body.reason, None, principal, db, body.decided_by or "GM"))
+            except HTTPException as exc:
+                errors.append(BatchVerdictError(proposal_id=proposal.proposal_id, error=str(exc.detail)))
+            continue
         with db_op():
             try:
                 updated = mongodb_update_proposed_change(
@@ -817,17 +834,18 @@ async def _resolve_review_flags(
     checked once; anything found is stamped on the proposal so the review
     UI shows the warning next to the item.
     """
-    if proposal.review_flags:
+    if any(flag.kind == "direct_contradiction" for flag in proposal.review_flags):
         return list(proposal.review_flags)
-    flags = await _detect_direct_contradiction(proposal)
-    if not flags:
-        return []
+    detected = await _detect_direct_contradiction(proposal)
+    flags = list(proposal.review_flags) + detected
+    if not detected:
+        return flags
     try:
         mongodb_flag_proposal_review(
             proposal.proposal_id,
             needs_review=True,
-            reason=flags[0].explanation or "Contradicts established canon.",
-            source=flags[0].kind,
+            reason=detected[0].explanation or "Contradicts established canon.",
+            source=detected[0].kind,
             flags=flags,
         )
     except Exception as exc:  # noqa: BLE001  # reason: a failed stamp must not block the decision
@@ -859,6 +877,7 @@ async def accept_proposal(
     ),
     principal: Principal = Depends(get_current_user),
     db: PostgresClient = Depends(get_postgres),
+    decided_by: str = "GM",
 ) -> ProposedChangeResponse:
     """Single-shot accept for a proposal.
 
@@ -880,11 +899,17 @@ async def accept_proposal(
             detail=f"Proposal is already {proposal.status.value}.",
         )
 
+    correction = proposal.content.get("knowledge_correction")
+    if "knowledge_correction" in proposal.content and (not isinstance(correction, dict) or not correction):
+        raise HTTPException(status_code=409, detail="The knowledge correction is malformed.")
+    is_knowledge_correction = bool(correction)
+
     owner_settings = await _owner_canon_settings(db, principal)
     hard_mode = bool(owner_settings.get("hard_rejection"))
     require_override = get_settings().canonkeeper_require_override_reason
 
-    flags = await _resolve_review_flags(proposal)
+    is_retraction = isinstance(correction, dict) and correction.get("action") == "retract"
+    flags = list(proposal.review_flags) if is_retraction else await _resolve_review_flags(proposal)
     blocking = _blocking_flag_kinds(flags)
     hard_kinds = _hard_flag_kinds(flags)
 
@@ -905,14 +930,59 @@ async def accept_proposal(
         )
         raise HTTPException(status_code=409, detail=detail)
 
+    if is_knowledge_correction:
+        try:
+            universe_id = UUID(str(proposal.content.get("universe_id")))
+            await require_universe_owner(db, principal, universe_id)
+            if not is_local_mode(principal):
+                scope_universe = (
+                    await _universe_of_scene(proposal.scene_id) if proposal.scene_id
+                    else await _universe_of_story(proposal.story_id) if proposal.story_id
+                    else None
+                )
+                if str(scope_universe) != str(universe_id):
+                    raise HTTPException(status_code=404, detail="Not found")
+            assert isinstance(correction, dict)
+            memory_already_absent = False
+            keeper = CanonKeeper()
+            if correction.get("item_kind") == "memory" and correction.get("action") in ("retract", "correct"):
+                from monitor_data.tools.mongodb_tools.proposals import prepare_knowledge_memory_change
+
+                participants = proposal.content.get("participants") or []
+                if len(participants) != 1:
+                    raise ValueError("A knowledge correction must identify one character")
+                character = await keeper.call_tool("neo4j_get_entity", {"entity_id": str(UUID(str(participants[0])))})
+                if not isinstance(character, dict) or str(character.get("universe_id")) != str(universe_id):
+                    raise ValueError("The character is no longer available in this universe")
+                memory_already_absent = await asyncio.to_thread(
+                    prepare_knowledge_memory_change, proposal_uuid, proposal.content,
+                )
+            await keeper.apply_knowledge_correction(
+                proposal.content, memory_already_absent=memory_already_absent,
+            )
+            try:
+                from monitor_data.db.redis import get_redis_client
+
+                await asyncio.to_thread(get_redis_client().delete_prefix, "solo_play:")
+            except Exception as exc:  # noqa: BLE001  # cache failure must not undo an applied correction
+                log.warning("could not invalidate knowledge cache: %s", exc)
+        except HTTPException:
+            raise
+        except (ValueError, PermissionError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            log.warning("knowledge correction failed for %s: %s", proposal_id, exc)
+            raise HTTPException(status_code=503, detail="Could not apply the knowledge correction.") from exc
+
     with db_op():
         try:
             updated = mongodb_update_proposed_change(
                 proposal_uuid,
                 ProposedChangeUpdate(
                     status=ProposalStatus.ACCEPTED,
+                    knowledge_correction_applied=is_knowledge_correction,
                     decision_metadata=DecisionMetadata(
-                        decided_by="GM",
+                        decided_by=decided_by or "GM",
                         decided_at=datetime.now(UTC),
                         reason=reason,
                         override_reason=override_reason if blocking else None,

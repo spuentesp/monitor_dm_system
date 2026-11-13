@@ -65,19 +65,36 @@ Measurement record: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`
   session (first run: `docs/testing/gm_table_test_preflight_2026-11-11.md`,
   which found and fixed a 500 in the Complication lookup and a latency
   problem in the Name lookup).
-- **G02 phase 4 — the segment review UI** (the backend is there: the GM
-  can transcribe, read and queue a segment; there is no panel to review
-  them in).
 - **G02 phase 5 — the live pass** against a real recording.
-- **G06 phase 4 — the UI badge** for the difficulty estimate.
-- **G09 phase 4 — the UI panel** for the knowledge inspector.
-- **The STATUS.md open items** that are not gap work: co-pilot workflow
-  polish (gap 4 of `GM_ASSISTANT_MODE_PLAN.md`) and the *enablement* of
-  provider-key encryption (the code is there; the operator has to set
-  `MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`). The other three items STATUS
-  listed as open were **stale** and are now verified as done: per-user
-  LLM spend quota (`monitor_data/usage.py`), the per-owner Conversatory
-  universe, and — new this session — the idempotent pre-auth owner
+- ~~G02 phase 4 — the segment review UI~~ **done 2026-11-12**:
+  `AudioTranscriptPanel` (moved into `SessionRecorder`) plays a segment,
+  edits its text, maps speakers, and queues it; upload keys are
+  collision-proof and failed transcriptions clean up after themselves.
+- ~~G06 phase 4 — the UI badge~~ **done** (`DifficultyBadge`).
+- ~~G09 phase 4 — the UI panel~~ **done 2026-11-12**: `KnowledgePanel`
+  with paginated provenance and a challenge flow (retract / correct) into
+  CF-8 review; accepting a knowledge correction applies it through
+  CanonKeeper across MongoDB + Qdrant + fact properties with a retryable
+  checkpoint (`prepare_knowledge_memory_change` /
+  `apply_knowledge_correction`). The multi-store write is not one
+  transaction, but the **auto-reconciler**
+  (`monitor_ui/correction_reconcile.py`, interval
+  `MONITOR_CORRECTION_RECONCILER_INTERVAL`, default 60 s, 0 disables)
+  finishes interrupted accepts automatically; a correction whose target
+  moved under it is marked `knowledge_reconciliation_error` and left for a
+  human (edit/defer/reject stay blocked while a checkpoint is live).
+- **The STATUS.md open items** that are not gap work — now closed or
+  reduced to ops: P3.2(b) is implemented 2026-11-13 (`story_id` threaded
+  from scratchpad ingest through the job into proposal attribution),
+  closing co-pilot gap 4's last code item; provider-key encryption is
+  **enabled on this worktree** — `MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`
+  was generated into `.env` and documented in `env.example`. Remaining
+  ops step: with the stack up, re-save the provider keys (e.g. via the
+  `/config` page) so rows written before the key existed get encrypted.
+  The other three items STATUS listed as open were **stale** and are now
+  verified as done: per-user LLM spend quota (`monitor_data/usage.py`),
+  the per-owner Conversatory universe, and — new this session — the
+  idempotent pre-auth owner
   backfill (`POST /admin/ownership/backfill`).
 
 ## Traps learned (read before touching tests or live runs)
@@ -132,9 +149,48 @@ Measurement record: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`
     are as fast as the LIGHT provider, and a 1B model can take 120 s. Check
     the LIGHT row before a table session.
 
+## Unmerged work sitting on a backup branch
+
+**Update (2026-11-12/13): everything described below is now applied in the
+`gap/wave1-integration` worktree and shipped as PR #154** (together
+with the knowledge-correction flow, inspector pagination, and the G02/G09
+phase-4 panels). The two backup snapshot branches were retired after
+verification — fully superseded by `cdf597a` (only pre-pagination versions
+of now-evolved functions differed) — deleted locally and on GitHub.
+
+`backup/g09-g08-review-fixes-20261112` (commit `b5df647`, pushed) held
+uncommitted review fixes found in the `gap/wave1-integration` worktree *after*
+PR #147 merged. The interesting parts (all landed now):
+
+- The G08 soft block was only wired into the single accept route. These
+  changes route the batch verdict paths (`apply_verdicts`,
+  `apply_verdicts_by_filter`) through `accept_proposal` too, so a batch
+  accept cannot sidestep the override requirement. That is a real hole in
+  what shipped.
+- The by-filter verdict path owner-checks each matched proposal (it did not).
+- `_resolve_review_flags` merges existing flags with newly detected ones;
+  the merged version returns early on *any* flag and drops existing ones when
+  stamping new ones.
+- `knowledge_audit` fetches the universe's facts and filters afterwards —
+  a witness need not be involved in a fact, so filtering by `entity_id`
+  missed exactly the facts the inspector is for.
+
+A second snapshot, `backup/g09-g08-review-fixes-2-20261112` (pushed), was taken
+later the same day: more live edits appeared in the worktree after the first
+snapshot (new tests for the batch-accept fix, frontend work in
+`AudioTranscriptPanel`/`SessionRecorder`/`page.tsx`). That one is a stash
+commit — `git checkout backup/g09-g08-review-fixes-2-20261112` restores it, or
+`git stash apply dabbb72` on a matching base.
+
+**Another session was actively editing this worktree while this was written.**
+Before you assume a branch is up to date, run `git status`.
+
 ## Repo state
 
-- Branch: `gap/wave1-integration` — commits `42e9dac..HEAD` unpushed.
+- Branch: `gap/wave1-integration` — pushed; **PR #154** (2026-11-13) carries
+  the post-#147 follow-up: review fixes + knowledge corrections + G02/G09
+  phase-4 panels (`cdf597a`), P3.2(b) story attribution (`4d50d62`), and
+  the docs close-outs (`543b932`, `a8be570`). Nothing merged yet.
 - `gap/g05-recap` fully merged (safe to delete).
 - The local Postgres has a **live provider registry** (MiniMax M2.7,
   MiMo v2.6 Flash, Ollama qwen2.5:7b / llama3.2:1b). The measurement runs

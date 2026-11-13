@@ -323,8 +323,12 @@ class GmTableAgent(BaseAgent):
         facts = [f for f in raw_facts if isinstance(f, dict)]
 
         def _is_known(fact: dict[str, Any]) -> bool:
+            from monitor_agents.cast import fact_visible_to
+
+            if character_keys:
+                return any(fact_visible_to(fact, character_id) for character_id in character_keys)
             witnesses = [str(w) for w in (fact.get("witnesses") or [])]
-            return not witnesses or bool(set(witnesses) & character_keys)
+            return not witnesses
 
         known = [f for f in facts if _is_known(f)]
         statements = [str(f.get("statement") or "") for f in known if f.get("statement")]

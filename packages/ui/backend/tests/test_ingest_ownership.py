@@ -196,3 +196,40 @@ class TestIngestAuthz:
             headers=_csrf(client),
         )
         assert r.status_code not in (401, 403, 404)
+
+    def test_upload_with_foreign_story_rejected(self, client, monkeypatch):
+        _signup(client, "a@example.com", "alice")
+
+        async def _missing_story(_sid):
+            return None
+
+        monkeypatch.setattr("monitor_ui.ownership._universe_of_story", _missing_story)
+        r = client.post(
+            "/api/ingest/sources/upload",
+            files={"file": ("a.txt", b"hello", "text/plain")},
+            data={"story_id": str(uuid4())},
+            headers=_csrf(client),
+        )
+        assert r.status_code == 404
+
+    def test_upload_with_owned_story_passes_gate(self, client, fake_db, monkeypatch):
+        user = _signup(client, "a@example.com", "alice")
+        world_id = str(uuid4())
+        fake_db.worlds[world_id] = {
+            "id": world_id,
+            "owner_id": UUID(user["id"]),
+            "label": "w",
+            "active": True,
+        }
+
+        async def _owned_story(_sid):
+            return world_id
+
+        monkeypatch.setattr("monitor_ui.ownership._universe_of_story", _owned_story)
+        r = client.post(
+            "/api/ingest/sources/upload",
+            files={"file": ("a.txt", b"hello", "text/plain")},
+            data={"story_id": str(uuid4())},
+            headers=_csrf(client),
+        )
+        assert r.status_code not in (401, 403, 404)

@@ -107,6 +107,11 @@ class CommitDispatcherMixin:
         mongodb = get_mongodb_client()
         proposals_coll = mongodb.get_collection("proposed_changes")
         proposal_id = str(proposal.get("proposal_id") or "")
+        content = proposal.get("content") or proposal.get("payload") or {}
+        if isinstance(content, dict) and "knowledge_correction" in content:
+            if proposal.get("knowledge_correction_applied"):
+                return
+            raise ValueError("Knowledge corrections cannot yet be committed safely")
         # Reset the per-commit neo4j-id stash used by the audit trail.
         self._last_commit_neo4j_id = None
 

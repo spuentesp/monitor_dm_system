@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, Brain, Loader2, Search } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { entitiesApi } from "@/lib/api";
+import { entitiesApi, storiesApi } from "@/lib/api";
 import { gmTableApi } from "@/lib/gm-table-api";
 import type { KnowledgeItem } from "@/lib/gm-table-types";
 import { cn } from "@/lib/utils";
@@ -32,19 +32,39 @@ interface KnowledgePanelProps {
 
 export function KnowledgePanel({ universeId }: KnowledgePanelProps) {
   const [selected, setSelected] = useState<string | null>(null);
+  const [storyId, setStoryId] = useState("");
+  const [offset, setOffset] = useState(0);
   const [challenged, setChallenged] = useState<string[]>([]);
+  const [editingItem, setEditingItem] = useState<KnowledgeItem | null>(null);
+  const [action, setAction] = useState<"retract" | "correct">("retract");
+  const [correctedText, setCorrectedText] = useState("");
+  const [reason, setReason] = useState("");
+
+  useEffect(() => {
+    setSelected(null);
+    setStoryId("");
+    setOffset(0);
+    setChallenged([]);
+    setEditingItem(null);
+  }, [universeId]);
 
   const characters = useQuery({
     queryKey: ["gm-knowledge-characters", universeId],
-    queryFn: () => entitiesApi.listNPCs({ entity_type: "character", limit: 100 }),
+    queryFn: () => entitiesApi.listNPCs({ universe_id: universeId!, entity_type: "character", limit: 100 }),
     enabled: !!universeId,
     staleTime: 60_000,
   });
 
   const audit = useQuery({
-    queryKey: ["gm-knowledge-audit", universeId, selected],
-    queryFn: () => gmTableApi.auditKnowledge(universeId!, selected!),
+    queryKey: ["gm-knowledge-audit", universeId, selected, offset],
+    queryFn: () => gmTableApi.auditKnowledge(universeId!, selected!, offset),
     enabled: !!universeId && !!selected,
+  });
+
+  const stories = useQuery({
+    queryKey: ["gm-knowledge-stories", universeId],
+    queryFn: () => storiesApi.listStories({ universe_id: universeId! }),
+    enabled: !!universeId,
   });
 
   const challenge = useMutation({
@@ -52,11 +72,15 @@ export function KnowledgePanel({ universeId }: KnowledgePanelProps) {
       gmTableApi.challengeKnowledge(universeId!, selected!, {
         item_id: item.id,
         item_kind: item.kind,
-        statement: item.statement,
-        reason: "The GM doubts this attribution.",
-        action: "retract",
+        statement: action === "correct" ? correctedText.trim() : item.statement,
+        reason: reason.trim(),
+        action,
+        story_id: storyId,
       }),
-    onSuccess: (_data, item) => setChallenged((prev) => [...prev, item.id]),
+    onSuccess: (_data, item) => {
+      setChallenged((prev) => [...prev, item.id]);
+      setEditingItem(null);
+    },
   });
 
   if (!universeId) {
@@ -67,6 +91,40 @@ export function KnowledgePanel({ universeId }: KnowledgePanelProps) {
 
   return (
     <div className="space-y-3">
+      <label className="block text-[10px] text-slate-500">
+        Story for challenges
+        <select aria-label="Story for challenges" value={storyId}
+          onChange={(event) => setStoryId(event.target.value)} className="input-cyber ml-2 text-xs">
+          <option value="">Select a story</option>
+          {(stories.data?.stories ?? []).map((story) => (
+            <option key={story.id} value={story.id}>{story.title}</option>
+          ))}
+        </select>
+      </label>
+      {editingItem && (
+        <div className="space-y-2 rounded border border-white/10 p-2">
+          <p className="text-xs text-slate-300">{editingItem.statement}</p>
+          <label className="block text-xs text-slate-400">Action
+            <select aria-label="Challenge action" value={action}
+              onChange={(event) => setAction(event.target.value as "retract" | "correct")}
+              className="input-cyber ml-2 text-xs">
+              <option value="retract">Character does not know this</option>
+              <option value="correct">Correct the statement</option>
+            </select>
+          </label>
+          {action === "correct" && <textarea aria-label="Corrected statement" value={correctedText}
+            onChange={(event) => setCorrectedText(event.target.value)} className="input-cyber w-full text-xs" />}
+          {action === "correct" && editingItem.kind !== "memory" && (
+            <p className="text-[10px] text-amber-400">This changes the underlying statement for everyone after review.</p>
+          )}
+          <textarea aria-label="Reason for challenge" value={reason}
+            onChange={(event) => setReason(event.target.value)} className="input-cyber w-full text-xs" />
+          {challenge.isError && <p className="text-xs text-red-400">Could not stage the challenge.</p>}
+          <button type="button" className="btn-cyber text-xs" disabled={challenge.isPending || !reason.trim() || (action === "correct" && !correctedText.trim())}
+            onClick={() => challenge.mutate(editingItem)}>Submit challenge</button>
+          <button type="button" className="ml-2 text-xs" onClick={() => setEditingItem(null)}>Cancel</button>
+        </div>
+      )}
       <div>
         <h4 className="text-[9px] font-bold tracking-widest uppercase text-slate-500 mb-1">
           Who do you want to inspect?
@@ -76,7 +134,7 @@ export function KnowledgePanel({ universeId }: KnowledgePanelProps) {
             <button
               key={c.id}
               type="button"
-              onClick={() => setSelected(c.id)}
+              onClick={() => { setSelected(c.id); setOffset(0); }}
               className={cn(
                 "text-[10px] px-2 py-0.5 rounded border transition-all",
                 selected === c.id
@@ -107,12 +165,17 @@ export function KnowledgePanel({ universeId }: KnowledgePanelProps) {
             <span>
               {audit.data.fact_count} facts · {audit.data.memory_count} memories ·{" "}
               {audit.data.proposal_count} pending
+              {" "}on this page
             </span>
             {audit.data.suspicious_count > 0 && (
               <span className="text-amber-400">
                 {audit.data.suspicious_count} doubtful
               </span>
             )}
+          </div>
+          <div className="flex gap-2 text-xs">
+            {offset > 0 && <button type="button" onClick={() => setOffset(Math.max(0, offset - 200))}>Previous page</button>}
+            {audit.data.next_offset != null && <button type="button" onClick={() => setOffset(audit.data!.next_offset!)}>Next page</button>}
           </div>
 
           {audit.data.items.length === 0 && (
@@ -150,10 +213,11 @@ export function KnowledgePanel({ universeId }: KnowledgePanelProps) {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => challenge.mutate(item)}
-                    disabled={challenge.isPending}
+                    onClick={() => { setEditingItem(item); setAction("retract"); setCorrectedText(item.statement); setReason(""); }}
+                    disabled={challenge.isPending || !storyId}
                     className="ml-auto text-[9px] text-slate-500 hover:text-slate-200 flex items-center gap-1"
                     aria-label="Challenge this attribution"
+                    title="Stage this attribution for review."
                   >
                     {challenge.isPending ? (
                       <Loader2 className="w-3 h-3 animate-spin" />

@@ -327,7 +327,7 @@ AUTHORITY_MATRIX = {
     "qdrant_upsert": ["Indexer"],
     "qdrant_upsert_batch": ["Indexer"],
     "qdrant_search": ["*"],
-    "qdrant_delete": ["Indexer"],
+    "qdrant_delete": ["Indexer", "CanonKeeper"],
     "qdrant_delete_by_filter": ["Indexer"],
     "qdrant_get_collection_info": ["*"],
     # =========================================================================

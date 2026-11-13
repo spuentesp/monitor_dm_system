@@ -120,6 +120,10 @@ class IngestionJobCreate(BaseModel):
         default_factory=list,
         description="Selected analysis layers/checklist items for this ingestion run",
     )
+    story_id: UUID | None = Field(
+        default=None,
+        description="Story the captured notes belong to (P3.2(b) — proposal attribution)",
+    )
 
 
 class IngestionJobUpdate(BaseModel):

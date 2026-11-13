@@ -907,6 +907,9 @@ class ApplyKnowledgePackRequest(BaseModel):
     apply_generation_templates: bool = Field(default=True)
     apply_plot_threads: bool = Field(default=True)
     proposer: str = Field(default="Agent")
+    # P3.2(b) — proposals inherit this story (falling back to the ingestion
+    # job's story when omitted) so story-scoped review sees them.
+    story_id: UUID | None = Field(default=None)
     # Subset selection (F1-6): None means "apply all items of that type";
     # a list restricts application to those pack indices.
     entity_indices: list[int] | None = Field(default=None)

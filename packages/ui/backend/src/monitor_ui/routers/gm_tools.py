@@ -15,10 +15,10 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import structlog
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from monitor_agents.canonkeeper.agent import CanonKeeper
 from monitor_agents.combat import CombatAgent, ConditionExplanation
 from monitor_agents.audio_capture import AudioCaptureAgent, AudioCaptureError
@@ -111,8 +111,15 @@ from monitor_data.tools.neo4j_tools import (
     neo4j_search_entities,
 )
 from monitor_data.utils.dice import roll_dice
-from monitor_ui.auth import Principal, get_current_user, get_postgres
-from monitor_ui.ownership import require_story_owner, require_universe_owner, resource_route_guard
+from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
+from monitor_ui.ownership import (
+    _universe_of_scene,
+    _universe_of_story,
+    require_scene_owner,
+    require_story_owner,
+    require_universe_owner,
+    resource_route_guard,
+)
 from monitor_ui.routers.chat_game_system import (
     get_game_system_doc,
     resolve_universe_system_binding,
@@ -122,6 +129,34 @@ from pydantic import BaseModel, Field
 
 router = APIRouter(dependencies=[Depends(resource_route_guard)])
 log = structlog.get_logger()
+
+
+async def _require_capture_scope(
+    db: PostgresClient, principal: Principal, universe_id: UUID,
+    story_id: UUID | None, scene_id: UUID | None, session_id: UUID | None = None,
+) -> None:
+    """Validate body-carried scopes as well as their common universe."""
+    await require_universe_owner(db, principal, universe_id)
+    if is_local_mode(principal):
+        return
+    if story_id:
+        await require_story_owner(db, principal, story_id)
+        if str(await _universe_of_story(story_id)) != str(universe_id):
+            raise HTTPException(status_code=404, detail="Not found")
+    if scene_id:
+        await require_scene_owner(db, principal, scene_id)
+        if str(await _universe_of_scene(scene_id)) != str(universe_id):
+            raise HTTPException(status_code=404, detail="Not found")
+    if session_id:
+        from monitor_data.db.mongodb import get_mongodb_client
+
+        session = get_mongodb_client().get_collection("chat_sessions").find_one({"id": str(session_id)})
+        if not session or str(session.get("universe_id") or session.get("world_id")) != str(universe_id):
+            raise HTTPException(status_code=404, detail="Not found")
+        if (story_id and str(session.get("story_id")) != str(story_id)) or (
+            scene_id and str(session.get("scene_id")) != str(scene_id)
+        ):
+            raise HTTPException(status_code=404, detail="Not found")
 
 # Bounds for the /gm/roll endpoint. ``roll_dice`` enforces no upper cap, so an
 # unbounded ``NdS`` would let one request allocate arbitrarily many rolls; these
@@ -2502,6 +2537,8 @@ class KnowledgeAuditResponse(BaseModel):
     memory_count: int = 0
     proposal_count: int = 0
     suspicious_count: int = 0
+    offset: int = 0
+    next_offset: int | None = None
 
 
 class KnowledgeChallengeRequest(BaseModel):
@@ -2528,6 +2565,7 @@ class KnowledgeChallengeResponse(BaseModel):
 async def audit_character_knowledge(
     entity_id: str,
     universe_id: str,
+    offset: int = Query(default=0, ge=0),
     principal: Principal = Depends(get_current_user),
     db: PostgresClient = Depends(get_postgres),
 ) -> KnowledgeAuditResponse:
@@ -2541,7 +2579,7 @@ async def audit_character_knowledge(
     eid = _uuid_or_400(entity_id, "entity_id")
     await require_universe_owner(db, principal, uid)
     try:
-        audit = await KnowledgeAuditAgent().audit(entity_id=eid, universe_id=uid)
+        audit = await KnowledgeAuditAgent().audit(entity_id=eid, universe_id=uid, offset=offset)
     except Exception as exc:
         log.warning("knowledge_audit_failed", entity_id=str(eid), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to audit knowledge: {exc}") from exc
@@ -2561,7 +2599,7 @@ async def challenge_character_knowledge(
     GM's objection shows up in the review trail like any other change.
     """
     eid = _uuid_or_400(entity_id, "entity_id")
-    await require_universe_owner(db, principal, req.universe_id)
+    await _require_capture_scope(db, principal, req.universe_id, req.story_id, req.scene_id)
     try:
         proposal_id = await KnowledgeAuditAgent().challenge(
             entity_id=eid,
@@ -2617,7 +2655,8 @@ class AudioSegmentQueueRequest(BaseModel):
     """Queue one reviewed segment into the capture flow."""
 
     segment_index: int = Field(ge=0)
-    text: str | None = Field(default=None, max_length=10000)
+    text: str | None = Field(default=None, max_length=4000)
+    speaker: str | None = Field(default=None, max_length=200)
 
 
 class AudioSegmentQueueResponse(BaseModel):
@@ -2650,8 +2689,8 @@ async def transcribe_audio(
     stored with the provider that made it. Nothing becomes canon here: the
     GM reviews the segments and queues them into the CF-1 flow.
     """
-    await require_universe_owner(db, principal, universe_id)
-    audio = await file.read()
+    await _require_capture_scope(db, principal, universe_id, story_id, scene_id, session_id)
+    audio = await file.read(_MAX_AUDIO_BYTES + 1)
     if not audio:
         raise HTTPException(status_code=400, detail="The recording is empty.")
     if len(audio) > _MAX_AUDIO_BYTES:
@@ -2661,8 +2700,7 @@ async def transcribe_audio(
         )
 
     safe_name = Path(file.filename or "recording.wav").name.replace(" ", "_")
-    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    object_key = f"audio/{universe_id}/{principal.user_id}/{timestamp}_{safe_name}"
+    object_key = f"audio/{universe_id}/{principal.user_id}/{uuid4()}_{safe_name}"
 
     content_type = file.content_type or "audio/wav"
     try:
@@ -2689,8 +2727,16 @@ async def transcribe_audio(
             audio_key=object_key,
         )
     except AudioCaptureError as exc:
+        try:
+            await get_minio_client().delete(object_key)
+        except Exception as cleanup_exc:  # noqa: BLE001  # preserve the transcription failure
+            log.warning("audio_cleanup_failed", key=object_key, error=str(cleanup_exc))
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
+        try:
+            await get_minio_client().delete(object_key)
+        except Exception as cleanup_exc:  # noqa: BLE001  # preserve the transcription failure
+            log.warning("audio_cleanup_failed", key=object_key, error=str(cleanup_exc))
         log.warning("audio_transcribe_failed", error=str(exc))
         raise HTTPException(
             status_code=500, detail=f"The recording could not be transcribed: {exc}"
@@ -2755,12 +2801,54 @@ async def queue_audio_segment(
     raw = await asyncio.to_thread(mongodb_get_transcript, tid)
     if raw is None:
         raise HTTPException(status_code=404, detail="Not found")
-    await require_universe_owner(db, principal, raw.universe_id)
+    await _require_capture_scope(db, principal, raw.universe_id, raw.story_id, raw.scene_id, raw.session_id)
 
     try:
-        proposal_ids = await AudioCaptureAgent().queue_segment(
-            tid, req.segment_index, entry_text=req.text
+        segment = next((s for s in raw.segments if s.index == req.segment_index), None)
+        if segment is None:
+            raise AudioCaptureError("The transcript has no such segment.")
+        text = (req.text if req.text is not None else segment.text).strip()
+        speaker = req.speaker.strip() if req.speaker is not None else segment.speaker
+        if not text or not raw.session_id or not raw.story_id or not raw.scene_id:
+            raise AudioCaptureError("A recording session, story, scene and nonempty text are required.")
+        if len(text) > 4000:
+            raise AudioCaptureError("A recorder entry cannot exceed 4000 characters; edit the segment first.")
+        from monitor_data.db.mongodb import get_mongodb_client
+
+        entry_id = str(uuid5(NAMESPACE_URL, f"monitor:audio:{tid}:{req.segment_index}"))
+        session_id = str(raw.session_id)
+        entry = {
+            "id": entry_id, "session_id": session_id, "role": "player", "content": text,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "metadata": {"audio_transcript_id": str(tid), "audio_segment_index": req.segment_index,
+                         "speaker": speaker},
+        }
+        entries = get_mongodb_client().get_collection("chat_messages")
+        existing = await asyncio.to_thread(entries.find_one, {"id": entry_id})
+        if existing:
+            if existing.get("content") != text:
+                raise AudioCaptureError("This segment is already queued; edit it in the recorder.")
+            await asyncio.to_thread(entries.update_one, {"id": entry_id}, {"$set": {"metadata.speaker": speaker}})
+        else:
+            await asyncio.to_thread(entries.insert_one, entry)
+        await asyncio.to_thread(
+            get_mongodb_client().get_collection("transcripts").update_one,
+            {"transcript_id": str(tid), "segments.index": req.segment_index},
+            {"$set": {"segments.$.text": text, "segments.$.speaker": speaker,
+                      "segments.$.reviewed": True, "updated_at": datetime.now(UTC)}},
         )
+        from monitor_data.db.redis import get_redis_client
+
+        await asyncio.to_thread(get_redis_client().delete, f"chat_messages:{session_id}")
+        _evict_recorder_messages(session_id)
+        insight = await CaptureInsightAgent().analyze_entry(universe_id=raw.universe_id, entry_text=text)
+        proposal_ids, errors = await _create_capture_proposals(
+            CaptureInsightsRequest(universe_id=raw.universe_id, entry_text=text, session_id=session_id,
+                                   entry_id=entry_id, story_id=raw.story_id, scene_id=raw.scene_id),
+            insight,
+        )
+        if errors:
+            log.warning("audio_segment_proposal_errors", entry_id=entry_id, errors=errors)
     except AudioCaptureError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:

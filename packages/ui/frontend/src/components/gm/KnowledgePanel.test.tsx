@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { entitiesApi } from "@/lib/api";
+import { entitiesApi, storiesApi } from "@/lib/api";
 import { gmTableApi } from "@/lib/gm-table-api";
 import { KnowledgePanel } from "./KnowledgePanel";
 
@@ -63,6 +63,7 @@ beforeEach(() => {
     total: 1,
   } as never);
   vi.spyOn(gmTableApi, "auditKnowledge").mockResolvedValue(AUDIT);
+  vi.spyOn(storiesApi, "listStories").mockResolvedValue({ stories: [{ id: "story-1", title: "Harbour" }], total: 1 } as never);
   vi.spyOn(gmTableApi, "challengeKnowledge").mockResolvedValue({
     proposal_id: "p-1",
     entity_id: "char-1",
@@ -89,6 +90,19 @@ describe("KnowledgePanel (CF-15)", () => {
     expect(screen.getByText("their memory")).toBeInTheDocument();
   });
 
+  it("loads later pages of attributed knowledge", async () => {
+    vi.mocked(gmTableApi.auditKnowledge).mockImplementation(async (_universe, _entity, offset) =>
+      offset ? { ...AUDIT, items: [{ ...AUDIT.items[0], statement: "Later fact" }], next_offset: null }
+        : { ...AUDIT, next_offset: 200 },
+    );
+    renderPanel("u-1");
+    await userEvent.click(await screen.findByText("Mira"));
+    await userEvent.click(await screen.findByRole("button", { name: "Next page" }));
+    expect(await screen.findByText("Later fact")).toBeInTheDocument();
+    expect(gmTableApi.auditKnowledge).toHaveBeenCalledWith("u-1", "char-1", 200);
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeInTheDocument();
+  });
+
   it("marks a doubtful attribution and says why", async () => {
     renderPanel("u-1");
     await userEvent.click(await screen.findByText("Mira"));
@@ -103,7 +117,11 @@ describe("KnowledgePanel (CF-15)", () => {
     await userEvent.click(await screen.findByText("Mira"));
     await waitFor(() => expect(screen.getByText("The council met without her.")).toBeInTheDocument());
 
+    await userEvent.selectOptions(await screen.findByLabelText("Story for challenges"), "story-1");
+
     await userEvent.click(screen.getAllByLabelText("Challenge this attribution")[0]);
+    await userEvent.type(screen.getByLabelText("Reason for challenge"), "Mira was not present.");
+    await userEvent.click(screen.getByRole("button", { name: "Submit challenge" }));
 
     await waitFor(() => expect(gmTableApi.challengeKnowledge).toHaveBeenCalled());
     const [universeId, entityId, body] = vi.mocked(gmTableApi.challengeKnowledge).mock.calls[0];
@@ -111,6 +129,25 @@ describe("KnowledgePanel (CF-15)", () => {
     expect(entityId).toBe("char-1");
     expect(body.action).toBe("retract");
     expect(body.item_id).toBe("fact-1");
+    expect(body.story_id).toBe("story-1");
+    expect(body.reason).toBe("Mira was not present.");
+  });
+
+  it("lets the GM provide a corrected statement and reason", async () => {
+    renderPanel("u-1");
+    await userEvent.click(await screen.findByText("Mira"));
+    await userEvent.selectOptions(await screen.findByLabelText("Story for challenges"), "story-1");
+    await userEvent.click((await screen.findAllByLabelText("Challenge this attribution"))[0]);
+    await userEvent.selectOptions(screen.getByLabelText("Challenge action"), "correct");
+    const field = screen.getByLabelText("Corrected statement");
+    await userEvent.clear(field);
+    await userEvent.type(field, "The gate remained closed.");
+    await userEvent.type(screen.getByLabelText("Reason for challenge"), "The earlier entry was wrong.");
+    await userEvent.click(screen.getByRole("button", { name: "Submit challenge" }));
+    await waitFor(() => expect(gmTableApi.challengeKnowledge).toHaveBeenCalled());
+    expect(vi.mocked(gmTableApi.challengeKnowledge).mock.calls[0][2]).toMatchObject({
+      action: "correct", statement: "The gate remained closed.", reason: "The earlier entry was wrong.",
+    });
   });
 
   it("says when the system attributes nothing", async () => {

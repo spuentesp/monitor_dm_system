@@ -1,5 +1,7 @@
 "use client";
 
+import { AudioTranscriptPanel } from "@/components/gm/AudioTranscriptPanel";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -48,9 +50,11 @@ import { CanonReviewPanel } from "@/components/canon/CanonReviewPanel";
 export function SessionRecorder({
   universeId,
   universeLabel,
+  onActiveStoryChange,
 }: {
   universeId: string;
   universeLabel?: string | null;
+  onActiveStoryChange?: (storyId: string | null) => void;
 }) {
   const qc = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -94,6 +98,10 @@ export function SessionRecorder({
   }, [recordings, activeId]);
 
   const active = recordings.find((r) => r.id === activeId) ?? null;
+
+  useEffect(() => {
+    onActiveStoryChange?.(active?.story_id ?? null);
+  }, [active?.story_id, onActiveStoryChange]);
 
   const { data: messages = [] } = useQuery({
     queryKey: ["chat", activeId, "messages"],
@@ -257,6 +265,12 @@ export function SessionRecorder({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {active && activeId && (
+        <div className="px-4 py-3 border-b border-white/5 flex-shrink-0">
+          <AudioTranscriptPanel universeId={universeId} sessionId={activeId}
+            storyId={active.story_id} sceneId={active.scene_id} />
+        </div>
+      )}
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 flex-shrink-0">
         <Mic className="w-3.5 h-3.5 text-red-400" />

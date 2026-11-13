@@ -281,6 +281,10 @@ def fact_visible_to(fact: dict[str, Any], npc_id: str | UUID) -> bool:
     raw_content_props = content.get("properties")
     content_props: dict[str, Any] = raw_content_props if isinstance(raw_content_props, dict) else {}
 
+    for surface in (fact, content, props, meta, content_props):
+        if npc_key in {str(value) for value in (surface.get("knowledge_excluded") or [])}:
+            return False
+
     # Explicitly marked common knowledge wins over any witness restriction.
     for surface in (props, meta, content_props, fact, content):
         if surface.get(_FACT_KNOWN_COMMON) is True:

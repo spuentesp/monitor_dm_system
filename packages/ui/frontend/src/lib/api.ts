@@ -338,6 +338,7 @@ export const ingestApi = {
       new_setting_system?: string;
       multiverse_id?: string;
       title?: string;
+      story_id?: string;
     },
   ): Promise<Source> => {
     const form = new FormData();
@@ -351,6 +352,7 @@ export const ingestApi = {
     if (options.new_setting_system) form.append("new_setting_system",  options.new_setting_system);
     if (options.multiverse_id)      form.append("multiverse_id",       options.multiverse_id);
     if (options.title)              form.append("title",               options.title);
+    if (options.story_id)           form.append("story_id",            options.story_id);
     const res = await fetch(apiUrl("/ingest/sources/upload"), {
       method: "POST",
       body: form,
@@ -804,7 +806,7 @@ export const dbApi = {
 // ─── Entities ─────────────────────────────────────────────── 
 
 export const entitiesApi = {
-  listNPCs: (params?: { q?: string; entity_type?: string; limit?: number; offset?: number }) =>
+  listNPCs: (params?: { q?: string; entity_type?: string; universe_id?: string; limit?: number; offset?: number }) =>
     req<PaginatedNPCs>("/entities/npcs", { query: params as Record<string, string | number | undefined> }),
   batchDeleteEntities: (entity_ids: string[], opts?: { force?: boolean; continue_on_error?: boolean }) =>
     req<{ deleted_ids: string[]; deleted_count: number; errors: { entity_id: string; error: string }[] }>(
@@ -1992,10 +1994,10 @@ export const canonApi = {
     }),
 
   /** Accept a single proposal. */
-  acceptProposal: (proposalId: string, reason: string) =>
+  acceptProposal: (proposalId: string, reason: string, overrideReason?: string) =>
     req<ProposalItem>(`/canon-review/${proposalId}/accept`, {
       method: "POST",
-      query: { reason },
+      query: { reason, ...(overrideReason ? { override_reason: overrideReason } : {}) },
     }),
 
   /** Reject a single proposal. */

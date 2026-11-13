@@ -65,6 +65,26 @@ class TestBulkEnqueueStatus:
         assert ProposalStatus(set_doc["status"]) is ProposalStatus.PENDING
         assert set_doc["source"] == f"ingestion_job:{job_id}"
 
+    @pytest.mark.asyncio
+    async def test_enqueue_stamps_story_id(self, monkeypatch: pytest.MonkeyPatch):
+        """P3.2(b) — the enqueue stamp carries the capture story."""
+        from monitor_data.db import mongodb as mongodb_module
+
+        proposals_coll = MagicMock()
+        client = _mongo_with_collections({"proposed_changes": proposals_coll})
+        monkeypatch.setattr(mongodb_module, "get_mongodb_client", lambda: client)
+
+        keeper = CanonKeeper()
+        story_id = uuid4()
+        result = await keeper.bulk_enqueue_proposals(
+            [_proposal_doc(source="knowledge_pack:whatever")],
+            ingestion_job_id=uuid4(),
+            story_id=story_id,
+        )
+        assert result == {"enqueued": 1, "errors": []}
+        set_doc = proposals_coll.update_one.call_args.args[1]["$set"]
+        assert set_doc["story_id"] == str(story_id)
+
 
 class TestAutoCanonizeAttribution:
     def _patch_mongo(self, monkeypatch: pytest.MonkeyPatch, proposals: list[dict[str, Any]]) -> MagicMock:

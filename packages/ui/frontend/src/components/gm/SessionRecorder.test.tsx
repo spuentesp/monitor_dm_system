@@ -99,6 +99,23 @@ beforeEach(() => {
   vi.mocked(gmApi.captureInsights).mockResolvedValue(EMPTY_INSIGHT);
 });
 
+describe("SessionRecorder story reporting (P3.2(b))", () => {
+  it("reports the active recording's story to onActiveStoryChange", async () => {
+    vi.mocked(chatApi.listSessions).mockResolvedValue([
+      { ...RECORDING, story_id: "story-1" },
+    ] as never);
+    const onActiveStoryChange = vi.fn();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <SessionRecorder universeId="u-1" onActiveStoryChange={onActiveStoryChange} />
+      </QueryClientProvider>,
+    );
+    await screen.findByPlaceholderText(/Log what happened/);
+    await waitFor(() => expect(onActiveStoryChange).toHaveBeenCalledWith("story-1"));
+  });
+});
+
 describe("SessionRecorder live contradiction alerts (P1.1)", () => {
   it("renders an amber alert card under the entry when a contradiction is found", async () => {
     const text = "The king greeted the party at the gate";

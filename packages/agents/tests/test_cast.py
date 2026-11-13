@@ -99,6 +99,13 @@ class TestFactVisibility:
     def test_no_witness_record_is_common_knowledge(self):
         assert fact_visible_to({"statement": "ingested lore"}, "n1") is True
 
+    def test_explicit_exclusion_overrides_common_knowledge(self):
+        fact = {"statement": "The door opened", "properties": {
+            "common_knowledge": True, "knowledge_excluded": ["n1"]
+        }}
+        assert not fact_visible_to(fact, "n1")
+        assert fact_visible_to(fact, "n2")
+
     def test_witnessed_fact_hidden_from_absent_npc(self):
         fact = {"statement": "the ledger vanished", "witnesses": ["a", "b"]}
         assert fact_visible_to(fact, "n1") is False

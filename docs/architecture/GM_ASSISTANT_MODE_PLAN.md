@@ -44,7 +44,7 @@
 |---|---|---|
 | Phase 7 Part B task 5 — table test | needs a human GM (one real ≥2 h session) | `docs/testing/GM_TABLE_TEST_PROTOCOL.md` |
 | Phase 7 Part B task 6 — fix the top five | input is the table test's ranked problems | same |
-| P3.2 option (b) — thread `story_id` from scratchpad ingest | deferred product call (`FORGE_EXPANSION.md` §17) | §P3.2 |
+| ~~P3.2 option (b) — thread `story_id` from scratchpad ingest~~ | **done 2026-11-13**: proposals carry the recording's story (stamped on the ingestion job, inherited at apply) — dual attribution as designed | §P3.2 |
 | ~~G-9 Phase 3 — hard rejection on transition violations~~ | **done 2026-11-11 (G08)**: the CF-8 accept path warns on a direct contradiction and needs an explicit override reason; hard rejection is per-owner and off by default | `GAP_REMEDIATION_PLAN.md` §G-9 |
 | ~~Implication-check recall (25% on the synthetic measurement)~~ | **done 2026-11-11 (G08)**: a per-class corpus and harness; the per-candidate shape measures 100/100/100/83% across direct-negation / status-antonym / timeline / reasoning-chain classes, every class at or above its floor | `docs/testing/canonkeeper_recall_measurement_2026-11-11.md` |
 
