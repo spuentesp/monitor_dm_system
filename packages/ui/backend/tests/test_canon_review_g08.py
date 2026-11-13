@@ -412,6 +412,83 @@ def test_memory_retraction_can_retry_after_verdict_write_fails(
 
 
 @pytest.mark.usefixtures("local_auth_mode")
+def test_reconciler_finishes_an_interrupted_retraction(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    from monitor_ui.correction_reconcile import CorrectionReconciler
+    from monitor_ui.routers import canon_review
+
+    proposal_id = _pending_proposal(hermetic)
+    character_id, universe_id, memory_id = (str(uuid4()) for _ in range(3))
+    now = datetime.now(UTC)
+    hermetic.collection("character_memories").insert_one({
+        "memory_id": memory_id, "entity_id": character_id, "universe_id": universe_id,
+        "text": "The door opened", "importance": 0.5, "certainty": 1.0,
+        "emotional_valence": 0.0, "metadata": {}, "created_at": now,
+        "last_accessed": now, "access_count": 0,
+    })
+    hermetic.override("neo4j_get_entity", {"id": character_id, "universe_id": universe_id})
+    hermetic.override("qdrant_delete", {"success": True})
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "The door opened",
+        "knowledge_correction": {"action": "retract", "item_kind": "memory", "item_id": memory_id},
+    }}})
+
+    def fail_verdict(*args, **kwargs):
+        raise ValueError("simulated verdict write failure")
+
+    monkeypatch.setattr(canon_review, "mongodb_update_proposed_change", fail_verdict)
+    first = client.post(f"/api/canon-review/{proposal_id}/accept", params={"reason": "Approve"})
+    assert first.status_code == 409
+
+    result = asyncio.run(CorrectionReconciler().tick())
+    assert result == {"reconciled": [proposal_id], "stalled": []}
+    proposal = hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})
+    assert proposal["status"] == "accepted"
+    assert proposal["knowledge_correction_applied"] is True
+    assert hermetic.collection("character_memories").find_one({"memory_id": memory_id}) is None
+    # Idempotent: nothing is left to reconcile.
+    assert asyncio.run(CorrectionReconciler().tick()) == {"reconciled": [], "stalled": []}
+
+
+@pytest.mark.usefixtures("local_auth_mode")
+def test_reconciler_marks_a_stalled_correction(
+    hermetic: HermeticStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    from monitor_data.tools.mongodb_tools import proposals as proposals_module
+    from monitor_ui.correction_reconcile import CorrectionReconciler
+
+    proposal_id = _pending_proposal(hermetic)
+    character_id, universe_id, memory_id = (str(uuid4()) for _ in range(3))
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {"content": {
+        "universe_id": universe_id, "participants": [character_id], "statement": "The door opened",
+        "knowledge_correction": {"action": "retract", "item_kind": "memory", "item_id": memory_id},
+    }}})
+    hermetic.collection("proposed_changes").update_one({"proposal_id": proposal_id}, {"$set": {
+        "knowledge_retraction_checkpoint": {
+            "memory_id": memory_id, "entity_id": character_id, "universe_id": universe_id,
+            "action": "retract", "statement": "",
+        },
+    }})
+
+    def moved_under_us(*args, **kwargs):
+        raise ValueError("The attribution changed after this challenge was staged; review it again")
+
+    monkeypatch.setattr(proposals_module, "prepare_knowledge_memory_change", moved_under_us)
+    result = asyncio.run(CorrectionReconciler().tick())
+    assert result == {"reconciled": [], "stalled": [proposal_id]}
+    proposal = hermetic.collection("proposed_changes").find_one({"proposal_id": proposal_id})
+    assert proposal["status"] == "pending"
+    assert "knowledge_reconciliation_error" in proposal
+    # Marked corrections are not retried forever.
+    assert asyncio.run(CorrectionReconciler().tick()) == {"reconciled": [], "stalled": []}
+
+
+@pytest.mark.usefixtures("local_auth_mode")
 def test_memory_checkpoint_rejects_a_concurrently_edited_proposal(hermetic: HermeticStack) -> None:
     from monitor_data.tools.mongodb_tools.proposals import prepare_knowledge_memory_change
 

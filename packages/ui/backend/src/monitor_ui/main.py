@@ -94,6 +94,7 @@ def _startup_runtime() -> None:
     ensure_tone_builtins()
     _ensure_builtin_game_systems()
     _start_watchdog_if_enabled()
+    _start_correction_reconciler()
 
 
 def _start_watchdog_if_enabled() -> None:
@@ -135,6 +136,38 @@ def _start_watchdog_if_enabled() -> None:
         logger.info("StaleJobWatchdog: scheduled start on running loop")
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _get_collection)
         logger.warning("Could not start StaleJobWatchdog: %s", exc)
+
+
+def _start_correction_reconciler() -> None:
+    """Spin up the interrupted-correction reconciler.
+
+    On by default (``MONITOR_CORRECTION_RECONCILER_INTERVAL`` seconds between
+    sweeps; set 0 to disable). Per-process like the ingest watchdog:
+    completing an interrupted accept is idempotent, so parallel workers are
+    safe.
+    """
+    try:
+        interval = float(os.environ.get("MONITOR_CORRECTION_RECONCILER_INTERVAL", "60"))
+    except ValueError:
+        interval = 60.0
+    if interval <= 0:
+        logger.info("CorrectionReconciler: disabled (MONITOR_CORRECTION_RECONCILER_INTERVAL=0)")
+        return
+    try:
+        import asyncio
+
+        from monitor_ui.correction_reconcile import CorrectionReconciler
+
+        rec = CorrectionReconciler(interval_seconds=interval)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning("CorrectionReconciler: no running event loop in lifespan; will not start.")
+            return
+        loop.create_task(rec.start())
+        logger.info("CorrectionReconciler: scheduled start (interval=%.0fs)", interval)
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _start_correction_reconciler)
+        logger.warning("Could not start CorrectionReconciler: %s", exc)
 
 
 def _ensure_builtin_game_systems() -> None:

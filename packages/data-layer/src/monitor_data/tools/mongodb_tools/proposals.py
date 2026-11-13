@@ -546,6 +546,47 @@ def prepare_knowledge_memory_change(proposal_id: UUID, expected_content: dict[st
     return False
 
 
+def mongodb_find_interrupted_corrections(limit: int = 20) -> list[dict[str, Any]]:
+    """Pending knowledge corrections whose accept started but never finished.
+
+    They carry ``knowledge_retraction_checkpoint`` without
+    ``knowledge_correction_applied`` — the multi-store write is halfway
+    done and only completing the accept makes the stores agree again.
+    Corrections marked ``knowledge_reconciliation_error`` need a human and
+    are excluded.
+    """
+    client = get_mongodb_client()
+    proposals = client.get_collection("proposed_changes")
+    cursor = (
+        proposals.find(
+            {
+                "status": ProposalStatus.PENDING.value,
+                "knowledge_retraction_checkpoint": {"$exists": True},
+                "knowledge_correction_applied": {"$ne": True},
+                "knowledge_reconciliation_error": {"$exists": False},
+            }
+        )
+        .sort("proposal_id", 1)
+        .limit(limit)
+    )
+    return list(cursor)
+
+
+def mongodb_mark_correction_stalled(proposal_id: UUID, error: str) -> None:
+    """Record that reconciliation cannot complete this correction unaided.
+
+    The mark excludes the proposal from further sweeps so it is not
+    retried forever; it stays pending for a human to restage.
+    """
+    assert_proposal_write(proposal_id, resource="proposed_change")
+    client = get_mongodb_client()
+    proposals = client.get_collection("proposed_changes")
+    proposals.update_one(
+        {"proposal_id": str(proposal_id)},
+        {"$set": {"knowledge_reconciliation_error": error}},
+    )
+
+
 def mongodb_retract_proposed_change(
     proposal_id: UUID,
     reason: str = "struck at the table",

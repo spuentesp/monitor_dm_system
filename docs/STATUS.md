@@ -181,10 +181,14 @@ Post-#147 review fixes plus the remaining phase-4 panels, on
   proposal queue) or correct the statement; accepting it applies the
   change through CanonKeeper across MongoDB + Qdrant + fact properties.
   The multi-store write is checkpointed (`knowledge_retraction_checkpoint`)
-  and retryable — an interrupted correction is reconciled by retrying the
-  pending review, and edit/defer/reject are blocked mid-flight. Staged
-  challenges detect a stale attribution ("review it again") instead of
-  applying over changed text.
+  and retryable, and an **auto-reconciler**
+  (`monitor_ui/correction_reconcile.py`, swept every
+  `MONITOR_CORRECTION_RECONCILER_INTERVAL` seconds) now completes
+  interrupted accepts on its own — no manual retry needed. Edit/defer/reject
+  stay blocked mid-flight; a correction whose target moved under it is
+  marked `knowledge_reconciliation_error` for a human instead of being
+  retried. Staged challenges detect a stale attribution ("review it again")
+  instead of applying over changed text.
 - **G02 phase 4 — segment review UI.** `AudioTranscriptPanel` (now inside
   `SessionRecorder`, session/story/scene-scoped): play the segment, edit
   the text, map the speaker, queue as an entry. Upload keys are

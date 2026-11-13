@@ -76,10 +76,13 @@ Measurement record: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`
   CF-8 review; accepting a knowledge correction applies it through
   CanonKeeper across MongoDB + Qdrant + fact properties with a retryable
   checkpoint (`prepare_knowledge_memory_change` /
-  `apply_knowledge_correction`). **Known tradeoff:** the multi-store write
-  is not one transaction — an interrupted correction is reconciled by
-  retrying the pending review (edit/defer/reject are blocked once the
-  checkpoint exists).
+  `apply_knowledge_correction`). The multi-store write is not one
+  transaction, but the **auto-reconciler**
+  (`monitor_ui/correction_reconcile.py`, interval
+  `MONITOR_CORRECTION_RECONCILER_INTERVAL`, default 60 s, 0 disables)
+  finishes interrupted accepts automatically; a correction whose target
+  moved under it is marked `knowledge_reconciliation_error` and left for a
+  human (edit/defer/reject stay blocked while a checkpoint is live).
 - **The STATUS.md open items** that are not gap work — now closed or
   reduced to ops: P3.2(b) is implemented 2026-11-13 (`story_id` threaded
   from scratchpad ingest through the job into proposal attribution),
