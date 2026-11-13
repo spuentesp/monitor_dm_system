@@ -110,6 +110,10 @@ export const lightRpApi = {
           text,
           include_cross_incarnation: options?.include_cross_incarnation ?? false,
         }),
+        // A reply can legitimately take a while (several LLM calls), but never
+        // forever: without this the typing indicator spins indefinitely when a
+        // stream dies silently (e.g. backend restart mid-reply).
+        signal: AbortSignal.timeout(180_000),
       },
     );
     if (!res.ok) {

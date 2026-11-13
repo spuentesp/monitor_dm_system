@@ -153,6 +153,32 @@ describe("CharacterChat — streaming send", () => {
     expect(await screen.findByText("Glad to see you again.")).toBeInTheDocument();
   });
 
+  it("keeps the streamed reply when the done event arrives with empty text", async () => {
+    vi.spyOn(lightRpApi, "sendStream").mockReturnValue(
+      fakeStream([
+        { type: "token", text: "The " },
+        { type: "token", text: "road " },
+        { type: "token", text: "winds on." },
+        {
+          type: "done",
+          conversation_id: "conv-1",
+          text: "", // streamed prefix and authoritative reply diverged; empty must not wipe the bubble
+          emotional_state: null,
+          relationship_snapshot: {},
+        },
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<CharacterChat character={char} onBack={() => {}} />);
+    expect(await screen.findByText("Well met, traveller.")).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText(/message wisp/i), "Which way?");
+    await user.click(screen.getByRole("button", { name: /send/i }));
+
+    // The streamed text survives; the bubble is not blanked.
+    expect(await screen.findByText("The road winds on.")).toBeInTheDocument();
+  });
+
   it("opening a pre-started conversation does not start another one", async () => {
     const start = vi.spyOn(api.entitiesApi, "startCharacterConversation");
     render(
