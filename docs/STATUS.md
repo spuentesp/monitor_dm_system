@@ -198,6 +198,18 @@ Post-#147 review fixes plus the remaining phase-4 panels, on
   override requirement; the by-filter path owner-checks each match;
   `_resolve_review_flags` merges flags instead of dropping them.
 
+Follow-ups landed 2026-11-13:
+
+- **P3.2(b) — story attribution from scratchpad ingest.** Notes ingested
+  during a recorded session now stamp the recording's `story_id` onto the
+  ingestion job and every proposal the pack materialises (explicit on the
+  apply request, inherited from the job otherwise), so story-scoped review
+  sees them alongside the ingest job's listing.
+- **Provider-key encryption is enabled on the dev worktree** — a Fernet key
+  was generated into `.env` (`MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`) and the
+  variable documented in `env.example`. Re-save existing provider keys with
+  the stack up to encrypt rows written before the key existed.
+
 ## Shipped (verified 2026-07-23)
 
 - **Core play loop** — GMAgent → Narrator → Resolver pipeline, web chat + CLI.

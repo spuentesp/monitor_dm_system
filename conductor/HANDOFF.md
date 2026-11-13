@@ -80,13 +80,18 @@ Measurement record: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`
   is not one transaction — an interrupted correction is reconciled by
   retrying the pending review (edit/defer/reject are blocked once the
   checkpoint exists).
-- **The STATUS.md open items** that are not gap work: co-pilot workflow
-  polish (gap 4 of `GM_ASSISTANT_MODE_PLAN.md`) and the *enablement* of
-  provider-key encryption (the code is there; the operator has to set
-  `MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`). The other three items STATUS
-  listed as open were **stale** and are now verified as done: per-user
-  LLM spend quota (`monitor_data/usage.py`), the per-owner Conversatory
-  universe, and — new this session — the idempotent pre-auth owner
+- **The STATUS.md open items** that are not gap work — now closed or
+  reduced to ops: P3.2(b) is implemented 2026-11-13 (`story_id` threaded
+  from scratchpad ingest through the job into proposal attribution),
+  closing co-pilot gap 4's last code item; provider-key encryption is
+  **enabled on this worktree** — `MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`
+  was generated into `.env` and documented in `env.example`. Remaining
+  ops step: with the stack up, re-save the provider keys (e.g. via the
+  `/config` page) so rows written before the key existed get encrypted.
+  The other three items STATUS listed as open were **stale** and are now
+  verified as done: per-user LLM spend quota (`monitor_data/usage.py`),
+  the per-owner Conversatory universe, and — new this session — the
+  idempotent pre-auth owner
   backfill (`POST /admin/ownership/backfill`).
 
 ## Traps learned (read before touching tests or live runs)
