@@ -50,9 +50,11 @@ import { CanonReviewPanel } from "@/components/canon/CanonReviewPanel";
 export function SessionRecorder({
   universeId,
   universeLabel,
+  onActiveStoryChange,
 }: {
   universeId: string;
   universeLabel?: string | null;
+  onActiveStoryChange?: (storyId: string | null) => void;
 }) {
   const qc = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -96,6 +98,10 @@ export function SessionRecorder({
   }, [recordings, activeId]);
 
   const active = recordings.find((r) => r.id === activeId) ?? null;
+
+  useEffect(() => {
+    onActiveStoryChange?.(active?.story_id ?? null);
+  }, [active?.story_id, onActiveStoryChange]);
 
   const { data: messages = [] } = useQuery({
     queryKey: ["chat", activeId, "messages"],

@@ -338,6 +338,7 @@ export const ingestApi = {
       new_setting_system?: string;
       multiverse_id?: string;
       title?: string;
+      story_id?: string;
     },
   ): Promise<Source> => {
     const form = new FormData();
@@ -351,6 +352,7 @@ export const ingestApi = {
     if (options.new_setting_system) form.append("new_setting_system",  options.new_setting_system);
     if (options.multiverse_id)      form.append("multiverse_id",       options.multiverse_id);
     if (options.title)              form.append("title",               options.title);
+    if (options.story_id)           form.append("story_id",            options.story_id);
     const res = await fetch(apiUrl("/ingest/sources/upload"), {
       method: "POST",
       body: form,

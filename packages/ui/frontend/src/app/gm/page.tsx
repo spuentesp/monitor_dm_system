@@ -341,9 +341,11 @@ function RulesPanel({ systemId }: { systemId: string | null }) {
 function SessionNotebook({
   universeId,
   multiverseId,
+  storyId,
 }: {
   universeId: string | null;
   multiverseId?: string | null;
+  storyId?: string | null;
 }) {
   const [notes, setNotes] = useState("");
   const [saved, setSaved] = useState(false);
@@ -392,6 +394,7 @@ function SessionNotebook({
         scan_type: "full",
         analysis_layers: ["axioms", "entities", "lore"],
         multiverse_id: multiverseId ?? undefined,
+        story_id: storyId ?? undefined,
         title: `Session notes — ${new Date().toLocaleDateString()}`,
       });
     },
@@ -1587,6 +1590,7 @@ function GMAssistantPageContent() {
   const [universeId, setUniverseId] = useState<string | null>(requestedUniverseId);
   const [universeLabel, setUniverseLabel] = useState<string | null>(null);
   const [multiverseId, setMultiverseId] = useState<string | null>(null);
+  const [activeStoryId, setActiveStoryId] = useState<string | null>(null);
   const [systemId, setSystemId] = useState<string | null>(null);
   const [systemOverridden, setSystemOverridden] = useState(false);
   const [activePanel, setActivePanel] = useState<GMPanel>("recorder");
@@ -1720,7 +1724,7 @@ function GMAssistantPageContent() {
             <div className="flex-1 overflow-hidden flex flex-col">
               {centerTab === "recorder" ? (
                 universeId ? (
-                  <SessionRecorder universeId={universeId} universeLabel={universeLabel} />
+                  <SessionRecorder universeId={universeId} universeLabel={universeLabel} onActiveStoryChange={setActiveStoryId} />
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center text-center space-y-2 px-4">
                     <Mic className="w-8 h-8 text-slate-700" />
@@ -1728,7 +1732,7 @@ function GMAssistantPageContent() {
                   </div>
                 )
               ) : (
-                <SessionNotebook universeId={universeId} multiverseId={multiverseId} />
+                <SessionNotebook universeId={universeId} multiverseId={multiverseId} storyId={activeStoryId} />
               )}
             </div>
           </div>
@@ -1846,7 +1850,7 @@ function GMAssistantPageContent() {
               {activePanel === "recorder" && (
                 <div className="flex-1 overflow-hidden flex flex-col">
                   {universeId ? (
-                    <SessionRecorder universeId={universeId} universeLabel={universeLabel} />
+                    <SessionRecorder universeId={universeId} universeLabel={universeLabel} onActiveStoryChange={setActiveStoryId} />
                   ) : (
                     <div className="flex-1 flex flex-col items-center justify-center text-center space-y-2 px-4">
                       <Mic className="w-8 h-8 text-slate-700" />
@@ -1857,7 +1861,7 @@ function GMAssistantPageContent() {
               )}
               {activePanel === "notebook" && (
                 <div className="flex-1 overflow-hidden flex flex-col">
-                  <SessionNotebook universeId={universeId} multiverseId={multiverseId} />
+                  <SessionNotebook universeId={universeId} multiverseId={multiverseId} storyId={activeStoryId} />
                 </div>
               )}
               {activePanel === "dice" && (

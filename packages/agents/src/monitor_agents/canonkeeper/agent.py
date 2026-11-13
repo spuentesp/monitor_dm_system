@@ -742,6 +742,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         *,
         ingestion_job_id: UUID,
         source_ids: list[UUID] | None = None,
+        story_id: UUID | None = None,
     ) -> dict[str, Any]:
         """Mark analyzed proposals as pending human review for one ingest.
 
@@ -788,6 +789,8 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 set_fields["pack_id"] = orig_source.split(":", 1)[1]
             if source_ids:
                 set_fields["meta.source_ids"] = [str(sid) for sid in source_ids]
+            if story_id is not None:
+                set_fields["story_id"] = str(story_id)
             try:
                 proposals_coll.update_one(
                     {"proposal_id": pid},
