@@ -149,10 +149,11 @@ Measurement record: `docs/testing/canonkeeper_recall_measurement_2026-11-11.md`
 ## Unmerged work sitting on a backup branch
 
 **Update (2026-11-12/13): everything described below is now applied in the
-`gap/wave1-integration` worktree and committed on top of PR #147** (together
+`gap/wave1-integration` worktree and shipped as PR #154** (together
 with the knowledge-correction flow, inspector pagination, and the G02/G09
-phase-4 panels). The backup branches remain as snapshots only; they can be
-deleted once the follow-up work is pushed.
+phase-4 panels). The two backup snapshot branches were retired after
+verification — fully superseded by `cdf597a` (only pre-pagination versions
+of now-evolved functions differed) — deleted locally and on GitHub.
 
 `backup/g09-g08-review-fixes-20261112` (commit `b5df647`, pushed) held
 uncommitted review fixes found in the `gap/wave1-integration` worktree *after*
@@ -183,10 +184,10 @@ Before you assume a branch is up to date, run `git status`.
 
 ## Repo state
 
-- Branch: `gap/wave1-integration` — commits `42e9dac..HEAD` unpushed. On top
-  of the previously recorded work sit two 2026-11-12/13 commits: the
-  GM-assistant follow-up fixes (review fixes, knowledge corrections,
-  G02/G09 phase-4 panels) and this docs refresh. Nothing is pushed; no PR.
+- Branch: `gap/wave1-integration` — pushed; **PR #154** (2026-11-13) carries
+  the post-#147 follow-up: review fixes + knowledge corrections + G02/G09
+  phase-4 panels (`cdf597a`), P3.2(b) story attribution (`4d50d62`), and
+  the docs close-outs (`543b932`, `a8be570`). Nothing merged yet.
 - `gap/g05-recap` fully merged (safe to delete).
 - The local Postgres has a **live provider registry** (MiniMax M2.7,
   MiMo v2.6 Flash, Ollama qwen2.5:7b / llama3.2:1b). The measurement runs
