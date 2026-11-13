@@ -162,10 +162,12 @@ export function CharacterChat({
           );
         } else if (event.type === "done") {
           setMessages((m) => {
+            const existing = m.find((x) => x.id === replyId)?.text ?? "";
+            // A done event with empty text must not wipe a reply that streamed fine.
             const done: ChatMessage = {
               id: replyId,
               role: "char",
-              text: event.text,
+              text: event.text || existing,
               emotional_state: event.emotional_state,
               snapshot: event.relationship_snapshot,
             };
