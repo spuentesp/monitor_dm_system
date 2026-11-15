@@ -128,6 +128,7 @@ class TestImplicationConflictFlags:
 
     @pytest.mark.asyncio
     async def test_candidates_are_chunked(self):
+        """The batched shape (one call per chunk of candidates)."""
         keeper = CanonKeeper()
         keeper._fetch_canon_facts = AsyncMock(return_value=[{"statement": "fact"}])
         keeper._fetch_canon_axioms = AsyncMock(return_value=[])
@@ -140,10 +141,37 @@ class TestImplicationConflictFlags:
                 return_value=stub,
             ),
             patch("monitor_data.config.settings.canonkeeper_implication_chunk_size", 2),
+            patch(
+                "monitor_data.config.settings.canonkeeper_per_candidate_checks", False
+            ),
         ):
             await keeper.implication_conflict_flags(uuid4(), ["a", "b", "c"])
 
         assert stub.verify.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_the_per_candidate_shape_asks_once_per_candidate(self):
+        """The measured shape (G08): one candidate per call."""
+        keeper = CanonKeeper()
+        keeper._fetch_canon_facts = AsyncMock(return_value=[{"statement": "fact"}])
+        keeper._fetch_canon_axioms = AsyncMock(return_value=[])
+
+        stub = _stub_module("NONE", "NONE")
+        with (
+            _no_lm(),
+            patch(
+                "monitor_agents.canonkeeper.verification.ImplicationContradictionModule",
+                return_value=stub,
+            ),
+            patch(
+                "monitor_data.config.settings.canonkeeper_per_candidate_checks", True
+            ),
+        ):
+            await keeper.implication_conflict_flags(uuid4(), ["a", "b", "c"])
+
+        assert stub.verify.call_count == 3
+        # Each call carries exactly one candidate.
+        assert stub.verify.call_args_list[0].kwargs["new_facts"] == "1. a"
 
     @pytest.mark.asyncio
     async def test_module_failure_degrades_to_no_flags(self):

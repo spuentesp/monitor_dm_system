@@ -164,10 +164,35 @@ class BaseAgent(ABC):
                     max_tokens=max_tokens,
                 )
             except Exception as exc:
+                # The model's answer is often one repair away from usable: a
+                # JSON string where an array belongs, a stray enum value. A
+                # table lookup must answer rather than fail, so try the
+                # lenient recovery before anything else.
+                from monitor_agents.lenient_parsing import recover_instructor_failure
+
+                recovered = recover_instructor_failure(exc, response_model)
+                if recovered is not None:
+                    return recovered
+
                 # A provider with a broken credential/quota should not take the
-                # whole agent down when a working default provider exists.
+                # whole agent down when a working default provider exists. Nor
+                # should a model that cannot produce the requested structure:
+                # at the table, "give me a complication" has to answer, so a
+                # model that keeps writing its schema back gets a stronger one.
                 info = classify_llm_error(exc)
-                if info.error_class in (LLMErrorClass.AUTH, LLMErrorClass.QUOTA):
+                # A *model-output* validation failure (the answers came back
+                # and none of them parsed) is a model capability problem, not
+                # a request problem — a stronger model may answer it. A
+                # request that is itself invalid will fail on every provider,
+                # so it is not retried elsewhere.
+                model_output_problem = info.error_class is LLMErrorClass.VALIDATION and bool(
+                    getattr(exc, "failed_attempts", None)
+                )
+                unanswerable = info.error_class in (
+                    LLMErrorClass.AUTH,
+                    LLMErrorClass.QUOTA,
+                ) or model_output_problem
+                if unanswerable:
                     fallback = await registry.default_client()
                     if fallback is not None and fallback.model != client.model:
                         logger.warning(

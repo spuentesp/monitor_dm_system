@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, Images, MessageCircle, MoreVertical, Palette, Sparkles, Trash2, Upload } from "lucide-react";
+import { Brain, Images, MessageCircle, MoreVertical, Palette, Plus, Sparkles, Trash2, Upload } from "lucide-react";
 import { useState } from "react";
 import { apiUrl } from "@/lib/api";
 import { useDismissRef } from "@/lib/useDismissRef";
@@ -40,11 +40,15 @@ export function CharacterCardGrid({
         <div>
           <p className="text-base font-semibold text-slate-200">No characters yet</p>
           <p className="mt-1 text-sm text-slate-500 max-w-sm">
-            Import a SillyTavern card (JSON or PNG) to start chatting. Use the
+            Create a character with the
+            <span className="mx-1 inline-flex items-center gap-1 text-purple-300">
+              <Plus className="h-3 w-3" /> New character
+            </span>
+            button, or import a SillyTavern card (JSON, PNG or .charx) with
             <span className="mx-1 inline-flex items-center gap-1 text-purple-300">
               <Upload className="h-3 w-3" /> Import card
             </span>
-            button above.
+            above.
           </p>
         </div>
         <a

@@ -79,6 +79,7 @@ class ModelRole(StrEnum):
     HEAVY = "heavy"
     EMBEDDING = "embedding"
     IMAGE = "image"
+    TRANSCRIPTION = "transcription"
 
     @classmethod
     def coerce(cls, value: ModelRole | str | None) -> ModelRole | None:

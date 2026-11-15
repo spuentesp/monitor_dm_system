@@ -2,11 +2,12 @@
 
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Images, MessageCircle, Palette, Sparkles, Upload } from "lucide-react";
+import { Images, MessageCircle, Palette, Plus, Sparkles, Upload } from "lucide-react";
 import { entitiesApi, imageApi } from "@/lib/api";
 import { CharacterChat } from "@/components/characters/CharacterChat";
 import { DialogShell } from "@/components/DialogShell";
 import { CharacterCardGrid } from "@/components/lightrp/CharacterCardGrid";
+import { CharacterCreateDialog } from "@/components/lightrp/CharacterCreateDialog";
 import { RecentChatsRail } from "@/components/lightrp/RecentChatsRail";
 import { UniverseCharacterPicker } from "@/components/lightrp/UniverseCharacterPicker";
 import { AssetGallery, PendingAssetPreview } from "@/components/visual/AssetGallery";
@@ -22,7 +23,11 @@ export default function LightRpPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState<StandaloneCharacter | null>(null);
   const [activeStarted, setActiveStarted] = useState<ConversationStartResult | null>(null);
+  // Reopening a past chat from the Recent chats rail: load its transcript
+  // instead of starting a new conversation.
+  const [resumeId, setResumeId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [creating, setCreating] = useState(false);
   // The user's persona — bound by name + description into every chat started
   // from this page (the cast rule keeps the character from speaking for it).
   const [personaId, setPersonaId] = useState<string>("");
@@ -88,9 +93,11 @@ export default function LightRpPage() {
           character={active}
           personaId={personaId || null}
           initialConversation={activeStarted}
+          resumeConversationId={resumeId}
           onBack={() => {
             setActive(null);
             setActiveStarted(null);
+            setResumeId(null);
           }}
         />
       </div>
@@ -98,7 +105,7 @@ export default function LightRpPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 p-8">
+    <div className="mx-auto flex h-full max-w-6xl flex-col gap-6 overflow-y-auto p-8">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-100">Light RP</h1>
@@ -134,13 +141,20 @@ export default function LightRpPage() {
             ref={fileRef}
             id="import-card"
             type="file"
-            accept=".json,.png"
+            accept=".json,.png,.charx"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) void importCard(f);
             }}
           />
+          <button
+            type="button"
+            className="btn-ghost flex items-center gap-2 px-4 py-2 text-sm"
+            onClick={() => setCreating(true)}
+          >
+            <Plus className="h-4 w-4" /> New character
+          </button>
           <label htmlFor="import-card" className="btn-cyber flex cursor-pointer items-center gap-2 px-4 py-2 text-sm">
             <Upload className="h-4 w-4" /> {importing ? "Importing…" : "Import card"}
           </label>
@@ -165,10 +179,19 @@ export default function LightRpPage() {
         </div>
       ) : (
         <>
-          <RecentChatsRail characters={charactersQ.data ?? []} />
+          <RecentChatsRail
+            characters={charactersQ.data ?? []}
+            onOpen={(c, conversationId) => {
+              setActive(c);
+              setResumeId(conversationId);
+            }}
+          />
           <CharacterCardGrid
             characters={charactersQ.data ?? []}
-            onChat={setActive}
+            onChat={(c) => {
+              setActive(c);
+              setResumeId(null);
+            }}
             onGeneratePortrait={(c) => void generatePortrait(c)}
             onEditVisualIdentity={setIdentityFor}
             onVisualReferences={setGalleryFor}
@@ -231,6 +254,16 @@ export default function LightRpPage() {
             />
           </div>
         </DialogShell>
+      )}
+
+      {creating && (
+        <CharacterCreateDialog
+          onCreated={() => {
+            setCreating(false);
+            void qc.invalidateQueries({ queryKey: ["standalone-characters"] });
+          }}
+          onClose={() => setCreating(false)}
+        />
       )}
 
       {pickUniverseCharacter && (

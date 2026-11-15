@@ -290,6 +290,7 @@ class IngestionPipeline(BaseAgent):
         on_job_created: Callable[[UUID], None] | None = None,
         analyze_timeout_seconds: int | None = None,
         resume_job_id: UUID | None = None,
+        story_id: UUID | None = None,
     ) -> IngestionJobResponse:
         """
         Ingest a raw file through the full pipeline.
@@ -408,6 +409,7 @@ class IngestionPipeline(BaseAgent):
                     doc_id=existing_doc.doc_id,  # type: ignore[union-attr]
                     source_title=source_title,
                     processing_checklist=selected_layers,
+                    story_id=story_id,
                 ),
             )
             if on_job_created is not None:
@@ -523,6 +525,7 @@ class IngestionPipeline(BaseAgent):
                         doc_id=doc_id,
                         source_title=source_title,
                         processing_checklist=selected_layers,
+                        story_id=story_id,
                     ),
                 )
                 job_id = job.job_id
@@ -980,6 +983,7 @@ class IngestionPipeline(BaseAgent):
         universe_id: UUID | None,
         analysis_result: Any,
         source_id: UUID | None = None,
+        story_id: UUID | None = None,
     ) -> tuple[int, int]:
         """Run the ingest-time canonization step.
 
@@ -1044,6 +1048,7 @@ class IngestionPipeline(BaseAgent):
                 proposals,
                 ingestion_job_id=job_id,
                 source_ids=source_ids,
+                story_id=story_id,
             )
             errors = len(result.get("errors", []))
             return result.get("enqueued", 0), errors

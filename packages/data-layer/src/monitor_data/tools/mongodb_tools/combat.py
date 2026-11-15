@@ -14,14 +14,21 @@ from monitor_data.schemas.combat import (
     AddCombatLogEntry,
     AddCombatParticipant,
     CombatCreate,
+    CombatEnd,
     CombatEnvironment,
     CombatFilter,
     CombatListResponse,
     CombatLogEntry,
+    CombatNextRound,
     CombatOutcome,
     CombatParticipant,
     CombatResponse,
+    CombatSessionState,
+    CombatSetInitiative,
+    CombatStart,
     CombatUpdate,
+    CombatUpdateCombatant,
+    CombatantState,
     Condition,
     RemoveCombatParticipant,
     SetCombatOutcome,
@@ -539,3 +546,224 @@ def mongodb_set_combat_outcome(params: SetCombatOutcome) -> CombatResponse:
         raise ValueError(f"Combat encounter {params.encounter_id} not found after update")
 
     return updated
+
+
+# =============================================================================
+# SESSION COMBAT TRACKER (CF-9 — ephemeral at-the-table state)
+# =============================================================================
+# Combat state for a live table encounter is ephemeral session state keyed by
+# ``(universe_id, session_id)`` in MongoDB. Nothing here writes to Neo4j:
+# permanent world effects leave the encounter only as ProposedChange items
+# staged for CanonKeeper (CF-8 path). Tool names carry the ``mongodb_combat_``
+# prefix so the MCP server's ``mongodb_`` scanner registers them.
+
+_SESSION_COMBAT_COLLECTION = "session_combats"
+
+
+def _session_combat_doc_to_state(doc: dict[str, Any]) -> CombatSessionState:
+    """Convert a stored ``session_combats`` document to ``CombatSessionState``."""
+    combatants = [CombatantState(**c) for c in doc.get("combatants", [])]
+    return CombatSessionState(
+        universe_id=UUID(doc["universe_id"]),
+        session_id=doc["session_id"],
+        status=CombatStatus(doc.get("status", "initiative")),
+        round=doc.get("round", 1),
+        turn_order=[UUID(t) for t in doc.get("turn_order", [])],
+        combatants=combatants,
+        story_id=UUID(doc["story_id"]) if doc.get("story_id") else None,
+        scene_id=UUID(doc["scene_id"]) if doc.get("scene_id") else None,
+        started_at=doc["started_at"],
+        ended_at=doc.get("ended_at"),
+    )
+
+
+def _load_session_combat(universe_id: UUID, session_id: str) -> dict[str, Any] | None:
+    """Fetch the raw session-combat document, or ``None`` if absent."""
+    client = get_mongodb_client()
+    collection = client.get_collection(_SESSION_COMBAT_COLLECTION)
+    return collection.find_one({"universe_id": str(universe_id), "session_id": session_id})
+
+
+def _save_session_combat(doc: dict[str, Any]) -> CombatSessionState:
+    """Persist the document (replace) and return the canonical state."""
+    client = get_mongodb_client()
+    collection = client.get_collection(_SESSION_COMBAT_COLLECTION)
+    collection.replace_one(
+        {"universe_id": doc["universe_id"], "session_id": doc["session_id"]},
+        doc,
+        upsert=True,
+    )
+    return _session_combat_doc_to_state(doc)
+
+
+def mongodb_combat_start(params: CombatStart) -> CombatSessionState:
+    """Start (or restart) the session combat encounter for (universe, session).
+
+    Restarting replaces any prior state for the same key — the GM explicitly
+    asked for a fresh encounter.
+    """
+    now = datetime.now(UTC)
+    combatants: list[dict[str, Any]] = []
+    for c in params.combatants:
+        if c.hp > c.max_hp:
+            raise ValueError(f"{c.name}: hp ({c.hp}) cannot exceed max_hp ({c.max_hp})")
+        combatants.append(
+            CombatantState(
+                id=uuid4(),
+                name=c.name,
+                side=c.side,
+                hp=c.hp,
+                max_hp=c.max_hp,
+                temp_hp=c.temp_hp,
+                conditions=list(c.conditions),
+                notes=c.notes,
+                entity_id=c.entity_id,
+            ).model_dump(mode="json")
+        )
+    doc = {
+        "universe_id": str(params.universe_id),
+        "session_id": params.session_id,
+        "status": CombatStatus.INITIATIVE.value,
+        "round": 1,
+        "turn_order": [],
+        "combatants": combatants,
+        "story_id": str(params.story_id) if params.story_id else None,
+        "scene_id": str(params.scene_id) if params.scene_id else None,
+        "started_at": now,
+        "ended_at": None,
+    }
+    return _save_session_combat(doc)
+
+
+def mongodb_combat_get(universe_id: UUID, session_id: str) -> CombatSessionState | None:
+    """Return the session combat state, or ``None`` if no encounter exists."""
+    doc = _load_session_combat(universe_id, session_id)
+    if doc is None:
+        return None
+    return _session_combat_doc_to_state(doc)
+
+
+def mongodb_combat_update_combatant(params: CombatUpdateCombatant) -> CombatSessionState:
+    """Adjust one combatant's HP / temp HP / conditions / flags / notes.
+
+    HP math is deterministic: damage (negative ``hp_delta``) is absorbed by
+    temp HP first, then by HP, floored at 0; healing is clamped to ``max_hp``.
+    An absolute ``hp`` (when given) wins over ``hp_delta``. Setting ``dead``
+    forces HP to 0; clearing ``dead`` does not restore HP (the GM heals
+    explicitly).
+    """
+    doc = _load_session_combat(params.universe_id, params.session_id)
+    if doc is None:
+        raise ValueError(
+            f"No combat encounter for session {params.session_id} in universe {params.universe_id}"
+        )
+    combatants = doc.get("combatants", [])
+    target = next((c for c in combatants if c["id"] == str(params.combatant_id)), None)
+    if target is None:
+        raise ValueError(f"Combatant {params.combatant_id} not found in encounter")
+
+    max_hp = int(target["max_hp"])
+    hp = int(target["hp"])
+    temp_hp = int(target.get("temp_hp", 0))
+
+    if params.hp is not None:
+        hp = max(0, min(params.hp, max_hp))
+    elif params.hp_delta is not None:
+        if params.hp_delta < 0:
+            damage = -params.hp_delta
+            absorbed = min(temp_hp, damage)
+            temp_hp -= absorbed
+            hp = max(0, hp - (damage - absorbed))
+        else:
+            hp = min(max_hp, hp + params.hp_delta)
+
+    if params.temp_hp is not None:
+        temp_hp = params.temp_hp
+
+    conditions = list(target.get("conditions", []))
+    for name in params.conditions_add:
+        if name not in conditions:
+            conditions.append(name)
+    conditions = [c for c in conditions if c not in params.conditions_remove]
+
+    if params.dead:
+        hp = 0
+        temp_hp = 0
+
+    target["hp"] = hp
+    target["temp_hp"] = temp_hp
+    target["conditions"] = conditions
+    if params.dead is not None:
+        target["dead"] = params.dead
+    if params.unconscious is not None:
+        target["unconscious"] = params.unconscious
+    if params.concentration is not None:
+        target["concentration"] = params.concentration or None
+    if params.notes is not None:
+        target["notes"] = params.notes
+
+    doc["combatants"] = combatants
+    return _save_session_combat(doc)
+
+
+def mongodb_combat_set_initiative(params: CombatSetInitiative) -> CombatSessionState:
+    """Record initiative rolls and compute the turn order.
+
+    Ties break on the explicit ``tiebreak`` score (higher wins), then on the
+    combatant's name (alphabetical) so the order is fully deterministic.
+    Combatants with no entry keep ``initiative=None`` and sort after all
+    rolled combatants.
+    """
+    doc = _load_session_combat(params.universe_id, params.session_id)
+    if doc is None:
+        raise ValueError(
+            f"No combat encounter for session {params.session_id} in universe {params.universe_id}"
+        )
+    by_id = {str(e.combatant_id): e for e in params.entries}
+    combatants = doc.get("combatants", [])
+    known = {c["id"] for c in combatants}
+    unknown = set(by_id) - known
+    if unknown:
+        raise ValueError(f"Unknown combatant id(s) in initiative: {', '.join(sorted(unknown))}")
+
+    for c in combatants:
+        entry = by_id.get(c["id"])
+        c["initiative"] = entry.initiative if entry else None
+
+    def _sort_key(c: dict[str, Any]) -> tuple[float, float, str]:
+        entry = by_id.get(c["id"])
+        if entry is None:
+            # Unrolled combatants sink to the bottom, name-stable among themselves.
+            return (float("inf"), 0.0, str(c["name"]).lower())
+        return (-entry.initiative, -entry.tiebreak, str(c["name"]).lower())
+
+    ordered = sorted(combatants, key=_sort_key)
+    doc["combatants"] = ordered
+    doc["turn_order"] = [c["id"] for c in ordered]
+    doc["status"] = CombatStatus.ACTIVE.value
+    return _save_session_combat(doc)
+
+
+def mongodb_combat_next_round(params: CombatNextRound) -> CombatSessionState:
+    """Advance the round counter by one."""
+    doc = _load_session_combat(params.universe_id, params.session_id)
+    if doc is None:
+        raise ValueError(
+            f"No combat encounter for session {params.session_id} in universe {params.universe_id}"
+        )
+    if doc.get("status") == CombatStatus.RESOLVED.value:
+        raise ValueError("Encounter has already ended")
+    doc["round"] = int(doc.get("round", 1)) + 1
+    return _save_session_combat(doc)
+
+
+def mongodb_combat_end(params: CombatEnd) -> CombatSessionState:
+    """End the encounter: status → RESOLVED, stamp ``ended_at``."""
+    doc = _load_session_combat(params.universe_id, params.session_id)
+    if doc is None:
+        raise ValueError(
+            f"No combat encounter for session {params.session_id} in universe {params.universe_id}"
+        )
+    doc["status"] = CombatStatus.RESOLVED.value
+    doc["ended_at"] = datetime.now(UTC)
+    return _save_session_combat(doc)

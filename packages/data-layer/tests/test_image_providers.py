@@ -608,3 +608,27 @@ async def test_resolve_image_adapter_none_when_unconfigured():
     from monitor_data.llm.image_providers import resolve_image_adapter
 
     assert await resolve_image_adapter(_PG()) is None
+
+
+def test_minimax_base_resp_error_raises_clear_message(monkeypatch):
+    """HTTP 200 with a base_resp error (e.g. prompt too long) must not read as 'no image data'."""
+    client = _FakeClient(
+        posts=[_FakeResponse({"data": None, "base_resp": {"status_code": 2013, "status_msg": "invalid params, prompt length must be less than 1500"}})]
+    )
+    monkeypatch.setattr("monitor_data.llm.image_providers.httpx.AsyncClient", lambda **kw: client)
+
+    with pytest.raises(ImageProviderError, match="2013"):
+        _run(MiniMaxImageAdapter(api_key="k").generate_image("p"))
+
+
+def test_minimax_long_prompt_is_truncated_under_the_api_limit(monkeypatch):
+    """Prompts >= 1500 chars are clamped before the call (MiniMax rejects them otherwise)."""
+    client = _FakeClient(posts=[_FakeResponse({"data": {"image_base64": [PNG_B64]}})])
+    monkeypatch.setattr("monitor_data.llm.image_providers.httpx.AsyncClient", lambda **kw: client)
+
+    adapter = MiniMaxImageAdapter(api_key="k")
+    _run(adapter.generate_image("x" * 5000))
+
+    sent = client.post_calls[0]["json"]["prompt"]
+    assert len(sent) < 1500
+    assert sent.endswith("...")

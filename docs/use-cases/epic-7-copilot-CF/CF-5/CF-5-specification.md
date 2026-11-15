@@ -50,12 +50,20 @@ neo4j_create_fact(explanation)                     # Add explanation
 - `CanonKeeper.suggest_resolution(conflict)` — Generate options
 - `CanonKeeper.apply_resolution(conflict, choice)` — Execute fix
 
-**Layer 3 (CLI):**
-```bash
-monitor copilot validate --universe <UUID>
-monitor copilot validate --story <UUID>
-monitor copilot validate --scene <UUID>
+**Layer 3 (Surface):**
+The GM Assistant lives in the web UI at `/gm` (Contradictions panel) — there
+is no CLI `monitor copilot` (decision: GM_ASSISTANT_MODE_PLAN, G-5 Option A).
+The CLI examples describe the intended workflow; the wired surface is the web
+API.
+```text
+/gm → Contradictions panel
+    → POST /gm/contradictions          (scope: universe | story | scene)
+    → POST /gm/contradictions/resolve  (stage a resolution)
+    → POST /canon-review/{proposal_id}/accept|reject|defer|edit   (review it)
 ```
+
+> Not shipped (web-only decision): `monitor copilot validate --universe <UUID>`,
+> `--story <UUID>`, `--scene <UUID>`
 
 **Conflict Detection Logic:**
 ```python

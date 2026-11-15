@@ -31,7 +31,8 @@ def _conversation_doc_to_response(doc: dict[str, Any]) -> ConversationSessionRes
             entity_name=t.get("entity_name"),
             text=t["text"],
             emotional_state=t.get("emotional_state"),
-            timestamp=t["timestamp"],
+            # Turns written before the timestamp field existed must still read back.
+            timestamp=t.get("timestamp") or datetime.now(UTC),
         )
         for t in doc.get("turns", [])
     ]

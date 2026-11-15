@@ -19,10 +19,12 @@ import anyio
 T = TypeVar("T")
 
 if TYPE_CHECKING:
+    from monitor_data.schemas.arc_recaps import ArcRecap, ArcRecapCreate
     from monitor_data.schemas.entities import EntityFilter, EntityListResponse
     from monitor_data.schemas.facts import FactFilter
+    from monitor_data.schemas.proposed_changes import ProposedChangeFilter
     from monitor_data.schemas.scenes import SceneCreate, SceneFilter, SceneResponse, SceneUpdate
-    from monitor_data.schemas.story_outlines import StoryOutlineCreate, StoryOutlineResponse
+    from monitor_data.schemas.story_outlines import PlotThreadFilter, StoryOutlineCreate, StoryOutlineResponse
 
 
 # ---------------------------------------------------------------------------
@@ -151,3 +153,36 @@ def mongodb_update_scene(scene_id: UUID, params: SceneUpdate) -> SceneResponse:
     from monitor_data.tools.mongodb_tools.scenes import mongodb_update_scene as _fn
 
     return _fn(scene_id, params)
+
+
+def mongodb_list_proposed_changes(filters: ProposedChangeFilter) -> dict[str, Any]:
+    """List proposed changes matching a filter (sync)."""
+    from monitor_data.tools.mongodb_tools.proposals import mongodb_list_proposed_changes as _fn
+
+    result = _fn(filters)
+    return result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
+
+
+def neo4j_list_plot_threads(filters: PlotThreadFilter) -> dict[str, Any]:
+    """List plot threads matching a filter (sync)."""
+    from monitor_data.tools.neo4j_tools.stories import neo4j_list_plot_threads as _fn
+
+    result = _fn(filters)
+    return result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
+
+
+def mongodb_get_arc_recap(story_id: UUID) -> dict[str, Any] | None:
+    """Fetch a story's persisted campaign arc recap (CF-12), sync. None if absent."""
+    from monitor_data.tools.mongodb_tools.stories import mongodb_get_arc_recap as _fn
+
+    result = _fn(story_id)
+    if result is None:
+        return None
+    return result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
+
+
+def mongodb_save_arc_recap(params: ArcRecapCreate) -> ArcRecap:
+    """Upsert a story's campaign arc recap (CF-12), sync. Returns the stored recap."""
+    from monitor_data.tools.mongodb_tools.stories import mongodb_save_arc_recap as _fn
+
+    return _fn(params)

@@ -1624,6 +1624,39 @@ class PostgresClient:
                 world.get("kind"),
             )
 
+    async def ownership_backfill(self, owner_id: UUID) -> dict[str, int]:
+        """Assign the pre-auth rows (no owner) to one owner, idempotently.
+
+        Rows created before the ownership registry existed carry a NULL
+        ``owner_id``, so only the local account can reach them. This gives
+        them an owner permanently. Running it twice changes nothing the
+        second time: only rows that still have no owner are touched, and
+        rows that already have a *different* owner are left alone.
+
+        Returns:
+            How many worlds and multiverses were claimed.
+        """
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            worlds = await conn.execute(
+                """
+                UPDATE worlds SET owner_id = $1, updated_at = now()
+                WHERE owner_id IS NULL
+                """,
+                owner_id,
+            )
+            multiverses = await conn.execute(
+                """
+                UPDATE multiverses SET owner_id = $1, updated_at = now()
+                WHERE owner_id IS NULL
+                """,
+                owner_id,
+            )
+        return {
+            "worlds": int(str(worlds).split()[-1]) if str(worlds).split() else 0,
+            "multiverses": int(str(multiverses).split()[-1]) if str(multiverses).split() else 0,
+        }
+
     async def world_get_conversatory(self, owner_id: UUID) -> dict[str, Any] | None:
         """Return the owner's hidden per-user Conversatory universe row, if any.
 

@@ -1003,3 +1003,177 @@ def test_edit_rejects_empty_statement(
             UUID(proposed_change_doc["proposal_id"]),
             content_patch={"statement": "   "},
         )
+
+
+# =============================================================================
+# TESTS: G03 retract / restore of a pending proposal (CF-1 amendment)
+# =============================================================================
+
+
+@patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client")
+def test_retract_pending_proposal_rejects_with_strike_reason(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+    proposed_change_doc: dict[str, Any],
+):
+    from monitor_data.tools.mongodb_tools import mongodb_retract_proposed_change
+
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+    retracted_doc = proposed_change_doc.copy()
+    retracted_doc["status"] = ProposalStatus.REJECTED.value
+    retracted_doc["decision_metadata"] = {
+        "decided_by": "GM",
+        "decided_at": datetime.now(UTC),
+        "reason": "struck at the table",
+        "canonical_ref": None,
+    }
+    collection.find_one.side_effect = [proposed_change_doc, retracted_doc]
+
+    result = mongodb_retract_proposed_change(UUID(proposed_change_doc["proposal_id"]))
+
+    assert result.status == ProposalStatus.REJECTED
+    assert result.decision_metadata is not None
+    assert result.decision_metadata.decided_by == "GM"
+    # CF-8 shows this reason next to the rejected proposal.
+    assert result.decision_metadata.reason == "struck at the table"
+    collection.update_one.assert_called_once()
+    persisted = collection.update_one.call_args[0][1]["$set"]
+    assert persisted["status"] == ProposalStatus.REJECTED.value
+
+
+@patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client")
+def test_retract_records_the_causing_entry(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+    proposed_change_doc: dict[str, Any],
+):
+    from monitor_data.tools.mongodb_tools import mongodb_retract_proposed_change
+
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+    entry_id = str(uuid4())
+    retracted_doc = proposed_change_doc.copy()
+    retracted_doc["status"] = ProposalStatus.REJECTED.value
+    retracted_doc["decision_metadata"] = {
+        "decided_by": "GM",
+        "decided_at": datetime.now(UTC),
+        "reason": "struck at the table",
+        "canonical_ref": None,
+    }
+    collection.find_one.side_effect = [proposed_change_doc, retracted_doc]
+
+    mongodb_retract_proposed_change(
+        UUID(proposed_change_doc["proposal_id"]),
+        reason="struck at the table",
+        entry_id=entry_id,
+    )
+
+    persisted = collection.update_one.call_args[0][1]["$set"]
+    assert persisted["retracted_for_entry"] == entry_id
+
+
+@patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client")
+def test_retract_refuses_non_pending(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+    proposed_change_doc: dict[str, Any],
+):
+    from monitor_data.tools.mongodb_tools import mongodb_retract_proposed_change
+
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+    accepted_doc = proposed_change_doc.copy()
+    accepted_doc["status"] = ProposalStatus.ACCEPTED.value
+    collection.find_one.return_value = accepted_doc
+
+    with pytest.raises(ValueError, match="Only pending proposals can be retracted"):
+        mongodb_retract_proposed_change(UUID(proposed_change_doc["proposal_id"]))
+
+
+@patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client")
+def test_retract_not_found(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+):
+    from monitor_data.tools.mongodb_tools import mongodb_retract_proposed_change
+
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+    collection.find_one.return_value = None
+
+    with pytest.raises(ValueError, match="not found"):
+        mongodb_retract_proposed_change(uuid4())
+
+
+@patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client")
+def test_restore_retracted_proposal_returns_to_pending(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+    proposed_change_doc: dict[str, Any],
+):
+    from monitor_data.tools.mongodb_tools import mongodb_restore_retracted_proposal
+
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+    retracted_doc = proposed_change_doc.copy()
+    retracted_doc["status"] = ProposalStatus.REJECTED.value
+    retracted_doc["decision_metadata"] = {
+        "decided_by": "GM",
+        "decided_at": datetime.now(UTC),
+        "reason": "struck at the table",
+        "canonical_ref": None,
+    }
+    restored_doc = proposed_change_doc.copy()
+    restored_doc["status"] = ProposalStatus.PENDING.value
+    restored_doc["decision_metadata"] = None
+    collection.find_one.side_effect = [retracted_doc, restored_doc]
+
+    result = mongodb_restore_retracted_proposal(UUID(proposed_change_doc["proposal_id"]))
+
+    assert result.status == ProposalStatus.PENDING
+    assert result.decision_metadata is None
+    persisted = collection.update_one.call_args[0][1]
+    assert persisted["$set"]["status"] == ProposalStatus.PENDING.value
+    assert persisted["$unset"] == {"retracted_for_entry": ""}
+
+
+@patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client")
+def test_restore_refuses_regular_cf8_rejection(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+    proposed_change_doc: dict[str, Any],
+):
+    """A normal CF-8 rejection (any other reason) is never flipped back."""
+    from monitor_data.tools.mongodb_tools import mongodb_restore_retracted_proposal
+
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+    rejected_doc = proposed_change_doc.copy()
+    rejected_doc["status"] = ProposalStatus.REJECTED.value
+    rejected_doc["decision_metadata"] = {
+        "decided_by": "CanonKeeper",
+        "decided_at": datetime.now(UTC),
+        "reason": "Conflicts with canon",
+        "canonical_ref": None,
+    }
+    collection.find_one.return_value = rejected_doc
+
+    with pytest.raises(ValueError, match="refusing to restore"):
+        mongodb_restore_retracted_proposal(UUID(proposed_change_doc["proposal_id"]))
+
+
+@patch("monitor_data.tools.mongodb_tools.proposals.get_mongodb_client")
+def test_restore_refuses_non_rejected_status(
+    mock_get_mongo: Mock,
+    mock_mongodb_client: Mock,
+    proposed_change_doc: dict[str, Any],
+):
+    from monitor_data.tools.mongodb_tools import mongodb_restore_retracted_proposal
+
+    mock_get_mongo.return_value = mock_mongodb_client
+    collection = mock_mongodb_client.get_collection.return_value
+    collection.find_one.return_value = proposed_change_doc  # still pending
+
+    with pytest.raises(ValueError, match="Only a rejected retract can be restored"):
+        mongodb_restore_retracted_proposal(UUID(proposed_change_doc["proposal_id"]))

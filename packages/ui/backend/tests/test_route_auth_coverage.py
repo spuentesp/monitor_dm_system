@@ -50,6 +50,14 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
         "OAuth callback: the provider calls it, not a session-holding browser."
     ),
     ("/api/health", "GET"): ("Liveness probe. ?deep=true performs its own admin check inside the handler."),
+    # CF-14: the unguessable share token in the path IS the credential —
+    # players have no accounts in v1. ShareAgent enforces revocation, expiry,
+    # published-only reads, and server-side spoiler filtering; the routes
+    # rate-limit per client IP + token and answer a generic 404 on any miss.
+    ("/api/share/{token}", "GET"): "Player share link — bearer token in the path (CF-14).",
+    ("/api/share/{token}/recap/{artifact_id}", "GET"): "Player share link — bearer token in the path (CF-14).",
+    ("/api/share/{token}/handout/{artifact_id}", "GET"): "Player share link — bearer token in the path (CF-14).",
+    ("/api/share/{token}/export/{artifact_id}.md", "GET"): "Player share link — bearer token in the path (CF-14).",
 }
 
 # Every router the app registers, as a path prefix. A build that lost a
@@ -81,6 +89,7 @@ EXPECTED_PREFIXES: tuple[str, ...] = (
     "/api/random-tables",
     "/api/scenes",
     "/api/search",
+    "/api/share",
     "/api/stories",
     "/api/systems",
     "/api/templates",

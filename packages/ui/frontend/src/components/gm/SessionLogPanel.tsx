@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, FileText, Loader2, Scroll } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, Loader2, Scroll, Undo2 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { gmTableApi } from "@/lib/gm-table-api";
 import type { SessionLogProposeResponse } from "@/lib/gm-table-types";
@@ -12,15 +12,34 @@ import { cn } from "@/lib/utils";
  * types or pastes what happened; the assistant stages canon changes for the
  * CF-8 review queue and flags contradictions with existing canon (direct +
  * G-9 implication depth).
+ *
+ * G03 (CF-1 amendment): every staged row can be retracted in one click
+ * before wrap-up — pending → rejected with the strike reason, so CF-8 shows
+ * why it disappeared.
  */
 export function SessionLogPanel({ universeId }: { universeId: string | null }) {
   const [logText, setLogText] = useState("");
   const [result, setResult] = useState<SessionLogProposeResponse | null>(null);
+  const [retracted, setRetracted] = useState<Set<string>>(new Set());
+  const [retractError, setRetractError] = useState<string | null>(null);
 
   const propose = useMutation({
     mutationFn: () =>
       gmTableApi.proposeSessionLog({ universe_id: universeId!, log_text: logText }),
-    onSuccess: setResult,
+    onSuccess: (res) => {
+      setResult(res);
+      setRetracted(new Set());
+      setRetractError(null);
+    },
+  });
+
+  const retract = useMutation({
+    mutationFn: (proposalId: string) => gmTableApi.retractProposal(proposalId),
+    onSuccess: (_res, proposalId) => {
+      setRetracted((prev) => new Set(prev).add(proposalId));
+      setRetractError(null);
+    },
+    onError: () => setRetractError("Retract failed — the proposal was not already pending, or the server refused."),
   });
 
   if (!universeId) {
@@ -66,6 +85,7 @@ export function SessionLogPanel({ universeId }: { universeId: string | null }) {
             Analysis failed — nothing was staged, try again.
           </p>
         )}
+        {retractError && <p className="text-[10px] text-red-400">{retractError}</p>}
 
         {result && (
           <div className="space-y-2">
@@ -109,7 +129,34 @@ export function SessionLogPanel({ universeId }: { universeId: string | null }) {
                   </p>
                 ))}
                 {item.proposal_id && (
-                  <p className="text-[9px] text-slate-600">proposal {item.proposal_id.slice(0, 8)}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-[9px] text-slate-600">
+                      proposal {item.proposal_id.slice(0, 8)}
+                    </p>
+                    {retracted.has(item.proposal_id) ? (
+                      <span
+                        data-testid={`retracted-${item.proposal_id}`}
+                        className="text-[9px] text-slate-500 uppercase tracking-wider"
+                      >
+                        retracted · rejected for review
+                      </span>
+                    ) : (
+                      <button
+                        aria-label={`Retract proposal ${item.proposal_id.slice(0, 8)}`}
+                        onClick={() => retract.mutate(item.proposal_id!)}
+                        disabled={retract.isPending}
+                        className="ml-auto flex items-center gap-1 text-[9px] py-0.5 px-1.5 rounded border border-white/10 text-slate-400 hover:text-red-300 hover:border-red-500/30 disabled:opacity-40"
+                        title="Retract this candidate proposal before wrap-up (CF-8 shows it as rejected with the strike reason)"
+                      >
+                        {retract.isPending ? (
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        ) : (
+                          <Undo2 className="w-2.5 h-2.5" />
+                        )}
+                        Retract
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             ))}

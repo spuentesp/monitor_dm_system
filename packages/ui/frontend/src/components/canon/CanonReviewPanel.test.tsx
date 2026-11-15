@@ -86,6 +86,19 @@ describe("CanonReviewPanel — review flag (G-9 Phase 2)", () => {
 });
 
 describe("CanonReviewPanel — reason capture (F2-3d)", () => {
+  it("passes an explicit contradiction override and shows acceptance failures", async () => {
+    vi.spyOn(api.canonApi, "storyQueue").mockResolvedValue(queue([sceneReview([proposal("p1")])], 1));
+    const accept = vi.spyOn(api.canonApi, "acceptProposal").mockRejectedValue(new Error("Hard rejection is enabled"));
+    const user = userEvent.setup();
+    renderPanel({ storyId: STORY_ID });
+    await user.click(await screen.findByRole("button", { name: /^accept$/i }));
+    await user.type(screen.getByPlaceholderText(/reason for accepting/i), "Confirmed");
+    await user.type(screen.getByPlaceholderText(/override reason/i), "The story changed");
+    await user.click(screen.getByRole("button", { name: /^accept$/i }));
+    await waitFor(() => expect(accept).toHaveBeenCalledWith("p1", "Confirmed", "The story changed"));
+    expect(await screen.findByText(/Hard rejection is enabled/)).toBeInTheDocument();
+  });
+
   it("passes the typed accept reason to the verdict mutation", async () => {
     vi.spyOn(api.canonApi, "storyQueue").mockResolvedValue(
       queue([sceneReview([proposal("p1")])], 1),

@@ -54,4 +54,4 @@ See [`epic-7-copilot-CF/CF-N/CF-N.yml`](../epic-7-copilot-CF/CF-N/) for canonica
 
 ---
 
-*Last verified: 2026-06-07. If a link is broken, the canonical spec lives one directory up at `epic-7-copilot-CF/CF-N/`.*
+*Last verified: 2026-11-11. If a link is broken, the canonical spec lives one directory up at `epic-7-copilot-CF/CF-N/`.*

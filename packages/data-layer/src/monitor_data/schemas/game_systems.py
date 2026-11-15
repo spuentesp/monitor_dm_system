@@ -387,6 +387,23 @@ class ActionTypeDef(BaseModel):
     )
 
 
+class EncounterDifficulty(BaseModel):
+    """The difficulty verdict for a proposed encounter (CF-13).
+
+    Carries its own working: the threat, the party budget and the ratio
+    that produced the label, so the GM can see the arithmetic rather than
+    take the word for it.
+    """
+
+    label: str = Field(default="unrated", max_length=32)
+    rationale: str = Field(default="", max_length=2000)
+    threat: float = 0.0
+    party_budget: float = 0.0
+    ratio: float | None = None
+    basis: str = Field(default="unrated", max_length=32)
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
 class ActionEconomy(BaseModel):
     """Definitions for turn structure and available action buckets."""
 

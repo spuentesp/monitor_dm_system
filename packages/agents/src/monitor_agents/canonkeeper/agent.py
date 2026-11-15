@@ -742,6 +742,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         *,
         ingestion_job_id: UUID,
         source_ids: list[UUID] | None = None,
+        story_id: UUID | None = None,
     ) -> dict[str, Any]:
         """Mark analyzed proposals as pending human review for one ingest.
 
@@ -788,6 +789,8 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                 set_fields["pack_id"] = orig_source.split(":", 1)[1]
             if source_ids:
                 set_fields["meta.source_ids"] = [str(sid) for sid in source_ids]
+            if story_id is not None:
+                set_fields["story_id"] = str(story_id)
             try:
                 proposals_coll.update_one(
                     {"proposal_id": pid},
@@ -850,6 +853,123 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         lines += [f"Fact: {f.get('statement')}" for f in facts if f.get("statement")]
         return lines
 
+    async def _canon_snapshot(self, universe_id: UUID) -> tuple[list[dict[str, Any]], list[Any], list[str]]:
+        """The canon of a universe: its facts, its axioms and its entity names.
+
+        Fetched once per check so the focused-context builder has everything
+        it needs to decide what bears on a candidate.
+        """
+        facts = await self._fetch_canon_facts(universe_id)
+        axioms = await self._fetch_canon_axioms(universe_id)
+        # The names are only needed to narrow a context; an empty canon has
+        # nothing to narrow.
+        entity_names = (
+            await self._fetch_entity_names(universe_id) if (facts or axioms) else []
+        )
+        return facts, axioms, entity_names
+
+    async def _fetch_entity_names(self, universe_id: UUID) -> list[str]:
+        """The names of the entities in a universe (for name matching)."""
+        try:
+            raw = await self.call_tool(
+                "neo4j_list_entities",
+                {"filters": {"universe_id": str(universe_id), "limit": 200}},
+            )
+            if isinstance(raw, str):
+                raw = json.loads(raw)
+            if isinstance(raw, dict):
+                raw = raw.get("entities") or []
+            if not isinstance(raw, list):
+                return []
+            names: list[str] = []
+            for entity in raw:
+                if isinstance(entity, dict) and entity.get("name"):
+                    names.append(str(entity["name"]))
+            return names
+        except Exception as e:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _fetch_entity_names)
+            logger.warning("Could not fetch entity names for universe %s: %s", universe_id, e)
+            return []
+
+    async def direct_contradiction_flags(
+        self,
+        universe_id: UUID,
+        statements: list[str],
+    ) -> list[dict[str, Any]]:
+        """Flag statements that *directly* contradict a universe's canon (G08).
+
+        The direct check is the one that can gate canon: it fires when the
+        candidate denies a canon fact outright. This method runs it one
+        candidate at a time — the shape the per-class measurement
+        (``scripts/eval_canonkeeper_recall.py``) found to be the reliable
+        one: 100% on direct negations and status antonyms, 83% on timeline
+        violations.
+
+        The context is the whole canon by default. Narrowing it to the
+        canon that bears on each candidate is available
+        (``CANONKEEPER_FOCUSED_CONTEXT``) but costs a class of
+        contradictions, so it is off; see
+        ``docs/testing/canonkeeper_recall_measurement_2026-11-11.md``.
+
+        Advisory: the caller decides what to do with the flags. A failure
+        yields no flags, never a hard error.
+
+        Args:
+            universe_id: Universe whose canon facts/axioms form the context.
+            statements: Candidate statements to check.
+
+        Returns:
+            One dict per flagged statement: ``statement``, ``explanation``,
+            ``contradiction_type``, ``severity``, ``flag_kind``.
+        """
+        from monitor_data.config import settings
+        from monitor_data.schemas.contradiction import ContradictionSeverity, ContradictionType
+
+        from monitor_agents.canonkeeper.context import build_focused_context
+        from monitor_agents.canonkeeper.verification import ContradictionModule
+
+        candidates = [s.strip() for s in statements if s and s.strip()]
+        if not candidates:
+            return []
+
+        whole_canon = "\n".join(await self._canon_context_lines(universe_id))
+        if not whole_canon:
+            return []
+
+        facts: list[dict[str, Any]] = []
+        axioms: list[Any] = []
+        entity_names: list[str] = []
+        if settings.canonkeeper_focused_context:
+            facts, axioms, entity_names = await self._canon_snapshot(universe_id)
+
+        module = ContradictionModule()
+        flags: list[dict[str, Any]] = []
+        for statement in candidates:
+            context = (
+                build_focused_context(statement, facts, axioms, entity_names)
+                if settings.canonkeeper_focused_context
+                else whole_canon
+            )
+            if not context:
+                continue
+            try:
+                result = await asyncio.to_thread(module.forward, context=context, new_fact=statement)
+            except Exception as exc:  # noqa: BLE001  # reason: a failed check degrades to no flag, never a hard failure (in direct_contradiction_flags)
+                logger.warning("Direct contradiction check failed (candidate skipped): %s", exc)
+                continue
+            if not result.get("has_contradiction"):
+                continue
+            flags.append(
+                {
+                    "statement": statement,
+                    "explanation": str(result.get("explanation") or ""),
+                    "implications": "",
+                    "contradiction_type": ContradictionType.SEMANTIC_OPPOSITE.value,
+                    "severity": ContradictionSeverity.HIGH.value,
+                    "flag_kind": "direct_contradiction",
+                }
+            )
+        return flags
+
     @staticmethod
     def _proposal_statements(proposals: list[dict[str, Any]]) -> list[tuple[str, str]]:
         """Extract the ``(proposal_id, statement)`` pairs from proposal dicts."""
@@ -881,6 +1001,12 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         nothing here rejects a proposal, and the severity is HIGH at most
         (see ``GAP_REMEDIATION_PLAN.md`` §G-9).
 
+        The *shape* of the check is configurable (G08 phase 2). The batched
+        form asks the model to hold fifteen candidates and a whole canon in
+        its head at once; the per-candidate form asks it about one statement
+        with only the canon that bears on it. Both are measured by
+        ``scripts/eval_canonkeeper_recall.py`` against the per-class corpus.
+
         Args:
             universe_id: Universe whose canon facts/axioms form the context.
             statements: Candidate statements to check.
@@ -897,14 +1023,51 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
         if not candidates:
             return []
 
+        per_candidate = settings.canonkeeper_per_candidate_checks
+        focused = settings.canonkeeper_focused_context
+
         context_lines = await self._canon_context_lines(universe_id)
         if not context_lines:
             return []
         context = "\n".join(context_lines)
 
+        facts: list[dict[str, Any]] = []
+        axioms: list[Any] = []
+        entity_names: list[str] = []
+        if per_candidate and focused:
+            facts, axioms, entity_names = await self._canon_snapshot(universe_id)
+
         module = ImplicationContradictionModule()
         chunk_size = settings.canonkeeper_implication_chunk_size
         flags: list[dict[str, Any]] = []
+
+        if per_candidate:
+            from monitor_agents.canonkeeper.context import build_focused_context
+
+            for statement in candidates:
+                scoped = build_focused_context(statement, facts, axioms, entity_names) if focused else context
+                if not scoped:
+                    continue
+                try:
+                    flagged = await asyncio.to_thread(module.forward, context=scoped, new_facts=f"1. {statement}")
+                except Exception as exc:  # noqa: BLE001  # reason: a failed check degrades to no flag, never a hard failure (in implication_conflict_flags)
+                    logger.warning("Implication contradiction check failed (candidate skipped): %s", exc)
+                    continue
+                for one_based_idx, detail in flagged.items():
+                    if one_based_idx != 1:
+                        continue
+                    flags.append(
+                        {
+                            "statement": statement,
+                            "explanation": detail.get("explanation", ""),
+                            "implications": detail.get("implications", ""),
+                            "contradiction_type": ContradictionType.IMPLICATION_CONFLICT.value,
+                            "severity": ContradictionSeverity.HIGH.value,
+                            "flag_kind": "implication_contradiction",
+                        }
+                    )
+            return flags
+
         for start in range(0, len(candidates), chunk_size):
             chunk = candidates[start : start + chunk_size]
             numbered = "\n".join(f"{i + 1}. {text}" for i, text in enumerate(chunk))
@@ -923,6 +1086,7 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
                             "implications": detail.get("implications", ""),
                             "contradiction_type": ContradictionType.IMPLICATION_CONFLICT.value,
                             "severity": ContradictionSeverity.HIGH.value,
+                            "flag_kind": "implication_contradiction",
                         }
                     )
         return flags
@@ -2427,6 +2591,121 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
             verdict.canon_properties if hasattr(verdict, "canon_properties") else None,
         )
 
+    async def apply_knowledge_correction(
+        self, content: dict[str, Any], *, memory_already_absent: bool = False,
+    ) -> None:
+        """Apply a reviewed character-knowledge correction through MCP tools."""
+        correction = content.get("knowledge_correction") or {}
+        participants = content.get("participants") or []
+        if len(participants) != 1 or not content.get("universe_id"):
+            raise ValueError("A knowledge correction must identify one character and universe")
+        entity_id = str(UUID(str(participants[0])))
+        universe_id = str(UUID(str(content["universe_id"])))
+        entity = self._parse_tool_result(await self.call_tool("neo4j_get_entity", {"entity_id": entity_id}))
+        if not entity or str(entity.get("universe_id")) != universe_id:
+            raise ValueError("The character is no longer available in this universe")
+        item_id = str(UUID(str(correction.get("item_id"))))
+        kind = correction.get("item_kind")
+        action = correction.get("action")
+        original_statement = correction.get("original_statement")
+        if original_statement is None and action == "retract":
+            original_statement = content.get("statement")
+        if action == "retract" and not str(original_statement or "").strip():
+            raise ValueError("The original statement is required for a retraction")
+        if action == "correct" and not str(original_statement or "").strip():
+            raise ValueError("The original statement is missing; restage this correction for review")
+
+        def check_statement(current: Any) -> None:
+            if original_statement is None:
+                return  # Older staged challenges did not retain the original text.
+            acceptable = {str(original_statement)}
+            if action == "correct":
+                acceptable.add(str(content.get("statement") or ""))  # Safe retry after an applied write.
+            if str(current or "") not in acceptable:
+                raise ValueError("The attribution changed after this challenge was staged; review it again")
+
+        if action not in ("retract", "correct") or kind not in ("fact", "memory", "proposal"):
+            raise ValueError("This kind of knowledge correction is not supported")
+
+        if kind == "proposal":
+            target = self._parse_tool_result(await self.call_tool("mongodb_get_proposed_change", {"proposal_id": item_id}))
+            target_content = target.get("content") or {}
+            if (target.get("status") != "pending" or target.get("change_type") != "fact"
+                    or str(target_content.get("universe_id")) != universe_id
+                    or entity_id not in {str(value) for value in (target_content.get("participants") or [])}):
+                raise ValueError("The pending proposal no longer belongs to this character and universe")
+            check_statement(target_content.get("statement"))
+            patch: dict[str, Any]
+            if action == "retract":
+                props = dict(target_content.get("properties") or {})
+                excluded = {str(value) for value in (props.get("knowledge_excluded") or [])}
+                excluded.add(entity_id)
+                props["knowledge_excluded"] = sorted(excluded)
+                patch = {"properties": props}
+            else:
+                patch = {"statement": str(content.get("statement") or "").strip()}
+                if not patch["statement"]:
+                    raise ValueError("A corrected statement is required")
+            result = await self.call_tool("mongodb_edit_proposed_change", {
+                "proposal_id": item_id, "content_patch": patch,
+                "reason": str(correction.get("reason") or "Reviewed knowledge correction"),
+            })
+            self._check_tool_error(result, "mongodb_edit_proposed_change")
+            return
+
+        if kind == "fact":
+            raw = await self.call_tool("neo4j_get_fact", {"fact_id": item_id})
+            fact = self._parse_tool_result(raw)
+            if not fact or str(fact.get("universe_id")) != universe_id:
+                raise ValueError("The fact is no longer available in this universe")
+            check_statement(fact.get("statement"))
+            updates: dict[str, Any]
+            if action == "retract":
+                props = dict(fact.get("properties") or {})
+                excluded = {str(value) for value in (props.get("knowledge_excluded") or [])}
+                excluded.add(entity_id)
+                props["knowledge_excluded"] = sorted(excluded)
+                updates = {"properties": props}
+            else:
+                statement = str(content.get("statement") or "").strip()
+                if not statement:
+                    raise ValueError("A corrected statement is required")
+                updates = {"statement": statement}
+            result = await self.call_tool("neo4j_update_fact", {"fact_id": item_id, "params": updates})
+            self._check_tool_error(result, "neo4j_update_fact")
+            return
+
+        memory: dict[str, Any] = {}
+        if not (action == "retract" and memory_already_absent):
+            raw = await self.call_tool("mongodb_get_memory", {"memory_id": item_id})
+            memory = self._parse_tool_result(raw)
+            if not memory or str(memory.get("universe_id")) != universe_id or str(memory.get("entity_id")) != entity_id:
+                raise ValueError("The memory no longer belongs to this character")
+            check_statement(memory.get("text"))
+        if action == "retract":
+            result = await self.call_tool("qdrant_delete", {"params": {"collection": "memories", "id": item_id}})
+            self._check_tool_error(result, "qdrant_delete")
+            if not self._parse_tool_result(result).get("success"):
+                raise ValueError("The memory vector could not be removed")
+            if not memory_already_absent:
+                result = await self.call_tool("mongodb_delete_memory", {"memory_id": item_id})
+                if result is not True:
+                    raise ValueError("The memory could not be removed")
+        else:
+            statement = str(content.get("statement") or "").strip()
+            if not statement:
+                raise ValueError("A corrected statement is required")
+            params = {"memory_id": item_id, "universe_id": universe_id, "entity_id": entity_id,
+                      "text": statement, "scene_id": memory.get("scene_id"),
+                      "importance": memory.get("importance", 0.5),
+                      "metadata": {"story_id": (memory.get("metadata") or {}).get("story_id")}}
+            result = await self.call_tool("qdrant_embed_memory", {"params": params})
+            self._check_tool_error(result, "qdrant_embed_memory")
+            if not self._parse_tool_result(result).get("success"):
+                raise ValueError("The corrected memory could not be indexed")
+            result = await self.call_tool("mongodb_update_memory", {"memory_id": item_id, "params": {"text": statement}})
+            self._check_tool_error(result, "mongodb_update_memory")
+
     async def _commit_entity_relationship(
         self,
         proposals_coll: Any,
@@ -2993,6 +3272,8 @@ class CanonKeeper(CommitDispatcherMixin, BaseAgent):
     ) -> None:
         """Shared logic for fact/event/lore_fact branches."""
         payload = proposal.get("payload", {}) or proposal.get("content", {}) or {}
+        if payload.get("knowledge_correction"):
+            raise ValueError("Knowledge corrections cannot yet be committed safely")
         # Coerce the LLM-supplied fact_type to a valid FactType enum value.
         # Extraction sometimes emits free-form types (e.g. 'lore', 'rule',
         # 'description') that neo4j_create_fact rejects, silently dropping facts.

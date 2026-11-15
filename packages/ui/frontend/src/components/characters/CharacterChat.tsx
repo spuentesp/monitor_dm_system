@@ -41,18 +41,27 @@ function num(snapshot: Record<string, unknown> | undefined, key: string): number
   return typeof v === "number" ? v : 0;
 }
 
+/** Models often prefix speech with "Name:" — the label above the bubble already says who spoke. */
+function stripSpeakerPrefix(text: string, name: string): string {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(new RegExp(`^\\s*${escaped}:\\s*`, "i"), "");
+}
+
 /** Story-less conversatory with a single MONITOR-backed character. */
 export function CharacterChat({
   character,
   onBack,
   personaId,
   initialConversation,
+  resumeConversationId,
 }: {
   character: StandaloneCharacter;
   onBack: () => void;
   personaId?: string | null;
   /** A conversation already opened elsewhere (one-click universe start). */
   initialConversation?: ConversationStartResult | null;
+  /** Reopen this persisted conversation (transcript loads; loop rehydrates on next send). */
+  resumeConversationId?: string | null;
 }) {
   const { notify } = useNotify();
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -69,8 +78,34 @@ export function CharacterChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const convRef = useRef<string | null>(null);
 
-  // Adopt a pre-opened conversation (one-click start), or open one on mount.
+  // Adopt a pre-opened conversation (one-click start), reopen a persisted
+  // one (resume), or open a fresh one on mount.
   useEffect(() => {
+    if (resumeConversationId) {
+      let active = true;
+      setStarting(true);
+      lightRpApi
+        .getConversationTurns(character.id, resumeConversationId)
+        .then((t) => {
+          if (!active) return;
+          convRef.current = t.conversation_id;
+          setConversationId(t.conversation_id);
+          setMessages(
+            t.turns.map((turn) => ({
+              id: `t-${turn.turn_index}`,
+              role: turn.speaker_role === "player" ? ("user" as const) : ("char" as const),
+              text: turn.text,
+              emotional_state: turn.emotional_state ?? null,
+            })),
+          );
+        })
+        .catch((e) => active && notify("error", `Couldn't load chat: ${errorMessage(e)}`))
+        .finally(() => active && setStarting(false));
+      // A resumed chat stays open server-side when the user goes back.
+      return () => {
+        active = false;
+      };
+    }
     if (initialConversation) {
       convRef.current = initialConversation.conversation_id;
       setConversationId(initialConversation.conversation_id);
@@ -98,7 +133,7 @@ export function CharacterChat({
       if (cid) entitiesApi.endCharacterConversation(character.id, cid).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [character.id]);
+  }, [character.id, resumeConversationId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -127,10 +162,12 @@ export function CharacterChat({
           );
         } else if (event.type === "done") {
           setMessages((m) => {
+            const existing = m.find((x) => x.id === replyId)?.text ?? "";
+            // A done event with empty text must not wipe a reply that streamed fine.
             const done: ChatMessage = {
               id: replyId,
               role: "char",
-              text: event.text,
+              text: event.text || existing,
               emotional_state: event.emotional_state,
               snapshot: event.relationship_snapshot,
             };
@@ -231,11 +268,14 @@ export function CharacterChat({
                 key={m.id}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}
+                className={cn("flex flex-col", m.role === "user" ? "items-end" : "items-start")}
               >
+                <div className="mb-0.5 px-1 text-[10px] font-semibold uppercase tracking-wide text-fg-dim">
+                  {m.role === "user" ? "You" : character.name}
+                </div>
                 <div
                   className={cn(
-                    "max-w-[78%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap",
+                    "max-w-[78%] break-words rounded-2xl px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap",
                     m.role === "user"
                       ? "bg-accent-primary/20 text-fg-primary rounded-br-sm"
                       : "glass text-fg-secondary rounded-bl-sm",
@@ -266,7 +306,7 @@ export function CharacterChat({
                         className="mb-1 max-w-full rounded-lg"
                       />
                     ))}
-                  {m.text}
+                  {m.role === "char" ? stripSpeakerPrefix(m.text, character.name) : m.text}
                   {m.role === "char" && m.emotional_state && (
                     <div className="mt-1 text-[10px] uppercase tracking-wide text-fg-dim">
                       {m.emotional_state}

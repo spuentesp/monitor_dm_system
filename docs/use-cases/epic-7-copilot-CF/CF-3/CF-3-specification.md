@@ -45,11 +45,18 @@ qdrant_search(query="unresolved", story_id)    # Semantic search
 - `ContextAssembly.get_story_history(story_id)` — Full story context
 - `CanonKeeper.analyze_threads(story_history)` — LLM analysis for threads
 
-**Layer 3 (CLI):**
-```bash
-monitor copilot threads --story <UUID>
-monitor copilot threads --story <UUID> --critical  # High priority only
+**Layer 3 (Surface):**
+The GM Assistant lives in the web UI at `/gm` (Threads panel) — there is no
+CLI `monitor copilot` (decision: GM_ASSISTANT_MODE_PLAN, G-5 Option A). The
+CLI examples describe the intended workflow; the wired surface is the web API.
+```text
+/gm → Threads panel
+    → GET   /stories/{story_id}/threads
+    → PATCH /stories/{story_id}/threads/{thread_id}   (resolve / dismiss / note)
 ```
+
+> Not shipped (web-only decision): `monitor copilot threads --story <UUID>
+> [--critical]`
 
 **Thread Categories:**
 ```python

@@ -59,6 +59,21 @@ export interface GraduateResult {
   session_create: Record<string, unknown>;
 }
 
+export interface ConversationTurn {
+  turn_index: number;
+  speaker_role: string;
+  entity_name?: string | null;
+  text: string;
+  emotional_state?: string | null;
+  timestamp?: string | null;
+}
+
+export interface ConversationTranscript {
+  conversation_id: string;
+  status: string;
+  turns: ConversationTurn[];
+}
+
 export type StreamEvent =
   | { type: "token"; text: string }
   | {
@@ -95,6 +110,10 @@ export const lightRpApi = {
           text,
           include_cross_incarnation: options?.include_cross_incarnation ?? false,
         }),
+        // A reply can legitimately take a while (several LLM calls), but never
+        // forever: without this the typing indicator spins indefinitely when a
+        // stream dies silently (e.g. backend restart mid-reply).
+        signal: AbortSignal.timeout(180_000),
       },
     );
     if (!res.ok) {
@@ -127,6 +146,12 @@ export const lightRpApi = {
       }
     }
   },
+
+  /** Full transcript of a past conversation, oldest first — for reopening a chat. */
+  getConversationTurns: (characterId: string, conversationId: string) =>
+    req<ConversationTranscript>(
+      `/entities/characters/${characterId}/conversations/${conversationId}/turns`,
+    ),
 
   listMemoriesAboutYou: (characterId: string, params?: { universe_id?: string; limit?: number }) =>
     req<{ memories: MemoryItem[]; total: number }>(

@@ -51,12 +51,20 @@ mongodb_list_scenes(story_id, limit=5, order="desc")
 - `Narrator.suggest_session_content(context)` — What might happen
 - `Narrator.generate_prep_checklist(context, template)` — Customized checklist
 
-**Layer 3 (CLI):**
-```bash
-monitor copilot prep --story <UUID>
-monitor copilot prep --story <UUID> --quick  # Just briefing
-monitor copilot prep --story <UUID> --checklist
+**Layer 3 (Surface):**
+The GM Assistant lives in the web UI at `/gm` (Session Prep panel) — there is
+no CLI `monitor copilot` (decision: GM_ASSISTANT_MODE_PLAN, G-5 Option A). The
+CLI examples describe the intended workflow; the wired surface is the web API.
+```text
+/gm → Session Prep panel
+    → POST /gm/session-prep                 (briefing + checklist)
+    → POST /gm/session-prep/generate-item   (on-demand item content)
+    → GET  /gm/prep/{universe_id}           (saved prep bundle)
+    → POST /gm/prep/extract, /gm/prep/commit
 ```
+
+> Not shipped (web-only decision): `monitor copilot prep --story <UUID>
+> [--quick|--checklist]`
 
 **Session Prep Schema:**
 ```python
@@ -119,5 +127,10 @@ Generate a session prep briefing that includes:
 Keep it concise and actionable.
 """
 ```
+
+**Amended by CF-11 (Advance World Time):** the prep briefing gains a
+"time passed since last session" section — the story's world-clock readout,
+due/overdue deadlines, and the off-screen NPC summary generated when the GM
+advanced the clock. See [CF-11](../CF-11/CF-11-specification.md).
 
 ---

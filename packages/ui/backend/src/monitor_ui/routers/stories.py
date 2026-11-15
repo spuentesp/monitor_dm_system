@@ -106,6 +106,40 @@ class ThreadActionRequest(BaseModel):
     note: str | None = None
 
 
+class ArcRecapRequest(BaseModel):
+    """CF-12: refresh options for a story's campaign-level arc recap."""
+
+    detail: Literal["short", "standard", "detailed"] = "standard"
+
+
+class ArcRecapOut(BaseModel):
+    """CF-12: a story's persisted campaign arc recap (one per story)."""
+
+    story_id: UUID
+    universe_id: UUID | None = None
+    recap: str
+    detail: str
+    scene_count: int = 0
+    scenes_watermark: str = ""
+    last_scene_id: UUID | None = None
+    generated_at: str
+    persisted: bool = True
+
+
+def _arc_recap_out(recap: Any) -> ArcRecapOut:
+    return ArcRecapOut(
+        story_id=recap.story_id,
+        universe_id=recap.universe_id,
+        recap=recap.recap_markdown,
+        detail=getattr(recap.detail, "value", str(recap.detail)),
+        scene_count=recap.scene_count,
+        scenes_watermark=recap.scenes_watermark,
+        last_scene_id=recap.last_scene_id,
+        generated_at=_iso(recap.generated_at) or "",
+        persisted=True,
+    )
+
+
 def _iso(value: Any) -> str | None:
     if value is None:
         return None
@@ -246,6 +280,70 @@ async def list_story_threads(
                     ThreadOut(title=label, status="resolved", source="checkpoint") for label in state.completed_threads
                 ]
     return threads
+
+
+@router.get("/{story_id}/arc-recap", response_model=ArcRecapOut)
+async def get_arc_recap(
+    story_id: UUID,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ArcRecapOut:
+    """CF-12: persisted campaign (story-arc) recap read.
+
+    Returns the stored arc recap without regenerating it — same contract as
+    CF-2's session recap ({"persisted": true}). 404 when the story has no
+    persisted recap yet; use POST to generate one.
+    """
+    await require_story_owner(db, principal, story_id)
+    from monitor_data.tools.mongodb_tools import mongodb_get_arc_recap
+
+    with db_op("Arc recap database unavailable"):
+        recap = mongodb_get_arc_recap(story_id)
+    if recap is None:
+        raise HTTPException(status_code=404, detail="No arc recap generated yet for this story")
+    return _arc_recap_out(recap)
+
+
+@router.post("/{story_id}/arc-recap", response_model=ArcRecapOut)
+async def refresh_arc_recap(
+    story_id: UUID,
+    body: ArcRecapRequest | None = None,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> ArcRecapOut:
+    """CF-12: generate/refresh the campaign arc recap across all scenes of the story.
+
+    Manual refresh on demand; session wrap-up also auto-refreshes it. Covers
+    every scene, stays consistent with canon (accepted proposals only), and
+    is persisted with generated_at plus a scene watermark.
+    """
+    await require_story_owner(db, principal, story_id)
+    from monitor_data.tools.neo4j_tools import neo4j_get_story
+
+    with db_op("Story database unavailable"):
+        story = neo4j_get_story(story_id)
+    if story is None:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    detail = body.detail if body else "standard"
+    from monitor_agents.recap.agent import RecapAgent
+
+    agent = RecapAgent()
+    try:
+        recap = await agent.generate_arc_recap(
+            story_id=story_id,
+            universe_id=story.universe_id,
+            detail=detail,
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in refresh_arc_recap)
+        logger.warning("Arc recap generation failed (story=%s): %s", story_id, exc)
+        raise HTTPException(status_code=503, detail=f"Arc recap generation failed: {exc}") from exc
+    if recap is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Nothing to recap yet — the campaign has no scenes or canon",
+        )
+    return _arc_recap_out(recap)
 
 
 @scenes_router.get("/scenes/{scene_id}/turns", response_model=list[TurnOut])

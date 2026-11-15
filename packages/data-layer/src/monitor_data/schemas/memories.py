@@ -60,6 +60,8 @@ class MemoryCreate(BaseModel):
 class MemoryUpdate(BaseModel):
     """Request to update a CharacterMemory document."""
 
+    text: str | None = Field(None, min_length=1, max_length=5000)
+
     importance: float | None = Field(
         None,
         ge=0.0,

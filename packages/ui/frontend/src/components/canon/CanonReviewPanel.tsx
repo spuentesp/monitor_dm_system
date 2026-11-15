@@ -55,13 +55,14 @@ function ProposalCard({
   compact = false,
 }: {
   proposal: ProposalItem;
-  onAccept?: (id: string, reason: string) => void;
+  onAccept?: (id: string, reason: string, overrideReason?: string) => void;
   onReject?: (id: string, reason: string) => void;
   onDefer?: (id: string, reason: string) => void;
   onEdit?: (id: string, contentPatch: Record<string, unknown>, reason: string) => void;
   compact?: boolean;
 }) {
   const [reason, setReason] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
   const [showReason, setShowReason] = useState<"accept" | "reject" | "defer" | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const initialStatement = String(proposal.content.statement ?? proposal.content.text ?? "");
@@ -117,7 +118,7 @@ function ProposalCard({
             {proposal.needs_review && (
               <span
                 data-testid="needs-review-badge"
-                title={`Advisory flag: this does not prevent acceptance or commit.${proposal.review_reason ? ` ${proposal.review_reason}` : ""}`}
+                title={`Review flag.${proposal.review_reason ? ` ${proposal.review_reason}` : ""}`}
                 className="text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 font-medium flex items-center gap-1"
               >
                 <AlertTriangle className="w-3 h-3" />
@@ -153,7 +154,7 @@ function ProposalCard({
             </p>
           )}
           {proposal.needs_review && (
-            <p className="text-[10px] text-amber-300/80 mt-1">Advisory flag: it does not prevent acceptance or commit.</p>
+            <p className="text-[10px] text-amber-300/80 mt-1">Review this flag before deciding.</p>
           )}
           {proposal.proposer && (
             <p className="text-[10px] text-slate-500 mt-1">Proposed by: {proposal.proposer}</p>
@@ -178,6 +179,11 @@ function ProposalCard({
                   placeholder={showReason === "defer" ? "Reason for deferring..." : `Reason for ${showReason}ing...`}
                   className="w-full px-2 py-1.5 text-xs rounded-lg bg-white/5 border border-white/10 text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/40"
                 />
+                {showReason === "accept" && (
+                  <input type="text" value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)}
+                    placeholder="Override reason (for a contradiction)"
+                    className="w-full mt-1 px-2 py-1.5 text-xs rounded-lg bg-white/5 border border-white/10 text-slate-300" />
+                )}
               </motion.div>
             )}
             {showEdit && onEdit && (
@@ -218,9 +224,10 @@ function ProposalCard({
             <button
               onClick={() => {
                 if (showReason === "accept") {
-                  onAccept(proposal.proposal_id, reason.trim());
+                  onAccept(proposal.proposal_id, reason.trim(), overrideReason.trim() || undefined);
                   setShowReason(null);
                   setReason("");
+                  setOverrideReason("");
                 } else {
                   setShowReason("accept");
                 }
@@ -288,7 +295,7 @@ function SceneCard({
   onEdit,
 }: {
   scene: SceneReview;
-  onAccept: (proposalId: string, reason: string) => void;
+  onAccept: (proposalId: string, reason: string, overrideReason?: string) => void;
   onReject: (proposalId: string, reason: string) => void;
   onDefer: (proposalId: string, reason: string) => void;
   onEdit: (proposalId: string, contentPatch: Record<string, unknown>, reason: string) => void;
@@ -487,9 +494,14 @@ export function CanonReviewPanel({
   }, [qc, onProposalsChanged]);
 
   const acceptMutation = useMutation({
-    mutationFn: ({ proposalId, reason }: { proposalId: string; reason: string }) =>
-      canonApi.acceptProposal(proposalId, reason || "Approved by GM"),
+    mutationFn: ({ proposalId, reason, overrideReason }: { proposalId: string; reason: string; overrideReason?: string }) =>
+      overrideReason ? canonApi.acceptProposal(proposalId, reason || "Approved by GM", overrideReason)
+        : canonApi.acceptProposal(proposalId, reason || "Approved by GM"),
     onSuccess: invalidate,
+    onError: (err) => {
+      setBatchNotice(`Acceptance failed: ${err instanceof Error ? err.message : String(err)}`);
+      invalidate();
+    },
   });
 
   const rejectMutation = useMutation({
@@ -534,7 +546,7 @@ export function CanonReviewPanel({
   });
 
   const handleAccept = useCallback(
-    (proposalId: string, reason: string) => acceptMutation.mutate({ proposalId, reason }),
+    (proposalId: string, reason: string, overrideReason?: string) => acceptMutation.mutate({ proposalId, reason, overrideReason }),
     [acceptMutation],
   );
 

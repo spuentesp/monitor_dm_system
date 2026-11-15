@@ -206,3 +206,166 @@ def test_a_reply_missing_sections_covered_is_not_recovered() -> None:
     assert "sections_covered" not in truncated
 
     assert recover_parse_failure(_parse_error(truncated)) is None
+
+
+# ---------------------------------------------------------------------------
+# Recovery from an instructor failure (the G11 pre-flight finding, 2026-11-11)
+# ---------------------------------------------------------------------------
+#
+# The at-the-table Complication lookup (S5) returned 500 because the LIGHT
+# tier's 1B model wrote `{"complications": "[\"a\", \"b\"]"}` — a JSON string
+# where an array belongs. Instructor retried, the retry returned prose, and
+# the whole lookup failed. The answer in generation 1 was one repair away.
+
+
+class _Fn:
+    def __init__(self, arguments: str) -> None:
+        self.arguments = arguments
+
+
+class _ToolCall:
+    def __init__(self, arguments: str) -> None:
+        self.function = _Fn(arguments)
+
+
+class _Message:
+    def __init__(self, content: str | None = None, tool_calls: list | None = None) -> None:
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+class _Choice:
+    def __init__(self, message: _Message) -> None:
+        self.message = message
+
+
+class _Completion:
+    def __init__(self, message: _Message) -> None:
+        self.choices = [_Choice(message)]
+
+
+class _Attempt:
+    def __init__(self, completion: _Completion | None) -> None:
+        self.attempt_number = 1
+        self.exception = ValueError("validation error")
+        self.completion = completion
+
+
+class _InstructorFailure(Exception):
+    def __init__(self, attempts: list[_Attempt]) -> None:
+        super().__init__("failed_attempts")
+        self.failed_attempts = attempts
+
+
+class _Suggestions:
+    """The shape the lookup asks for: a list of strings plus a rationale."""
+
+    def __init__(self, complications: list[str], rationale: str = "") -> None:
+        self.complications = complications
+        self.rationale = rationale
+
+    @classmethod
+    def model_validate(cls, payload: dict) -> "_Suggestions":
+        from pydantic import BaseModel, Field
+
+        class _M(BaseModel):
+            complications: list[str] = Field(default_factory=list)
+            rationale: str = ""
+
+        parsed = _M.model_validate(payload)
+        return cls(complications=parsed.complications, rationale=parsed.rationale)
+
+
+from pydantic import BaseModel, Field  # noqa: E402
+
+
+class _SuggestionsModel(BaseModel):
+    complications: list[str] = Field(default_factory=list)
+    rationale: str = ""
+
+
+@pytest.mark.unit
+def test_a_json_string_where_a_list_belongs_is_recovered() -> None:
+    """The exact failure the pre-flight found: `[...]` as a string."""
+    completion = _Completion(
+        _Message(
+            tool_calls=[
+                _ToolCall('{"complications": "[\\"The players are held hostage\\", \\"The notes are burnt\\"]", "rationale": "raise the stakes"}')
+            ]
+        )
+    )
+    exc = _InstructorFailure([_Attempt(completion)])
+
+    from monitor_agents.lenient_parsing import recover_instructor_failure
+
+    recovered = recover_instructor_failure(exc, _SuggestionsModel)
+
+    assert recovered is not None
+    assert recovered.complications == ["The players are held hostage", "The notes are burnt"]
+
+
+@pytest.mark.unit
+def test_an_answer_stored_as_message_body_is_recovered() -> None:
+    """A text provider puts the JSON in the message body, not a tool call."""
+    completion = _Completion(
+        _Message(content='{"complications": ["a", "b"], "rationale": "why"}')
+    )
+    exc = _InstructorFailure([_Attempt(completion)])
+
+    from monitor_agents.lenient_parsing import recover_instructor_failure
+
+    recovered = recover_instructor_failure(exc, _SuggestionsModel)
+
+    assert recovered is not None
+    assert recovered.complications == ["a", "b"]
+
+
+@pytest.mark.unit
+def test_an_unrecoverable_attempt_returns_none() -> None:
+    """A prose answer has nothing to validate — the caller keeps its own error."""
+    completion = _Completion(_Message(content="Here are three complications..."))
+    exc = _InstructorFailure([_Attempt(completion)])
+
+    from monitor_agents.lenient_parsing import recover_instructor_failure
+
+    assert recover_instructor_failure(exc, _SuggestionsModel) is None
+
+
+@pytest.mark.unit
+def test_an_exception_without_attempts_is_not_recoverable() -> None:
+    from monitor_agents.lenient_parsing import recover_instructor_failure
+
+    assert recover_instructor_failure(ValueError("boom"), _SuggestionsModel) is None
+
+
+@pytest.mark.unit
+def test_a_value_wrapped_in_its_own_schema_is_unwrapped() -> None:
+    """The second malformation the pre-flight found: {"type": "string", ...}."""
+    payload = {
+        "complications": [
+            {"type": "string", "value": "The players are held hostage"},
+            {"type": "string", "value": "The notes are burnt"},
+        ]
+    }
+
+    item, repairs = lenient_validate(_SuggestionsModel, payload)
+
+    assert item.complications == ["The players are held hostage", "The notes are burnt"]
+    assert {repair.kind for repair in repairs} == {"wrapped_scalar"}
+
+
+@pytest.mark.unit
+def test_a_one_item_list_where_a_string_belongs_is_unwrapped() -> None:
+    payload = {"complications": [["The players are held hostage"]], "rationale": "raise the stakes"}
+
+    item, repairs = lenient_validate(_SuggestionsModel, payload)
+
+    assert item.complications == ["The players are held hostage"]
+    assert any(repair.kind == "single_item_list" for repair in repairs)
+
+
+@pytest.mark.unit
+def test_an_unknown_dict_still_fails_validation() -> None:
+    """The repair is a known rule, not "accept anything"."""
+    with pytest.raises(ValidationError):
+        lenient_validate(_SuggestionsModel, {"complications": [{"nonsense": 1}]})

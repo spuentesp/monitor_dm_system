@@ -267,6 +267,46 @@ class Settings(BaseSettings):
             "rules. When off, violations are flagged for review instead."
         ),
     )
+    # G08 phase 2 — the *shape* of the contradiction check. The 2026-11-07
+    # measurement found 25% recall on the batched form; the per-class corpus
+    # (`monitor_agents.canonkeeper.recall_corpus`) measures the alternatives.
+    canonkeeper_per_candidate_checks: bool = Field(
+        default=True,
+        alias="CANONKEEPER_PER_CANDIDATE_CHECKS",
+        description=(
+            "Check one candidate statement per model call instead of a batch of fifteen. More calls, better recall."
+        ),
+    )
+    canonkeeper_focused_context: bool = Field(
+        default=False,
+        alias="CANONKEEPER_FOCUSED_CONTEXT",
+        description=(
+            "Narrow the canon context to the facts that bear on the candidate "
+            "statement instead of passing the whole canon. Measured on the "
+            "per-class corpus: it costs one status-antonym case, so it is "
+            "off by default (docs/testing/canonkeeper_recall_measurement_"
+            "2026-11-11.md)."
+        ),
+    )
+    # G08 phase 3/4 — the CF-8 soft block and the opt-in hard rejection.
+    # Both are per-owner; this is the fallback for owners who have not set
+    # a preference of their own.
+    canonkeeper_require_override_reason: bool = Field(
+        default=True,
+        alias="CANONKEEPER_REQUIRE_OVERRIDE_REASON",
+        description=(
+            "A proposal carrying a direct-contradiction flag cannot be accepted without an explicit override reason."
+        ),
+    )
+    canonkeeper_hard_rejection_default: bool = Field(
+        default=False,
+        alias="CANONKEEPER_HARD_REJECTION_DEFAULT",
+        description=(
+            "Default hard-rejection mode for owners who have not set one. "
+            "When on, a flagged proposal is refused with 409 instead of "
+            "being accepted with an override."
+        ),
+    )
 
 
 @lru_cache(maxsize=1)

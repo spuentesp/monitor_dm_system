@@ -1094,6 +1094,14 @@ conflict detection (that's F1-6 step 1).
 
 ## 17. GM P3.2 — Notes→canon review linkage (verified)
 
+> **Update 2026-11-13:** option (b) shipped after all (owner decision).
+> The story is stamped on the ingestion job at upload and inherited by
+> every proposal `mongodb_apply_knowledge_pack` materialises, so
+> attribution is dual (recording story + ingest job) exactly as option (b)
+> describes. The dual-queue question is answered by design: the same
+> proposal appears in the story lane and the by-ingest listing as two
+> filtered views of one record. The audit below is kept as written.
+
 ### Finding
 
 The plan offers two options for P3.2:

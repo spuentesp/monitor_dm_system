@@ -53,6 +53,16 @@ from monitor_data.schemas.roleplay_errors import RoleplayErrorCategory, Roleplay
 log = structlog.get_logger()
 
 
+def _clamp(value: str | None, limit: int) -> str | None:
+    """Trim a model-produced string to a schema cap, so persist validation never fails on length."""
+    if value is None:
+        return None
+    text = value.strip()
+    if len(text) <= limit:
+        return text or None
+    return text[: limit - 1].rstrip() + "…"
+
+
 class NPCDirectResponse(BaseModel):
     """Structured output from a direct NPC dialogue turn."""
 
@@ -505,7 +515,9 @@ class NPCVoice(BaseAgent):
             from monitor_agents.lorebook_directives import parse_output_directives
 
             npc_response, directives = parse_output_directives(npc_response)
-        emotional_state_after = prediction.emotional_state_after
+        # Stored schemas cap emotional_state (turn: 100 chars, profile: 200); a chatty
+        # model phrase must not fail persistence, so clamp at extraction.
+        emotional_state_after = _clamp(prediction.emotional_state_after, 100) or "neutral"
         relationship_delta = prediction.relationship_delta
         relationship_snapshot_after = self._build_relationship_snapshot(
             profile=profile,
@@ -1190,8 +1202,10 @@ class NPCVoice(BaseAgent):
                     "speaker_role": "npc",
                     "entity_id": str(npc_id),
                     "entity_name": npc_name,
-                    "text": text,
-                    "emotional_state": emotional_state,
+                    # The schema caps text at 8000 and emotional_state at 100 chars;
+                    # a rambling model reply must not fail the whole turn persist.
+                    "text": _clamp(text, 8000),
+                    "emotional_state": _clamp(emotional_state, 100),
                 },
             },
         )

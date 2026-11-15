@@ -11,12 +11,16 @@ const CAP = 6;
 /**
  * Recent light-RP conversations across all roster characters, newest first.
  *
- * Read-only / informational: conversations cannot be resumed yet — the
- * backend keeps live ConversationLoops only in an in-process cache
- * (character_conversation._LOOPS) and exposes no turns/transcript endpoint,
- * so resuming would require backend loop rehydration, not just a UI change.
+ * Clicking a card reopens that conversation (transcript loads, and the
+ * backend rehydrates the live loop from Mongo on the next send).
  */
-export function RecentChatsRail({ characters }: { characters: StandaloneCharacter[] }) {
+export function RecentChatsRail({
+  characters,
+  onOpen,
+}: {
+  characters: StandaloneCharacter[];
+  onOpen: (character: StandaloneCharacter, conversationId: string) => void;
+}) {
   const convQueries = useQueries({
     queries: characters.map((c) => ({
       queryKey: ["character-conversations", c.id],
@@ -38,16 +42,19 @@ export function RecentChatsRail({ characters }: { characters: StandaloneCharacte
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {recent.map(({ character, conv }, i) => (
-          <div
+          <button
             key={`${character.id}:${conv.conversation_id ?? i}`}
-            className="glass rounded-xl px-4 py-3"
+            type="button"
+            onClick={() => conv.conversation_id && onOpen(character, conv.conversation_id)}
+            className="glass rounded-xl px-4 py-3 text-left transition-colors hover:border-accent-primary/40"
+            title={`Reopen this chat with ${character.name}`}
           >
             <div className="truncate text-sm font-medium text-slate-200">{character.name}</div>
             <div className="mt-0.5 truncate text-[11px] text-slate-500">
               {conv.turn_count} turns · {conv.status ?? "unknown"} ·{" "}
               {formatRelativeTime(conv.updated_at)}
             </div>
-          </div>
+          </button>
         ))}
       </div>
     </section>

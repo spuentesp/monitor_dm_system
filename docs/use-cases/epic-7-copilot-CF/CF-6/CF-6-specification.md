@@ -58,13 +58,22 @@ neo4j_list_relationships(entity_id=character_id, known=True)
 - `Narrator.generate_handout(knowledge, format, style)` — Create prose
 - `Narrator.format_as_table(knowledge, columns)` — Create structured output
 
-**Layer 3 (CLI):**
-```bash
-monitor copilot handout --character <UUID> --type recap
-monitor copilot handout --party --type quest_log
-monitor copilot handout --location <UUID> --format markdown
-monitor copilot handout --npc <UUID> --perspective in_character
+**Layer 3 (Surface):**
+The GM Assistant lives in the web UI at `/gm` (Handouts) — there is no CLI
+`monitor copilot` (decision: GM_ASSISTANT_MODE_PLAN, G-5 Option A). The CLI
+examples describe the intended workflow; the wired surface is the web API.
+```text
+/gm → Handouts
+    → POST /gm/handouts   (scope: character | party | location | npc;
+                           handout_type, tone, spoiler_level options)
 ```
+
+> Not shipped (web-only decision): `monitor copilot handout --character <UUID>
+> --type recap`, `--party --type quest_log`, `--location <UUID> --format
+> markdown`, `--npc <UUID> --perspective in_character`
+
+> Player-facing share/export of handouts is future work — see gap plan
+> [G07-player-facing-sharing-CF-14](../../../architecture/gm-assistant-gap-plans/G07-player-facing-sharing-CF-14.md).
 
 **Handout Schema:**
 ```python

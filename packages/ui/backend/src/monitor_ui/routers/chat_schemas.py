@@ -152,6 +152,10 @@ class Message(BaseModel):
     metadata: dict[str, Any] = {}
     chat_mode: str = "ic"  # "ic" | "ooc"
     character_id: str | None = None
+    # G03 (CF-1 amendment) — mid-session strike/edit of logged entries.
+    struck: bool = False
+    struck_at: str | None = None
+    edited_at: str | None = None
 
 
 class SessionStateResponse(BaseModel):

@@ -806,10 +806,19 @@ def mongodb_apply_knowledge_pack(pack_id: UUID, params: ApplyKnowledgePackReques
 
     if proposal_docs:
         source_doc_id = str(pack.source_document_ids[0]) if pack.source_document_ids else None
+        effective_story_id = params.story_id
+        if effective_story_id is None:
+            job_id_raw = pack_doc.get("ingestion_job_id")
+            if job_id_raw:
+                job_doc = mongodb.get_collection("ingestion_jobs").find_one({"job_id": str(job_id_raw)})
+                if job_doc and job_doc.get("story_id"):
+                    effective_story_id = UUID(str(job_doc["story_id"]))
         for doc in proposal_docs:
             doc.setdefault("pack_id", str(pack_id))
             if source_doc_id and not doc.get("source_document_id"):
                 doc["source_document_id"] = source_doc_id
+            if effective_story_id is not None:
+                doc["story_id"] = str(effective_story_id)
         proposals_collection.insert_many(proposal_docs)
 
     # Record this application on the pack

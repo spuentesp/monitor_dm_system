@@ -574,6 +574,13 @@ def graph(
 
 ## Phase 7: Copilot Commands
 
+> **Not shipped (web-only decision):** the copilot surface is the web `/gm`
+> page (`packages/ui/frontend/src/app/gm/page.tsx`), not a CLI command group —
+> `src/monitor_cli/commands/copilot.py` does not exist (decision:
+> `docs/architecture/GM_ASSISTANT_MODE_PLAN.md` G-5 Option A). The CLI
+> examples below describe the intended workflow; the wired surface is the web
+> API.
+
 ### T7.1: Copilot Command Group
 
 **File:** `src/monitor_cli/commands/copilot.py`
@@ -1473,11 +1480,15 @@ EXTERNAL: typer, rich, prompt-toolkit
 | `monitor manage` | M-1 to M-30 | World Design |
 | `monitor query` | Q-1 to Q-8 | — |
 | `monitor ingest` | I-1 to I-5 | — |
-| `monitor copilot` | CF-1 to CF-5 | GM Assistant |
+| `monitor copilot` | CF-1 to CF-5 | GM Assistant — **not shipped**, web `/gm` only |
 | `monitor story` | ST-1 to ST-5 | — |
 | `monitor rules` | RS-1 to RS-4 | — |
 
 ### Detailed Command Reference
+
+> The `monitor copilot …` rows below are aspirational — that command group was
+> never shipped (web-only `/gm` surface, G-5 Option A). They describe the
+> intended workflow only; the wired surface is the web API.
 
 | Command | Use Case | Description |
 |---------|----------|-------------|

@@ -46,7 +46,7 @@ from monitor_data.db.minio import get_minio_client
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.db.postgres import PostgresClient
 from monitor_ui.auth import Principal, get_current_user, get_postgres, require_admin, is_local_mode
-from monitor_ui.ownership import require_multiverse_owner, resource_route_guard
+from monitor_ui.ownership import require_multiverse_owner, require_story_owner, resource_route_guard
 from monitor_data.db.postgres import get_postgres_client
 from monitor_data.schemas.base import IngestionStatus
 from monitor_data.schemas.ingestion_jobs import IngestionJobFilter
@@ -389,6 +389,7 @@ def _run_ingest_in_thread(
     reuse_doc_id: UUID | None = None,
     estimated_calls: int | None = None,
     resume_job_id: UUID | None = None,
+    story_id: UUID | None = None,
 ) -> None:
     """Run the ingest pipeline in a dedicated thread with its own event loop.
 
@@ -437,6 +438,7 @@ def _run_ingest_in_thread(
                     on_job_created=_capture_job,
                     analyze_timeout_seconds=analyze_timeout_for_job(_JOB_TIMEOUT_SECS, estimated_calls),
                     resume_job_id=resume_job_id,
+                    story_id=story_id,
                 )
             )
 
@@ -877,6 +879,7 @@ async def upload_source(
     principal: Principal = Depends(get_current_user),
     db: PostgresClient = Depends(get_postgres),
     title: str | None = Form(default=None),
+    story_id: str | None = Form(default=None),
     # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
 ) -> dict:  # type: ignore
     """
@@ -900,6 +903,10 @@ async def upload_source(
     # Uploading into an existing multiverse requires owning it (foreign -> 404).
     if requested_multiverse_id:
         await require_multiverse_owner(db, principal, requested_multiverse_id)
+    requested_story_id: UUID | None = None
+    if isinstance(story_id, str) and story_id.strip():
+        requested_story_id = validate_uuid(story_id.strip(), "story_id")
+        await require_story_owner(db, principal, requested_story_id)
 
     try:
         pack_type_enum = KnowledgePackType(scan_type_value)
@@ -981,6 +988,7 @@ async def upload_source(
                         pack_type_enum=pack_type_enum,
                         selected_layers=selected_layers,
                         content_type=file.content_type,
+                        story_id=requested_story_id,
                     ),
                 )
                 if queue_token is not None:

@@ -437,7 +437,7 @@ def neo4j_list_facts(filters: FactFilter | None = None) -> list[FactResponse]:
                collect(DISTINCT e2.id) as entity_ids,
                collect(DISTINCT s.id) as source_ids,
                collect(DISTINCT sc.id) as scene_ids
-        ORDER BY f.created_at DESC
+        ORDER BY f.created_at DESC, f.id ASC
         SKIP $offset
         LIMIT $limit
         """
@@ -456,7 +456,7 @@ def neo4j_list_facts(filters: FactFilter | None = None) -> list[FactResponse]:
                collect(DISTINCT e.id) as entity_ids,
                collect(DISTINCT s.id) as source_ids,
                collect(DISTINCT sc.id) as scene_ids
-        ORDER BY f.created_at DESC
+        ORDER BY f.created_at DESC, f.id ASC
         SKIP $offset
         LIMIT $limit
         """

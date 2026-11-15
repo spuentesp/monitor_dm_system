@@ -24,7 +24,7 @@ from monitor_data.schemas.users import (
     UserAdminResponse,
 )
 
-from monitor_ui.auth import Principal, get_postgres, require_admin
+from monitor_ui.auth import LOCAL_USER_ID, Principal, get_postgres, require_admin
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
@@ -230,3 +230,51 @@ async def _usage_extra(db: PostgresClient, user_id: str) -> dict[str, Any]:
         "daily_call_cap": limits.get("daily_call_cap"),
         "exempt": bool(limits.get("exempt", False)),
     }
+
+
+# ---------------------------------------------------------------------------
+# Ownership backfill (pre-auth rows)
+# ---------------------------------------------------------------------------
+
+
+class OwnershipBackfillRequest(BaseModel):
+    """Which owner the unowned rows should belong to."""
+
+    owner_id: UUID | None = None
+
+
+class OwnershipBackfillResponse(BaseModel):
+    """How many rows were claimed."""
+
+    owner_id: UUID
+    worlds: int = 0
+    multiverses: int = 0
+
+
+@router.post("/ownership/backfill", response_model=OwnershipBackfillResponse)
+async def backfill_ownership(
+    body: OwnershipBackfillRequest | None = None,
+    principal: Principal = Depends(require_admin),
+    db: PostgresClient = Depends(get_postgres),
+) -> OwnershipBackfillResponse:
+    """Give the pre-auth rows (no owner) an owner, idempotently.
+
+    Rows created before the ownership registry existed carry no owner, so
+    only the local account can reach them. This claims them permanently.
+    Running it twice is a no-op the second time, and rows that already
+    have an owner are never touched.
+
+    The target owner defaults to the local account — the account the
+    unowned rows were reachable as.
+    """
+    owner_id = (body.owner_id if body else None) or LOCAL_USER_ID
+    user = await db.user_get_by_id(owner_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    claimed = await db.ownership_backfill(owner_id)
+    return OwnershipBackfillResponse(
+        owner_id=owner_id,
+        worlds=claimed.get("worlds", 0),
+        multiverses=claimed.get("multiverses", 0),
+    )
