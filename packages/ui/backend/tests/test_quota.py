@@ -210,7 +210,9 @@ class TestQuotaOverHttp:
         asyncio.run(fake_db.usage_record(UUID(me["id"]), calls=1))
         second = client.post(path, json=payload, headers=_csrf(client))
         assert second.status_code == 429, second.text
-        assert "Daily model-call limit" in second.json()["detail"]
+        detail = second.json()["detail"]
+        assert "Daily model-call limit" in detail
+        assert "admin" in detail.lower()  # UX-4/UX-5: point the user at the admin
 
         # B has their own budget: not 429.
         other = client_b.post(path, json=payload, headers=_csrf(client_b))
