@@ -37,13 +37,14 @@ def _missing_preamble(signatures: dict[str, type[dspy.Signature]]) -> list[str]:
 
 
 def test_every_book_and_analyzer_signature_starts_with_the_preamble() -> None:
-    from monitor_agents import analyzer, book_decomposition
+    from monitor_agents import analyzer, book_decomposition, indexer
 
-    signatures = {**_signatures_in(book_decomposition), **_signatures_in(analyzer)}
+    signatures = {**_signatures_in(book_decomposition), **_signatures_in(analyzer), **_signatures_in(indexer)}
     # A silent enumeration bug must not turn this into a vacuous pass.
-    assert len(signatures) >= 32, f"enumerated only {len(signatures)} signatures"
+    assert len(signatures) >= 34, f"enumerated only {len(signatures)} signatures"
     assert "monitor_agents.book_decomposition.extractor.WindowExtractionSignature" in signatures
     assert "monitor_agents.analyzer.analyzer.BatchedExtractionSignature" in signatures
+    assert "monitor_agents.indexer.lorebook.LorebookIngestionSignature" in signatures
     assert _missing_preamble(signatures) == []
 
 
