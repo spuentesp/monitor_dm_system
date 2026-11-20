@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
@@ -36,6 +36,13 @@ import { ThreadsPanel } from "@/components/gm/ThreadsPanel";
 import { HandoutsPanel } from "@/components/gm/HandoutsPanel";
 import { GMSelector } from "@/components/gm/GMSelector";
 import { ActiveToolPanel, type GmToolPanelId } from "@/components/gm/ActiveToolPanel";
+import {
+  GmStepper,
+  readStoredGmStep,
+  writeStoredGmStep,
+  type GmStep,
+} from "@/components/gm/GmStepper";
+import { WrapUpModal } from "@/components/gm/WrapUpModal";
 import { useGmPanelPrefs, visibleOrderedPanels } from "@/lib/gm-panel-prefs";
 import { useWorldContext } from "@/lib/world-context";
 import { cn } from "@/lib/utils";
@@ -76,6 +83,9 @@ const TOOL_PANEL_IDS: GMPanel[] = [
   "handouts",
 ];
 
+// The Prep step narrows the tools column to the pre-session panels.
+const PREP_PANEL_IDS: GMPanel[] = ["session-prep", "hooks", "threads", "handouts"];
+
 function GMAssistantPageContent() {
   const searchParams = useSearchParams();
   const requestedUniverseId = searchParams.get("universe");
@@ -87,10 +97,15 @@ function GMAssistantPageContent() {
   const [systemOverridden, setSystemOverridden] = useState(false);
   const [activePanel, setActivePanel] = useState<GMPanel>("recorder");
   const [centerTab, setCenterTab] = useState<"recorder" | "notebook">("recorder");
+  // Prep → Run → Wrap-up (UX-5). Wrap is transient; prep/run persist per universe.
+  const [step, setStepState] = useState<GmStep>("run");
+  const prevStableStepRef = useRef<GmStep>("run");
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const { prefs, toggleHidden, move } = useGmPanelPrefs();
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const customizeRef = useDismissRef<HTMLDivElement>(() => setCustomizeOpen(false), customizeOpen);
-  const visibleToolPanels = visibleOrderedPanels(TOOL_PANEL_IDS, prefs);
+  const toolPool: GMPanel[] = step === "prep" ? PREP_PANEL_IDS : TOOL_PANEL_IDS;
+  const visibleToolPanels = visibleOrderedPanels(toolPool, prefs);
   // A hidden/non-tool active panel falls back to the first visible tool panel.
   const effectiveToolPanel: GMPanel | null = visibleToolPanels.includes(activePanel)
     ? activePanel
@@ -140,12 +155,43 @@ function GMAssistantPageContent() {
     setUniverseLabel(label ?? null);
   };
 
+  // Restore the persisted step whenever the active universe changes.
+  useEffect(() => {
+    setStepState(readStoredGmStep(universeId) ?? "run");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [universeId]);
+
+  const setStep = (next: GmStep) => {
+    if (next === step) return;
+    if (step !== "wrap") prevStableStepRef.current = step;
+    writeStoredGmStep(universeId, next);
+    setStepState(next);
+  };
+
+  // Closing wrap-up returns to the step it was opened from.
+  const closeWrap = () => {
+    if (step === "wrap") setStepState(prevStableStepRef.current);
+  };
+
+  // The narrow single-panel view must stay inside the active step's pool.
+  useEffect(() => {
+    if (step === "wrap") return;
+    const pool = step === "prep" ? PREP_PANEL_IDS : TOOL_PANEL_IDS;
+    if (TOOL_PANEL_IDS.includes(activePanel) && !pool.includes(activePanel)) {
+      const first = visibleOrderedPanels(pool, prefs)[0];
+      if (first) setActivePanel(first);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-4 px-6 py-3 border-b border-white/5 glass-dark flex-shrink-0 flex-wrap">
         <ClipboardList className="w-5 h-5 text-emerald-400 flex-shrink-0" />
         <h1 className="text-sm font-bold text-slate-200">GM Assistant</h1>
+        <div className="h-5 w-px bg-white/10" />
+        <GmStepper step={step} onStepChange={setStep} wrapDisabled={!universeId} />
         <div className="h-5 w-px bg-white/10" />
         <GMSelector
           universeId={universeId}
@@ -157,7 +203,9 @@ function GMAssistantPageContent() {
 
         {/* Panel tabs (mobile/narrow only; desktop has fixed columns) */}
         <div className="ml-auto flex items-center gap-1 xl:hidden">
-          {GM_PANELS.map(({ id, label, icon: Icon }) => (
+          {GM_PANELS.filter(
+            (p) => !TOOL_PANEL_IDS.includes(p.id) || toolPool.includes(p.id),
+          ).map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setActivePanel(id)}
@@ -216,7 +264,7 @@ function GMAssistantPageContent() {
             <div className="flex-1 overflow-hidden flex flex-col">
               {centerTab === "recorder" ? (
                 universeId ? (
-                  <SessionRecorder universeId={universeId} universeLabel={universeLabel} onActiveStoryChange={setActiveStoryId} />
+                  <SessionRecorder universeId={universeId} universeLabel={universeLabel} onActiveStoryChange={setActiveStoryId} onActiveSessionChange={setActiveSessionId} />
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center text-center space-y-2 px-4">
                     <Mic className="w-8 h-8 text-slate-700" />
@@ -335,7 +383,7 @@ function GMAssistantPageContent() {
               {activePanel === "recorder" && (
                 <div className="flex-1 overflow-hidden flex flex-col">
                   {universeId ? (
-                    <SessionRecorder universeId={universeId} universeLabel={universeLabel} onActiveStoryChange={setActiveStoryId} />
+                    <SessionRecorder universeId={universeId} universeLabel={universeLabel} onActiveStoryChange={setActiveStoryId} onActiveSessionChange={setActiveSessionId} />
                   ) : (
                     <div className="flex-1 flex flex-col items-center justify-center text-center space-y-2 px-4">
                       <Mic className="w-8 h-8 text-slate-700" />
@@ -367,6 +415,35 @@ function GMAssistantPageContent() {
           </AnimatePresence>
         </div>
       </div>
+
+      {/* Wrap-up step — opens the existing wrap-up flow (transient step). */}
+      {step === "wrap" && universeId && (
+        activeSessionId ? (
+          <WrapUpModal
+            sessionId={activeSessionId}
+            universeId={universeId}
+            storyId={activeStoryId}
+            onClose={closeWrap}
+          />
+        ) : (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+            role="dialog"
+            aria-modal="true"
+            data-testid="gm-wrap-empty"
+          >
+            <div className="glass-dark rounded-xl border border-white/10 p-5 max-w-sm space-y-3">
+              <p className="text-xs text-slate-300">
+                No recording to wrap up yet — log at least one entry in the Session
+                Recorder first.
+              </p>
+              <button type="button" onClick={closeWrap} className="btn-cyber text-xs px-3 py-1.5">
+                Close
+              </button>
+            </div>
+          </div>
+        )
+      )}
     </div>
   );
 }

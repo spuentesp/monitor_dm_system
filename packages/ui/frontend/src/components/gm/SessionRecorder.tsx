@@ -51,10 +51,12 @@ export function SessionRecorder({
   universeId,
   universeLabel,
   onActiveStoryChange,
+  onActiveSessionChange,
 }: {
   universeId: string;
   universeLabel?: string | null;
   onActiveStoryChange?: (storyId: string | null) => void;
+  onActiveSessionChange?: (sessionId: string | null) => void;
 }) {
   const qc = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -102,6 +104,11 @@ export function SessionRecorder({
   useEffect(() => {
     onActiveStoryChange?.(active?.story_id ?? null);
   }, [active?.story_id, onActiveStoryChange]);
+
+  // The page-level wrap-up (stepper) needs the active recording's id.
+  useEffect(() => {
+    onActiveSessionChange?.(activeId);
+  }, [activeId, onActiveSessionChange]);
 
   const { data: messages = [] } = useQuery({
     queryKey: ["chat", activeId, "messages"],
