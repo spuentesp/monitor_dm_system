@@ -38,6 +38,7 @@ from monitor_data.schemas.knowledge_packs import (
     SectionSummaryArtifact,
     SourceMindscapeArtifact,
 )
+from monitor_data.tenancy import assert_owner_match, assert_universe_write
 
 log = structlog.get_logger()
 # =============================================================================
@@ -116,6 +117,11 @@ def mongodb_create_knowledge_pack(params: KnowledgePackCreate) -> KnowledgePackR
     """
     mongodb = get_mongodb_client()
     packs_collection = mongodb.get_collection("knowledge_packs")
+
+    # Owner-stamped creates must target the acting owner (ownerless creates
+    # stay allowed: agent/ingestion paths stamp the owner afterwards).
+    if params.owner_id is not None:
+        assert_owner_match(resource="knowledge_pack", direct_owner_id=params.owner_id)
 
     now = datetime.now(UTC)
     pack_id = params.pack_id or uuid4()
@@ -203,6 +209,10 @@ def mongodb_update_knowledge_pack(pack_id: UUID, params: KnowledgePackUpdate) ->
     """
     mongodb = get_mongodb_client()
     packs_collection = mongodb.get_collection("knowledge_packs")
+
+    existing_doc = packs_collection.find_one({"pack_id": str(pack_id)})
+    if isinstance(existing_doc, dict):
+        assert_owner_match(resource="knowledge_pack", direct_owner_id=existing_doc.get("owner_id"))
 
     update_fields: dict[str, Any] = {"updated_at": datetime.now(UTC)}
     if params.name is not None:
@@ -320,6 +330,9 @@ def mongodb_delete_knowledge_pack(pack_id: UUID, *, soft: bool = True) -> bool:
     """
     mongodb = get_mongodb_client()
     packs_collection = mongodb.get_collection("knowledge_packs")
+    existing_doc = packs_collection.find_one({"pack_id": str(pack_id)})
+    if isinstance(existing_doc, dict):
+        assert_owner_match(resource="knowledge_pack", direct_owner_id=existing_doc.get("owner_id"))
     if soft:
         update_result = packs_collection.update_one(
             {"pack_id": str(pack_id)},
@@ -373,6 +386,9 @@ def mongodb_apply_knowledge_pack(pack_id: UUID, params: ApplyKnowledgePackReques
         raise ValueError(f"KnowledgePack {pack_id} not found")
 
     pack = _convert_knowledge_pack_doc(pack_doc)
+    assert_owner_match(resource="knowledge_pack_apply", direct_owner_id=pack.owner_id)
+    if params.universe_id is not None:
+        assert_universe_write(params.universe_id, resource="knowledge_pack_apply")
     if pack.status not in (KnowledgePackStatus.READY, KnowledgePackStatus.APPLIED):
         raise ValueError(
             f"KnowledgePack {pack_id} is in status '{pack.status.value}' — only READY or APPLIED packs can be applied"
@@ -933,6 +949,9 @@ def mongodb_publish_knowledge_pack(
     publishable. Sets status=PUBLISHED and stamps published_at.
     """
     uid = UUID(str(pack_id))
+    existing = get_mongodb_client().get_collection("knowledge_packs").find_one({"pack_id": str(uid)})
+    if isinstance(existing, dict):
+        assert_owner_match(resource="knowledge_pack", direct_owner_id=existing.get("owner_id"))
     report = mongodb_pack_quality_report(uid, min_score=min_score)
     if not report["publishable"]:
         raise ValueError("Pack not publishable: " + "; ".join(report["reasons"]))
@@ -960,5 +979,7 @@ def mongodb_list_published_packs(limit: int = 30) -> list[KnowledgePackResponse]
 
 def mongodb_set_knowledge_pack_owner(pack_id: UUID | str, owner_id: str) -> None:
     """Stamp the owning user on a pack (called by the router at creation)."""
+    # The stamp must name the acting owner — never a foreign user.
+    assert_owner_match(resource="knowledge_pack", direct_owner_id=owner_id)
     mongodb = get_mongodb_client()
     mongodb.get_collection("knowledge_packs").update_one({"pack_id": str(pack_id)}, {"$set": {"owner_id": owner_id}})

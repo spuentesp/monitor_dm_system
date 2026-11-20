@@ -34,6 +34,7 @@ from monitor_data.schemas.lorebook import (
     LorebookScanResult,
     SelectiveLogic,
 )
+from monitor_data.tenancy import assert_character_scope_write
 
 log = structlog.get_logger()
 
@@ -78,6 +79,7 @@ def mongodb_create_lorebook_entry(
     created_turn_index: int | None = None,
 ) -> LorebookEntry:
     """Insert a lorebook entry. Auto-derives keywords if none provided."""
+    assert_character_scope_write(character_id, resource="lorebook_entry")
     now = datetime.now(UTC).isoformat()
     keywords = _resolve_keywords(data)
 
@@ -190,6 +192,12 @@ def mongodb_update_lorebook_entry(
     updates: LorebookEntryUpdate,
 ) -> LorebookEntry | None:
     """Update fields on a lorebook entry. Returns updated doc or None."""
+    existing = _coll().find_one({"id": entry_id})
+    if existing is not None:
+        assert_character_scope_write(
+            existing.get("character_id") if isinstance(existing, dict) else None,
+            resource="lorebook_entry",
+        )
     delta = {
         k: v
         for k, v in {
@@ -238,6 +246,12 @@ def mongodb_update_lorebook_entry(
 
 def mongodb_delete_lorebook_entry(entry_id: str) -> bool:
     """Delete a lorebook entry. Returns True if deleted."""
+    existing = _coll().find_one({"id": entry_id})
+    if existing is not None:
+        assert_character_scope_write(
+            existing.get("character_id") if isinstance(existing, dict) else None,
+            resource="lorebook_entry",
+        )
     result = _coll().delete_one({"id": entry_id})
     deleted: bool = result.deleted_count > 0
     if deleted:
@@ -575,6 +589,7 @@ def mongodb_bulk_create_lorebook_entries(
     """Insert multiple lorebook entries at once. Returns created entries."""
     if not entries:
         return []
+    assert_character_scope_write(character_id, resource="lorebook_entry")
 
     now = datetime.now(UTC).isoformat()
     docs = []
@@ -674,6 +689,7 @@ def mongodb_get_scan_config(character_id: str) -> LorebookScanConfig:
 
 def mongodb_save_scan_config(character_id: str, config: LorebookScanConfig) -> LorebookScanConfig:
     """Persist scan config for a character."""
+    assert_character_scope_write(character_id, resource="lorebook_scan_config")
     payload = config.model_dump()
     payload["character_id"] = character_id
     _config_coll().replace_one(

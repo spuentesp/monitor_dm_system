@@ -34,6 +34,7 @@ from monitor_data.schemas.combat import (
     SetCombatOutcome,
     UpdateCombatParticipant,
 )
+from monitor_data.tenancy import assert_combat_write, assert_scene_write, assert_universe_write
 
 # =============================================================================
 # COMBAT OPERATIONS (DL-25)
@@ -127,6 +128,7 @@ def mongodb_create_combat(params: CombatCreate) -> CombatResponse:
     Raises:
         ValueError: If scene_id or story_id doesn't exist
     """
+    assert_scene_write(params.scene_id, resource="combat")
     mongodb = get_mongodb_client()
     combats_collection = mongodb.get_collection("combat_encounters")
 
@@ -246,6 +248,7 @@ def mongodb_update_combat(encounter_id: UUID, params: CombatUpdate) -> CombatRes
     """
     mongodb = get_mongodb_client()
     combats_collection = mongodb.get_collection("combat_encounters")
+    assert_combat_write(encounter_id, resource="combat")
 
     # Verify combat exists
     combat = combats_collection.find_one({"encounter_id": str(encounter_id)})
@@ -283,6 +286,7 @@ def mongodb_delete_combat(encounter_id: UUID) -> bool:
     Returns:
         True if deleted, False if not found
     """
+    assert_combat_write(encounter_id, resource="combat")
     mongodb = get_mongodb_client()
     combats_collection = mongodb.get_collection("combat_encounters")
 
@@ -305,6 +309,7 @@ def mongodb_add_combat_participant(params: AddCombatParticipant) -> CombatRespon
     """
     mongodb = get_mongodb_client()
     combats_collection = mongodb.get_collection("combat_encounters")
+    assert_combat_write(params.encounter_id, resource="combat")
 
     # Verify combat exists
     combat = combats_collection.find_one({"encounter_id": str(params.encounter_id)})
@@ -361,6 +366,7 @@ def mongodb_update_combat_participant(
     """
     mongodb = get_mongodb_client()
     combats_collection = mongodb.get_collection("combat_encounters")
+    assert_combat_write(params.encounter_id, resource="combat")
 
     # Verify combat exists
     combat = combats_collection.find_one({"encounter_id": str(params.encounter_id)})
@@ -423,6 +429,7 @@ def mongodb_remove_combat_participant(
     """
     mongodb = get_mongodb_client()
     combats_collection = mongodb.get_collection("combat_encounters")
+    assert_combat_write(params.encounter_id, resource="combat")
 
     # Verify combat exists
     combat = combats_collection.find_one({"encounter_id": str(params.encounter_id)})
@@ -466,6 +473,7 @@ def mongodb_add_combat_log_entry(params: AddCombatLogEntry) -> CombatResponse:
     """
     mongodb = get_mongodb_client()
     combats_collection = mongodb.get_collection("combat_encounters")
+    assert_combat_write(params.encounter_id, resource="combat")
 
     # Verify combat exists
     combat = combats_collection.find_one({"encounter_id": str(params.encounter_id)})
@@ -513,6 +521,7 @@ def mongodb_set_combat_outcome(params: SetCombatOutcome) -> CombatResponse:
     """
     mongodb = get_mongodb_client()
     combats_collection = mongodb.get_collection("combat_encounters")
+    assert_combat_write(params.encounter_id, resource="combat")
 
     # Verify combat exists
     combat = combats_collection.find_one({"encounter_id": str(params.encounter_id)})
@@ -602,6 +611,7 @@ def mongodb_combat_start(params: CombatStart) -> CombatSessionState:
     Restarting replaces any prior state for the same key — the GM explicitly
     asked for a fresh encounter.
     """
+    assert_universe_write(params.universe_id, resource="session_combat")
     now = datetime.now(UTC)
     combatants: list[dict[str, Any]] = []
     for c in params.combatants:
@@ -652,11 +662,10 @@ def mongodb_combat_update_combatant(params: CombatUpdateCombatant) -> CombatSess
     forces HP to 0; clearing ``dead`` does not restore HP (the GM heals
     explicitly).
     """
+    assert_universe_write(params.universe_id, resource="session_combat")
     doc = _load_session_combat(params.universe_id, params.session_id)
     if doc is None:
-        raise ValueError(
-            f"No combat encounter for session {params.session_id} in universe {params.universe_id}"
-        )
+        raise ValueError(f"No combat encounter for session {params.session_id} in universe {params.universe_id}")
     combatants = doc.get("combatants", [])
     target = next((c for c in combatants if c["id"] == str(params.combatant_id)), None)
     if target is None:
@@ -714,11 +723,10 @@ def mongodb_combat_set_initiative(params: CombatSetInitiative) -> CombatSessionS
     Combatants with no entry keep ``initiative=None`` and sort after all
     rolled combatants.
     """
+    assert_universe_write(params.universe_id, resource="session_combat")
     doc = _load_session_combat(params.universe_id, params.session_id)
     if doc is None:
-        raise ValueError(
-            f"No combat encounter for session {params.session_id} in universe {params.universe_id}"
-        )
+        raise ValueError(f"No combat encounter for session {params.session_id} in universe {params.universe_id}")
     by_id = {str(e.combatant_id): e for e in params.entries}
     combatants = doc.get("combatants", [])
     known = {c["id"] for c in combatants}
@@ -746,11 +754,10 @@ def mongodb_combat_set_initiative(params: CombatSetInitiative) -> CombatSessionS
 
 def mongodb_combat_next_round(params: CombatNextRound) -> CombatSessionState:
     """Advance the round counter by one."""
+    assert_universe_write(params.universe_id, resource="session_combat")
     doc = _load_session_combat(params.universe_id, params.session_id)
     if doc is None:
-        raise ValueError(
-            f"No combat encounter for session {params.session_id} in universe {params.universe_id}"
-        )
+        raise ValueError(f"No combat encounter for session {params.session_id} in universe {params.universe_id}")
     if doc.get("status") == CombatStatus.RESOLVED.value:
         raise ValueError("Encounter has already ended")
     doc["round"] = int(doc.get("round", 1)) + 1
@@ -759,11 +766,10 @@ def mongodb_combat_next_round(params: CombatNextRound) -> CombatSessionState:
 
 def mongodb_combat_end(params: CombatEnd) -> CombatSessionState:
     """End the encounter: status → RESOLVED, stamp ``ended_at``."""
+    assert_universe_write(params.universe_id, resource="session_combat")
     doc = _load_session_combat(params.universe_id, params.session_id)
     if doc is None:
-        raise ValueError(
-            f"No combat encounter for session {params.session_id} in universe {params.universe_id}"
-        )
+        raise ValueError(f"No combat encounter for session {params.session_id} in universe {params.universe_id}")
     doc["status"] = CombatStatus.RESOLVED.value
     doc["ended_at"] = datetime.now(UTC)
     return _save_session_combat(doc)
