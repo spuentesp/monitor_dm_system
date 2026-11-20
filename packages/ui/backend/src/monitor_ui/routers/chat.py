@@ -18,6 +18,8 @@ import contextlib
 import json
 import logging
 import uuid
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -97,6 +99,7 @@ from .chat_opening import (
     build_gm_opening as _build_gm_opening,
 )
 from .chat_persistence import (
+    db_delete_messages,
     db_load_messages,
     db_load_sessions,
     db_save_message,
@@ -107,6 +110,7 @@ from .chat_persistence import (
 from .chat_schemas import (
     Message,
     MessageSend,
+    RewindResponse,
     Session,
     SessionCreate,
     SessionPatch,
@@ -171,6 +175,28 @@ try:
 except Exception:  # noqa: BLE001  # reason: optional dependency import: feature disabled on failure
     _WRAP_UP_READS_AVAILABLE = False
 
+# Rewind (UX-6) reads/updates proposals through the data-layer tools only —
+# never Neo4j (CanonKeeper rule). Imports its own copies of the seams so the
+# wrap-up block's fate can't leave rewind half-defined; when anything here
+# fails, rewind fails closed with a readable 503 instead of skipping the
+# canon gate.
+try:
+    from monitor_agents.utils.db_readers import run_sync_read as _rewind_run_read
+    from monitor_data.schemas.base import ProposalStatus
+    from monitor_data.schemas.proposed_changes import (
+        DecisionMetadata,
+        ProposedChangeFilter as _RewindProposedChangeFilter,
+        ProposedChangeUpdate,
+    )
+    from monitor_data.tools.mongodb_tools import (
+        mongodb_list_proposed_changes as _rewind_list_proposed_changes_tool,
+    )
+    from monitor_data.tools.mongodb_tools import mongodb_update_proposed_change
+
+    _REWIND_PROPOSALS_AVAILABLE = True
+except Exception:  # noqa: BLE001  # reason: optional dependency import: rewind fails closed on failure
+    _REWIND_PROPOSALS_AVAILABLE = False
+
 # ---------------------------------------------------------------------------
 # In-process write-through cache
 # ---------------------------------------------------------------------------
@@ -202,6 +228,50 @@ def invalidate_messages_cache(session_id: str) -> None:
     pre-correction copy.
     """
     _MESSAGES.pop(session_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Turn in-flight tracking (UX-6 rewind guard)
+# ---------------------------------------------------------------------------
+# A turn counts as in flight from the moment a player request/frame is
+# accepted until the exchange it produces has been fully persisted. Rewind
+# answers 409 while any turn for the session runs, so it can never excise a
+# half-written exchange. WebSocket marks are keyed per socket and cleared
+# idempotently: a frame ending through any path (success, error, break,
+# disconnect) clears exactly one mark.
+
+# session_id -> number of turns currently running (REST sends + WS frames)
+_TURN_IN_FLIGHT: dict[str, int] = {}
+# id(websocket) -> session_id while that socket is inside a frame
+_WS_FRAME_OWNER: dict[int, str] = {}
+
+
+def _begin_turn(session_id: str) -> None:
+    _TURN_IN_FLIGHT[session_id] = _TURN_IN_FLIGHT.get(session_id, 0) + 1
+
+
+def _end_turn(session_id: str) -> None:
+    count = _TURN_IN_FLIGHT.get(session_id, 0) - 1
+    if count > 0:
+        _TURN_IN_FLIGHT[session_id] = count
+    else:
+        _TURN_IN_FLIGHT.pop(session_id, None)
+
+
+def _begin_ws_frame(websocket: WebSocket, session_id: str) -> None:
+    _WS_FRAME_OWNER[id(websocket)] = session_id
+    _begin_turn(session_id)
+
+
+def _end_ws_frame(websocket: WebSocket) -> None:
+    session_id = _WS_FRAME_OWNER.pop(id(websocket), None)
+    if session_id is not None:
+        _end_turn(session_id)
+
+
+def turn_in_flight(session_id: str) -> bool:
+    """True while any REST send or WS frame is still producing a turn."""
+    return _TURN_IN_FLIGHT.get(session_id, 0) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +323,10 @@ def _db_save_message(msg: dict[str, Any]) -> None:
 
 def _db_load_messages(session_id: str) -> list[dict[str, Any]]:
     return db_load_messages(session_id)
+
+
+def _db_delete_messages(session_id: str, message_ids: list[str]) -> int:
+    return db_delete_messages(session_id, message_ids)
 
 
 def _ensure_sessions_loaded() -> None:
@@ -984,6 +1058,21 @@ async def send_message(
     await require_chat_session_owner(principal, session_id)
     if body.character_id:
         await require_playable_character(db, principal, body.character_id)
+    # Rewind guard (UX-6): the whole turn — player message persisted through
+    # GM reply persisted — is in flight, so POST .../rewind answers 409.
+    _begin_turn(session_id)
+    try:
+        return await _execute_send_message(session_id, body, principal, db)
+    finally:
+        _end_turn(session_id)
+
+
+async def _execute_send_message(
+    session_id: str,
+    body: MessageSend,
+    principal: Principal,
+    db: PostgresClient,
+) -> Message:
     _ensure_sessions_loaded()
     if session_id not in _SESSIONS:
         from fastapi import HTTPException
@@ -1153,6 +1242,255 @@ async def send_message(
 
     asyncio.create_task(fanout_completed_gm_message(session_id, gm_msg))
     return Message(**gm_msg)
+
+
+# ---------------------------------------------------------------------------
+# Rewind — Undo / Edit-last-turn / Regenerate (UX-6 item 3)
+# ---------------------------------------------------------------------------
+
+_REWIND_IN_FLIGHT_DETAIL = "A GM turn is still in flight — wait for it to finish before rewinding."
+_REWIND_NO_PLAYER_DETAIL = "No player message to rewind in this session."
+_REWIND_CANON_DETAIL = "The GM's last turn already changed canon; it can't be rewound."
+_REWIND_CANON_UNAVAILABLE = "Couldn't verify canon changes for this turn — rewind aborted."
+_REWIND_REJECT_REASON = "rewound"
+
+
+async def _rewind_list_proposals(
+    *,
+    scene_uuid: uuid.UUID | None,
+    story_uuid: uuid.UUID | None,
+) -> list[Any]:
+    """Proposals in the exchange's story (or scene) scope, read off-loop.
+
+    Seam for tests. Fails closed (503): without the listing there is no way
+    to prove the exchange's canon is still pending, and rewind must never
+    guess over CanonKeeper.
+    """
+    if not _REWIND_PROPOSALS_AVAILABLE:
+        raise HTTPException(status_code=503, detail=_REWIND_CANON_UNAVAILABLE)
+    # Story scope is broader (it also covers story-level proposals with no
+    # scene), so prefer it whenever the session has one.
+    flt = (
+        _RewindProposedChangeFilter(story_id=story_uuid, limit=1000)
+        if story_uuid is not None
+        else _RewindProposedChangeFilter(scene_id=scene_uuid, limit=1000)
+    )
+    try:
+        resp: Any = await _rewind_run_read(_rewind_list_proposed_changes_tool, flt)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001  # reason: boundary fails closed with a readable 503
+        logger.warning("rewind: proposal listing failed: %s", exc)
+        raise HTTPException(status_code=503, detail=_REWIND_CANON_UNAVAILABLE) from exc
+    return list(resp.proposed_changes)
+
+
+async def _rewind_reject_proposal(proposal_id: uuid.UUID) -> None:
+    """Reject one pending proposal with reason "rewound" (MongoDB tool only).
+
+    Seam for tests. ``mongodb_update_proposed_change`` only allows
+    pending -> rejected; a ValueError means a concurrent decision (canon
+    moved) and surfaces as the 409 refusal before any transcript mutation.
+    """
+    if not _REWIND_PROPOSALS_AVAILABLE:
+        raise HTTPException(status_code=503, detail=_REWIND_CANON_UNAVAILABLE)
+    await _rewind_run_read(
+        mongodb_update_proposed_change,
+        proposal_id,
+        ProposedChangeUpdate(
+            status=ProposalStatus.REJECTED,
+            decision_metadata=DecisionMetadata(
+                decided_by="rewind",
+                decided_at=datetime.now(UTC),
+                reason=_REWIND_REJECT_REASON,
+            ),
+        ),
+    )
+
+
+def _proposal_belonged_to_exchange(
+    proposal: Any,
+    *,
+    turn_ids: set[str],
+    since: datetime | None,
+) -> bool:
+    """True when a proposal was created by the exchange being rewound.
+
+    Primary key is the turn linkage the scene loop stamps on both the GM
+    message metadata and the persisted proposal. Proposals without one
+    (preplay / legacy docs) fall back to the exchange's time window: created
+    at-or-after the rewound player message.
+    """
+    turn_id = getattr(proposal, "turn_id", None)
+    if turn_id is not None:
+        return str(turn_id) in turn_ids
+    if since is None:
+        return False
+    created_at = getattr(proposal, "created_at", None)
+    if not isinstance(created_at, datetime):
+        return False
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
+    return created_at >= since
+
+
+async def _rewind_exchange_proposals(
+    session: dict[str, Any],
+    removed: list[dict[str, Any]],
+) -> None:
+    """Canon gate for the rewound exchange.
+
+    Accepted/committed proposals from the exchange make it un-rewindable
+    (409 before anything is mutated). Still-pending ones are rejected with
+    reason "rewound" through the data-layer tool — this route never touches
+    Neo4j itself (CanonKeeper owns the graph).
+    """
+    turn_ids: set[str] = set()
+    scene_id: Any = session.get("scene_id")
+    story_id: Any = session.get("story_id")
+    for msg in removed:
+        meta = msg.get("metadata") or {}
+        if meta.get("turn_id"):
+            turn_ids.add(str(meta["turn_id"]))
+        if meta.get("scene_id"):
+            scene_id = meta["scene_id"]
+        if meta.get("story_id"):
+            story_id = meta["story_id"]
+
+    since: datetime | None = None
+    raw_ts = removed[0].get("timestamp") if removed else None
+    if isinstance(raw_ts, str):
+        try:
+            parsed = datetime.fromisoformat(raw_ts)
+            since = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+        except ValueError:
+            since = None
+
+    scene_uuid = as_uuid(str(scene_id) if scene_id else None)
+    story_uuid = as_uuid(str(story_id) if story_id else None)
+    if scene_uuid is None and story_uuid is None:
+        # Not scopeable (unit tests / pre-universe sessions): nothing can
+        # have been proposed against it, so there is no canon to gate.
+        return
+
+    proposals = await _rewind_list_proposals(scene_uuid=scene_uuid, story_uuid=story_uuid)
+    matched = [
+        proposal for proposal in proposals if _proposal_belonged_to_exchange(proposal, turn_ids=turn_ids, since=since)
+    ]
+    if any(getattr(p, "status", None) == ProposalStatus.ACCEPTED for p in matched):
+        raise HTTPException(status_code=409, detail=_REWIND_CANON_DETAIL)
+    for proposal in matched:
+        if getattr(proposal, "status", None) != ProposalStatus.PENDING:
+            continue
+        try:
+            await _rewind_reject_proposal(proposal.proposal_id)
+        except ValueError as exc:
+            logger.warning("rewind: could not reject proposal %s: %s", proposal.proposal_id, exc)
+            raise HTTPException(status_code=409, detail=_REWIND_CANON_DETAIL) from exc
+
+
+def _rewind_session_state(
+    session: dict[str, Any],
+    removed: list[dict[str, Any]],
+    remaining: list[dict[str, Any]],
+) -> None:
+    """Drop the session fields the rewound exchange produced; re-derive the rest.
+
+    ``pending_consequence`` / ``pending_dice_request`` belong to the excised
+    turn when they carry its ``turn_id`` (or the removed GM metadata asked
+    for them). The ``latest_*`` working state falls back to the new last GM
+    message's metadata, mirroring ``build_session_state_payload``.
+    """
+    removed_metas = [(m.get("metadata") or {}) for m in removed]
+    removed_turn_ids = {str(meta["turn_id"]) for meta in removed_metas if meta.get("turn_id")}
+
+    pending_consequence = session.get("pending_consequence") or {}
+    if pending_consequence.get("turn_id") in removed_turn_ids or any(
+        meta.get("requires_player_choice") for meta in removed_metas
+    ):
+        session.pop("pending_consequence", None)
+
+    pending_dice = session.get("pending_dice_request") or {}
+    if pending_dice.get("turn_id") in removed_turn_ids or any(meta.get("dice_request") for meta in removed_metas):
+        session.pop("pending_dice_request", None)
+
+    last_gm = next((m for m in reversed(remaining) if m.get("role") in ("gm", "character")), None)
+    last_meta = (last_gm.get("metadata") or {}) if last_gm else {}
+    for session_key, meta_key in (
+        ("latest_working_state", "working_state"),
+        ("latest_scene_checkpoint", "scene_checkpoint"),
+        ("latest_social_read", "social_read"),
+        ("latest_relationship_snapshot", "relationship_snapshot"),
+    ):
+        value = last_meta.get(meta_key)
+        if value:
+            session[session_key] = value
+        else:
+            session.pop(session_key, None)
+    session["updated_at"] = _now()
+
+
+@router.post("/{session_id}/rewind", response_model=RewindResponse)
+async def rewind_last_exchange(
+    session_id: str,
+    principal: Principal = Depends(get_current_user),
+) -> RewindResponse:
+    """Remove the last exchange: the final player message plus every message after it.
+
+    Powers the play UI's Undo / Edit-last-turn / Regenerate controls (UX-6):
+    the exchange is excised from the in-process cache and the persisted
+    store, its still-pending proposals are rejected with reason "rewound",
+    session/loop state keyed to it is cleared, and the remaining transcript
+    stays untouched everywhere else. Refuses with 409 while a turn is in
+    flight (never excise a half-written exchange) and with 409 when the
+    exchange's canon is already accepted/committed — proposals move only
+    through the data-layer tools, never a direct Neo4j write.
+    """
+    await require_chat_session_owner(principal, session_id)
+    if turn_in_flight(session_id):
+        raise HTTPException(status_code=409, detail=_REWIND_IN_FLIGHT_DETAIL)
+
+    _ensure_sessions_loaded()
+    session = _SESSIONS.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session_id not in _MESSAGES:
+        loaded = _db_load_messages(session_id)
+        if loaded:
+            _MESSAGES[session_id] = loaded
+            _evict_messages_cache()
+
+    msgs = _MESSAGES.get(session_id, [])
+    player_idx = max((i for i, m in enumerate(msgs) if m.get("role") == "player"), default=-1)
+    if player_idx < 0:
+        raise HTTPException(status_code=404, detail=_REWIND_NO_PLAYER_DETAIL)
+
+    removed_msgs = msgs[player_idx:]
+    last_player_text = str(removed_msgs[0].get("content") or "")
+
+    # Canon gate BEFORE any mutation (raises 409 / 503 without touching state).
+    await _rewind_exchange_proposals(session, removed_msgs)
+
+    # 1. In-process transcript.
+    remaining = msgs[:player_idx]
+    _MESSAGES[session_id] = remaining
+
+    # 2. Persisted store (+ shared Redis cache) — monkeypatched by tests.
+    _db_delete_messages(session_id, [str(m["id"]) for m in removed_msgs if m.get("id")])
+
+    # 3. Session fields keyed to the exchange.
+    _rewind_session_state(session, removed_msgs, remaining)
+    _db_save_session(session)
+
+    # 4. Cached turn loops rebuild without the rewound exchange. ConversationLoop
+    #    has no history-trim API, so an active NPC conversation keeps its own
+    #    memory (documented in WORKSTREAM_REPORT.md).
+    _pop_scene_loop(session_id)
+    _pop_session_zero_loop(session_id)
+    _pop_char_creation_loop(session_id)
+
+    asyncio.create_task(fanout_event(session_id, {"type": "rewound", "removed": len(removed_msgs)}))
+    return RewindResponse(removed=len(removed_msgs), last_player_text=last_player_text)
 
 
 @router.delete("/{session_id}", status_code=204)
@@ -1407,6 +1745,25 @@ async def skip_preplay(session_id: str, principal: Principal = Depends(get_curre
 # ---------------------------------------------------------------------------
 
 
+async def _ws_turn_frames(websocket: WebSocket, session_id: str) -> AsyncGenerator[str, None]:
+    """Yield inbound frames while marking the session turn-in-flight per frame.
+
+    The mark starts when a frame arrives (the whole frame's processing is the
+    turn) and clears in this generator's ``finally`` — which runs when the
+    consumer asks for the next frame, when the consumer's loop exits, or when
+    ``chat_websocket`` closes the generator in its own ``finally``. Combined
+    with the idempotent per-socket ``_end_ws_frame`` pop, every exit path
+    (success, error, ``break``, disconnect) clears exactly one mark.
+    """
+    while True:
+        raw = await websocket.receive_text()
+        _begin_ws_frame(websocket, session_id)
+        try:
+            yield raw
+        finally:
+            _end_ws_frame(websocket)
+
+
 @ws_router.websocket("/ws/{session_id}", dependencies=[Depends(get_current_ws_principal)])
 async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
     # Authenticate and authorize BEFORE accept(): no frame is read, no
@@ -1445,9 +1802,9 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
             _MESSAGES[session_id] = loaded
             _evict_messages_cache()
 
+    frames = _ws_turn_frames(websocket, session_id)
     try:
-        while True:
-            raw = await websocket.receive_text()
+        async for raw in frames:
             try:
                 data = json.loads(raw)
                 if not isinstance(data, dict):
@@ -1826,4 +2183,7 @@ async def chat_websocket(websocket: WebSocket, session_id: str) -> None:
     except WebSocketDisconnect:
         pass
     finally:
+        with contextlib.suppress(Exception):  # intentional: generator cleanup must not mask teardown
+            await frames.aclose()
+        _end_ws_frame(websocket)
         ws_unregister(session_id, websocket)

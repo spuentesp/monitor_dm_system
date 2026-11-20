@@ -158,6 +158,18 @@ class Message(BaseModel):
     edited_at: str | None = None
 
 
+class RewindResponse(BaseModel):
+    """Result of rewinding (UX-6 undo / edit / regenerate).
+
+    ``removed`` counts the excised exchange: the final player message plus
+    every GM/system message after it. ``last_player_text`` is that player
+    message's content — the text edit/regenerate re-fill the composer with.
+    """
+
+    removed: int
+    last_player_text: str | None = None
+
+
 class SessionStateResponse(BaseModel):
     """Lightweight session-state view for the play UI, debugging, and benchmarks."""
 

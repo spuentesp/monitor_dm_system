@@ -113,9 +113,14 @@ def _reset_chat_loops_globals():
     tests in `test_scene_loop_story_state_wiring.py` and others.
     """
     from monitor_ui.routers import chat_loops
+    import monitor_ui.routers.chat as chat_mod
 
     chat_loops._SCENE_LOOPS.clear()
     chat_loops._CONVERSATION_LOOPS.clear()
+    chat_mod._TURN_IN_FLIGHT.clear()
+    chat_mod._WS_FRAME_OWNER.clear()
     yield
     chat_loops._SCENE_LOOPS.clear()
     chat_loops._CONVERSATION_LOOPS.clear()
+    chat_mod._TURN_IN_FLIGHT.clear()
+    chat_mod._WS_FRAME_OWNER.clear()
