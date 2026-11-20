@@ -51,10 +51,12 @@ export function SessionRecorder({
   universeId,
   universeLabel,
   onActiveStoryChange,
+  onActiveSessionChange,
 }: {
   universeId: string;
   universeLabel?: string | null;
   onActiveStoryChange?: (storyId: string | null) => void;
+  onActiveSessionChange?: (sessionId: string | null) => void;
 }) {
   const qc = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -77,6 +79,10 @@ export function SessionRecorder({
   const [editText, setEditText] = useState("");
   const [showStruck, setShowStruck] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  // UX-5 — the per-entry insight fetch is cancellable while in flight.
+  const [analyzing, setAnalyzing] = useState(false);
+  const insightsAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => insightsAbortRef.current?.abort(), []);
 
   const { data: allSessions = [], isLoading: sessionsLoading } = useQuery({
     queryKey: ["sessions"],
@@ -102,6 +108,11 @@ export function SessionRecorder({
   useEffect(() => {
     onActiveStoryChange?.(active?.story_id ?? null);
   }, [active?.story_id, onActiveStoryChange]);
+
+  // The page-level wrap-up (stepper) needs the active recording's id.
+  useEffect(() => {
+    onActiveSessionChange?.(activeId);
+  }, [activeId, onActiveSessionChange]);
 
   const { data: messages = [] } = useQuery({
     queryKey: ["chat", activeId, "messages"],
@@ -180,15 +191,21 @@ export function SessionRecorder({
 
         // P1.2/CF-1 — per-entry capture insights and story-scoped draft
         // proposals. Same advisory contract: a failed analysis renders nothing
-        // and must never break logging.
+        // and must never break logging. Cancellable while in flight.
+        insightsAbortRef.current?.abort();
+        const insightCtrl = new AbortController();
+        insightsAbortRef.current = insightCtrl;
+        setAnalyzing(true);
         gmApi
           .captureInsights(universeId, text, {
             session_id: activeId,
             entry_id: optimistic.id,
             story_id: active?.story_id ?? null,
             scene_id: active?.scene_id ?? null,
+            signal: insightCtrl.signal,
           })
           .then((insight) => {
+            if (insightCtrl.signal.aborted) return;
             setEntryInsights((prev) => [...prev, { messageText: text, insight }]);
             if ((insight.proposal_ids ?? []).length > 0) {
               qc.invalidateQueries({ queryKey: ["canon-queue"] });
@@ -197,6 +214,12 @@ export function SessionRecorder({
           })
           .catch(() => {
             // advisory only — ignore
+          })
+          .finally(() => {
+            if (insightsAbortRef.current === insightCtrl) {
+              insightsAbortRef.current = null;
+              setAnalyzing(false);
+            }
           });
       })
       .catch((err: unknown) => {
@@ -212,6 +235,12 @@ export function SessionRecorder({
     void qc.invalidateQueries({ queryKey: ["chat", activeId, "messages"] });
     void qc.invalidateQueries({ queryKey: ["canon-queue"] });
     void qc.invalidateQueries({ queryKey: ["canon-review"] });
+  };
+
+  const cancelInsights = () => {
+    insightsAbortRef.current?.abort();
+    insightsAbortRef.current = null;
+    setAnalyzing(false);
   };
 
   const startEdit = (m: Message) => {
@@ -394,7 +423,7 @@ export function SessionRecorder({
                   insight.advances_thread !== "" ||
                   (insight.proposal_ids ?? []).length > 0);
               return (
-                <div key={m.id} className="space-y-1.5">
+                <div key={m.id} data-gm-entry className="space-y-1.5">
                   <motion.div
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -631,6 +660,24 @@ export function SessionRecorder({
                 <ShieldCheck className="w-3 h-3" /> Canon review
               </div>
               <CanonReviewPanel storyId={active.story_id} compact />
+            </div>
+          )}
+
+          {/* Insights loading + cancel (UX-5) */}
+          {analyzing && (
+            <div
+              data-testid="insights-loading"
+              className="px-4 pb-2 flex items-center gap-2 text-[10px] text-slate-500"
+            >
+              <Loader2 className="w-3 h-3 animate-spin" /> Analyzing entry…
+              <button
+                type="button"
+                onClick={cancelInsights}
+                aria-label="Cancel analysis"
+                className="rounded border border-white/10 px-2 py-0.5 text-slate-400 hover:text-slate-200"
+              >
+                Cancel
+              </button>
             </div>
           )}
 

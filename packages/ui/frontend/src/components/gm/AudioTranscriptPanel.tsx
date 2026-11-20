@@ -5,6 +5,7 @@ import { AudioLines, Loader2, Mic, Send } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { gmAudioApi, type AudioTranscript, type TranscriptSegment } from "@/lib/gm-audio-api";
 import { cn } from "@/lib/utils";
+import { gmErrorMessage } from "@/components/gm/gmErrors";
 
 /**
  * Audio capture (CF-10 / G02).
@@ -155,7 +156,7 @@ export function AudioTranscriptPanel({
       {audioUrl && <audio ref={playerRef} controls src={audioUrl} className="w-full" />}
 
       {transcribe.isError && (
-        <p className="text-[10px] text-red-400">The recording could not be transcribed.</p>
+        <p className="text-[10px] text-red-400">{gmErrorMessage(transcribe.error, "The recording could not be transcribed.")}</p>
       )}
 
       {transcript && transcript.segments.length === 0 && (
@@ -229,7 +230,7 @@ export function AudioTranscriptPanel({
 
       {queue.isError && (
         <p className={cn("text-[10px] text-red-400")}>
-          The segment could not be queued. Check the active recording and try again.
+          {gmErrorMessage(queue.error, "The segment could not be queued. Check the active recording and try again.")}
         </p>
       )}
     </div>

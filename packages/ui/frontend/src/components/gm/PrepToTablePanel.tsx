@@ -14,6 +14,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { gmApi, storiesApi } from "@/lib/api";
 import { gmTableApi } from "@/lib/gm-table-api";
+import { gmErrorMessage } from "@/components/gm/gmErrors";
 import type {
   GmPrepBundle,
   PrepExtraction,
@@ -125,7 +126,7 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
     },
     onError: (err: unknown) => {
       setConfirmingAdvance(false);
-      setClockError(err instanceof Error ? err.message : "Failed to advance world time.");
+      setClockError(gmErrorMessage(err, err instanceof Error ? err.message : "Failed to advance world time."));
     },
   });
 
@@ -144,7 +145,7 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
       qc.invalidateQueries({ queryKey: ["gm-clock", universeId, storyId] });
     },
     onError: (err: unknown) => {
-      setDeadlineInfo(err instanceof Error ? err.message : "Failed to save deadline.");
+      setDeadlineInfo(gmErrorMessage(err, err instanceof Error ? err.message : "Failed to save deadline."));
     },
   });
 
@@ -245,7 +246,7 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
             Extract for review
           </button>
           {extract.isError && (
-            <p className="text-[10px] text-red-400">Extraction failed — try again.</p>
+            <p className="text-[10px] text-red-400">{gmErrorMessage(extract.error, "Extraction failed — try again.")}</p>
           )}
         </section>
 
@@ -496,7 +497,7 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
               Save as tonight&apos;s prep
             </button>
             {commit.isError && (
-              <p className="text-[10px] text-red-400">Saving failed — nothing was lost, try again.</p>
+              <p className="text-[10px] text-red-400">{gmErrorMessage(commit.error, "Saving failed — nothing was lost, try again.")}</p>
             )}
             {savedInfo && <p className="text-[10px] text-emerald-400">{savedInfo}</p>}
             {stagingErrors.map((e, i) => (
