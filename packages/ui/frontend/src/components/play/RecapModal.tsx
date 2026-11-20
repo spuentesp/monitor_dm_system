@@ -48,7 +48,7 @@ export function RecapModal({ sessionId, onClose }: { sessionId: string; onClose:
       onClose={onClose}
       maxWidthClassName="max-w-2xl"
     >
-      <div className="p-5 max-h-[60vh] overflow-y-auto">
+      <div className="p-3 max-h-[70vh] overflow-y-auto sm:p-5">
         {isLoading ? (
           <div className="flex items-center gap-3 py-10 justify-center text-slate-500">
             <Loader2 className="w-5 h-5 animate-spin" />
