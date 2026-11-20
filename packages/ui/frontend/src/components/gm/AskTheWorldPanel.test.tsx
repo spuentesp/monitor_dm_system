@@ -37,10 +37,32 @@ describe("AskTheWorldPanel", () => {
     expect(api.searchApi.universeSearch).toHaveBeenCalledWith(
       "u-1",
       "Who rules the drowned court?",
-      { limit: 5 },
+      expect.objectContaining({ limit: 5, signal: expect.any(AbortSignal) }),
     );
     expect(await screen.findByText(/Eelmother rules the Drowned Court/)).toBeInTheDocument();
     expect(screen.getByText("entities")).toBeInTheDocument();
+  });
+
+  it("cancels an in-flight ask and hands the question back to the composer", async () => {
+    vi.mocked(api.searchApi.universeSearch).mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    render(<AskTheWorldPanel universeId="u-1" />);
+
+    await user.type(
+      screen.getByPlaceholderText(/ask the world/i),
+      "Who rules the drowned court?",
+    );
+    await user.click(screen.getByRole("button", { name: /ask/i }));
+
+    expect(await screen.findByText(/consulting canon/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel question" }));
+
+    expect(screen.queryByText(/consulting canon/i)).not.toBeInTheDocument();
+    // The question is back in the composer, not lost — and no error bubble.
+    expect(screen.getByPlaceholderText(/ask the world/i)).toHaveValue(
+      "Who rules the drowned court?",
+    );
+    expect(screen.queryByText(/no canon found/i)).not.toBeInTheDocument();
   });
 
   it("prompts for a universe when none is selected", () => {

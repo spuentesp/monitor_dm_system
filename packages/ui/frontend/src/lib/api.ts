@@ -790,11 +790,14 @@ export const searchApi = {
   universeSearch: (
     universeId: string,
     q: string,
-    opts?: { entity_type?: string; canon_level?: string; limit?: number },
-  ) =>
-    req<SemanticSearchResponse>(`/search/universes/${universeId}/search`, {
-      query: { q, ...opts },
-    }),
+    opts?: { entity_type?: string; canon_level?: string; limit?: number; signal?: AbortSignal },
+  ) => {
+    const { signal, ...query } = opts ?? {};
+    return req<SemanticSearchResponse>(`/search/universes/${universeId}/search`, {
+      query: { q, ...query },
+      signal,
+    });
+  },
 };
 
 export const dbApi = {
@@ -1604,6 +1607,7 @@ export const gmApi = {
       scope?: "universe" | "story" | "scene";
       storyId?: string;
       sceneId?: string;
+      signal?: AbortSignal;
     },
   ) =>
     req<{ contradictions: Contradiction[] }>("/gm/contradictions", {
@@ -1615,6 +1619,7 @@ export const gmApi = {
         story_id: options?.storyId ?? null,
         scene_id: options?.sceneId ?? null,
       }),
+      signal: options?.signal,
     }),
 
   resolveContradiction: (body: {
@@ -1702,6 +1707,7 @@ export const gmApi = {
       entry_id?: string | null;
       story_id?: string | null;
       scene_id?: string | null;
+      signal?: AbortSignal;
     },
   ) =>
     req<CaptureInsight>("/gm/capture/insights", {
@@ -1714,6 +1720,7 @@ export const gmApi = {
         story_id: context?.story_id ?? null,
         scene_id: context?.scene_id ?? null,
       }),
+      signal: context?.signal,
     }),
 
   // G03 (CF-1 amendment) — mid-session strike/edit of captured entries.

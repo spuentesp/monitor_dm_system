@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Loader2, RefreshCw, X } from "lucide-react";
 import { gmApi, storiesApi } from "@/lib/api";
 import type { Contradiction } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,11 @@ export function ContradictionsPanel({ universeId }: { universeId: string | null 
   const [resolution, setResolution] = useState<
     "retcon_older" | "retcon_newer" | "apparent_contradiction" | "explanation_fact"
   >("explanation_fact");
+  // AI-backed detect: cancellable via AbortController; cancellation is a user
+  // action, not an error (req() surfaces it as 408, which we swallow here).
+  const [detecting, setDetecting] = useState(false);
+  const [detectFailed, setDetectFailed] = useState(false);
+  const detectAbortRef = useRef<AbortController | null>(null);
 
   const { data: storiesData } = useQuery({
     queryKey: ["universe-stories", universeId],
@@ -31,15 +36,38 @@ export function ContradictionsPanel({ universeId }: { universeId: string | null 
     staleTime: 15_000,
   });
 
-  const mutation = useMutation({
-    mutationFn: () =>
-      gmApi.detectContradictions(universeId!, {
+  const detect = async () => {
+    if (!universeId || detecting) return;
+    detectAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    detectAbortRef.current = ctrl;
+    setDetecting(true);
+    setDetectFailed(false);
+    try {
+      const data = await gmApi.detectContradictions(universeId, {
         scope,
         storyId: scope === "universe" ? undefined : storyId || undefined,
         sceneId: scope === "scene" ? sceneId || undefined : undefined,
-      }),
-    onSuccess: (data) => setContradictions(data.contradictions),
-  });
+        signal: ctrl.signal,
+      });
+      if (ctrl.signal.aborted) return;
+      setContradictions(data.contradictions);
+    } catch {
+      if (!ctrl.signal.aborted) setDetectFailed(true);
+    } finally {
+      if (detectAbortRef.current === ctrl) {
+        detectAbortRef.current = null;
+        setDetecting(false);
+      }
+    }
+  };
+
+  const cancelDetect = () => {
+    detectAbortRef.current?.abort();
+    detectAbortRef.current = null;
+    setDetecting(false);
+    setDetectFailed(false);
+  };
 
   const resolveMutation = useMutation({
     mutationFn: (c: Contradiction) =>
@@ -53,7 +81,7 @@ export function ContradictionsPanel({ universeId }: { universeId: string | null 
         resolution,
         explanation: `${c.explanation} Resolution: ${resolution.replace(/_/g, " ")}.`,
       }),
-    onSuccess: () => mutation.mutate(),
+    onSuccess: () => void detect(),
   });
 
   if (!universeId) {
@@ -112,21 +140,31 @@ export function ContradictionsPanel({ universeId }: { universeId: string | null 
           </select>
         )}
         <button
-          onClick={() => mutation.mutate()}
-          disabled={mutation.isPending || (scope !== "universe" && !storyId) || (scope === "scene" && !sceneId)}
+          onClick={() => void detect()}
+          disabled={detecting || (scope !== "universe" && !storyId) || (scope === "scene" && !sceneId)}
           className="btn-cyber text-xs py-1 px-3 max-xl:min-h-11"
         >
-          {mutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+          {detecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
           Detect
         </button>
+        {detecting && (
+          <button
+            type="button"
+            onClick={cancelDetect}
+            className="btn-ghost text-xs py-1 px-2 max-xl:min-h-11 inline-flex items-center gap-1"
+            aria-label="Cancel detection"
+          >
+            <X className="w-3 h-3" /> Cancel
+          </button>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        {mutation.isPending && contradictions.length === 0 && (
+        {detecting && contradictions.length === 0 && (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="w-5 h-5 text-slate-600 animate-spin" />
           </div>
         )}
-        {mutation.isError && (
+        {detectFailed && (
           <div className="text-xs text-red-400 text-center py-4">Failed to detect contradictions. Try again.</div>
         )}
         {contradictions.map((c, i) => (
@@ -174,7 +212,7 @@ export function ContradictionsPanel({ universeId }: { universeId: string | null 
             </div>
           </div>
         ))}
-        {!mutation.isPending && contradictions.length === 0 && (
+        {!detecting && contradictions.length === 0 && (
           <div className="text-center py-8">
             <AlertTriangle className="w-8 h-8 text-slate-700 mx-auto mb-2" />
             <p className="text-xs text-slate-600">Click Detect to find contradictions</p>

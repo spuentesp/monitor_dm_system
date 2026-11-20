@@ -511,3 +511,30 @@ describe("SessionRecorder entry correction (G03/CF-1)", () => {
     await waitFor(() => expect(screen.queryByTestId("struck-audit")).toBeNull());
   });
 });
+
+describe("SessionRecorder insight analysis controls (UX-5)", () => {
+  it("shows a cancellable loading state while insights are analyzed", async () => {
+    const text = "Mira studied the old sigil on the chapel door";
+    stubTranscript(text);
+    vi.mocked(gmApi.checkEntryContradiction).mockResolvedValue({ alert: null });
+    vi.mocked(gmApi.captureInsights).mockReturnValue(new Promise(() => {}));
+    renderRecorder();
+
+    await logEntry(text);
+
+    const loading = await screen.findByTestId("insights-loading");
+    expect(loading).toHaveTextContent(/analyzing entry/i);
+    // The analysis request carries an abort signal for the cancel button.
+    expect(gmApi.captureInsights).toHaveBeenCalledWith(
+      "u-1",
+      text,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel analysis" }));
+
+    expect(screen.queryByTestId("insights-loading")).toBeNull();
+    // Logging was never blocked by the cancelled analysis.
+    expect(screen.getByText(text)).toBeInTheDocument();
+  });
+});
