@@ -5,7 +5,45 @@ import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { BookOpen, ChevronDown, Loader2 } from "lucide-react";
 import { entitiesApi } from "@/lib/api";
+import type { RPGSystem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+// One expandable rule. Lives outside the parent render so its open/closed
+// state is a real component state (hooks inside system.rules.map() used to
+// change the hook count between renders and crash the panel).
+function RuleRow({ rule }: { rule: RPGSystem["rules"][number] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="group glass-dark rounded-xl border border-white/5 overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full px-3 py-2.5 cursor-pointer flex items-center justify-between"
+      >
+        <span className="text-xs font-medium text-slate-200">{rule.name}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-slate-600 bg-white/5 px-1.5 py-0.5 rounded">{rule.rule_type}</span>
+          <ChevronDown className={cn("w-3.5 h-3.5 text-slate-600 transition-transform duration-200", open && "rotate-[-180deg]")} />
+        </div>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 pb-3 space-y-1.5">
+              {rule.description && <p className="text-xs text-slate-400 leading-relaxed">{rule.description}</p>}
+              {rule.formula && <code className="block text-xs font-mono text-emerald-300 bg-emerald-500/5 rounded px-2 py-1">{rule.formula}</code>}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 export function RulesPanel({ systemId }: { systemId: string | null }) {
   const { data: system, isLoading } = useQuery({
@@ -85,39 +123,9 @@ export function RulesPanel({ systemId }: { systemId: string | null }) {
         <section className="space-y-2">
           <h3 className="text-[10px] font-bold tracking-widest uppercase text-amber-400">Rules</h3>
           <div className="space-y-2">
-            {system.rules.map((r) => {
-              const [open, setOpen] = useState(false);
-              return (
-                <div key={r.name} className="group glass-dark rounded-xl border border-white/5 overflow-hidden">
-                  <button
-                    onClick={() => setOpen((o) => !o)}
-                    className="w-full px-3 py-2.5 cursor-pointer flex items-center justify-between"
-                  >
-                    <span className="text-xs font-medium text-slate-200">{r.name}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-600 bg-white/5 px-1.5 py-0.5 rounded">{r.rule_type}</span>
-                      <ChevronDown className={cn("w-3.5 h-3.5 text-slate-600 transition-transform duration-200", open && "rotate-[-180deg]")} />
-                    </div>
-                  </button>
-                  <AnimatePresence initial={false}>
-                    {open && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="overflow-hidden"
-                      >
-                        <div className="px-3 pb-3 space-y-1.5">
-                          {r.description && <p className="text-xs text-slate-400 leading-relaxed">{r.description}</p>}
-                          {r.formula && <code className="block text-xs font-mono text-emerald-300 bg-emerald-500/5 rounded px-2 py-1">{r.formula}</code>}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
+            {system.rules.map((r) => (
+              <RuleRow key={r.name} rule={r} />
+            ))}
           </div>
         </section>
       )}
