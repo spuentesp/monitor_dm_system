@@ -12,6 +12,10 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/",
 }));
 
+vi.mock("@/components/NotificationProvider", () => ({
+  useNotify: () => ({ notify: vi.fn() }),
+}));
+
 const session: Session = {
   id: "s-1",
   title: "The Ashen Road",
