@@ -636,6 +636,39 @@ _MIGRATIONS: tuple[tuple[int, str], ...] = (
         ALTER TABLE worlds ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'world';
         """,
     ),
+    (
+        4,
+        """
+        -- Invite-only signup (UX-2): single-use, expiring invite tokens.
+        -- Only the SHA-256 hash of the raw token is stored; the raw value is
+        -- returned exactly once, when an admin creates the invite.
+        CREATE TABLE IF NOT EXISTS invites (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            token_hash  TEXT NOT NULL UNIQUE,
+            email       TEXT,
+            created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            expires_at  TIMESTAMPTZ NOT NULL,
+            used_by     UUID REFERENCES users(id) ON DELETE SET NULL,
+            used_at     TIMESTAMPTZ,
+            revoked_at  TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token_hash);
+
+        -- Password resets (UX-2): emailed or admin-issued single-use tokens,
+        -- <= 1h lifetime, stored hashed. Consuming one sets the password and
+        -- revokes ALL of the user's sessions in the same transaction.
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            token_hash  TEXT NOT NULL UNIQUE,
+            user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            expires_at  TIMESTAMPTZ NOT NULL,
+            used_at     TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
+        """,
+    ),
 )
 
 
@@ -1513,6 +1546,158 @@ class PostgresClient:
                 "UPDATE api_tokens SET last_used_at = now() WHERE token_hash = $1",
                 token_hash,
             )
+
+    # ------------------------------------------------------------------
+    # Signup invites (invite-only signup, UX-2)
+    # ------------------------------------------------------------------
+
+    async def invite_create(self, invite: dict[str, Any]) -> dict[str, Any]:
+        """Persist a new invite from its token HASH (the raw value is never stored)."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO invites (token_hash, email, created_by, expires_at)
+                VALUES ($1, $2, $3, $4)
+                RETURNING *
+                """,
+                invite["token_hash"],
+                invite.get("email"),
+                invite.get("created_by"),
+                invite["expires_at"],
+            )
+            return self._row_to_dict(row)
+
+    async def invites_list(self) -> list[dict[str, Any]]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM invites ORDER BY created_at DESC")
+            return [self._row_to_dict(r) for r in rows]
+
+    async def invite_revoke(self, invite_id: UUID) -> bool:
+        """Mark an invite revoked. Idempotent: an already-revoked invite stays revoked."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE invites SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1",
+                invite_id,
+            )
+            return bool(result == "UPDATE 1")
+
+    async def user_create_with_invite(self, user: dict[str, Any], invite_token_hash: str) -> dict[str, Any] | None:
+        """Create an account AND consume its signup invite in one transaction.
+
+        The conditional ``UPDATE ... WHERE used_at IS NULL AND revoked_at IS
+        NULL AND expires_at > now()`` makes the consume atomic: two concurrent
+        signups racing on the same token leave exactly one account, and a
+        unique violation on the new account rolls the transaction back with
+        the invite untouched. Returns ``None`` when the invite is not usable
+        (unknown, expired, revoked or already used) — no account is created.
+        """
+
+        class _InviteUnavailable(Exception):
+            """Roll the transaction back without surfacing as an error."""
+
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            try:
+                async with conn.transaction():
+                    row = await conn.fetchrow(
+                        """
+                        INSERT INTO users (
+                            id, email, email_normalized, username, username_normalized,
+                            password_hash, display_name, is_admin
+                        )
+                        VALUES (COALESCE($1, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8)
+                        RETURNING *
+                        """,
+                        user.get("id"),
+                        user["email"],
+                        user["email_normalized"],
+                        user["username"],
+                        user["username_normalized"],
+                        user["password_hash"],
+                        user.get("display_name", ""),
+                        bool(user.get("is_admin", False)),
+                    )
+                    consumed = await conn.fetchrow(
+                        """
+                        UPDATE invites
+                        SET used_by = $1, used_at = now()
+                        WHERE token_hash = $2
+                          AND used_at IS NULL
+                          AND revoked_at IS NULL
+                          AND expires_at > now()
+                        RETURNING id
+                        """,
+                        row["id"],
+                        invite_token_hash,
+                    )
+                    if consumed is None:
+                        raise _InviteUnavailable
+                    return self._row_to_dict(row)
+            except _InviteUnavailable:
+                return None
+
+    # ------------------------------------------------------------------
+    # Password resets (email + admin-issued, UX-2)
+    # ------------------------------------------------------------------
+
+    async def password_reset_create(self, reset: dict[str, Any]) -> dict[str, Any]:
+        """Persist a password-reset token HASH for a user (raw value never stored)."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO password_resets (token_hash, user_id, expires_at)
+                VALUES ($1, $2, $3)
+                RETURNING *
+                """,
+                reset["token_hash"],
+                reset["user_id"],
+                reset["expires_at"],
+            )
+            return self._row_to_dict(row)
+
+    async def password_reset_consume(self, token_hash: str, password_hash: str) -> dict[str, Any] | None:
+        """Single-use consume: set the new password and revoke ALL sessions.
+
+        One transaction: the token is marked used only if it is still unused
+        and unexpired; the password update and the session wipe ride along,
+        so a failure rolls everything back and the token stays usable.
+        Returns the updated user row, or ``None`` for an unknown/used/expired
+        token. Never touches ``is_banned`` — a reset does not un-ban.
+        """
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                claimed = await conn.fetchrow(
+                    """
+                    UPDATE password_resets
+                    SET used_at = now()
+                    WHERE token_hash = $1
+                      AND used_at IS NULL
+                      AND expires_at > now()
+                    RETURNING user_id
+                    """,
+                    token_hash,
+                )
+                if claimed is None:
+                    return None
+                user = await conn.fetchrow(
+                    """
+                    UPDATE users
+                    SET password_hash = $2, updated_at = now()
+                    WHERE id = $1
+                    RETURNING *
+                    """,
+                    claimed["user_id"],
+                    password_hash,
+                )
+                if user is None:
+                    return None
+                await conn.execute("DELETE FROM auth_sessions WHERE user_id = $1", claimed["user_id"])
+                return self._row_to_dict(user)
 
     # ------------------------------------------------------------------
     # multiverses and worlds

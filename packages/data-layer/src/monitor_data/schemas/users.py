@@ -22,6 +22,8 @@ class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=50, pattern=r"^[A-Za-z0-9_.-]+$")
     password: str = Field(min_length=12, max_length=1024)
     display_name: str = Field(default="", max_length=200)
+    # Required by MONITOR_SIGNUP_MODE=invite; ignored in open mode.
+    invite_token: str | None = Field(default=None, max_length=200)
 
     @field_validator("email")
     @classmethod
@@ -119,6 +121,25 @@ class AdminRoleRequest(BaseModel):
 
 class PasswordChangeRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=12, max_length=1024)
+
+
+class PasswordForgotRequest(BaseModel):
+    """Forgot-password request. The endpoint answers the same 202 for known
+    and unknown logins — never leak whether an account exists."""
+
+    login: str = Field(min_length=3, max_length=320)
+
+    @field_validator("login")
+    @classmethod
+    def normalize(cls, value: str) -> str:
+        return normalize_login(value)
+
+
+class PasswordResetRequest(BaseModel):
+    """Redeem a single-use reset token (email- or admin-issued) for a new password."""
+
+    token: str = Field(min_length=1, max_length=200)
     new_password: str = Field(min_length=12, max_length=1024)
 
 
