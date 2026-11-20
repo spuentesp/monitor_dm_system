@@ -45,6 +45,13 @@ PUBLIC_ROUTES: dict[tuple[str, str], str] = {
     ("/api/auth/config", "GET"): ("Public auth capabilities (which providers are enabled). No private data."),
     ("/api/auth/login", "POST"): "Login has to be reachable without a session.",
     ("/api/auth/signup", "POST"): "Signup has to be reachable without a session.",
+    ("/api/auth/password/forgot", "POST"): (
+        "Password-reset request must be reachable without a session; "
+        "answers an enumeration-safe 202 for known and unknown logins."
+    ),
+    ("/api/auth/password/reset", "POST"): (
+        "Password reset is redeemed with an emailed/admin-issued token before any session exists."
+    ),
     ("/api/auth/oauth/google", "GET"): ("OAuth start: redirects to the provider, so there is no session yet."),
     ("/api/auth/oauth/google/callback", "GET"): (
         "OAuth callback: the provider calls it, not a session-holding browser."
@@ -285,6 +292,12 @@ def test_guarded_route_rejects_an_anonymous_caller(anon_client: TestClient, meth
         ("DELETE", "/api/ingest/jobs/abc"),
         ("DELETE", "/api/ingest/jobs"),
         ("POST", "/api/ingest/cache/clear"),
+        # UX-3 admin invite / password-reset operator surface
+        ("POST", "/api/admin/invites"),
+        ("GET", "/api/admin/invites"),
+        ("DELETE", "/api/admin/invites/00000000-0000-4000-8000-000000000001"),
+        ("POST", "/api/admin/users/00000000-0000-4000-8000-000000000001/password-reset"),
+        ("POST", "/api/admin/users/00000000-0000-4000-8000-000000000001/revoke-sessions"),
     ],
 )
 def test_newly_guarded_routes_reject_an_anonymous_caller(anon_client: TestClient, method: str, path: str) -> None:
@@ -306,6 +319,8 @@ def test_asset_upload_routes_reject_an_anonymous_caller(anon_client: TestClient)
         ("GET", "/api/auth/config"),
         ("POST", "/api/auth/login"),
         ("POST", "/api/auth/signup"),
+        ("POST", "/api/auth/password/forgot"),
+        ("POST", "/api/auth/password/reset"),
         ("GET", "/api/auth/oauth/google"),
         ("GET", "/api/auth/oauth/google/callback"),
         ("GET", "/api/health"),

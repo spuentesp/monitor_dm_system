@@ -8,6 +8,11 @@ Password hashes and raw tokens never appear in responses or logs: the
 session cookie holds the raw opaque token while Postgres stores only its
 SHA-256 hash, and an API token's raw value is returned exactly once at
 creation.
+
+Signup and password reset follow docs/architecture/UX_TENANCY_BACKOFFICE_PLAN.md
+UX-2: ``MONITOR_SIGNUP_MODE`` gates account creation (invite tokens are
+single-use and consumed atomically), and forgot-password answers an
+enumeration-safe 202 whether or not the login exists.
 """
 
 from __future__ import annotations
@@ -29,6 +34,8 @@ from monitor_data.schemas.users import (
     AuthModeResponse,
     LoginRequest,
     PasswordChangeRequest,
+    PasswordForgotRequest,
+    PasswordResetRequest,
     SessionListResponse,
     SessionMetadataResponse,
     UserCreate,
@@ -56,7 +63,9 @@ from monitor_ui.auth import (
     session_expiry,
 )
 from monitor_ui.config import UISettings, get_settings
+from monitor_ui.email import build_reset_link, schedule_password_reset_email
 from monitor_ui.oauth import (
+    SignupRefused,
     build_google_auth_url,
     exchange_code,
     fetch_google_profile,
@@ -67,6 +76,9 @@ from monitor_ui.oauth import (
 # Constant-work dummy target so unknown logins take the same Argon2 time as
 # wrong passwords (prevents user enumeration via response timing).
 _DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
+
+# Password-reset tokens are single-use and short-lived (plan UX-2).
+_RESET_TTL = timedelta(hours=1)
 
 router = APIRouter()
 
@@ -119,7 +131,13 @@ async def signup(
     settings: UISettings = Depends(get_settings),
     db: PostgresClient = Depends(get_postgres),
 ) -> UserResponse:
-    """Self-serve signup. The first signup never becomes admin and never claims legacy data."""
+    """Self-serve signup gated by ``MONITOR_SIGNUP_MODE`` (plan UX-2).
+
+    ``closed`` always refuses; ``invite`` requires a valid unexpired,
+    unrevoked, unused invite token consumed atomically with the account
+    creation; ``open`` creates freely. The first signup never becomes admin
+    and never claims legacy data.
+    """
     if settings.monitor_auth_disabled:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -130,6 +148,14 @@ async def signup(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many signup attempts. Try again later.",
         )
+    if settings.monitor_signup_mode == "closed":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Signup is closed.")
+    invite_token = body.invite_token.strip() if body.invite_token else None
+    if settings.monitor_signup_mode == "invite" and not invite_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="An invite token is required to sign up.",
+        )
     email_normalized = normalize_login(body.email)
     username_normalized = normalize_login(body.username)
     if await db.user_get_by_login(email_normalized) or await db.user_get_by_login(username_normalized):
@@ -137,18 +163,27 @@ async def signup(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email or username already exists.",
         )
+    payload = {
+        "email": body.email,
+        "email_normalized": email_normalized,
+        "username": body.username,
+        "username_normalized": username_normalized,
+        "password_hash": hash_password(body.password),
+        "display_name": body.display_name,
+        "is_admin": False,
+    }
     try:
-        user = await db.user_create(
-            {
-                "email": body.email,
-                "email_normalized": email_normalized,
-                "username": body.username,
-                "username_normalized": username_normalized,
-                "password_hash": hash_password(body.password),
-                "display_name": body.display_name,
-                "is_admin": False,
-            }
-        )
+        if settings.monitor_signup_mode == "invite":
+            # One transaction: the invite is consumed only if the insert wins,
+            # and a duplicate-account race rolls the consume back with it.
+            user = await db.user_create_with_invite(payload, hash_token(invite_token or ""))
+            if user is None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="This invite is invalid, expired, revoked, or already used.",
+                )
+        else:
+            user = await db.user_create(payload)
     except asyncpg.UniqueViolationError:
         # Signup race: database uniqueness is authoritative.
         raise HTTPException(
@@ -228,10 +263,13 @@ async def logout(
 async def auth_config(
     settings: UISettings = Depends(get_settings),
 ) -> dict[str, bool]:
-    """Public auth capabilities (no private data): which providers are enabled."""
+    """Public auth capabilities (no private data): providers and signup mode."""
     return {
         "auth_disabled": settings.monitor_auth_disabled,
         "google_oauth": settings.google_oauth_configured,
+        "signup_open": settings.monitor_signup_mode == "open",
+        "signup_invite_only": settings.monitor_signup_mode == "invite",
+        "email_reset": settings.smtp_configured,
     }
 
 
@@ -347,6 +385,85 @@ async def change_password(
     return {"ok": True, "other_sessions_revoked": revoked}
 
 
+# ---------------------------------------------------------------------------
+# Password reset (email + admin-issued tokens, plan UX-2)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/password/forgot", status_code=status.HTTP_202_ACCEPTED)
+async def forgot_password(
+    body: PasswordForgotRequest,
+    request: Request,
+    settings: UISettings = Depends(get_settings),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict[str, bool]:
+    """Request a password-reset email. Always answers the same 202 ``{ok:true}``.
+
+    No user enumeration: known and unknown logins are indistinguishable in
+    status and body (the email send runs off the request path). Rate-limited
+    per client IP and per account through the shared login limiter. Without
+    ``MONITOR_SMTP_*`` configured the endpoint still answers 202 and sends
+    nothing — the UI then points the user at their admin.
+    """
+    if settings.monitor_auth_disabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset is unavailable while MONITOR_AUTH_DISABLED=true (local development mode).",
+        )
+    limiter = get_login_limiter(settings)
+    ip_allowed = await limiter.hit(f"forgot-ip:{client_ip(request, settings)}")
+    account_allowed = await limiter.hit(f"forgot:{body.login}")
+    if not (ip_allowed and account_allowed):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many reset requests. Try again later.",
+        )
+    user = await db.user_get_by_login(body.login)
+    if user is not None and settings.smtp_configured:
+        raw = secrets.token_urlsafe(32)
+        await db.password_reset_create(
+            {
+                "token_hash": hash_token(raw),
+                "user_id": user["id"],
+                "expires_at": datetime.now(UTC) + _RESET_TTL,
+            }
+        )
+        # Background thread: SMTP latency must not slow the response down
+        # (a timing gap would enumerate known accounts), and a send failure
+        # is logged, never surfaced to the caller.
+        schedule_password_reset_email(settings, user["email"], build_reset_link(settings, raw))
+    return {"ok": True}
+
+
+@router.post("/password/reset")
+async def reset_password(
+    body: PasswordResetRequest,
+    response: Response,
+    settings: UISettings = Depends(get_settings),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict[str, bool]:
+    """Redeem a single-use reset token (<=1h, stored hashed) for a new password.
+
+    Consuming the token sets the password and revokes ALL of that user's
+    sessions in one transaction. Never un-bans: a suspended account stays
+    suspended even after a successful reset.
+    """
+    if settings.monitor_auth_disabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset is unavailable while MONITOR_AUTH_DISABLED=true (local development mode).",
+        )
+    user = await db.password_reset_consume(hash_token(body.token), hash_password(body.new_password))
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token.",
+        )
+    # Every session of the user is gone — drop any cookie this browser held.
+    _clear_auth_cookies(response, settings)
+    return {"ok": True}
+
+
 @router.get("/sessions", response_model=SessionListResponse)
 async def list_sessions(
     request: Request,
@@ -394,11 +511,27 @@ def _frontend_redirect(settings: UISettings, path: str) -> RedirectResponse:
     return RedirectResponse(url=f"{settings.auth_frontend_url.rstrip('/')}{path}")
 
 
+def _oauth_redirect(settings: UISettings, path: str) -> RedirectResponse:
+    """Frontend redirect from the OAuth callback that drops the one-shot invite.
+
+    Every callback exit goes through here so a leftover invite cookie can
+    never be silently consumed by a later sign-in attempt.
+    """
+    redirect = _frontend_redirect(settings, path)
+    redirect.delete_cookie(key=settings.oauth_invite_cookie, path="/")
+    return redirect
+
+
 @router.get("/oauth/google")
 async def google_login(
+    invite: str | None = None,
     settings: UISettings = Depends(get_settings),
 ) -> RedirectResponse:
-    """Redirect to Google's consent screen with a state cookie for CSRF."""
+    """Redirect to Google's consent screen with a state cookie for CSRF.
+
+    Optional ``invite`` query parameter carries a signup invite through the
+    round-trip (first login follows MONITOR_SIGNUP_MODE, plan UX-2).
+    """
     if not settings.google_oauth_configured:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -417,6 +550,17 @@ async def google_login(
         samesite="lax",
         path="/",
     )
+    invite_token = (invite or "").strip()
+    if invite_token:
+        redirect.set_cookie(
+            key=settings.oauth_invite_cookie,
+            value=invite_token,
+            max_age=settings.oauth_state_ttl_seconds,
+            httponly=True,
+            secure=settings.cookie_secure,
+            samesite="lax",
+            path="/",
+        )
     return redirect
 
 
@@ -431,21 +575,30 @@ async def google_callback(
     db: PostgresClient = Depends(get_postgres),
 ) -> RedirectResponse:
     """Handle Google's redirect: validate state, exchange code, open a session."""
+    invite_token = request.cookies.get(settings.oauth_invite_cookie)
     if error:
-        return _frontend_redirect(settings, f"/login?error={error}")
+        return _oauth_redirect(settings, f"/login?error={error}")
     expected_state = request.cookies.get(settings.oauth_state_cookie)
     if not code or not state or not expected_state or not secrets.compare_digest(state, expected_state):
-        return _frontend_redirect(settings, "/login?error=invalid_state")
+        return _oauth_redirect(settings, "/login?error=invalid_state")
     try:
         access_token = await exchange_code(settings, code)
         profile = await fetch_google_profile(access_token)
-        user = await find_or_create_oauth_user(db, profile)
+        user = await find_or_create_oauth_user(
+            db,
+            profile,
+            invite_token=invite_token,
+            signup_mode=settings.monitor_signup_mode,
+        )
+    except SignupRefused as exc:
+        return _oauth_redirect(settings, f"/login?error={exc.reason}")
     except ValueError:
-        return _frontend_redirect(settings, "/login?error=oauth_failed")
+        return _oauth_redirect(settings, "/login?error=oauth_failed")
     if user.get("is_banned"):
-        return _frontend_redirect(settings, "/login?error=suspended")
+        return _oauth_redirect(settings, "/login?error=suspended")
     raw, expires_at = await _create_session(db, user["id"], settings)
     redirect = _frontend_redirect(settings, "/")
     _set_auth_cookies(redirect, settings, raw, expires_at)
     redirect.delete_cookie(key=settings.oauth_state_cookie, path="/")
+    redirect.delete_cookie(key=settings.oauth_invite_cookie, path="/")
     return redirect

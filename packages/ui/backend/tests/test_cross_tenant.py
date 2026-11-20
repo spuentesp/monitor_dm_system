@@ -23,6 +23,7 @@ the real ``resource_route_guard`` + ``_SCOPE_RESOLVERS`` code runs.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
@@ -614,6 +615,36 @@ class TestCrossTenantByKind:
         # A's token is untouched and still listed.
         listed = users.a.get("/api/auth/tokens").json()
         assert any(t["id"] == str(token_id) for t in listed)
+
+    def test_admin_invite_and_reset_routes_reject_a_non_admin(self, users, fake_db: FakePostgres) -> None:
+        """UX-2/UX-3: invite + password-reset operator routes are admin-only.
+
+        These routes carry no ownership resolver (the operator surface is
+        gated by ``require_admin``, which the generated sweep exempts), so
+        this explicit case is their cross-tenant check: a non-admin B is
+        rejected with 403 on every route and no invite state moves.
+        """
+        invite = asyncio_run(
+            fake_db.invite_create(
+                {
+                    "token_hash": "hash-" + str(uuid4()),
+                    "email": "a-invite@example.com",
+                    "created_by": UUID(str(users.a_id)),
+                    "expires_at": datetime.now(UTC) + timedelta(hours=1),
+                }
+            )
+        )
+        before = asyncio_run(fake_db.invites_list())
+        for method, path, kwargs in [
+            ("GET", "/api/admin/invites", {}),
+            ("POST", "/api/admin/invites", {"json": {"email": "x@example.com"}}),
+            ("DELETE", f"/api/admin/invites/{invite['id']}", {}),
+            ("POST", f"/api/admin/users/{users.a_id}/password-reset", {}),
+            ("POST", f"/api/admin/users/{users.a_id}/revoke-sessions", {}),
+        ]:
+            r = users.b.request(method, path, headers=_csrf(users.b), **kwargs)
+            assert r.status_code == 403, (method, path, r.status_code, r.text)
+        assert asyncio_run(fake_db.invites_list()) == before
 
 
 def asyncio_run(coro):  # type: ignore[no-untyped-def]

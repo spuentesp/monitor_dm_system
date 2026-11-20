@@ -1,20 +1,26 @@
 """Backoffice operator console: user administration (admin-only).
 
 All routes require an authenticated ADMIN principal (``require_admin``).
-Operators can list/search users, inspect a user, ban/unban, and grant or
-revoke admin. An operator cannot modify their own account through these
-routes (no self-ban / self-demotion); secrets (password hashes, tokens)
-are never returned.
+Operators can list/search users, inspect a user, ban/unban, grant or
+revoke admin, issue invites and password resets, and revoke sessions. An
+operator cannot modify their own account through these routes (no
+self-ban / self-demotion); secrets (password hashes, raw tokens after
+their single showing, session tokens) are never returned.
+
+Every mutating action emits a structlog ``admin_action`` event with
+``actor_id``, ``target_id`` and ``action`` (plan UX-3 accountability).
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import secrets
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel, Field, field_validator
 
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.users import (
@@ -22,11 +28,30 @@ from monitor_data.schemas.users import (
     BanRequest,
     UserAdminListResponse,
     UserAdminResponse,
+    normalize_login,
 )
+from monitor_data.security import hash_token
 
 from monitor_ui.auth import LOCAL_USER_ID, Principal, get_postgres, require_admin
 
+log = structlog.get_logger()
+
 router = APIRouter(dependencies=[Depends(require_admin)])
+
+# Password-reset tokens issued here follow the emailed path's <=1h rule.
+_RESET_TTL = timedelta(hours=1)
+_INVITE_DEFAULT_TTL_HOURS = 168
+
+
+def _admin_action(actor_id: UUID, target_id: UUID | str, action: str, **extra: Any) -> None:
+    """Structlog accountability event for every operator mutation (plan UX-3)."""
+    log.info(
+        "admin_action",
+        actor_id=str(actor_id),
+        target_id=str(target_id),
+        action=action,
+        **extra,
+    )
 
 
 def _admin_view(row: dict[str, Any]) -> UserAdminResponse:
@@ -93,6 +118,7 @@ async def ban_user(
     await db.user_set_banned(user_id, True, body.reason)
     user["is_banned"] = True
     user["banned_reason"] = body.reason
+    _admin_action(principal.user_id, user_id, "ban", reason=body.reason)
     return _admin_view(user)
 
 
@@ -106,6 +132,7 @@ async def unban_user(
     await db.user_set_banned(user_id, False, None)
     user["is_banned"] = False
     user["banned_reason"] = None
+    _admin_action(principal.user_id, user_id, "unban")
     return _admin_view(user)
 
 
@@ -125,7 +152,162 @@ async def set_user_role(
     user = await _get_user_or_404(db, user_id)
     await db.user_set_admin(user_id, body.is_admin)
     user["is_admin"] = body.is_admin
+    _admin_action(principal.user_id, user_id, "role_change", is_admin=body.is_admin)
     return _admin_view(user)
+
+
+# ---------------------------------------------------------------------------
+# Signup invites (plan UX-2 / UX-3)
+# ---------------------------------------------------------------------------
+
+
+class InviteCreateRequest(BaseModel):
+    """Optional target email and lifetime for a new invite."""
+
+    email: str | None = Field(default=None, max_length=320)
+    expires_in_hours: int = Field(default=_INVITE_DEFAULT_TTL_HOURS, ge=1, le=24 * 365)
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = normalize_login(value)
+        if "@" not in normalized:
+            raise ValueError("Enter a valid email address")
+        return normalized
+
+
+class InviteCreatedResponse(BaseModel):
+    """The raw token is shown exactly once; only its hash is stored."""
+
+    id: UUID
+    token: str
+    url_path: str
+    expires_at: datetime
+
+
+class InviteView(BaseModel):
+    id: UUID
+    email: str | None = None
+    created_at: datetime
+    expires_at: datetime
+    used_at: datetime | None = None
+    revoked_at: datetime | None = None
+    created_by: UUID | None = None
+
+
+class InviteListResponse(BaseModel):
+    invites: list[InviteView]
+
+
+@router.post("/invites", response_model=InviteCreatedResponse)
+async def create_invite(
+    body: InviteCreateRequest | None = None,
+    principal: Principal = Depends(require_admin),
+    db: PostgresClient = Depends(get_postgres),
+) -> InviteCreatedResponse:
+    """Create a single-use signup invite. The raw token is returned once."""
+    request = body or InviteCreateRequest()
+    raw = secrets.token_urlsafe(32)
+    expires_at = datetime.now(UTC) + timedelta(hours=request.expires_in_hours)
+    row = await db.invite_create(
+        {
+            "token_hash": hash_token(raw),
+            "email": request.email,
+            "created_by": principal.user_id,
+            "expires_at": expires_at,
+        }
+    )
+    _admin_action(principal.user_id, row["id"], "invite_create", email=request.email)
+    return InviteCreatedResponse(
+        id=row["id"],
+        token=raw,
+        url_path=f"/login?invite={raw}",
+        expires_at=row["expires_at"],
+    )
+
+
+@router.get("/invites", response_model=InviteListResponse)
+async def list_invites(
+    principal: Principal = Depends(require_admin),
+    db: PostgresClient = Depends(get_postgres),
+) -> InviteListResponse:
+    """All invites (never the raw tokens — those exist only in the create response)."""
+    rows = await db.invites_list()
+    return InviteListResponse(
+        invites=[
+            InviteView(
+                id=r["id"],
+                email=r.get("email"),
+                created_at=r["created_at"],
+                expires_at=r["expires_at"],
+                used_at=r.get("used_at"),
+                revoked_at=r.get("revoked_at"),
+                created_by=r.get("created_by"),
+            )
+            for r in rows
+        ]
+    )
+
+
+@router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_invite(
+    invite_id: UUID,
+    principal: Principal = Depends(require_admin),
+    db: PostgresClient = Depends(get_postgres),
+) -> Response:
+    """Revoke an unused invite. Idempotent on an already-revoked invite; unknown id → 404."""
+    revoked = await db.invite_revoke(invite_id)
+    if not revoked:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found.")
+    _admin_action(principal.user_id, invite_id, "invite_revoke")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Admin-issued password resets (plan UX-2 / UX-3)
+# ---------------------------------------------------------------------------
+
+
+class PasswordResetIssuedResponse(BaseModel):
+    """One-time reset link for the operator to copy (works without SMTP)."""
+
+    token: str
+    url_path: str
+    expires_at: datetime
+
+
+@router.post("/users/{user_id}/password-reset", response_model=PasswordResetIssuedResponse)
+async def issue_password_reset(
+    user_id: UUID,
+    principal: Principal = Depends(require_admin),
+    db: PostgresClient = Depends(get_postgres),
+) -> PasswordResetIssuedResponse:
+    """Issue a single-use <=1h reset token for a user (returned once, not emailed)."""
+    await _get_user_or_404(db, user_id)
+    raw = secrets.token_urlsafe(32)
+    expires_at = datetime.now(UTC) + _RESET_TTL
+    await db.password_reset_create({"token_hash": hash_token(raw), "user_id": user_id, "expires_at": expires_at})
+    _admin_action(principal.user_id, user_id, "password_reset_issue")
+    return PasswordResetIssuedResponse(
+        token=raw,
+        url_path=f"/reset-password?token={raw}",
+        expires_at=expires_at,
+    )
+
+
+@router.post("/users/{user_id}/revoke-sessions", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_revoke_sessions(
+    user_id: UUID,
+    principal: Principal = Depends(require_admin),
+    db: PostgresClient = Depends(get_postgres),
+) -> Response:
+    """Revoke ALL of a user's browser sessions (the "sign them out everywhere" button)."""
+    await _get_user_or_404(db, user_id)
+    await db.session_delete_all_for_user(user_id)
+    _admin_action(principal.user_id, user_id, "revoke_sessions")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +386,14 @@ async def set_usage_limits(
     await _get_user_or_404(db, user_id)
     row = await db.usage_limit_set(
         user_id,
+        daily_token_cap=body.daily_token_cap,
+        daily_call_cap=body.daily_call_cap,
+        exempt=body.exempt,
+    )
+    _admin_action(
+        principal.user_id,
+        user_id,
+        "usage_limits",
         daily_token_cap=body.daily_token_cap,
         daily_call_cap=body.daily_call_cap,
         exempt=body.exempt,
