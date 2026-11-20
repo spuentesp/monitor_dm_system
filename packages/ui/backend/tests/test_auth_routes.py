@@ -414,7 +414,9 @@ class TestPasswordAndSessions:
         # The current session survives revoking another one.
         assert client.get("/api/auth/me").status_code == 200
         current = [s for s in client.get("/api/auth/sessions").json()["sessions"] if s["current"]][0]
-        assert client.request("DELETE", f"/api/auth/sessions/{current['token_hash_prefix']}", headers=h).status_code == 204
+        assert (
+            client.request("DELETE", f"/api/auth/sessions/{current['token_hash_prefix']}", headers=h).status_code == 204
+        )
         assert client.get("/api/auth/me").status_code == 401
 
     def test_api_token_expiry_is_clamped(self, client):
