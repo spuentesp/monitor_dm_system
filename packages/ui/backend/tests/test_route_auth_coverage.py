@@ -292,6 +292,8 @@ def test_guarded_route_rejects_an_anonymous_caller(anon_client: TestClient, meth
         ("DELETE", "/api/ingest/jobs/abc"),
         ("DELETE", "/api/ingest/jobs"),
         ("POST", "/api/ingest/cache/clear"),
+        # UX-6 rewind: turn controls hit this route; no credential -> 401.
+        ("POST", "/api/chat/00000000-0000-4000-8000-000000000001/rewind"),
         # UX-3 admin invite / password-reset operator surface
         ("POST", "/api/admin/invites"),
         ("GET", "/api/admin/invites"),

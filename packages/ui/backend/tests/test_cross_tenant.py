@@ -439,12 +439,55 @@ class TestCrossTenantByKind:
             ("GET", f"/api/chat/{sid}/state", {}),
             ("GET", f"/api/chat/{sid}/messages", {}),
             ("PATCH", f"/api/chat/{sid}", {"json": {"name": "hijack"}}),
+            ("POST", f"/api/chat/{sid}/rewind", {}),
             ("DELETE", f"/api/chat/{sid}", {}),
         ]:
             r = users.b.request(method, path, headers=_csrf(users.b), **kwargs)
             assert r.status_code in (403, 404), (method, path, r.status_code)
         _assert_store_unchanged(before, [dict(d) for d in chat_sessions.docs])
         assert chat_sessions.find_one({"id": sid})["owner_id"] == str(users.a_id)
+
+    def test_chat_rewind_is_owner_predicated_and_leaves_transcript(self, users, seeded, monkeypatch) -> None:
+        """UX-6 rewind: B on A's session gets the generic 404 and A's
+        transcript is byte-for-byte unchanged (the guard fires before any
+        excision, proposal rejection, or cache mutation)."""
+        import monitor_ui.routers.chat as chat_mod
+
+        sid = seeded["session"]
+        now = datetime.now(UTC).isoformat()
+        transcript = [
+            {
+                "id": str(uuid4()),
+                "session_id": sid,
+                "role": "gm",
+                "content": "The gate swings open.",
+                "timestamp": now,
+                "metadata": {},
+            },
+            {
+                "id": str(uuid4()),
+                "session_id": sid,
+                "role": "player",
+                "content": "I step through.",
+                "timestamp": now,
+                "metadata": {},
+            },
+            {
+                "id": str(uuid4()),
+                "session_id": sid,
+                "role": "gm",
+                "content": "Sand and salt.",
+                "timestamp": now,
+                "metadata": {},
+            },
+        ]
+        monkeypatch.setitem(chat_mod._MESSAGES, sid, transcript)
+        before = [dict(m) for m in chat_mod._MESSAGES[sid]]
+
+        r = users.b.request("POST", f"/api/chat/{sid}/rewind", headers=_csrf(users.b), json={})
+        assert r.status_code == 404, (r.status_code, r.text)
+        assert r.json() == {"detail": "Not found"}  # same as a nonexistent session (plan D4)
+        assert [dict(m) for m in chat_mod._MESSAGES[sid]] == before
 
     def test_chat_list_is_scoped(self, users, seeded) -> None:
         sessions = users.b.get("/api/chat").json()
