@@ -384,6 +384,39 @@ class TestPasswordAndSessions:
         assert r.status_code == 204
         assert client.get("/api/auth/me").status_code == 401
 
+    def test_revoke_single_session_by_prefix(self, client, fake_db):
+        from datetime import UTC, datetime, timedelta
+        from uuid import UUID
+
+        user = _signup(client)
+        uid = UUID(user["id"]) if "id" in user else next(iter(fake_db.sessions.values()))["user_id"]
+        fake_db.sessions["b" * 64] = {
+            "token_hash": "b" * 64,
+            "user_id": uid,
+            "created_at": datetime.now(UTC) - timedelta(hours=1),
+            "expires_at": datetime.now(UTC) + timedelta(days=1),
+            "last_seen_at": None,
+        }
+        # A foreign user's session must never be addressable.
+        fake_db.sessions["c" * 64] = {
+            "token_hash": "c" * 64,
+            "user_id": UUID(int=12345),
+            "created_at": datetime.now(UTC),
+            "expires_at": datetime.now(UTC) + timedelta(days=1),
+            "last_seen_at": None,
+        }
+        h = _csrf_headers(client)
+        assert client.request("DELETE", f"/api/auth/sessions/{'c' * 12}", headers=h).status_code == 404
+        assert "c" * 64 in fake_db.sessions
+        assert client.request("DELETE", "/api/auth/sessions/short", headers=h).status_code == 404
+        assert client.request("DELETE", f"/api/auth/sessions/{'b' * 12}", headers=h).status_code == 204
+        assert "b" * 64 not in fake_db.sessions
+        # The current session survives revoking another one.
+        assert client.get("/api/auth/me").status_code == 200
+        current = [s for s in client.get("/api/auth/sessions").json()["sessions"] if s["current"]][0]
+        assert client.request("DELETE", f"/api/auth/sessions/{current['token_hash_prefix']}", headers=h).status_code == 204
+        assert client.get("/api/auth/me").status_code == 401
+
     def test_api_token_expiry_is_clamped(self, client):
         _signup(client)
         far = "2999-01-01T00:00:00Z"

@@ -488,6 +488,31 @@ async def list_sessions(
     )
 
 
+@router.delete("/sessions/{token_hash_prefix}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_session(
+    token_hash_prefix: str,
+    request: Request,
+    response: Response,
+    settings: UISettings = Depends(get_settings),
+    db: PostgresClient = Depends(get_postgres),
+    principal: Principal = Depends(get_current_user),
+) -> Response:
+    """Revoke ONE of the caller's sessions, addressed by the hash prefix that
+    ``GET /sessions`` returns. Only the caller's own sessions are candidates, so
+    a foreign or unknown prefix answers the same generic 404."""
+    if len(token_hash_prefix) < 8:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    rows = await db.sessions_list_for_user(principal.user_id)
+    matches = [r for r in rows if r["token_hash"].startswith(token_hash_prefix)]
+    if len(matches) != 1:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    target = matches[0]["token_hash"]
+    await db.session_delete(target)
+    if target == hash_token(request.cookies.get(settings.auth_session_cookie, "")):
+        _clear_auth_cookies(response, settings)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.delete("/sessions", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_all_sessions(
     response: Response,
