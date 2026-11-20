@@ -58,6 +58,7 @@ from monitor_data.tools.mongodb_tools import (
     mongodb_list_documents,
     mongodb_list_ingestion_jobs,
 )
+from monitor_data.tools.mongodb_tools.ingestion_jobs import mongodb_set_ingestion_job_owner
 from monitor_data.tools.neo4j_tools import neo4j_delete_source, neo4j_get_universe
 
 from .ingest_shared import (
@@ -375,6 +376,22 @@ def _clear_ingest_slot(*, queue_token: str | None = None, expected_title: str | 
         logger.info("Released ingest slot for '%s'", removed_title)
 
 
+def _stamp_job_owner(job_id: UUID, owner_id: str | None) -> None:
+    """Stamp the authenticated creator on a freshly created job.
+
+    The pipeline creates jobs in a worker thread where no acting-owner
+    context exists, so the tool-level default cannot help here. Best-effort:
+    a failed stamp logs and leaves the job ownerless (fail closed on read),
+    never breaks the ingest run.
+    """
+    if not owner_id:
+        return
+    try:
+        mongodb_set_ingestion_job_owner(job_id, owner_id)
+    except Exception as exc:  # noqa: BLE001  # reason: stamping must not fail the ingest run
+        logger.error("Failed to stamp owner %s on ingest job %s: %s", owner_id, job_id, exc)
+
+
 def _run_ingest_in_thread(
     *,
     queue_token: str,
@@ -390,6 +407,7 @@ def _run_ingest_in_thread(
     estimated_calls: int | None = None,
     resume_job_id: UUID | None = None,
     story_id: UUID | None = None,
+    owner_id: str | None = None,
 ) -> None:
     """Run the ingest pipeline in a dedicated thread with its own event loop.
 
@@ -418,6 +436,7 @@ def _run_ingest_in_thread(
             def _capture_job(job_id: UUID) -> None:
                 _captured_job_id[0] = str(job_id)
                 _attach_job_id_to_request(queue_token, str(job_id))
+                _stamp_job_owner(job_id, owner_id)
                 logger.info("Created ingestion job %s for '%s'", job_id, source_title)
 
             # 1. Standard ingestion pipeline
@@ -989,6 +1008,7 @@ async def upload_source(
                         selected_layers=selected_layers,
                         content_type=file.content_type,
                         story_id=requested_story_id,
+                        owner_id=_owner_id_of(principal),
                     ),
                 )
                 if queue_token is not None:
@@ -1296,6 +1316,7 @@ async def rescan_source(
                     # I-17 task 15: the previous run's real call count scales
                     # this run's analysis limit (floor 40 minutes).
                     estimated_calls=(prev_job.total_attempts if prev_job and prev_job.total_attempts else None),
+                    owner_id=_owner_id_of(principal),
                 ),
             )
             fut.add_done_callback(lambda f: _ingest_futures.pop(queue_token, None))
@@ -1406,7 +1427,7 @@ async def resume_job(job_id: str, principal: Principal = Depends(get_current_use
     if not is_decomposition_job(job):
         if job.status != IngestionStatus.PAUSED:
             raise HTTPException(409, f"Job can't be resumed (status={job.status.value})")
-        return await _resume_analysis_job(uid, job)
+        return await _resume_analysis_job(uid, job, owner_id=_owner_id_of(principal))
     resumable = (IngestionStatus.PAUSED, IngestionStatus.FAILED)
     if job.status not in resumable or str(uid) in _decomposition_active:
         raise HTTPException(409, f"Job can't be resumed (status={job.status.value})")
@@ -1420,7 +1441,7 @@ async def resume_job(job_id: str, principal: Principal = Depends(get_current_use
     return {"job_id": job_id, "status": "running", "message": "Decomposition resumed"}
 
 
-async def _resume_analysis_job(uid: UUID, job: Any) -> dict[str, str]:
+async def _resume_analysis_job(uid: UUID, job: Any, *, owner_id: str | None = None) -> dict[str, str]:
     """Requeue the ingest for a paused analysis job, reusing its saved batches (I-17)."""
     with db_op("Could not retrieve document record"):
         doc = mongodb_get_document(job.doc_id)
@@ -1455,6 +1476,7 @@ async def _resume_analysis_job(uid: UUID, job: Any) -> dict[str, str]:
                 reuse_doc_id=job.doc_id,
                 estimated_calls=job.total_attempts or None,
                 resume_job_id=uid,
+                owner_id=owner_id,
             ),
         )
         fut.add_done_callback(lambda f: _ingest_futures.pop(queue_token, None))

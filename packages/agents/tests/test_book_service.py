@@ -229,6 +229,24 @@ async def _run_job(job, pdf, extractor, review):
 
 
 @pytest.mark.unit
+def test_decomposition_job_inherits_source_owner(mongo):
+    """UX-1: decomposition jobs carry the source job's creator so the
+    strict job-owner check treats them like the run that spawned them."""
+    owner = str(uuid.uuid4())
+    source = ingestion_jobs.mongodb_create_ingestion_job(
+        IngestionJobCreate(
+            universe_id=uuid.uuid4(),
+            source_id=uuid.uuid4(),
+            doc_id=uuid.uuid4(),
+            source_title="Book",
+            owner_id=owner,
+        )
+    )
+    decomp = create_decomposition_job(source)
+    assert decomp.owner_id == owner
+
+
+@pytest.mark.unit
 async def test_job_records_completion_coverage_and_pack(mongo):
     job = create_decomposition_job(_source_job(), KnowledgePackType.RULEBOOK)
     assert is_decomposition_job(job) and job.status == IngestionStatus.RUNNING

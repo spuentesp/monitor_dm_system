@@ -311,22 +311,23 @@ async def require_character_scope(db: PostgresClient, principal: Principal, char
 
 
 async def require_ingestion_job_owner(db: PostgresClient, principal: Principal, job_id: str) -> None:
-    """Ingestion jobs are tenancy-checked by creator or owning universe.
+    """Ingestion jobs are tenancy-checked by strict creator match.
 
-    Fail closed: the job must exist and either ``owner_id`` is the caller or
-    the job's universe resolves to a universe the caller owns. A foreign or
-    missing job gets the generic 404.
+    The rule (aligned with ``ingest._check_job_owner``): the job must exist
+    and its ``owner_id`` must be the caller. Universe ownership is NOT
+    proof of creation (plan D3: universes are single-owner, but a job may
+    outlive or predate the owner stamp). Ownerless legacy jobs fail closed
+    — they were already excluded from owner-scoped list filters; use
+    ``mongodb_set_ingestion_job_owner`` to backfill. A foreign or missing
+    job gets the generic 404.
     """
     if _is_local_mode(principal):
         return
     from monitor_data.tools.mongodb_tools import mongodb_get_ingestion_job
 
     job = mongodb_get_ingestion_job(UUID(str(job_id)))
-    if job is None:
+    if job is None or getattr(job, "owner_id", None) != str(principal.user_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
-    if getattr(job, "owner_id", None) == str(principal.user_id):
-        return
-    await require_universe_owner(db, principal, job.universe_id)
 
 
 async def require_ingest_source_owner(db: PostgresClient, principal: Principal, source_id: str) -> None:
