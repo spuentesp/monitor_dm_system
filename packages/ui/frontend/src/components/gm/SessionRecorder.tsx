@@ -401,7 +401,7 @@ export function SessionRecorder({
                   insight.advances_thread !== "" ||
                   (insight.proposal_ids ?? []).length > 0);
               return (
-                <div key={m.id} className="space-y-1.5">
+                <div key={m.id} data-gm-entry className="space-y-1.5">
                   <motion.div
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}

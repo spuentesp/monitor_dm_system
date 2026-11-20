@@ -44,6 +44,8 @@ import {
 } from "@/components/gm/GmStepper";
 import { WrapUpModal } from "@/components/gm/WrapUpModal";
 import { FirstRunGuide, FirstUseTour } from "@/components/gm/FirstRunGuide";
+import { GmOfflineBanner } from "@/components/gm/GmOfflineBanner";
+import { useGmShortcuts, focusFirstVisible } from "@/components/gm/useGmShortcuts";
 import { useGmPanelPrefs, visibleOrderedPanels } from "@/lib/gm-panel-prefs";
 import { useWorldContext } from "@/lib/world-context";
 import { cn } from "@/lib/utils";
@@ -185,6 +187,33 @@ function GMAssistantPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  // Table shortcuts (UX-5): r = dice, n = new note, j/k = prev/next entry.
+  const [pendingFocus, setPendingFocus] = useState<"dice" | "note" | null>(null);
+  useEffect(() => {
+    if (!pendingFocus) return;
+    focusFirstVisible(
+      pendingFocus === "dice"
+        ? '[data-testid="dice-expr"]'
+        : '[data-testid="session-notebook-input"]',
+    );
+    setPendingFocus(null);
+  }, [pendingFocus, centerTab, activePanel]);
+
+  useGmShortcuts({
+    onRoll: () => {
+      if (!focusFirstVisible('[data-testid="dice-expr"]')) {
+        // Dice panel isn't visible on the narrow layout — switch, then retry.
+        setActivePanel("dice");
+        setPendingFocus("dice");
+      }
+    },
+    onNewNote: () => {
+      setCenterTab("notebook");
+      setActivePanel("notebook");
+      setPendingFocus("note");
+    },
+  });
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -211,7 +240,7 @@ function GMAssistantPageContent() {
               key={id}
               onClick={() => setActivePanel(id)}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border max-xl:min-h-11",
                 activePanel === id
                   ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25"
                   : "text-slate-500 hover:text-slate-300 border-transparent hover:bg-white/4",
@@ -224,6 +253,7 @@ function GMAssistantPageContent() {
         </div>
       </div>
 
+      <GmOfflineBanner />
       <FirstUseTour />
 
       {/* Three-panel layout (desktop: side by side, controlled via tab on mobile) */}
@@ -253,7 +283,7 @@ function GMAssistantPageContent() {
                   key={id}
                   onClick={() => setCenterTab(id)}
                   className={cn(
-                    "flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all border",
+                    "flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all border max-xl:min-h-11",
                     centerTab === id
                       ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25"
                       : "text-slate-500 hover:text-slate-300 border-transparent hover:bg-white/4",
