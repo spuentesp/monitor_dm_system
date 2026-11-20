@@ -2143,6 +2143,76 @@ export interface AuthMode {
 export interface AuthConfig {
   auth_disabled: boolean;
   google_oauth: boolean;
+  /** MONITOR_SIGNUP_MODE is "open" — self-serve account creation allowed. */
+  signup_open: boolean;
+  /** MONITOR_SIGNUP_MODE is "invite" — signup requires a valid invite token. */
+  signup_invite_only: boolean;
+  /** True iff SMTP is configured, i.e. the email password-reset path works. */
+  email_reset: boolean;
+}
+
+export interface AuthSession {
+  token_hash_prefix: string;
+  created_at: string;
+  expires_at: string;
+  last_seen_at: string | null;
+  current: boolean;
+}
+
+export interface ApiToken {
+  id: string;
+  name: string;
+  token_prefix: string;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface ApiTokenCreated extends Omit<ApiToken, "last_used_at" | "revoked_at"> {
+  /** Raw token — returned exactly once at creation, never again. */
+  token: string;
+}
+
+export interface Invite {
+  id: string;
+  email: string | null;
+  created_at: string;
+  expires_at: string;
+  used_at: string | null;
+  revoked_at: string | null;
+  created_by: string | null;
+}
+
+export interface InviteCreated {
+  id: string;
+  token: string;
+  /** Frontend path, e.g. "/login?invite=<token>" — prepend an origin to share. */
+  url_path: string;
+  expires_at: string;
+}
+
+export interface PasswordResetLink {
+  token: string;
+  /** Frontend path, e.g. "/reset-password?token=<token>". */
+  url_path: string;
+  expires_at: string;
+}
+
+export interface UsageEntry {
+  user_id: string;
+  username: string;
+  email: string;
+  tokens: number;
+  calls: number;
+  daily_token_cap: number | null;
+  daily_call_cap: number | null;
+  exempt: boolean;
+}
+
+export interface UsageSummary {
+  day: string;
+  users: UsageEntry[];
 }
 
 export interface AdminUser {
@@ -2189,12 +2259,51 @@ export const authApi = {
       method: "POST",
       body: JSON.stringify({ login, password }),
     })),
-  signup: (email: string, username: string, password: string, display_name = "") =>
+  signup: (email: string, username: string, password: string, display_name = "", invite_token?: string) =>
     req<AuthUser>("/auth/signup", withCsrf({
       method: "POST",
-      body: JSON.stringify({ email, username, password, display_name }),
+      body: JSON.stringify({
+        email,
+        username,
+        password,
+        display_name,
+        ...(invite_token ? { invite_token } : {}),
+      }),
     })),
   logout: () => req<{ ok: boolean }>("/auth/logout", withCsrf({ method: "POST" })),
+  /** Change password; revokes every other session of the caller. */
+  changePassword: (current_password: string, new_password: string) =>
+    req<{ ok: boolean; other_sessions_revoked?: number }>("/auth/password", withCsrf({
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password }),
+    })),
+  /** Always resolves 202 {ok:true} for any input (no user enumeration). */
+  forgotPassword: (login: string) =>
+    req<{ ok: boolean }>("/auth/password/forgot", withCsrf({
+      method: "POST",
+      body: JSON.stringify({ login }),
+    })),
+  /** Single-use token, <=1h old; revokes ALL sessions of the user. */
+  resetPassword: (token: string, new_password: string) =>
+    req<{ ok: boolean }>("/auth/password/reset", withCsrf({
+      method: "POST",
+      body: JSON.stringify({ token, new_password }),
+    })),
+  listSessions: () => req<{ sessions: AuthSession[] }>("/auth/sessions"),
+  /** Revoke one session by its token hash prefix (never the raw token). */
+  revokeSession: (tokenHashPrefix: string) =>
+    req<void>(`/auth/sessions/${encodeURIComponent(tokenHashPrefix)}`,
+      withCsrf({ method: "DELETE" })),
+  /** Revoke every session of the caller, including the current one. */
+  revokeAllSessions: () => req<void>("/auth/sessions", withCsrf({ method: "DELETE" })),
+  listTokens: () => req<ApiToken[]>("/auth/tokens"),
+  createToken: (name: string, expires_at?: string | null) =>
+    req<ApiTokenCreated>("/auth/tokens", withCsrf({
+      method: "POST",
+      body: JSON.stringify({ name, expires_at: expires_at ?? null }),
+    })),
+  revokeToken: (tokenId: string) =>
+    req<void>(`/auth/tokens/${tokenId}`, withCsrf({ method: "DELETE" })),
   /** Full-page navigation to the Google consent screen. */
   googleLoginUrl: () => apiUrl("/auth/oauth/google"),
 };
@@ -2210,6 +2319,29 @@ export const adminApi = {
   setRole: (userId: string, isAdmin: boolean) =>
     req<AdminUser>(`/admin/users/${userId}/role`,
       withCsrf({ method: "POST", body: JSON.stringify({ is_admin: isAdmin }) })),
+  /** Issue a one-time admin password-reset link (works without SMTP). */
+  resetUserPassword: (userId: string) =>
+    req<PasswordResetLink>(`/admin/users/${userId}/password-reset`,
+      withCsrf({ method: "POST" })),
+  /** Revoke every session of the target user (204). */
+  revokeUserSessions: (userId: string) =>
+    req<void>(`/admin/users/${userId}/revoke-sessions`, withCsrf({ method: "POST" })),
+  listInvites: () => req<{ invites: Invite[] }>("/admin/invites"),
+  createInvite: (email?: string, expires_in_hours = 168) =>
+    req<InviteCreated>("/admin/invites", withCsrf({
+      method: "POST",
+      body: JSON.stringify({ email: email || null, expires_in_hours }),
+    })),
+  /** Revoke an invite (204). */
+  revokeInvite: (inviteId: string) =>
+    req<void>(`/admin/invites/${inviteId}`, withCsrf({ method: "DELETE" })),
+  usage: () => req<UsageSummary>("/admin/usage"),
+  setUsageLimits: (
+    userId: string,
+    limits: { daily_token_cap?: number | null; daily_call_cap?: number | null; exempt?: boolean },
+  ) =>
+    req<UsageEntry>(`/admin/usage/${userId}/limits`,
+      withCsrf({ method: "PUT", body: JSON.stringify(limits) })),
 };
 
 // ─── Player-facing share links (CF-14 / G07) ────────────────
