@@ -561,6 +561,8 @@ async def get_npc(npc_id: str) -> NPCDetail:
 
     except HTTPException:
         raise
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -851,6 +853,8 @@ async def test_system(system_id: str) -> dict[str, Any]:
         raise
     except ImportError:
         raise HTTPException(status_code=503, detail="Agents layer not available")
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -885,6 +889,8 @@ async def test_system_npc(system_id: str, body: GenerateEntityRequest | None = N
         raise
     except ImportError:
         raise HTTPException(status_code=503, detail="Agents layer not available")
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -933,6 +939,8 @@ async def generate_entity(body: GenerateEntityRequest) -> dict[str, Any]:
         raise
     except ImportError:
         raise HTTPException(status_code=503, detail="Agents layer not available")
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -1224,6 +1232,8 @@ async def import_character_from_universe(
             "MATCH (e:EntityInstance {id: $id}) RETURN e",
             {"id": body.source_entity_id},
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in import_character_from_universe)
         raise HTTPException(status_code=502, detail=f"Neo4j lookup failed: {exc}")
 
@@ -1383,6 +1393,8 @@ async def expand_character(
         await require_universe_owner(db, principal, target_universe)
     try:
         backing = await cc.ensure_character_backed(character_id, target_universe)
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in expand_character)
         raise HTTPException(status_code=502, detail=f"Expansion failed: {exc}")
     return CharacterExpandResponse(
@@ -1438,6 +1450,8 @@ async def delete_character_version(
         raise HTTPException(status_code=404, detail="Character not found")
     try:
         ok = await cc.delete_incarnation(character_id, universe_id)
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in delete_character_version)
         raise HTTPException(status_code=502, detail=f"Delete failed: {exc}")
     if not ok:
@@ -1471,6 +1485,8 @@ async def get_character_profile(character_id: str, principal: Principal = Depend
         )
     try:
         profile = mongodb_get_npc_profile(UUID(entity_id))
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in get_character_profile)
         raise HTTPException(status_code=502, detail=f"Mongo read failed: {exc}")
     if profile is None:
@@ -1505,6 +1521,8 @@ async def start_character_conversation(
         result = await cc.start_conversation(character_id, target_universe, persona_character_id=persona_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in start_character_conversation)
         raise HTTPException(status_code=502, detail=f"Could not start conversation: {exc}")
     return ConversationStartResponse(**result)
@@ -1540,6 +1558,8 @@ async def send_character_message(
             status_code=409,
             detail="Conversation is no longer active. Start a new one.",
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in send_character_message)
         raise HTTPException(status_code=502, detail=f"Reply failed: {exc}")
     return ConversationReply(**reply)

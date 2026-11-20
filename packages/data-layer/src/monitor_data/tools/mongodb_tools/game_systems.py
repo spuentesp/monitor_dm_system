@@ -26,6 +26,13 @@ from monitor_data.schemas.game_systems import (
     SceneryRule,
     SkillDefinition,
 )
+from monitor_data.tenancy import (
+    acting_owner,
+    assert_game_system_write,
+    assert_rule_override_write,
+    assert_scene_write,
+    assert_story_write,
+)
 
 # =============================================================================
 # GAME SYSTEMS & RULES (DL-20)
@@ -162,11 +169,18 @@ def mongodb_create_game_system(params: GameSystemCreate) -> GameSystemResponse:
         "hand_authored": params.hand_authored,
         "needs_review": params.needs_review,
         "degenerate_reason": params.degenerate_reason,
+        # UX-1: stamp the acting owner so later writes can be owner-checked.
+        # No owner in context (ingestion workers, scripts) leaves this None —
+        # ownerless systems stay shared (see assert_game_system_write).
+        "owner_id": str(owner) if (owner := acting_owner()) else None,
     }
 
     if existing_doc:
         system_doc["created_at"] = existing_doc["created_at"]
         system_doc["updated_at"] = now
+        # Never re-stamp away an existing owner during name+source dedup.
+        if existing_doc.get("owner_id"):
+            system_doc["owner_id"] = existing_doc["owner_id"]
         systems_collection.replace_one({"system_id": str(system_id)}, system_doc)
     else:
         system_doc["created_at"] = now
@@ -358,6 +372,8 @@ def mongodb_update_game_system(system_id: UUID, params: GameSystemUpdate) -> Gam
     if system_doc["is_builtin"]:
         raise ValueError("Cannot modify builtin game systems")
 
+    assert_game_system_write(system_id, resource="game_system")
+
     # Build update document
     update_doc: dict[str, Any] = {}
     if params.name is not None:
@@ -430,6 +446,8 @@ def mongodb_delete_game_system(system_id: UUID) -> None:
     if system_doc["is_builtin"]:
         raise ValueError("Cannot delete builtin game systems")
 
+    assert_game_system_write(system_id, resource="game_system")
+
     systems_collection.delete_one({"system_id": str(system_id)})
 
 
@@ -445,6 +463,11 @@ def mongodb_create_rule_override(params: RuleOverrideCreate) -> RuleOverrideResp
     """
     mongodb = get_mongodb_client()
     overrides_collection = mongodb.get_collection("rule_overrides")
+
+    if params.scope == RuleOverrideScope.SCENE:
+        assert_scene_write(params.scope_id, resource="rule_override")
+    else:
+        assert_story_write(params.scope_id, resource="rule_override")
 
     now = datetime.now(UTC)
     override_id = uuid4()
@@ -587,6 +610,8 @@ def mongodb_update_rule_override(override_id: UUID, params: RuleOverrideUpdate) 
     if not override_doc:
         raise ValueError(f"Rule override {override_id} not found")
 
+    assert_rule_override_write(override_id, resource="rule_override")
+
     # Build update document
     update_doc: dict[str, Any] = {}
     if params.active is not None:
@@ -623,6 +648,8 @@ def mongodb_delete_rule_override(override_id: UUID) -> None:
     override_doc = overrides_collection.find_one({"override_id": str(override_id)})
     if not override_doc:
         raise ValueError(f"Rule override {override_id} not found")
+
+    assert_rule_override_write(override_id, resource="rule_override")
 
     overrides_collection.delete_one({"override_id": str(override_id)})
 

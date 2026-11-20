@@ -28,6 +28,7 @@ from monitor_agents.player_share import (
     ShareError,
 )
 from monitor_data.schemas.player_share import (
+    PlayerArtifact,
     PlayerView,
     ShareArtifactType,
     SharedArtifact,
@@ -109,6 +110,25 @@ async def share_index(
         raise _not_found(exc) from exc
 
 
+def _to_player_artifact(artifact: SharedArtifact) -> PlayerArtifact:
+    """Strip GM-internal fields before anything reaches an unauthenticated player.
+
+    The full ``SharedArtifact`` carries ``owner_id`` (the GM's user id),
+    ``universe_id``, ``source_fact_ids`` and ``session_id`` — none of which
+    a token holder needs or should see (UX-1 share-link audit).
+    """
+    return PlayerArtifact(
+        id=artifact.id,
+        story_id=artifact.story_id,
+        artifact_type=artifact.artifact_type,
+        title=artifact.title,
+        content=artifact.content,
+        spoiler_level=artifact.spoiler_level,
+        scope_character_id=artifact.scope_character_id,
+        updated_at=artifact.updated_at,
+    )
+
+
 async def _load_visible(
     token: str,
     artifact_id: UUID,
@@ -133,7 +153,7 @@ async def _load_visible(
         raise _not_found(exc) from exc
 
 
-@router.get("/share/{token}/recap/{artifact_id}", response_model=SharedArtifact)
+@router.get("/share/{token}/recap/{artifact_id}", response_model=PlayerArtifact)
 async def share_recap(
     token: str,
     artifact_id: UUID,
@@ -141,9 +161,9 @@ async def share_recap(
     viewer_character: str | None = Query(None),
     settings: UISettings = Depends(get_settings),
     agent: ShareAgent = Depends(_share_agent),
-) -> SharedArtifact:
+) -> PlayerArtifact:
     """One published recap. Handout ids on this route are 404 (type-checked)."""
-    return await _load_visible(
+    artifact = await _load_visible(
         token,
         artifact_id,
         expected_type=ShareArtifactType.RECAP,
@@ -152,9 +172,10 @@ async def share_recap(
         settings=settings,
         agent=agent,
     )
+    return _to_player_artifact(artifact)
 
 
-@router.get("/share/{token}/handout/{artifact_id}", response_model=SharedArtifact)
+@router.get("/share/{token}/handout/{artifact_id}", response_model=PlayerArtifact)
 async def share_handout(
     token: str,
     artifact_id: UUID,
@@ -162,9 +183,9 @@ async def share_handout(
     viewer_character: str | None = Query(None),
     settings: UISettings = Depends(get_settings),
     agent: ShareAgent = Depends(_share_agent),
-) -> SharedArtifact:
+) -> PlayerArtifact:
     """One published handout (character-scoped ones run the spoiler check)."""
-    return await _load_visible(
+    artifact = await _load_visible(
         token,
         artifact_id,
         expected_type=ShareArtifactType.HANDOUT,
@@ -173,6 +194,7 @@ async def share_handout(
         settings=settings,
         agent=agent,
     )
+    return _to_player_artifact(artifact)
 
 
 @router.get("/share/{token}/export/{artifact_id}.md")

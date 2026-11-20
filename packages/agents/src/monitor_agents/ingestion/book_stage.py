@@ -109,6 +109,9 @@ def create_decomposition_job(
             source_id=source_job.source_id,
             doc_id=source_job.doc_id,
             source_title=f"{source_job.source_title} (decomposition)",
+            # Inherit the source job's creator so the strict job-owner check
+            # treats decomposition jobs exactly like their source run.
+            owner_id=source_job.owner_id,
             pipeline_stages=[IngestionStage.DECOMPOSE],
         )
     )

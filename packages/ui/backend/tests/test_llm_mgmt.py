@@ -341,6 +341,20 @@ def test_test_provider_google_ai_studio(mock_postgres):
             assert response.json()["ok"] is True
 
 
+def test_test_provider_error_response_never_contains_the_key(mock_postgres):
+    """UX-4: upstream failures echo a redacted message — no key in the body."""
+    mock_postgres.provider_get.return_value = _mock_provider_get("google_ai_studio")  # api_key "test-key"
+    with patch("monitor_ui.routers.llm_mgmt.get_postgres_client", return_value=mock_postgres):
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+            mock_post.side_effect = RuntimeError("upstream refused https://example.test/v1?key=test-key")
+            response = client.post("/providers/test-id/test")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert "test-key" not in body["error"]
+    assert "••••" in body["error"]
+
+
 def test_test_provider_google_ai_studio_models_prefix(mock_postgres):
     p = _mock_provider_get("google_ai_studio")
     p["model"] = "models/test-model"

@@ -393,6 +393,60 @@ def test_portrait_500_and_minio_cleanup_when_metadata_persistence_fails(
 
 
 # ---------------------------------------------------------------------------
+# Typed error mapping (UX-1): quota/tenancy refusals are not 502s
+# ---------------------------------------------------------------------------
+
+
+def _full_client():
+    """Client on the real app so the typed-error handlers in main are wired."""
+    from monitor_ui.main import app
+
+    return TestClient(app)
+
+
+def test_portrait_quota_error_maps_to_429(fake_adapter, mock_storage, mock_create_asset, mock_context, mock_settings):
+    from monitor_data.usage import QuotaExceededError
+
+    with (
+        patch.object(image_gen, "get_character", return_value=dict(CHAR)),
+        patch.object(image_gen, "resolve_image_adapter", new=AsyncMock(return_value=fake_adapter)),
+        patch.object(
+            image_gen,
+            "dispatch_image_generation",
+            new=AsyncMock(side_effect=QuotaExceededError("token", 1)),
+        ),
+    ):
+        res = _full_client().post("/api/image/portrait", json={"character_id": "c-1"})
+
+    assert res.status_code == 429, res.text
+    assert "limit" in res.json()["detail"].lower()
+    mock_create_asset.assert_not_called()
+    mock_storage.upload.assert_not_awaited()
+
+
+def test_portrait_owner_violation_maps_to_404(
+    fake_adapter, mock_storage, mock_create_asset, mock_context, mock_settings
+):
+    from monitor_data.tenancy import OwnerViolationError
+
+    with (
+        patch.object(image_gen, "get_character", return_value=dict(CHAR)),
+        patch.object(image_gen, "resolve_image_adapter", new=AsyncMock(return_value=fake_adapter)),
+        patch.object(
+            image_gen,
+            "dispatch_image_generation",
+            new=AsyncMock(side_effect=OwnerViolationError("foreign")),
+        ),
+    ):
+        res = _full_client().post("/api/image/portrait", json={"character_id": "c-1"})
+
+    assert res.status_code == 404, res.text
+    assert res.json() == {"detail": "Not found"}
+    mock_create_asset.assert_not_called()
+    mock_storage.upload.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
 # Scene endpoint
 # ---------------------------------------------------------------------------
 

@@ -35,6 +35,8 @@ from monitor_data.db.postgres import get_postgres_client
 from monitor_ui.auth import Principal, get_current_user, usage_quota_guard
 from monitor_ui.ownership import require_character_owner, resource_route_guard
 from monitor_data.schemas.llm_config import ModelRole
+from monitor_data.tenancy import OwnerViolationError
+from monitor_data.usage import QuotaExceededError
 
 logger = structlog.get_logger()
 
@@ -132,6 +134,8 @@ async def _plain_non_stream(body: ChatCompletionRequest) -> ChatCompletionRespon
     msgs = [m.model_dump() for m in body.messages]
     try:
         text = await client.complete_text(msgs, **_sampling_overrides(body))
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         logger.warning("openai_completions_failed", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Upstream LM call failed: {exc}") from exc
@@ -258,6 +262,8 @@ async def _resolve_session_conversation(
             )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (QuotaExceededError, OwnerViolationError):
+            raise
         except Exception as exc:
             logger.warning("openai_session_start_failed", exc_info=True)
             raise HTTPException(status_code=502, detail=f"Could not open a conversation: {exc}") from exc
@@ -312,6 +318,8 @@ async def _session_stream(body: ChatCompletionRequest) -> StreamingResponse:
             status_code=409,
             detail=f"Conversation {conversation_id} is no longer active.",
         ) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         logger.warning("openai_session_send_failed", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Send failed: {exc}") from exc
@@ -399,6 +407,8 @@ async def _session_non_stream(body: ChatCompletionRequest) -> ChatCompletionResp
             status_code=409,
             detail=f"Conversation {conversation_id} is no longer active.",
         ) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         logger.warning("openai_session_send_failed", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Send failed: {exc}") from exc

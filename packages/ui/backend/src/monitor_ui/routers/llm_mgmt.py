@@ -24,10 +24,41 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from monitor_ui.auth import require_admin
-from monitor_data.db.postgres import get_postgres_client
+from monitor_ui.config import get_settings
+from monitor_data.db.postgres import (
+    decrypt_provider_api_key,
+    get_postgres_client,
+    provider_key_encryption_enabled,
+)
 from pydantic import BaseModel
 
 log = structlog.get_logger()
+
+
+def _require_encryption_for_key_save(api_key: str | None) -> None:
+    """UX-4: refuse to persist key material without encryption outside local mode.
+
+    With ``MONITOR_AUTH_DISABLED=false`` a provider API key may only be
+    saved when ``MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`` is configured (the
+    ``provider_upsert`` path encrypts on write). Local mode keeps the
+    one-time startup warning and may store plaintext. Keyless writes are
+    always allowed.
+    """
+    if not (api_key or "").strip():
+        return
+    if provider_key_encryption_enabled():
+        return
+    if get_settings().monitor_auth_disabled:
+        return
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "Refusing to save a provider API key: MONITOR_PROVIDER_KEY_ENCRYPTION_KEY "
+            "is unset while authentication is enabled. Generate a Fernet key "
+            '(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"), '
+            "set it in the environment, and retry."
+        ),
+    )
 
 
 def _invalidate_llm_cache() -> None:
@@ -228,13 +259,28 @@ def _resolve_model(env_var: str, existing: str, fallback: str) -> str:
     return existing or os.getenv(env_var, "").strip() or fallback
 
 
+def _redact_secret(message: str, secret: str | None) -> str:
+    """Strip key material from an error string before it reaches a client.
+
+    UX-4: no response or log derived from this message may contain a key.
+    """
+    if secret and secret in message:
+        return message.replace(secret, "••••••••")
+    return message
+
+
 def _mask_key(key: str | None) -> str | None:
-    """Mask a stored key for API responses: only the last 4 characters."""
+    """Mask a stored key for API responses: only the last 4 characters.
+
+    Decrypts first so the last-4 shown is the last-4 of the real key even
+    when the row is Fernet ciphertext; the plaintext is never returned.
+    """
     if not key:
         return None
-    if len(key) <= 8:
+    plain = decrypt_provider_api_key(key)
+    if len(plain) <= 8:
         return "••••••••"
-    return "••••••••" + key[-4:]
+    return "••••••••" + plain[-4:]
 
 
 # reason: bare adapter from raw dict[str, Any] (from MongoDB / provider registry) to typed LLMProvider Pydantic model; subscript accesses on `p` can't be narrowed statically
@@ -564,6 +610,20 @@ async def _maybe_seed_from_env() -> None:
         with suppress(Exception):
             await postgres.provider_delete("zai-default")
 
+    # UX-4: never seed key material as plaintext outside local mode —
+    # profiles are still created (so the admin can fill them in after
+    # setting MONITOR_PROVIDER_KEY_ENCRYPTION_KEY), just without keys.
+    if not provider_key_encryption_enabled() and not get_settings().monitor_auth_disabled:
+        for profile in builtin_profiles:
+            profile["api_key"] = ""
+        log.warning(
+            "provider_key_seed_withheld",
+            detail=(
+                "MONITOR_PROVIDER_KEY_ENCRYPTION_KEY is unset with auth enabled; "
+                "built-in provider profiles were seeded WITHOUT their API keys."
+            ),
+        )
+
     for profile in builtin_profiles:
         with suppress(Exception):
             await postgres.provider_upsert(profile)
@@ -613,6 +673,7 @@ async def add_provider(body: LLMProviderCreate) -> LLMProvider:
         "latency_ms": None,
         "is_default": body.is_default,
     }
+    _require_encryption_for_key_save(new_provider["api_key"])
     await postgres.provider_upsert(new_provider)
     _invalidate_llm_cache()
     return _to_response(new_provider)
@@ -629,6 +690,7 @@ async def update_provider(provider_id: str, body: LLMProviderUpdate) -> LLMProvi
     # merging "" used to silently destroy stored credentials (T-049).
     if not str(update.get("api_key") or "").strip():
         update.pop("api_key", None)
+    _require_encryption_for_key_save(update.get("api_key"))
     merged = {**existing, **update}
     if update.get("is_default"):
         # One default per tier (see add_provider); the role may change in this
@@ -680,6 +742,7 @@ async def duplicate_provider(provider_id: str, body: DuplicateProviderBody | Non
         "latency_ms": None,
         "is_default": False,
     }
+    _require_encryption_for_key_save(new_provider["api_key"])
     await postgres.provider_upsert(new_provider)
     _invalidate_llm_cache()
     return _to_response(new_provider)
@@ -796,8 +859,10 @@ async def test_provider(provider_id: str) -> TestResult:
             normalized_model = model if model.startswith("models/") else f"models/{model}"
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/{normalized_model}:generateContent?key={api_key}",
-                    headers={"Content-Type": "application/json"},
+                    # Key travels in a header, never the URL: httpx exception
+                    # messages echo the URL, and this response returns them.
+                    f"https://generativelanguage.googleapis.com/v1beta/{normalized_model}:generateContent",
+                    headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
                     json={"contents": [{"parts": [{"text": "ping"}]}]},
                 )
                 resp.raise_for_status()
@@ -950,7 +1015,8 @@ async def test_provider(provider_id: str) -> TestResult:
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in test_provider)
         with suppress(Exception):
             await postgres.provider_upsert({**p, "status": "error", "latency_ms": None})
-        return TestResult(ok=False, error=str(exc))
+        # UX-4: an upstream error must never echo key material to the client.
+        return TestResult(ok=False, error=_redact_secret(str(exc), api_key))
     finally:
         _invalidate_llm_cache()
 
@@ -1040,7 +1106,10 @@ async def list_models(provider: str) -> list[str]:
 
         elif provider == "google_ai_studio" and api_key:
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}")
+                resp = await client.get(
+                    "https://generativelanguage.googleapis.com/v1beta/models",
+                    headers={"x-goog-api-key": api_key},
+                )
                 if resp.status_code == 200:
                     data = resp.json().get("models", [])
                     return [

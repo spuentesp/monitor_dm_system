@@ -121,3 +121,22 @@ class PlayerView(BaseModel):
     character_id: UUID | None = None
     artifacts: list[PlayerArtifactSummary] = Field(default_factory=list)
     characters: list[PlayerShareCharacter] = Field(default_factory=list)
+
+
+class PlayerArtifact(BaseModel):
+    """Player-safe artifact body for the public /share/{token}/... detail routes.
+
+    Deliberately narrower than :class:`SharedArtifact`: a token holder must
+    never see the GM's ``owner_id``, the internal ``universe_id`` /
+    ``source_fact_ids`` / ``session_id``, or the ``published`` flag (they
+    only ever reach published artifacts anyway).
+    """
+
+    id: UUID
+    story_id: UUID
+    artifact_type: ShareArtifactType
+    title: str = Field(min_length=1, max_length=300)
+    content: str = Field(description="Markdown body shown to players")
+    spoiler_level: ShareSpoilerLevel = ShareSpoilerLevel.PARTY
+    scope_character_id: UUID | None = None
+    updated_at: datetime

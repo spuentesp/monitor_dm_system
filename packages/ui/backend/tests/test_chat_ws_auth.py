@@ -116,9 +116,12 @@ def _make_session_doc(chat_col: FakeCollection, owner_id: str, session_id: str |
 class TestWebSocketAuth:
     def test_unauthenticated_ws_rejected_before_accept(self, client, chat_col):
         sid = _make_session_doc(chat_col, str(uuid4()))["id"]
-        with pytest.raises(WebSocketDisconnect):
+        with pytest.raises(WebSocketDisconnect) as exc:
             with client.websocket_connect(f"/api/chat/ws/{sid}"):
                 pass
+        # 4401 = unauthenticated (get_current_ws_principal raises
+        # WebSocketException(4401) before the handler ever runs).
+        assert exc.value.code == 4401
 
     def test_foreign_session_ws_rejected(self, client, chat_col, fake_db):
         owner = _signup(client, "a@example.com", "alice")
@@ -128,6 +131,15 @@ class TestWebSocketAuth:
         _signup(client_b, "b@example.com", "bob")
         with pytest.raises(WebSocketDisconnect) as exc:
             with client_b.websocket_connect(f"/api/chat/ws/{sid}", headers=_session_cookie_header(client_b)):
+                pass
+        assert exc.value.code == 4404
+
+    def test_missing_session_ws_rejected(self, client, chat_col):
+        """A nonexistent session id closes with the same 4404 as a foreign one
+        (plan D4: missing and foreign are indistinguishable)."""
+        _signup(client, "a@example.com", "alice")
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect(f"/api/chat/ws/{uuid4()}", headers=_session_cookie_header(client)):
                 pass
         assert exc.value.code == 4404
 

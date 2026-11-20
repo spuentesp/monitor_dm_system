@@ -91,6 +91,8 @@ from monitor_data.tools.mongodb_tools.generated_assets import mongodb_create_gen
 from monitor_data.tools.mongodb_tools.image_settings import (
     mongodb_get_image_generation_settings,
 )
+from monitor_data.tenancy import OwnerViolationError
+from monitor_data.usage import QuotaExceededError
 from pydantic import BaseModel, Field
 
 from monitor_ui.image_budget import (
@@ -266,6 +268,8 @@ async def _generate(
         )
     except HTTPException:
         raise
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _generate)
         raise HTTPException(status_code=502, detail=f"Image provider failed (retryable): {exc}")
 
@@ -421,6 +425,8 @@ def _identity_provenance(context: CanonicalVisualContext | None) -> tuple[UUID |
 async def _upload(minio: MinIOClient, key: str, png: bytes) -> None:
     try:
         await minio.upload(key, png, content_type="image/png")
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in _upload)
         raise HTTPException(status_code=502, detail=f"Image storage failed (retryable): {exc}")
 
@@ -433,6 +439,8 @@ async def _persist_asset(minio: MinIOClient, params: GeneratedAssetCreate) -> Ge
     """
     try:
         return mongodb_create_generated_asset(params)
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in _persist_asset)
         log.error(
             "image_gen.asset_persistence_failed",

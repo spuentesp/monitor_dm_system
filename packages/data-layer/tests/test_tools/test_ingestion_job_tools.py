@@ -924,3 +924,71 @@ def test_update_ingestion_job_warnings_append_remains_capped(monkeypatch):
     )
     assert len(updated_job.warnings) == 100
     assert updated_job.warnings[-1] == "warning 150"
+
+
+# =============================================================================
+# OWNER STAMPING (UX-1: strict creator match needs a stamped owner)
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def _clean_owner_ctx():
+    """Every test starts and ends with no acting owner bound."""
+    from monitor_data.tenancy import set_owner_id
+
+    set_owner_id(None)
+    yield
+    set_owner_id(None)
+
+
+def _patch_fake(monkeypatch) -> _FakeMongo:
+    fake_mongo = _FakeMongo()
+    monkeypatch.setattr(
+        "monitor_data.tools.mongodb_tools.ingestion_jobs.get_mongodb_client",
+        lambda: fake_mongo,
+    )
+    return fake_mongo
+
+
+def test_create_stamps_acting_owner(monkeypatch):
+    """A job created under a bound owner records that owner on the doc."""
+    from monitor_data.tenancy import set_owner_id
+
+    fake_mongo = _patch_fake(monkeypatch)
+    owner = str(uuid4())
+    set_owner_id(owner)
+    job = mongodb_create_ingestion_job(
+        IngestionJobCreate(universe_id=uuid4(), source_id=uuid4(), doc_id=uuid4(), source_title="S")
+    )
+    assert job.owner_id == owner
+    assert fake_mongo.collection.jobs[str(job.job_id)]["owner_id"] == owner
+    # The response round-trips it (strict checks read the response object).
+    assert mongodb_get_ingestion_job(job.job_id).owner_id == owner
+
+
+def test_create_without_owner_context_leaves_none(monkeypatch):
+    """No owner in context (workers, scripts, local mode) = no stamp."""
+    _patch_fake(monkeypatch)
+    job = mongodb_create_ingestion_job(
+        IngestionJobCreate(universe_id=uuid4(), source_id=uuid4(), doc_id=uuid4(), source_title="S")
+    )
+    assert job.owner_id is None
+
+
+def test_create_explicit_owner_wins_over_context(monkeypatch):
+    """An explicit owner_id param is never overwritten by the context owner."""
+    from monitor_data.tenancy import set_owner_id
+
+    _patch_fake(monkeypatch)
+    explicit = str(uuid4())
+    set_owner_id(str(uuid4()))
+    job = mongodb_create_ingestion_job(
+        IngestionJobCreate(
+            universe_id=uuid4(),
+            source_id=uuid4(),
+            doc_id=uuid4(),
+            source_title="S",
+            owner_id=explicit,
+        )
+    )
+    assert job.owner_id == explicit

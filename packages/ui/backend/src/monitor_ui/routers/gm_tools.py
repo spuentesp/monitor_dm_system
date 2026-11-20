@@ -110,6 +110,8 @@ from monitor_data.tools.neo4j_tools import (
     neo4j_list_relationships,
     neo4j_search_entities,
 )
+from monitor_data.tenancy import OwnerViolationError
+from monitor_data.usage import QuotaExceededError
 from monitor_data.utils.dice import roll_dice
 from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
 from monitor_ui.ownership import (
@@ -370,6 +372,8 @@ async def suggest_hooks(
             max_hooks=req.max_hooks,
         )
         return SuggestHooksResponse(hooks=hooks)
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to suggest hooks: {exc}") from exc
 
@@ -392,6 +396,8 @@ async def detect_contradictions(
             scene_id=req.scene_id,
         )
         return DetectContradictionsResponse(contradictions=contradictions)
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to detect contradictions: {exc}") from exc
 
@@ -412,6 +418,8 @@ async def generate_session_prep(
             session_number=req.session_number,
         )
         return SessionPrepResponse(prep=prep)
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to generate session prep: {exc}") from exc
 
@@ -435,6 +443,8 @@ async def generate_handout(
             story_id=req.story_id,
         )
         return GenerateHandoutResponse(handout=handout)
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to generate handout: {exc}") from exc
 
@@ -493,6 +503,8 @@ async def check_capture_contradiction(
             universe_id=req.universe_id,
             entry_text=req.entry_text,
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning(
             "capture_contradiction_check_failed",
@@ -615,6 +627,8 @@ async def capture_entry_insights(
             universe_id=req.universe_id,
             entry_text=req.entry_text,
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning(
             "capture_insights_failed",
@@ -670,6 +684,8 @@ async def resolve_contradiction(
                 proposal_type="contradiction_resolution",
             ),
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning(
             "contradiction_resolution_failed",
@@ -707,6 +723,8 @@ async def save_hook(
                 ),
             ),
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("hook_save_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to save hook: {exc}") from exc
@@ -729,6 +747,8 @@ async def generate_prep_item(
             category=req.category,
             description=req.description,
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("prep_item_generation_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to generate prep item: {exc}") from exc
@@ -963,6 +983,8 @@ async def prep_extract(
     agent = GmTableAgent()
     try:
         return await agent.extract_prep(universe_id=req.universe_id, notes=req.notes)
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("prep_extract_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to extract prep items: {exc}") from exc
@@ -999,6 +1021,8 @@ async def prep_commit(
         )
         try:
             thread = await asyncio.to_thread(neo4j_create_plot_thread, plot_thread)
+        except (QuotaExceededError, OwnerViolationError):
+            raise
         except Exception as exc:
             log.warning("prep_thread_commit_failed", title=item.title, error=str(exc))
             raise HTTPException(status_code=500, detail=f"Failed to save thread '{item.title}': {exc}") from exc
@@ -1062,6 +1086,8 @@ async def prep_commit(
                 source=f"prep_bundle:{bundle_id}",
             ),
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("prep_bundle_save_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to save the prep bundle: {exc}") from exc
@@ -1189,6 +1215,8 @@ async def advance_world_clock(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("clock_advance_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to advance world time: {exc}") from exc
@@ -1255,6 +1283,8 @@ async def upsert_clock_deadline(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("clock_deadline_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to save deadline: {exc}") from exc
@@ -1337,6 +1367,8 @@ async def lookup_party_knowledge(
             character_ids=character_ids,
             topic=req.topic,
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("party_knowledge_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to look up party knowledge: {exc}") from exc
@@ -1437,6 +1469,8 @@ async def lookup_improvise(
             suggestions=list(complications.complications),
             rationale=complications.rationale,
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("improvise_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to generate suggestions: {exc}") from exc
@@ -1463,6 +1497,8 @@ async def lookup_rules(
     agent = GmTableAgent()
     try:
         return await agent.answer_rules(system_id=system_id, question=req.question)
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("rules_lookup_failed", system_id=str(system_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to answer the rules question: {exc}") from exc
@@ -1529,6 +1565,8 @@ async def session_log_propose(
             req.universe_id,
             [item.statement for item in statements],
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("session_log_analysis_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(
@@ -2160,6 +2198,8 @@ async def combat_start(
         return await agent.start_encounter(req)
     except ValueError as exc:
         raise _combat_error(exc) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("combat_start_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to start combat: {exc}") from exc
@@ -2179,6 +2219,8 @@ async def combat_get(
         state = await agent.get_state(universe_id, session_id)
     except ValueError as exc:
         raise _combat_error(exc) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("combat_get_failed", universe_id=str(universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to load combat: {exc}") from exc
@@ -2212,6 +2254,8 @@ async def combat_set_initiative_route(
         )
     except ValueError as exc:
         raise _combat_error(exc) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("combat_initiative_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to set initiative: {exc}") from exc
@@ -2255,6 +2299,8 @@ async def combat_patch_combatant(
         )
     except ValueError as exc:
         raise _combat_error(exc) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning(
             "combat_update_combatant_failed",
@@ -2279,6 +2325,8 @@ async def combat_next_round_route(
         return await agent.next_round(CombatNextRound(universe_id=req.universe_id, session_id=session_id))
     except ValueError as exc:
         raise _combat_error(exc) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("combat_next_round_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to advance round: {exc}") from exc
@@ -2304,6 +2352,8 @@ async def combat_end_route(
         state = await agent.get_state(req.universe_id, session_id)
     except ValueError as exc:
         raise _combat_error(exc) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("combat_end_get_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to load combat: {exc}") from exc
@@ -2324,6 +2374,8 @@ async def combat_end_route(
         state = await agent.end_encounter(CombatEnd(universe_id=req.universe_id, session_id=session_id))
     except ValueError as exc:
         raise _combat_error(exc) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("combat_end_failed", universe_id=str(req.universe_id), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to end combat: {exc}") from exc
@@ -2412,6 +2464,8 @@ async def combat_explain_condition(
     agent = CombatAgent()
     try:
         return await agent.explain_condition(req.condition, system_id=system_id, system_name=system_name)
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning(
             "combat_condition_explain_failed",
@@ -2493,6 +2547,8 @@ async def check_encounter_difficulty(
             party=[member.model_dump(mode="json") for member in req.party],
             system_doc=system_doc,
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning(
             "encounter_difficulty_failed",
@@ -2580,6 +2636,8 @@ async def audit_character_knowledge(
     await require_universe_owner(db, principal, uid)
     try:
         audit = await KnowledgeAuditAgent().audit(entity_id=eid, universe_id=uid, offset=offset)
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("knowledge_audit_failed", entity_id=str(eid), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to audit knowledge: {exc}") from exc
@@ -2616,6 +2674,8 @@ async def challenge_character_knowledge(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("knowledge_challenge_failed", entity_id=str(eid), error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to stage the correction: {exc}") from exc
@@ -2707,6 +2767,8 @@ async def transcribe_audio(
         await get_minio_client().upload(
             key=object_key, data=audio, content_type=content_type
         )
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("audio_upload_failed", key=object_key, error=str(exc))
         raise HTTPException(
@@ -2732,6 +2794,8 @@ async def transcribe_audio(
         except Exception as cleanup_exc:  # noqa: BLE001  # preserve the transcription failure
             log.warning("audio_cleanup_failed", key=object_key, error=str(cleanup_exc))
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         try:
             await get_minio_client().delete(object_key)
@@ -2851,6 +2915,8 @@ async def queue_audio_segment(
             log.warning("audio_segment_proposal_errors", entry_id=entry_id, errors=errors)
     except AudioCaptureError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:
         log.warning("audio_segment_queue_failed", error=str(exc))
         raise HTTPException(
