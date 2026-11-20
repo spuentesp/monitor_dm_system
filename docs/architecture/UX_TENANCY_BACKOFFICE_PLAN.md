@@ -1,6 +1,6 @@
 # UX, Tenancy Verification, Accounts & Backoffice — Plan
 
-> **Status:** plan, 2026-11-19. Nothing here is implemented yet.
+> **Status:** implemented 2026-11-20 on branch `ux/integration` (not yet merged to master). Hermetic suites green; the live two-user pass (UX-0/UX-1 step 1) and SMTP delivery are NOT yet exercised against a real stack. See "Implementation status" at the end.
 > **Audience for this release:** a handful of invited users (not open signup).
 > **Decisions (2026-11-19):**
 > - Providers: **admin-only.** Keys stay behind admin in one shared pool; no per-user keys (BYOK dropped 2026-11-20).
@@ -140,3 +140,16 @@ Total ≈ 7–8 weeks for one person; ≈ 4–5 with parallel agents on UX-5/6/7
 ## Open items
 
 - SMTP provider/credentials (needed only for the email reset path).
+
+## Implementation status (2026-11-20)
+
+| Phase | State |
+|---|---|
+| UX-0 baseline | Hermetic only (full suite 10,553 passed, mypy/ruff/layer check clean). **Live walkthrough not done** — needs an isolated stack, not the dev databases. |
+| UX-1 tenancy | Write-tool guards (lorebook, packs, play sessions, combat, game systems), typed-error re-raise, strict ingest creator match, share-link fix, WS close-code tests done. **Live adversarial pass still to do.** Remaining HTTP-only write families listed in MULTI_TENANCY_PLAN §4. |
+| UX-2 accounts | Invites, signup modes, password reset (email + admin link), single-session revoke, login/forgot/reset pages, account page, AuthGate. Email delivery untested against a real SMTP server. |
+| UX-3 admin | Users/Invites/Usage/Providers tabs, confirmations, reset link, revoke sessions. |
+| UX-4 provider keys | Admin-only; encrypted saves enforced outside local mode. |
+| UX-5 GM Assistant | Page split, stepper, first-run, shortcuts, cancel, quota message. |
+| UX-6 Auto GM | PlayConsole split, reconnect/cancel, rewind-based undo/edit/regenerate, canon badge, quick start, mobile. Known limit: ConversationLoop memory and the Mongo SceneLoop checkpoint are not rolled back by rewind. |
+| UX-7 cross-cutting | Sidebar user menu, admin links hidden for non-admins, aria-live/labels in play. Playwright e2e not written. |
