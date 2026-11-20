@@ -252,9 +252,22 @@ stored on state). What remains is breadth, not mechanism:
 | Env var | Default | Meaning |
 |---------|---------|---------|
 | `MONITOR_AUTH_DISABLED` | `false` | local admin mode (never on a reachable host) |
+| `MONITOR_SIGNUP_MODE` | `invite` | `invite` (valid single-use invite token required for `/api/auth/signup` and Google first-login) \| `open` \| `closed` (always refuses new accounts) |
+| `MONITOR_SMTP_HOST` | unset | SMTP host for emailed password resets; unset = `/api/auth/config` reports `email_reset=false` and forgot-password answers 202 without sending |
+| `MONITOR_SMTP_PORT` | `587` | SMTP port |
+| `MONITOR_SMTP_USER` / `MONITOR_SMTP_PASSWORD` | unset | SMTP credentials (authenticated only when the user is set) |
+| `MONITOR_SMTP_FROM` | unset | From address for reset emails; falls back to the SMTP user, then `monitor@localhost` |
+| `MONITOR_SMTP_STARTTLS` | `true` | upgrade the SMTP connection with STARTTLS |
+| `MONITOR_PUBLIC_URL` | `http://localhost:3000` | absolute origin used to build `/reset-password?token=…` links in emails |
 | `MONITOR_PROVIDER_KEY_ENCRYPTION_KEY` | unset | Fernet key for `llm_providers.api_key`; unset = plaintext + one startup warning |
 | `MONITOR_DAILY_TOKEN_CAP` | unset | daily token cap per user (UTC day); unset = no cap |
 | `MONITOR_DAILY_CALL_CAP` | unset | daily model-call cap per user (UTC day); unset = no cap |
+
+Signup invites and password resets (UX-2/UX-3) store only SHA-256 hashes of
+their tokens (`invites`, `password_resets` — migration 4 in
+`monitor_data.db.postgres`); raw tokens are shown exactly once (admin create
+responses, the forgot-password email). Reset tokens live ≤1h, are single-use,
+and consuming one revokes ALL of that user's sessions without un-banning them.
 
 Per-user overrides (win over env): `user_usage_limits.daily_token_cap`,
 `.daily_call_cap`, `.exempt` — admin-managed via `/api/admin/usage/{id}/limits`.
