@@ -151,6 +151,19 @@ export function PlayMessageBubble({
           />
         )}
 
+        {/* Roll reasoning/breakdown — the payload carries roll_breakdown
+            alongside roll_detail; surface it next to the card instead of
+            hiding it behind the legacy-only branch below (UX-6). */}
+        {isGM && meta.roll_detail && meta.roll_breakdown && (
+          <div
+            data-testid="roll-reasoning"
+            className="mt-1.5 rounded-lg border border-purple-500/15 bg-purple-500/[0.03] px-2.5 py-1.5 text-[11px] text-purple-100/90"
+          >
+            <div className="font-medium text-purple-300/90">Reasoning</div>
+            <div className="mt-0.5">{meta.roll_breakdown}</div>
+          </div>
+        )}
+
         {/* Degraded-turn notice: the Narrator's own LLM call failed
             (rate limit / quota / auth) and it fell back to the GM's raw
             draft. The turn still has content, just unpolished — tell the
