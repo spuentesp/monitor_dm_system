@@ -104,7 +104,7 @@ export function Composer({
   const canSend = value.trim().length > 0 && !isTyping && !disabled;
 
   return (
-    <div className="px-6 pb-5 pt-3 border-t border-white/5">
+    <div className="px-3 pb-5 pt-3 border-t border-white/5 sm:px-6">
       {extraTop}
       {quickActions && quickActions.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-3">

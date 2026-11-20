@@ -79,6 +79,27 @@ describe("PlayMessageBubble", () => {
     expect(screen.getByText(/success/i)).toBeInTheDocument();
   });
 
+  it("surfaces the roll reasoning/breakdown alongside the dice card", () => {
+    render(
+      <PlayMessageBubble
+        msg={msg({
+          content: "You strike true.",
+          metadata: {
+            type: "scene_turn",
+            success_level: "success",
+            roll_detail: { spec: "1d20+3", total: 18, rolls: [15] },
+            roll_breakdown: "1d20+3(15) + 3 = 18 vs DC 14 = success",
+          },
+        })}
+      />,
+    );
+    const reasoning = screen.getByTestId("roll-reasoning");
+    expect(reasoning).toHaveTextContent("Reasoning");
+    expect(reasoning).toHaveTextContent("1d20+3(15) + 3 = 18 vs DC 14 = success");
+    // The card itself still renders next to it.
+    expect(screen.getByText("18")).toBeInTheDocument();
+  });
+
   it("renders the streaming cursor when msg.streaming is a string", () => {
     render(<PlayMessageBubble msg={msg({ content: "", streaming: "Streami" })} />);
     // The streaming text appears in the bubble.

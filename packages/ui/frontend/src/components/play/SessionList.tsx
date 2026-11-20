@@ -28,6 +28,11 @@ export interface SessionListProps {
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
   loading: boolean;
+  /**
+   * Drawer state for phone widths (UX-6). Below md the list is hidden
+   * unless open; at md and up it is always visible (static).
+   */
+  open?: boolean;
 }
 
 export function SessionList({
@@ -38,6 +43,7 @@ export function SessionList({
   onDelete,
   onRename,
   loading,
+  open = false,
 }: SessionListProps) {
   const [filter, setFilter] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -58,7 +64,16 @@ export function SessionList({
   };
 
   return (
-    <div className="glass flex flex-col border-r border-white/5 w-72 flex-shrink-0">
+    <div
+      data-testid="session-list"
+      data-open={open}
+      className={cn(
+        "glass flex flex-col border-r border-white/5 w-72 flex-shrink-0",
+        open
+          ? "fixed inset-y-0 left-0 z-40 shadow-2xl md:static md:shadow-none"
+          : "hidden md:flex",
+      )}
+    >
       <div className="flex items-center justify-between px-4 py-4 border-b border-white/5">
         <div>
           <span className="text-xs font-semibold text-slate-500 tracking-widest uppercase">
