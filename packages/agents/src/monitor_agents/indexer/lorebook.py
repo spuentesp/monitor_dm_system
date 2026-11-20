@@ -20,6 +20,8 @@ import re
 import dspy
 from monitor_data.schemas.lorebook import LorebookEntryDraft
 
+from monitor_agents.book_prompts import apply_fiction_preamble
+
 log = structlog.get_logger()
 
 # ---------------------------------------------------------------------------
@@ -28,6 +30,7 @@ log = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 
+@apply_fiction_preamble
 class LorebookKeywordExtractionSignature(dspy.Signature):  # type: ignore[misc]
     """Extract 3-8 lowercase trigger keywords from a piece of lore text.
 
@@ -45,6 +48,7 @@ class LorebookKeywordExtractionSignature(dspy.Signature):  # type: ignore[misc]
     )
 
 
+@apply_fiction_preamble
 class LorebookIngestionSignature(dspy.Signature):  # type: ignore[misc]
     """Propose one lorebook entry from a document chunk.
 
