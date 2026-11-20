@@ -28,6 +28,9 @@ export function DialogShell({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         className={cn(

@@ -1,59 +1,143 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, LogIn, UserPlus } from "lucide-react";
+import { Eye, EyeOff, Loader2, LogIn, UserPlus } from "lucide-react";
 import { ApiError, authApi } from "@/lib/api";
+import {
+  authErrorMessage,
+  sanitizeNextPath,
+  signUpFieldErrors,
+  type AuthFieldErrors,
+} from "@/lib/auth-errors";
 
-function authErrorMessage(error: unknown, mode: "login" | "signup"): string {
-  const status = error instanceof ApiError ? error.status : 0;
-  if (status === 429) return "Too many attempts. Please wait a minute and try again.";
-  if (status === 403) return "This account has been suspended.";
-  if (mode === "login") {
-    if (status === 401) return "Invalid login or password.";
-    return "Sign-in failed. Please try again.";
-  }
-  if (status === 409) return "An account with this email or username already exists.";
-  if (status === 422) return "Please check the form — some fields are invalid.";
-  return "Could not create the account. Please try again.";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_RE = /^[A-Za-z0-9_.-]+$/;
+
+function validateSignup(fields: {
+  email: string;
+  username: string;
+  password: string;
+  inviteCode: string;
+  inviteOnly: boolean;
+}): AuthFieldErrors {
+  const errs: AuthFieldErrors = {};
+  if (!fields.email.trim()) errs.email = "Email is required.";
+  else if (!EMAIL_RE.test(fields.email.trim())) errs.email = "Enter a valid email address.";
+  if (!fields.username.trim()) errs.username = "Username is required.";
+  else if (fields.username.trim().length < 3) errs.username = "Username must be at least 3 characters.";
+  else if (fields.username.length > 50) errs.username = "Username must be 50 characters or fewer.";
+  else if (!USERNAME_RE.test(fields.username)) errs.username = "Only letters, numbers, _ . and - are allowed.";
+  if (fields.password.length < 12) errs.password = "Password must be at least 12 characters.";
+  if (fields.inviteOnly && !fields.inviteCode.trim()) errs.invite = "Enter your invite code.";
+  return errs;
 }
 
-const ERROR_MESSAGES: Record<string, string> = {
-  invalid_state: "Sign-in session expired. Please try again.",
-  oauth_failed: "Google sign-in failed. Please try again.",
-  suspended: "This account has been suspended.",
-};
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <p role="alert" className="mt-1 text-xs text-red-300">
+      {message}
+    </p>
+  );
+}
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const [mode, setMode] = useState<"login" | "signup">("login");
+
+  const inviteParam = searchParams.get("invite");
+  const [mode, setMode] = useState<"login" | "signup">(inviteParam ? "signup" : "login");
   const [login, setLogin] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [inviteCode, setInviteCode] = useState(inviteParam ?? "");
+  const [showPassword, setShowPassword] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const safeNext = useMemo(
+    () => sanitizeNextPath(searchParams.get("next")) ?? "/",
+    [searchParams],
+  );
 
   const { data: config } = useQuery({
     queryKey: ["auth-config"],
     queryFn: authApi.config,
   });
 
+  const signupOpen = !!config?.signup_open;
+  const inviteOnly = !!config?.signup_invite_only;
+  const canCreateAccount = signupOpen || inviteOnly;
+
+  // Sign-ups are closed (MONITOR_SIGNUP_MODE=closed): never leave the form
+  // sitting in sign-up mode, even when someone deep-linked with ?invite=.
+  useEffect(() => {
+    if (config && mode === "signup" && !canCreateAccount) setMode("login");
+  }, [config, mode, canCreateAccount]);
+
   const errorParam = searchParams.get("error");
-  const oauthError = errorParam ? ERROR_MESSAGES[errorParam] ?? "Sign-in failed." : null;
+  const oauthError = errorParam
+    ? ERROR_MESSAGES[errorParam] ?? "Sign-in failed."
+    : null;
+  const banner = oauthError ?? formError;
+
+  const clearField = (field: keyof AuthFieldErrors) =>
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
 
   const authMutation = useMutation({
-    mutationFn: () =>
-      mode === "login"
-        ? authApi.login(login, password)
-        : authApi.signup(email, username, password, displayName),
+    mutationFn: () => {
+      if (mode === "login") return authApi.login(login, password);
+      return authApi.signup(
+        email.trim(),
+        username.trim(),
+        password,
+        displayName.trim(),
+        inviteCode.trim() || undefined,
+      );
+    },
     onSuccess: async () => {
+      setFormError(null);
+      setFieldErrors({});
       await queryClient.invalidateQueries({ queryKey: ["auth-me"] });
-      router.push("/");
+      router.push(safeNext);
+    },
+    onError: (error) => {
+      const errs = mode === "signup" ? signUpFieldErrors(error) : null;
+      setFieldErrors(errs ?? {});
+      const status = error instanceof ApiError ? error.status : 0;
+      const statusWarrantsBanner = status === 403 || status === 429;
+      const showBanner = statusWarrantsBanner || !errs || Object.keys(errs).length === 0;
+      setFormError(showBanner ? authErrorMessage(error, mode) : null);
     },
   });
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    if (mode === "signup") {
+      const errs = validateSignup({
+        email,
+        username,
+        password,
+        inviteCode,
+        inviteOnly,
+      });
+      setFieldErrors(errs);
+      if (Object.keys(errs).length > 0) return;
+    }
+    authMutation.mutate();
+  };
 
   return (
     <div className="flex-1 flex items-center justify-center p-8">
@@ -63,16 +147,25 @@ function LoginForm() {
           <p className="mt-1 text-sm text-slate-400">
             {mode === "login" ? "Sign in to your account" : "Create your account"}
           </p>
+          {mode === "signup" && inviteOnly && inviteParam && (
+            <p className="mt-2 text-xs text-cyan-300/90">Invite code applied — finish signing up below.</p>
+          )}
         </div>
 
-        {oauthError && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-            {oauthError}
+        {banner && (
+          <div
+            role="alert"
+            className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
+          >
+            {banner}
           </div>
         )}
-        {authMutation.isError && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-            {authErrorMessage(authMutation.error, mode)}
+        {config && mode === "signup" && !canCreateAccount && (
+          <div
+            role="alert"
+            className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300"
+          >
+            Sign-ups are currently closed.
           </div>
         )}
 
@@ -98,60 +191,122 @@ function LoginForm() {
           </>
         )}
 
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            authMutation.mutate();
-          }}
-        >
+        <form className="space-y-3" onSubmit={onSubmit} noValidate>
           {mode === "signup" && (
             <>
-              <input
-                className="input-cyber w-full text-sm"
-                placeholder="Email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-              <input
-                className="input-cyber w-full text-sm"
-                placeholder="Username"
-                required
-                minLength={3}
-                maxLength={50}
-                pattern="[A-Za-z0-9_.-]+"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-              <input
-                className="input-cyber w-full text-sm"
-                placeholder="Display name (optional)"
-                maxLength={200}
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-              />
+              <div>
+                <input
+                  className="input-cyber w-full text-sm"
+                  placeholder="Email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  aria-invalid={!!fieldErrors.email}
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    clearField("email");
+                  }}
+                />
+                <FieldError message={fieldErrors.email} />
+              </div>
+              <div>
+                <input
+                  className="input-cyber w-full text-sm"
+                  placeholder="Username"
+                  required
+                  minLength={3}
+                  maxLength={50}
+                  pattern="[A-Za-z0-9_.-]+"
+                  autoComplete="username"
+                  aria-invalid={!!fieldErrors.username}
+                  value={username}
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    clearField("username");
+                  }}
+                />
+                <FieldError message={fieldErrors.username} />
+              </div>
+              <div>
+                <input
+                  className="input-cyber w-full text-sm"
+                  placeholder="Display name (optional)"
+                  maxLength={200}
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                />
+              </div>
+              {(inviteOnly || inviteCode) && (
+                <div>
+                  <input
+                    className="input-cyber w-full text-sm font-mono"
+                    placeholder="Invite code"
+                    aria-label="Invite code"
+                    aria-invalid={!!fieldErrors.invite}
+                    value={inviteCode}
+                    onChange={(e) => {
+                      setInviteCode(e.target.value);
+                      clearField("invite");
+                    }}
+                  />
+                  <FieldError message={fieldErrors.invite} />
+                </div>
+              )}
             </>
           )}
           {mode === "login" && (
-            <input
-              className="input-cyber w-full text-sm"
-              placeholder="Email or username"
-              required
-              value={login}
-              onChange={(e) => setLogin(e.target.value)}
-            />
+            <div>
+              <input
+                className="input-cyber w-full text-sm"
+                placeholder="Email or username"
+                required
+                autoComplete="username"
+                value={login}
+                onChange={(e) => setLogin(e.target.value)}
+              />
+            </div>
           )}
-          <input
-            className="input-cyber w-full text-sm"
-            placeholder={mode === "signup" ? "Password (min 12 characters)" : "Password"}
-            type="password"
-            required
-            minLength={mode === "signup" ? 12 : 1}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <div>
+            <div className="relative">
+              <input
+                className="input-cyber w-full text-sm pr-10"
+                placeholder={mode === "signup" ? "Password (min 12 characters)" : "Password"}
+                type={showPassword ? "text" : "password"}
+                required
+                minLength={mode === "signup" ? 12 : 1}
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                aria-invalid={!!fieldErrors.password}
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  clearField("password");
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                title={showPassword ? "Hide password" : "Show password"}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <FieldError message={fieldErrors.password} />
+          </div>
+
+          {mode === "login" && (
+            <div className="text-right">
+              <Link
+                href="/forgot-password"
+                className="text-xs text-slate-400 underline-offset-2 hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={authMutation.isPending}
@@ -169,17 +324,58 @@ function LoginForm() {
         </form>
 
         {!config?.auth_disabled && (
-          <button
-            className="w-full text-center text-xs text-slate-400 underline-offset-2 hover:underline"
-            onClick={() => setMode(mode === "login" ? "signup" : "login")}
-          >
-            {mode === "login" ? "Need an account? Create one" : "Already have an account? Sign in"}
-          </button>
+          <div className="space-y-2 text-center text-xs text-slate-400">
+            {mode === "login" && signupOpen && (
+              <button
+                className="w-full text-center underline-offset-2 hover:underline"
+                onClick={() => {
+                  setMode("signup");
+                  setFormError(null);
+                  setFieldErrors({});
+                }}
+              >
+                Need an account? Create one
+              </button>
+            )}
+            {mode === "login" && inviteOnly && (
+              <button
+                className="w-full text-center underline-offset-2 hover:underline"
+                onClick={() => {
+                  setMode("signup");
+                  setFormError(null);
+                  setFieldErrors({});
+                }}
+              >
+                Have an invite?
+              </button>
+            )}
+            {mode === "login" && !canCreateAccount && config && (
+              <p className="text-slate-500">Don&apos;t have an account? Ask an admin for an invite.</p>
+            )}
+            {mode === "signup" && (
+              <button
+                className="w-full text-center underline-offset-2 hover:underline"
+                onClick={() => {
+                  setMode("login");
+                  setFormError(null);
+                  setFieldErrors({});
+                }}
+              >
+                Already have an account? Sign in
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
   );
 }
+
+const ERROR_MESSAGES: Record<string, string> = {
+  invalid_state: "Sign-in session expired. Please try again.",
+  oauth_failed: "Google sign-in failed. Please try again.",
+  suspended: "This account has been suspended.",
+};
 
 export default function LoginPage() {
   return (

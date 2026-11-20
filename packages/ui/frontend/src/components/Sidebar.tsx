@@ -17,14 +17,18 @@ import {
   MessagesSquare,
   Settings,
   ShieldCheck,
+  UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDismissRef } from "@/lib/useDismissRef";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 
 // ─── Navigation structure ──────────────────────────────────────
 // Two-tier hub IA (2026-07-31 spec): Lobby (player) / Workbench (builder) /
 // Configuration. World selection lives on universe cards; the old footer
 // WorldPicker/ModeSwitcher dropdowns are gone.
+// Configuration and Admin are operator-only: both are hidden entirely for
+// non-admins (section label included).
 
 const NAV_GROUPS_BASE = [
   {
@@ -52,16 +56,32 @@ const NAV_GROUPS_BASE = [
   },
 ] as const;
 
-function navGroups(isAdmin: boolean) {
-  if (!isAdmin) return NAV_GROUPS_BASE;
-  const groups = NAV_GROUPS_BASE.map((g) => ({ ...g, items: [...g.items] as typeof g.items }));
-  (groups[groups.length - 1].items as unknown as Array<Record<string, unknown>>).push({
-    href: "/admin",
-    icon: ShieldCheck,
-    label: "Admin",
-    sub: "Users, bans & roles",
-    accent: "emerald",
-  });
+type NavItemDef = {
+  href: string;
+  icon: typeof Home;
+  label: string;
+  sub: string;
+  accent: string;
+};
+
+type NavGroupDef = { id: string; label: string; items: NavItemDef[] };
+
+function navGroups(isAdmin: boolean): NavGroupDef[] {
+  const visible = NAV_GROUPS_BASE.filter((g) => isAdmin || g.id !== "configuration");
+  const groups: NavGroupDef[] = visible.map((g) => ({
+    id: g.id,
+    label: g.label,
+    items: g.items.map((i) => ({ ...i, icon: i.icon as typeof Home, accent: i.accent as string })),
+  }));
+  if (isAdmin) {
+    groups[groups.length - 1].items.push({
+      href: "/admin",
+      icon: ShieldCheck,
+      label: "Admin",
+      sub: "Users, invites & roles",
+      accent: "emerald",
+    });
+  }
   return groups;
 }
 
@@ -94,16 +114,19 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: me } = useQuery({ queryKey: ["auth-me"], queryFn: authApi.me, retry: false, staleTime: 60_000 });
   const isAdmin = !!me?.user.is_admin;
+  const menuRef = useDismissRef<HTMLDivElement>(() => setMenuOpen(false), menuOpen);
   const logout = async () => {
     try { await authApi.logout(); } catch { /* already logged out */ }
     queryClient.clear();
     router.push("/login");
   };
+  const displayName = me?.user.display_name || me?.user.username || "";
 
   return (
     <motion.nav
@@ -244,14 +267,54 @@ export function Sidebar() {
           )}
         </AnimatePresence>
         <ConnectionStatus />
-        {!collapsed && me && !me.auth_disabled && (
-          <button
-            onClick={logout}
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-500 hover:text-red-300 hover:bg-red-500/10 transition-all duration-150 text-xs"
-            title="Log out"
-          >
-            <LogOut className="w-3.5 h-3.5" /> Log out ({me.user.username})
-          </button>
+        {!collapsed && me && (
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label="Account menu"
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-all duration-150 text-xs"
+              title="Account menu"
+            >
+              <UserRound className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="flex-1 min-w-0 text-left truncate">{displayName}</span>
+              <ChevronRight className={cn("w-3 h-3 transition-transform", menuOpen && "rotate-90")} />
+            </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                className="absolute bottom-full mb-1 left-1 right-1 min-w-44 rounded-xl border border-white/10 bg-[#0b1220] shadow-2xl overflow-hidden z-20"
+              >
+                <div className="px-3 py-2 border-b border-white/5">
+                  <div className="text-xs font-medium text-slate-200 truncate">{displayName}</div>
+                  {me.user.email && (
+                    <div className="text-[10px] text-slate-500 truncate">{me.user.email}</div>
+                  )}
+                </div>
+                <Link
+                  href="/settings/account"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-2 px-3 py-2 text-xs text-slate-300 hover:bg-white/5 transition-colors"
+                >
+                  <UserRound className="h-3.5 w-3.5" /> Account
+                </Link>
+                {!me.auth_disabled && (
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void logout();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-300 hover:bg-red-500/10 transition-colors"
+                  >
+                    <LogOut className="h-3.5 w-3.5" /> Sign out
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
         <button
           onClick={() => setCollapsed((c) => !c)}
