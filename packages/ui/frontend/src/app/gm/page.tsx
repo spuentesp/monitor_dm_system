@@ -43,6 +43,7 @@ import {
   type GmStep,
 } from "@/components/gm/GmStepper";
 import { WrapUpModal } from "@/components/gm/WrapUpModal";
+import { FirstRunGuide, FirstUseTour } from "@/components/gm/FirstRunGuide";
 import { useGmPanelPrefs, visibleOrderedPanels } from "@/lib/gm-panel-prefs";
 import { useWorldContext } from "@/lib/world-context";
 import { cn } from "@/lib/utils";
@@ -223,6 +224,8 @@ function GMAssistantPageContent() {
         </div>
       </div>
 
+      <FirstUseTour />
+
       {/* Three-panel layout (desktop: side by side, controlled via tab on mobile) */}
       <div className="flex-1 overflow-hidden">
         <div className="hidden xl:flex h-full">
@@ -266,10 +269,7 @@ function GMAssistantPageContent() {
                 universeId ? (
                   <SessionRecorder universeId={universeId} universeLabel={universeLabel} onActiveStoryChange={setActiveStoryId} onActiveSessionChange={setActiveSessionId} />
                 ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center text-center space-y-2 px-4">
-                    <Mic className="w-8 h-8 text-slate-700" />
-                    <p className="text-xs text-slate-600">Select a universe to record a session into it</p>
-                  </div>
+                  <FirstRunGuide />
                 )
               ) : (
                 <SessionNotebook universeId={universeId} multiverseId={multiverseId} storyId={activeStoryId} />
@@ -385,10 +385,7 @@ function GMAssistantPageContent() {
                   {universeId ? (
                     <SessionRecorder universeId={universeId} universeLabel={universeLabel} onActiveStoryChange={setActiveStoryId} onActiveSessionChange={setActiveSessionId} />
                   ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center text-center space-y-2 px-4">
-                      <Mic className="w-8 h-8 text-slate-700" />
-                      <p className="text-xs text-slate-600">Select a universe to record a session into it</p>
-                    </div>
+                    <FirstRunGuide />
                   )}
                 </div>
               )}
