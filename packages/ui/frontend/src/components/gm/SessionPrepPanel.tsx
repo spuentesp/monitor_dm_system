@@ -6,6 +6,7 @@ import { ClipboardList, Loader2, Sparkles } from "lucide-react";
 import { gmApi, storiesApi } from "@/lib/api";
 import type { SessionPrep, PrepItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { gmErrorMessage } from "@/components/gm/gmErrors";
 import { DifficultyBadge } from "@/components/gm/DifficultyBadge";
 
 export function SessionPrepPanel({ universeId }: { universeId: string | null }) {
@@ -100,7 +101,9 @@ export function SessionPrepPanel({ universeId }: { universeId: string | null }) 
           </div>
         )}
         {mutation.isError && (
-          <div className="text-xs text-red-400 text-center py-4">Failed to generate session prep. Try again.</div>
+          <div className="text-xs text-red-400 text-center py-4">
+            {gmErrorMessage(mutation.error, "Failed to generate session prep. Try again.")}
+          </div>
         )}
         {prep && (
           <>

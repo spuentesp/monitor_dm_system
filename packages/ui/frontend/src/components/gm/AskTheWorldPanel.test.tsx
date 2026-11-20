@@ -65,6 +65,23 @@ describe("AskTheWorldPanel", () => {
     expect(screen.queryByText(/no canon found/i)).not.toBeInTheDocument();
   });
 
+  it("shows the daily-limit copy when the search hits the 429 cap", async () => {
+    vi.mocked(api.searchApi.universeSearch).mockRejectedValue(
+      new api.ApiError(429, '{"detail":"over cap"}'),
+    );
+    const user = userEvent.setup();
+    render(<AskTheWorldPanel universeId="u-1" />);
+
+    await user.type(screen.getByPlaceholderText(/ask the world/i), "Who rules?");
+    await user.click(screen.getByRole("button", { name: /ask/i }));
+
+    expect(
+      await screen.findByText(
+        "Daily limit reached - resets 00:00 UTC. Ask your admin to raise it.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("prompts for a universe when none is selected", () => {
     render(<AskTheWorldPanel universeId={null} />);
     expect(screen.getByText(/select a universe/i)).toBeInTheDocument();

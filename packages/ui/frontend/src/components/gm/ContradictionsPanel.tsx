@@ -6,6 +6,7 @@ import { AlertTriangle, Loader2, RefreshCw, X } from "lucide-react";
 import { gmApi, storiesApi } from "@/lib/api";
 import type { Contradiction } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { gmErrorMessage } from "@/components/gm/gmErrors";
 
 export function ContradictionsPanel({ universeId }: { universeId: string | null }) {
   const [contradictions, setContradictions] = useState<Contradiction[]>([]);
@@ -18,7 +19,7 @@ export function ContradictionsPanel({ universeId }: { universeId: string | null 
   // AI-backed detect: cancellable via AbortController; cancellation is a user
   // action, not an error (req() surfaces it as 408, which we swallow here).
   const [detecting, setDetecting] = useState(false);
-  const [detectFailed, setDetectFailed] = useState(false);
+  const [detectError, setDetectError] = useState<unknown>(null);
   const detectAbortRef = useRef<AbortController | null>(null);
 
   const { data: storiesData } = useQuery({
@@ -42,7 +43,7 @@ export function ContradictionsPanel({ universeId }: { universeId: string | null 
     const ctrl = new AbortController();
     detectAbortRef.current = ctrl;
     setDetecting(true);
-    setDetectFailed(false);
+    setDetectError(null);
     try {
       const data = await gmApi.detectContradictions(universeId, {
         scope,
@@ -52,8 +53,8 @@ export function ContradictionsPanel({ universeId }: { universeId: string | null 
       });
       if (ctrl.signal.aborted) return;
       setContradictions(data.contradictions);
-    } catch {
-      if (!ctrl.signal.aborted) setDetectFailed(true);
+    } catch (err) {
+      if (!ctrl.signal.aborted) setDetectError(err);
     } finally {
       if (detectAbortRef.current === ctrl) {
         detectAbortRef.current = null;
@@ -66,7 +67,7 @@ export function ContradictionsPanel({ universeId }: { universeId: string | null 
     detectAbortRef.current?.abort();
     detectAbortRef.current = null;
     setDetecting(false);
-    setDetectFailed(false);
+    setDetectError(null);
   };
 
   const resolveMutation = useMutation({
@@ -164,8 +165,10 @@ export function ContradictionsPanel({ universeId }: { universeId: string | null 
             <Loader2 className="w-5 h-5 text-slate-600 animate-spin" />
           </div>
         )}
-        {detectFailed && (
-          <div className="text-xs text-red-400 text-center py-4">Failed to detect contradictions. Try again.</div>
+        {detectError !== null && (
+          <div className="text-xs text-red-400 text-center py-4">
+            {gmErrorMessage(detectError, "Failed to detect contradictions. Try again.")}
+          </div>
         )}
         {contradictions.map((c, i) => (
           <div key={i} className="glass-dark rounded-xl border border-white/5 p-3 space-y-2">

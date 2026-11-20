@@ -7,6 +7,7 @@ import { entitiesApi, storiesApi } from "@/lib/api";
 import { gmTableApi } from "@/lib/gm-table-api";
 import type { KnowledgeItem } from "@/lib/gm-table-types";
 import { cn } from "@/lib/utils";
+import { gmErrorMessage } from "@/components/gm/gmErrors";
 
 /**
  * Knowledge inspector (CF-15 / G09).
@@ -119,7 +120,7 @@ export function KnowledgePanel({ universeId }: KnowledgePanelProps) {
           )}
           <textarea aria-label="Reason for challenge" value={reason}
             onChange={(event) => setReason(event.target.value)} className="input-cyber w-full text-xs" />
-          {challenge.isError && <p className="text-xs text-red-400">Could not stage the challenge.</p>}
+          {challenge.isError && <p className="text-xs text-red-400">{gmErrorMessage(challenge.error, "Could not stage the challenge.")}</p>}
           <button type="button" className="btn-cyber text-xs" disabled={challenge.isPending || !reason.trim() || (action === "correct" && !correctedText.trim())}
             onClick={() => challenge.mutate(editingItem)}>Submit challenge</button>
           <button type="button" className="ml-2 text-xs" onClick={() => setEditingItem(null)}>Cancel</button>
@@ -156,7 +157,7 @@ export function KnowledgePanel({ universeId }: KnowledgePanelProps) {
           <Loader2 className="w-4 h-4 text-slate-600 animate-spin" />
         </div>
       )}
-      {audit.isError && <p className="text-[10px] text-red-400">The audit failed — try again.</p>}
+      {audit.isError && <p className="text-[10px] text-red-400">{gmErrorMessage(audit.error, "The audit failed — try again.")}</p>}
 
       {audit.data && (
         <div className="space-y-2">

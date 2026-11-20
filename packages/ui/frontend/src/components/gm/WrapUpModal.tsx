@@ -24,6 +24,7 @@ import { chatApi, gmApi } from "@/lib/api";
 import { gmTableApi } from "@/lib/gm-table-api";
 import type { SharePublishResult, WrapUpCanonItem } from "@/lib/types";
 import { DialogShell } from "@/components/DialogShell";
+import { gmErrorMessage } from "@/components/gm/gmErrors";
 import { cn } from "@/lib/utils";
 
 function SectionHeading({
@@ -108,7 +109,7 @@ function WorldClockSection({ universeId, storyId }: { universeId: string; storyI
     },
     onError: (err: unknown) => {
       setConfirming(false);
-      setError(err instanceof Error ? err.message : "Failed to advance world time.");
+      setError(gmErrorMessage(err, err instanceof Error ? err.message : "Failed to advance world time."));
     },
   });
 
@@ -282,7 +283,7 @@ export function WrapUpModal({
           >
             <AlertCircle className="w-8 h-8 text-red-500/60" />
             <p className="text-sm text-slate-400">
-              {wrapUp.error instanceof Error ? wrapUp.error.message : "Couldn't wrap up the session."}
+              {gmErrorMessage(wrapUp.error, wrapUp.error instanceof Error ? wrapUp.error.message : "Couldn't wrap up the session.")}
             </p>
             <button onClick={() => wrapUp.mutate()} className="btn-cyber text-xs">
               <RotateCcw className="w-3.5 h-3.5" /> Try again
@@ -355,7 +356,7 @@ export function WrapUpModal({
                 )}
                 {publish.isError && (
                   <p className="text-xs text-red-400" data-testid="wrap-up-publish-error">
-                    Couldn&apos;t publish the recap — try again.
+                    {gmErrorMessage(publish.error, "Couldn't publish the recap — try again.")}
                   </p>
                 )}
               </section>

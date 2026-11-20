@@ -13,6 +13,7 @@ import type {
   RulesAnswer,
 } from "@/lib/gm-table-types";
 import { cn } from "@/lib/utils";
+import { gmErrorMessage } from "@/components/gm/gmErrors";
 import { KnowledgePanel } from "./KnowledgePanel";
 
 type LookupTab =
@@ -140,7 +141,7 @@ function NpcLookup({ universeId }: { universeId: string }) {
           {lookup.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
         </button>
       </div>
-      {lookup.isError && <p className="text-[10px] text-red-400">Lookup failed — try again.</p>}
+      {lookup.isError && <p className="text-[10px] text-red-400">{gmErrorMessage(lookup.error, "Lookup failed — try again.")}</p>}
       {result && !result.found && <p className="text-[11px] text-slate-600">{result.note}</p>}
       {result?.found && result.entity && (
         <div className="space-y-2">
@@ -273,7 +274,7 @@ function PartyLookup({ universeId }: { universeId: string }) {
           )}
         </div>
       </div>
-      {lookup.isError && <p className="text-[10px] text-red-400">Lookup failed — try again.</p>}
+      {lookup.isError && <p className="text-[10px] text-red-400">{gmErrorMessage(lookup.error, "Lookup failed — try again.")}</p>}
       {result && (
         <div className="space-y-2">
           {result.summary && (
@@ -341,7 +342,7 @@ function LastSessionLookup({ universeId }: { universeId: string }) {
           {lookup.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <History className="w-3 h-3" />}
         </button>
       </div>
-      {lookup.isError && <p className="text-[10px] text-red-400">Lookup failed — try again.</p>}
+      {lookup.isError && <p className="text-[10px] text-red-400">{gmErrorMessage(lookup.error, "Lookup failed — try again.")}</p>}
       {result && !result.found && <p className="text-[11px] text-slate-600">{result.note}</p>}
       {result?.found && (
         <div className="space-y-2">
@@ -436,7 +437,7 @@ function ImproviseLookup({
         {lookup.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
         {kind === "name" ? "Give me names" : "Complicate things"}
       </button>
-      {lookup.isError && <p className="text-[10px] text-red-400">Generation failed — try again.</p>}
+      {lookup.isError && <p className="text-[10px] text-red-400">{gmErrorMessage(lookup.error, "Generation failed — try again.")}</p>}
       {result && (
         <div className="space-y-1.5">
           {result.suggestions.map((s, i) => (
@@ -491,7 +492,7 @@ function RulesLookup({ universeId, systemId }: { universeId: string; systemId: s
           No system selected — the universe&apos;s bound system will be used.
         </p>
       )}
-      {lookup.isError && <p className="text-[10px] text-red-400">Lookup failed — try again.</p>}
+      {lookup.isError && <p className="text-[10px] text-red-400">{gmErrorMessage(lookup.error, "Lookup failed — try again.")}</p>}
       {result && (
         <div className="glass-dark rounded-xl border border-white/5 p-3 space-y-1.5">
           <p className="text-xs text-slate-200 leading-relaxed">{result.answer}</p>

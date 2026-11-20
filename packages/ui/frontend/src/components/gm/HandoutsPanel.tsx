@@ -6,6 +6,7 @@ import { Check, Copy, Link2, Loader2, Scroll, Sparkles } from "lucide-react";
 import { gmApi, storiesApi } from "@/lib/api";
 import type { Handout, SharePublishResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { gmErrorMessage } from "@/components/gm/gmErrors";
 
 const HANDOUT_TYPES = [
   { value: "letter", label: "Letter", icon: "✉️" },
@@ -173,7 +174,9 @@ export function HandoutsPanel({ universeId }: { universeId: string | null }) {
           </div>
         )}
         {mutation.isError && (
-          <div className="text-xs text-red-400 text-center py-4">Failed to generate handout. Try again.</div>
+          <div className="text-xs text-red-400 text-center py-4">
+            {gmErrorMessage(mutation.error, "Failed to generate handout. Try again.")}
+          </div>
         )}
         {handout && (
           <div className="space-y-3">

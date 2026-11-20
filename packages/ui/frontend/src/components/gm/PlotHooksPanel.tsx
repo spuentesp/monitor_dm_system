@@ -6,6 +6,7 @@ import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { gmApi, storiesApi } from "@/lib/api";
 import type { PlotHook } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { gmErrorMessage } from "@/components/gm/gmErrors";
 
 export function PlotHooksPanel({ universeId }: { universeId: string | null }) {
   const [hooks, setHooks] = useState<PlotHook[]>([]);
@@ -96,7 +97,9 @@ export function PlotHooksPanel({ universeId }: { universeId: string | null }) {
           </div>
         )}
         {mutation.isError && (
-          <div className="text-xs text-red-400 text-center py-4">Failed to generate hooks. Try again.</div>
+          <div className="text-xs text-red-400 text-center py-4">
+            {gmErrorMessage(mutation.error, "Failed to generate hooks. Try again.")}
+          </div>
         )}
         {visibleHooks.map((hook) => {
           const hookKey = hook.hook_id ?? hook.title;

@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Globe2, Loader2, Send, X } from "lucide-react";
 import { searchApi } from "@/lib/api";
 import type { SearchResultItem } from "@/lib/types";
-import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
+import { gmErrorText } from "@/components/gm/gmErrors";
 
 type QA = { question: string; results: SearchResultItem[]; error?: string };
 
@@ -49,7 +49,7 @@ export function AskTheWorldPanel({ universeId }: { universeId: string | null }) 
       setHistory((h) => [...h, { question: q, results: res.results }]);
     } catch (e) {
       if (ctrl.signal.aborted) return;
-      setHistory((h) => [...h, { question: q, results: [], error: errorMessage(e) }]);
+      setHistory((h) => [...h, { question: q, results: [], error: gmErrorText(e) }]);
     } finally {
       if (askAbortRef.current === ctrl) {
         askAbortRef.current = null;

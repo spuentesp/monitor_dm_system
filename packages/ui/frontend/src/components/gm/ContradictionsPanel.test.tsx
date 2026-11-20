@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { gmApi } from "@/lib/api";
+import { gmApi, ApiError } from "@/lib/api";
 import type { Contradiction } from "@/lib/types";
 import { ContradictionsPanel } from "./ContradictionsPanel";
 
@@ -75,6 +75,21 @@ describe("ContradictionsPanel", () => {
     await user.click(screen.getByRole("button", { name: /detect/i }));
 
     expect(await screen.findByText(/failed to detect contradictions/i)).toBeInTheDocument();
+  });
+
+  it("turns a 429 into the daily-limit message (UX-4 §3)", async () => {
+    vi.spyOn(gmApi, "detectContradictions").mockRejectedValue(
+      new ApiError(429, '{"detail":"over cap"}'),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole("button", { name: /detect/i }));
+
+    expect(
+      await screen.findByText("Daily limit reached - resets 00:00 UTC. Ask your admin to raise it."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/failed to detect contradictions/i)).not.toBeInTheDocument();
   });
 
   it("prompts for a universe when none is selected", () => {
