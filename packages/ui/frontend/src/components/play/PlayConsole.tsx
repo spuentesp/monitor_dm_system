@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { chatApi, imageApi } from "@/lib/api";
 import { PLAY_KEYS } from "@/lib/query-keys";
 import { useWorldContext } from "@/lib/world-context";
-import type { StandaloneCharacter } from "@/lib/types";
+import type { Message, StandaloneCharacter } from "@/lib/types";
 import { useNotify } from "@/components/NotificationProvider";
 
 import {
@@ -33,6 +33,7 @@ import { usePlaySuggestions } from "./hooks/usePlaySuggestions";
 import { buildQuickStartPayload } from "./quickStart";
 import { friendlyTurnFailure, quotaMessageFor } from "./quota";
 import { wrapOutgoingMessageForOoc } from "./playConsoleHelpers";
+import { removeLastExchange, rewindLastExchange } from "./rewind";
 
 // Re-exported so existing imports/tests keep working after the UX-6 split.
 export {
@@ -175,14 +176,47 @@ export default function PlayConsole() {
     chat.send(wrapped, sendOptions);
   };
 
-  // Regenerate: re-send the last player action through the existing
-  // POST /chat/{id}/send endpoint so the GM produces a fresh reply (there is
-  // no dedicated regenerate endpoint).
-  const handleRegenerate = useCallback(
-    (text: string) => {
-      chat.send(text, sendOptions);
+  // ─── Rewind-backed turn controls (UX-6 item 3) ──────────────────────
+  // All three controls share one flow: POST /chat/{id}/rewind excises the
+  // last exchange (final player message + GM reply). Undo stops there; Edit
+  // then pre-fills the composer with the removed text; Regenerate re-sends
+  // it — because the rewind already removed the old player message, the
+  // re-send never duplicates it in the transcript. Blocked while a turn is
+  // in flight (buttons disabled locally, 409 from the server otherwise).
+  const runRewind = useCallback(
+    (fallbackText: string, onRewound?: (playerText: string) => void) => {
+      if (!activeSessionId) return;
+      void rewindLastExchange({
+        disabled: turnActive,
+        rewind: () => chatApi.rewind(activeSessionId),
+        onSuccess: (result) => {
+          qc.setQueryData<Message[]>(PLAY_KEYS.messages(activeSessionId), (prev) =>
+            removeLastExchange(prev ?? [], result.removed),
+          );
+          qc.invalidateQueries({ queryKey: PLAY_KEYS.messages(activeSessionId) });
+          qc.invalidateQueries({ queryKey: PLAY_KEYS.state(activeSessionId) });
+          qc.invalidateQueries({ queryKey: PLAY_KEYS.sessions });
+          onRewound?.(result.last_player_text ?? fallbackText);
+        },
+        onError: (message) => notify("error", message),
+      });
     },
-    [chat, sendOptions],
+    [activeSessionId, turnActive, qc, notify],
+  );
+
+  const handleUndo = useCallback(() => runRewind(""), [runRewind]);
+
+  const handleEditLastTurn = useCallback(
+    (fallbackText: string) => runRewind(fallbackText, (playerText) => setInputValue(playerText)),
+    [runRewind],
+  );
+
+  const handleRegenerate = useCallback(
+    (fallbackText: string) =>
+      runRewind(fallbackText, (playerText) => {
+        if (playerText.trim()) chat.send(playerText.trim(), sendOptions);
+      }),
+    [runRewind, chat, sendOptions],
   );
 
   // One-click Quick start (UX-6 onboarding): defaults → create → activate.
@@ -352,6 +386,8 @@ export default function PlayConsole() {
                 <TurnControls
                   messages={chat.messages}
                   disabled={turnActive}
+                  onUndo={handleUndo}
+                  onEditLast={handleEditLastTurn}
                   onRegenerate={handleRegenerate}
                 />
                 {hasConsequence && (

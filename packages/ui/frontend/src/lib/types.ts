@@ -84,6 +84,16 @@ export interface Message {
   edited_at?: string | null;
 }
 
+/**
+ * Result of POST /chat/{id}/rewind (UX-6 turn controls): how many messages
+ * the last exchange removed, and the removed player message's text — the
+ * string edit/regenerate re-fill the composer with.
+ */
+export interface RewindResult {
+  removed: number;
+  last_player_text: string | null;
+}
+
 /** One logged (or struck) recorder entry as the G03 correction routes see it. */
 export interface SessionLogEntryInfo {
   id: string;

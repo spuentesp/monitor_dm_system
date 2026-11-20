@@ -37,6 +37,7 @@ import type {
   PromptModuleSummary,
   PromptTestResult,
   RPGSystem,
+  RewindResult,
   SceneReview,
   Session,
   SessionLogEntryPatchResponse,
@@ -303,6 +304,11 @@ export const chatApi = {
       `/chat/${sessionId}/recap`,
       { timeout: 120_000 },
     ),
+  // UX-6 turn controls: excise the last exchange (final player message +
+  // everything after it). Undo removes it; edit/regenerate rewind first and
+  // re-send last_player_text, so the player message is never duplicated.
+  rewind: (sessionId: string) =>
+    req<RewindResult>(`/chat/${sessionId}/rewind`, { method: "POST" }),
 };
 
 export function createChatWebSocket(sessionId: string): WebSocket {
