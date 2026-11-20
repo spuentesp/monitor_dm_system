@@ -26,7 +26,9 @@ from pydantic import BaseModel, Field
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.base import EntityType
 from monitor_data.schemas.entities import EntityFilter
+from monitor_data.tenancy import OwnerViolationError
 from monitor_data.tools.neo4j_tools.entities import neo4j_list_entities
+from monitor_data.usage import QuotaExceededError
 from monitor_ui.auth import Principal, get_current_user, get_postgres
 from monitor_ui.ownership import (
     require_character_owner,
@@ -166,6 +168,8 @@ async def start_universe_character_chat(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in start_universe_character_chat)
         log.warning("universe_character_chat_start_failed", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Could not start chat: {exc}") from exc
@@ -206,6 +210,8 @@ async def stream_character_message(
         first = None
     except KeyError as exc:
         raise HTTPException(status_code=409, detail=f"Conversation {conversation_id} is no longer active.") from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in stream_character_message)
         log.warning("conversation_stream_send_failed", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Reply failed: {exc}") from exc
@@ -306,6 +312,8 @@ async def graduate_prepare(
         result = await cc.graduate_prepare(character_id, universe_id=universe_id, tone=tone)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in graduate_prepare)
         log.warning("graduate_prepare_failed", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Graduate preparation failed: {exc}") from exc
@@ -341,6 +349,8 @@ async def graduate_to_campaign(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (QuotaExceededError, OwnerViolationError):
+        raise
     except Exception as exc:  # noqa: BLE001  # reason: intentional boundary: documented failure tolerance (in graduate_to_campaign)
         log.warning("graduate_to_campaign_failed", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Graduation failed: {exc}") from exc
