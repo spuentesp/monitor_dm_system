@@ -1,6 +1,6 @@
 # UX, Tenancy Verification, Accounts & Backoffice — Plan
 
-> **Status:** implemented 2026-11-20 on branch `ux/integration` (not yet merged to master). Hermetic suites green; the live two-user pass (UX-0/UX-1 step 1) and SMTP delivery are NOT yet exercised against a real stack. See "Implementation status" at the end.
+> **Status:** implemented (PR #157 merged 2026-11-25; follow-up closes the remaining gaps). See "Implementation status" at the end.
 > **Audience for this release:** a handful of invited users (not open signup).
 > **Decisions (2026-11-19):**
 > - Providers: **admin-only.** Keys stay behind admin in one shared pool; no per-user keys (BYOK dropped 2026-11-20).
@@ -145,11 +145,11 @@ Total ≈ 7–8 weeks for one person; ≈ 4–5 with parallel agents on UX-5/6/7
 
 | Phase | State |
 |---|---|
-| UX-0 baseline | Hermetic only (full suite 10,553 passed, mypy/ruff/layer check clean). **Live walkthrough not done** — needs an isolated stack, not the dev databases. |
-| UX-1 tenancy | Write-tool guards (lorebook, packs, play sessions, combat, game systems), typed-error re-raise, strict ingest creator match, share-link fix, WS close-code tests done. **Live adversarial pass still to do.** Remaining HTTP-only write families listed in MULTI_TENANCY_PLAN §4. |
-| UX-2 accounts | Invites, signup modes, password reset (email + admin link), single-session revoke, login/forgot/reset pages, account page, AuthGate. Email delivery untested against a real SMTP server. |
+| UX-0 baseline | Hermetic suite green (10,820 passed); a live two-user pass now runs in the weekly integration workflow against a real stack (`scripts/live_tenancy_smoke.py`, 42/42 on first green run). |
+| UX-1 tenancy | Done, including the live adversarial pass (CI). Every user-scoped write tool asserts the acting owner at the tool boundary; the only tool-level exceptions are listed with reasons in MULTI_TENANCY_PLAN §4. Ingest/pack-apply settings are now registered to their creator. |
+| UX-2 accounts | Done. Email reset verified end to end in CI with a local SMTP sink. First admin: `scripts/create_admin.py`. |
 | UX-3 admin | Users/Invites/Usage/Providers tabs, confirmations, reset link, revoke sessions. |
 | UX-4 provider keys | Admin-only; encrypted saves enforced outside local mode. |
 | UX-5 GM Assistant | Page split, stepper, first-run, shortcuts, cancel, quota message. |
 | UX-6 Auto GM | PlayConsole split, reconnect/cancel, rewind-based undo/edit/regenerate, canon badge, quick start, mobile. Rewind is now complete across its three known gaps (2026-11-25): an active ConversationLoop has the excised exchange trimmed from its memory via `ConversationLoop.trim_last_exchange` (in-memory state + persisted turns through the `mongodb_trim_conversation_turns` tool; the conversation stays open); the scene's Mongo LangGraph checkpoint is rolled back before a scene-turn exchange via `SceneLoop.backtrack` (409/503 fail closed before any transcript mutation); end-scene and wrap-up hold the turn in-flight mark, so rewind answers 409 while they run. The NPC CharacterMemories a rewound conversation exchange wrote are deleted too (matched by NPC, `metadata.conversation_id` and creation after the exchange snapshot). Remaining edge: the `conversation_active` session fields of a rewound conversation start. |
-| UX-7 cross-cutting | Sidebar user menu, admin links hidden for non-admins, aria-live/labels in play. Playwright e2e not written. |
+| UX-7 cross-cutting | Sidebar user menu, admin links hidden for non-admins, aria-live/labels in play. ESLint fixed and gated in CI; Playwright page smokes for the new pages run in the weekly workflow. |
