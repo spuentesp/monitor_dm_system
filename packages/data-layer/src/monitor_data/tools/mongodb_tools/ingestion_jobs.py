@@ -15,6 +15,7 @@ from monitor_data.schemas.ingestion_jobs import (
     IngestionStage,
     LastError,
 )
+from monitor_data.tenancy import acting_owner
 
 # =============================================================================
 # INGESTION JOB TOOLS
@@ -48,6 +49,7 @@ def _convert_ingestion_job_doc(doc: dict[str, Any]) -> IngestionJobResponse:
         source_id=UUID(doc["source_id"]),
         doc_id=UUID(doc["doc_id"]),
         source_title=doc.get("source_title", ""),
+        owner_id=doc.get("owner_id"),
         status=IngestionStatus(doc["status"]),
         current_stage=IngestionStage(doc["current_stage"]) if doc.get("current_stage") else None,
         pipeline_stages=[IngestionStage(s) for s in doc.get("pipeline_stages", [])],
@@ -107,7 +109,10 @@ def mongodb_create_ingestion_job(params: IngestionJobCreate) -> IngestionJobResp
 
     doc = {
         "job_id": str(job_id),
-        "owner_id": params.owner_id,
+        # Server-stamped owner: explicit param wins, else the acting owner
+        # bound for this context (no owner in worker threads/scripts = None;
+        # the router stamps the authenticated creator explicitly there).
+        "owner_id": params.owner_id or (str(owner) if (owner := acting_owner()) else None),
         "universe_id": str(params.universe_id),
         "source_id": str(params.source_id),
         "doc_id": str(params.doc_id),

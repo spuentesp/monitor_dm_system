@@ -94,6 +94,51 @@ class UISettings(BaseSettings):
     auth_frontend_url: str = Field(default="http://localhost:3000", alias="AUTH_FRONTEND_URL")
     oauth_state_cookie: str = Field(default="monitor_oauth_state", alias="OAUTH_STATE_COOKIE")
     oauth_state_ttl_seconds: int = Field(default=600, alias="OAUTH_STATE_TTL_SECONDS")
+    # Carry the signup invite through the Google OAuth round-trip (first login
+    # follows the same MONITOR_SIGNUP_MODE rule as password signup).
+    oauth_invite_cookie: str = Field(default="monitor_oauth_invite", alias="OAUTH_INVITE_COOKIE")
+
+    # Signup mode: invite (default) | open | closed (UX-2).
+    monitor_signup_mode: str = Field(default="invite", alias="MONITOR_SIGNUP_MODE")
+
+    # SMTP for the emailed password-reset path (UX-2). Unset host = no email;
+    # /api/auth/config then reports email_reset=false and forgot-password
+    # still answers 202 without sending anything.
+    monitor_smtp_host: str | None = Field(default=None, alias="MONITOR_SMTP_HOST")
+    monitor_smtp_port: int = Field(default=587, alias="MONITOR_SMTP_PORT")
+    monitor_smtp_user: str | None = Field(default=None, alias="MONITOR_SMTP_USER")
+    monitor_smtp_password: str | None = Field(default=None, alias="MONITOR_SMTP_PASSWORD")
+    monitor_smtp_from: str | None = Field(default=None, alias="MONITOR_SMTP_FROM")
+    monitor_smtp_starttls: bool = Field(default=True, alias="MONITOR_SMTP_STARTTLS")
+    # Absolute origin used to build reset/invite links in emails.
+    monitor_public_url: str = Field(default="http://localhost:3000", alias="MONITOR_PUBLIC_URL")
+
+    @field_validator("monitor_signup_mode", mode="before")
+    @classmethod
+    def _normalize_signup_mode(cls, value: object) -> object:
+        """Accept the three documented modes case-insensitively; blank = invite."""
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "invite"
+        mode = str(value).strip().casefold()
+        if mode not in {"invite", "open", "closed"}:
+            raise ValueError("MONITOR_SIGNUP_MODE must be invite, open or closed")
+        return mode
+
+    @field_validator("monitor_smtp_port", mode="before")
+    @classmethod
+    def _blank_smtp_port_is_default(cls, value: object) -> object:
+        """Read an empty MONITOR_SMTP_PORT as "not set" (same as AUTH_COOKIE_SECURE)."""
+        if isinstance(value, str) and not value.strip():
+            return 587
+        return value
+
+    @field_validator("monitor_smtp_starttls", mode="before")
+    @classmethod
+    def _blank_smtp_starttls_is_default(cls, value: object) -> object:
+        """Read an empty MONITOR_SMTP_STARTTLS as "not set" (default on)."""
+        if isinstance(value, str) and not value.strip():
+            return True
+        return value
 
     @field_validator("auth_cookie_secure", mode="before")
     @classmethod
@@ -126,6 +171,16 @@ class UISettings(BaseSettings):
     @property
     def google_oauth_configured(self) -> bool:
         return bool(self.google_client_id and self.google_client_secret)
+
+    @property
+    def smtp_configured(self) -> bool:
+        """True when the emailed password-reset path can actually send."""
+        return bool(self.monitor_smtp_host)
+
+    @property
+    def public_base_url(self) -> str:
+        """Absolute origin for links built into emails (blank falls back)."""
+        return (self.monitor_public_url or "http://localhost:3000").rstrip("/")
 
 
 @lru_cache

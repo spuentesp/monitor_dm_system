@@ -59,6 +59,10 @@ _HERMETIC_ENV = {
     # Keep unit tests off optional services
     "NLP_ENABLED": "false",
     "LOGFIRE_SEND_TO_LOGFIRE": "false",
+    # Signup defaults to invite-only in production (UX-2); unit tests that
+    # create accounts exercise the open mode, and invite-mode tests set
+    # MONITOR_SIGNUP_MODE=invite explicitly.
+    "MONITOR_SIGNUP_MODE": "open",
     # Bound the sync→async DB bridge tightly so stalls surface as errors well
     # before the per-test timeout kills the whole process
     "DB_SYNC_TIMEOUT": "15",

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2, Plus, Zap } from "lucide-react";
 import { characterTemplatesApi, entitiesApi, universesApi, chatApi } from "@/lib/api";
 import { useSystems } from "@/hooks/use-systems";
 import { PLAY_KEYS, UNIVERSE_KEYS } from "@/lib/query-keys";
@@ -60,6 +60,8 @@ export interface SetupPanelProps {
   initialMultiverseId?: string | null;
   initialUniverseId?: string | null;
   onCreate: (payload: SetupPayload) => void;
+  /** One-click Quick start (UX-6): create with defaults, skip this form. */
+  onQuickStart?: () => void;
 }
 
 export function SetupPanel({
@@ -67,6 +69,7 @@ export function SetupPanel({
   initialMultiverseId,
   initialUniverseId,
   onCreate,
+  onQuickStart,
 }: SetupPanelProps) {
   const [title, setTitle] = useState("New Story");
   const [storyPremise, setStoryPremise] = useState("");
@@ -199,6 +202,25 @@ export function SetupPanel({
           Choose a setting (`Multiverse`), a persistent timeline (`Universe`), and who is speaking. Then continue setup and play through chat with MONITOR.
         </p>
       </div>
+
+      {onQuickStart && (
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={onQuickStart}
+            disabled={isPending}
+            data-testid="quick-start"
+            className="btn-cyber w-full justify-center"
+            title="One click — first world, default tone and system, straight into play"
+          >
+            <Zap className="w-4 h-4" />
+            Quick start — jump in with defaults
+          </button>
+          <p className="text-[10px] text-slate-600 text-center">
+            Or fill in the details below for a custom session.
+          </p>
+        </div>
+      )}
 
       <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-xs text-cyan-100 space-y-1.5">
         <div className="font-medium text-cyan-300">Benchmark testbed moved to Settings</div>

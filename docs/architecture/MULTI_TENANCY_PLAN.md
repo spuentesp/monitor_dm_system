@@ -3,7 +3,10 @@
 > **Status:** rewritten 2026-11-10 (Phase 6, multi-tenant hardening) to describe
 > what **is implemented**, what is **enforced where**, and what **remains**;
 > updated the same day by the gap-closing pass (owner assertions below the
-> HTTP layer, per-model-call usage accounting and in-turn quota enforcement).
+> HTTP layer, per-model-call usage accounting and in-turn quota enforcement);
+> updated 2026-11-20 by the UX-1/UX-4 pass (write-tool breadth, blanket-5xx
+> re-raises, strict ingest-job creator match, share-link audit, provider-key
+> encryption gate — see §4 for what is still open).
 > The original design narrative lives in
 > [MULTI_TENANCY_IMPLEMENTATION.md](MULTI_TENANCY_IMPLEMENTATION.md).
 >
@@ -87,7 +90,13 @@ Ownership is no longer enforced at the HTTP layer only:
   `mongodb_update_npc_profile`), and proposed change
   (`mongodb_create_proposed_change`, `mongodb_update_proposed_change`,
   `mongodb_defer_proposed_change`, `mongodb_edit_proposed_change`,
-  `mongodb_flag_proposal_review`).
+  `mongodb_flag_proposal_review`) — plus the UX-1 gap families: lorebook
+  (create/bulk/update/delete/scan-config), knowledge packs
+  (create/update/delete/apply/publish/owner-stamp), play sessions
+  (create/update/add-scene), combat (encounter CRUD, participants, log,
+  outcome, and the session tracker), game systems (owner-stamped create;
+  update/delete of owner-stamped docs; rule overrides by story/scene
+  scope). See §4 for the precise remaining breadth.
 - No owner in context (local mode, scripts, ingestion workers, tests) means
   no assertion — existing behavior there is unchanged. The HTTP layer maps
   `OwnerViolationError` to the same generic 404 the guards return (plan D4).
@@ -208,18 +217,33 @@ only exclusions live in `SWEEP_EXEMPT` with a stated reason.
 
 ## 4. What remains
 
-### Defense in depth beyond the covered write tools (Phase 6 task 8 — done for the named surface)
+### Defense in depth beyond the covered write tools (Phase 6 task 8 — breadth largely closed by UX-1)
 
 The interface sketched for the follow-up phase is implemented: write tools
 assert the acting owner against the Postgres registry (via
 `monitor_data.tenancy`, `expected_owner_id` supported for explicit
 forwarding), and the loops pass the session owner (constructor `owner_id`,
-stored on state). What remains is breadth, not mechanism:
+stored on state). UX-1 closed the previously named gaps; what remains is
+the last of the breadth, not mechanism:
 
-- Write tools outside the six named families (combat, resolutions,
-  lorebook, game systems, knowledge packs, play sessions, visual identities,
-  conversation turns, …) are still only covered by the HTTP guards. They
-  can adopt the same `assert_*_write` calls incrementally.
+- **Closed by UX-1:** lorebook (create/bulk/update/delete/scan-config),
+  knowledge packs (create/update/delete/apply/publish/owner-stamp; apply
+  also asserts the target universe), play sessions (create/update/
+  add-scene), combat (encounter CRUD, participants, log, outcome, and the
+  session tracker via the request's `universe_id`), game systems, and
+  rule overrides (story/scene scope). Tests:
+  `packages/data-layer/tests/test_tenancy_write_guards_families.py`.
+- **Documented exceptions (deliberate):** game systems with `is_builtin`
+  or no `owner_id` (ingestion-created / pre-tenancy legacy) stay shared —
+  HTTP system writes are admin-gated on one router and owner-stamped
+  creates are protected on the rest; an ownerless system remains editable
+  by anyone who can reach it until someone stamps it. Knowledge-pack
+  creates with no `owner_id` are also allowed (agent/ingestion paths
+  create ownerless and the router stamps afterwards); every owner-stamped
+  pack is fully guarded.
+- **Still HTTP-only (adopt `assert_*_write` incrementally):** visual
+  identities, conversation turns, session-recorder entries, resolutions,
+  GM notes, parties, tone libraries.
 - Standalone character-card writes live in the UI routers
   (`character_storage.py`) and are owner-predicated there; no data-layer
   write tool exists to guard yet.
@@ -235,26 +259,60 @@ stored on state). What remains is breadth, not mechanism:
   on HTTP and to a readable error event on the chat WebSocket; inside an
   already-open SSE stream (OpenAI-compat/light-RP streaming) the error
   surfaces as an aborted stream rather than a 429 status.
-- **Blanket handler catches.** A few endpoints normalize all exceptions to
-  502; `routers/entities.py` (draft) re-raises the typed tenancy errors so
-  the 429/404 mappings hold, others may still wrap them (list: image-gen
-  handlers, gm_tools LLM routes).
+- **Blanket handler catches — CLOSED (UX-1).** `routers/image_gen.py`,
+  `gm_tools.py`, `entities.py`, `light_rp.py` and `openai_compat.py` now
+  re-raise `QuotaExceededError` / `OwnerViolationError` before their
+  5xx wrappers, so the app-level handlers map them to 429 / the generic
+  404 (tests: `test_typed_error_http_mapping.py`, the portrait cases in
+  `test_image_gen.py`). The only remaining catches that swallow typed
+  errors are log-and-continue enrichment paths that never produced a
+  client error in the first place.
 - **Providers are admin-owned and shared** (decision): non-admins get 403 on
-  all `/api/llm` routes; admins manage keys for everyone.
+  all `/api/llm` routes; admins manage keys for everyone. UX-4 hardened
+  this: with `MONITOR_AUTH_DISABLED=false`, saving any provider API key
+  while `MONITOR_PROVIDER_KEY_ENCRYPTION_KEY` is unset is refused with a
+  503 naming the variable (local mode keeps plaintext plus the one-time
+  startup warning); responses show last-4 only and error strings are
+  redacted (`test_llm_provider_key_hardening.py`).
+- **Ingestion jobs — strict creator match (UX-1).** Every job read/write
+  path now uses `job.owner_id == caller` (the shared resolver
+  `require_ingestion_job_owner` matches `ingest._check_job_owner`; the old
+  creator-**or**-universe fallback is gone because universe ownership is
+  not proof of creation). Jobs are stamped at creation: the tool takes the
+  acting-owner context, the router stamps the authenticated principal on
+  upload/rescan/resume, and decomposition jobs inherit the source job's
+  owner. Ownerless legacy jobs fail closed everywhere (they were already
+  invisible to the owner-scoped list filters); backfill with
+  `mongodb_set_ingestion_job_owner`.
+- **Public share links (UX-1 audit).** Token is `secrets.token_urlsafe(32)`
+  (256 bits); `ShareAgent.resolve_share` rejects unknown/revoked/expired
+  identically; only published artifacts surface; the public detail routes
+  return the player-safe `PlayerArtifact` shape (no `owner_id`,
+  `universe_id`, `source_fact_ids`, `session_id`, `published`).
 - **Not done (out of scope):** organizations and shared worlds, billing,
   multiplayer in one scene, row-level security in the databases.
-- Ingestion jobs are checked against `job.owner_id` **or** the owning
-  universe (creator-friendly); the ingest router additionally enforces the
-  strict creator match on its own routes.
 
 ## 5. Configuration reference
 
 | Env var | Default | Meaning |
 |---------|---------|---------|
 | `MONITOR_AUTH_DISABLED` | `false` | local admin mode (never on a reachable host) |
+| `MONITOR_SIGNUP_MODE` | `invite` | `invite` (valid single-use invite token required for `/api/auth/signup` and Google first-login) \| `open` \| `closed` (always refuses new accounts) |
+| `MONITOR_SMTP_HOST` | unset | SMTP host for emailed password resets; unset = `/api/auth/config` reports `email_reset=false` and forgot-password answers 202 without sending |
+| `MONITOR_SMTP_PORT` | `587` | SMTP port |
+| `MONITOR_SMTP_USER` / `MONITOR_SMTP_PASSWORD` | unset | SMTP credentials (authenticated only when the user is set) |
+| `MONITOR_SMTP_FROM` | unset | From address for reset emails; falls back to the SMTP user, then `monitor@localhost` |
+| `MONITOR_SMTP_STARTTLS` | `true` | upgrade the SMTP connection with STARTTLS |
+| `MONITOR_PUBLIC_URL` | `http://localhost:3000` | absolute origin used to build `/reset-password?token=…` links in emails |
 | `MONITOR_PROVIDER_KEY_ENCRYPTION_KEY` | unset | Fernet key for `llm_providers.api_key`; unset = plaintext + one startup warning |
 | `MONITOR_DAILY_TOKEN_CAP` | unset | daily token cap per user (UTC day); unset = no cap |
 | `MONITOR_DAILY_CALL_CAP` | unset | daily model-call cap per user (UTC day); unset = no cap |
+
+Signup invites and password resets (UX-2/UX-3) store only SHA-256 hashes of
+their tokens (`invites`, `password_resets` — migration 4 in
+`monitor_data.db.postgres`); raw tokens are shown exactly once (admin create
+responses, the forgot-password email). Reset tokens live ≤1h, are single-use,
+and consuming one revokes ALL of that user's sessions without un-banning them.
 
 Per-user overrides (win over env): `user_usage_limits.daily_token_cap`,
 `.daily_call_cap`, `.exempt` — admin-managed via `/api/admin/usage/{id}/limits`.

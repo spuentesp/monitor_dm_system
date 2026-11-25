@@ -6,6 +6,7 @@ import { useMutation } from "@tanstack/react-query";
 import { gmTableApi } from "@/lib/gm-table-api";
 import type { SessionLogProposeResponse } from "@/lib/gm-table-types";
 import { cn } from "@/lib/utils";
+import { gmErrorMessage } from "@/components/gm/gmErrors";
 
 /**
  * Session log → canon (Phase 7 Part B, CF-5/CF-8): after the session, the GM
@@ -39,7 +40,7 @@ export function SessionLogPanel({ universeId }: { universeId: string | null }) {
       setRetracted((prev) => new Set(prev).add(proposalId));
       setRetractError(null);
     },
-    onError: () => setRetractError("Retract failed — the proposal was not already pending, or the server refused."),
+    onError: (e) => setRetractError(gmErrorMessage(e, "Retract failed — the proposal was not already pending, or the server refused.")),
   });
 
   if (!universeId) {
@@ -82,7 +83,7 @@ export function SessionLogPanel({ universeId }: { universeId: string | null }) {
         />
         {propose.isError && (
           <p className="text-[10px] text-red-400">
-            Analysis failed — nothing was staged, try again.
+            {gmErrorMessage(propose.error, "Analysis failed — nothing was staged, try again.")}
           </p>
         )}
         {retractError && <p className="text-[10px] text-red-400">{retractError}</p>}

@@ -34,9 +34,28 @@ class FakeCollection:
         self.docs.append(dict(doc))
         return MagicMock(inserted_id=doc.get("id") or doc.get("entry_id"))
 
+    def insert_many(self, docs: list[dict[str, Any]]) -> Any:
+        for doc in docs:
+            self.insert_calls.append(dict(doc))
+            self.docs.append(dict(doc))
+        return MagicMock(inserted_ids=[d.get("id") for d in docs])
+
     def update_one(self, query: Any, update: Any, **kwargs: Any) -> Any:
         self.update_calls += 1
         return MagicMock(modified_count=1, matched_count=1)
+
+    def replace_one(self, query: Any, doc: Any, **kwargs: Any) -> Any:
+        self.update_calls += 1
+        return MagicMock(upserted_id=None, matched_count=1)
+
+    def find_one_and_update(self, query: Any, update: Any, **kwargs: Any) -> Any:
+        self.update_calls += 1
+        # Apply ``$set`` to the canned result so callers observe the update.
+        if isinstance(self.find_one_result, dict) and isinstance(update, dict):
+            set_doc = update.get("$set")
+            if isinstance(set_doc, dict):
+                self.find_one_result.update(set_doc)
+        return self.find_one_result
 
     def delete_one(self, query: Any) -> Any:
         self.delete_calls += 1
@@ -48,6 +67,9 @@ class FakeCollection:
 
     def count_documents(self, query: Any) -> int:
         return len(self.docs)
+
+    def create_index(self, *args: Any, **kwargs: Any) -> None:
+        """No-op: index creation is not a data write."""
 
     @property
     def write_calls(self) -> int:
@@ -112,9 +134,12 @@ _TOOL_MODULES = (
     "characters",
     "character_sheets",
     "character_templates",
+    "combat",
     "conversations",
+    "game_systems",
     "ingestion_jobs",
     "knowledge_packs",
+    "lorebook_tools",
     "memories",
     "npc_profiles",
     "proposals",

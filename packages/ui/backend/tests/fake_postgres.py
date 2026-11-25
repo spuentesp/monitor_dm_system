@@ -24,6 +24,8 @@ class FakePostgres:
         self._token_id_by_hash: dict[str, UUID] = {}
         self.oauth_accounts: dict[tuple[str, str], dict] = {}
         self.prefs: dict[tuple[UUID, str], dict] = {}
+        self.invites: dict[UUID, dict] = {}
+        self.password_resets: dict[UUID, dict] = {}
         self.__init_registry__()
 
     async def user_create(self, user: dict) -> dict:
@@ -130,6 +132,84 @@ class FakePostgres:
         tid = self._token_id_by_hash.get(token_hash)
         if tid is not None:
             self.tokens[tid]["last_used_at"] = datetime.now(UTC)
+
+    # ------------------------------------------------------------------
+    # Signup invites + password resets (mirror PostgresClient)
+    # ------------------------------------------------------------------
+
+    async def invite_create(self, invite: dict) -> dict:
+        iid = uuid4()
+        row = {
+            "id": iid,
+            "token_hash": invite["token_hash"],
+            "email": invite.get("email"),
+            "created_by": invite.get("created_by"),
+            "created_at": datetime.now(UTC),
+            "expires_at": invite["expires_at"],
+            "used_by": None,
+            "used_at": None,
+            "revoked_at": None,
+        }
+        self.invites[iid] = row
+        return row
+
+    async def invites_list(self) -> list[dict]:
+        rows = sorted(self.invites.values(), key=lambda r: r["created_at"], reverse=True)
+        return [dict(r) for r in rows]
+
+    async def invite_revoke(self, invite_id: UUID) -> bool:
+        row = self.invites.get(_uid(invite_id))
+        if row is None:
+            return False
+        if row["revoked_at"] is None:
+            row["revoked_at"] = datetime.now(UTC)
+        return True
+
+    async def user_create_with_invite(self, user: dict, invite_token_hash: str) -> dict | None:
+        invite = next((r for r in self.invites.values() if r["token_hash"] == invite_token_hash), None)
+        now = datetime.now(UTC)
+        if (
+            invite is None
+            or invite["used_at"] is not None
+            or invite["revoked_at"] is not None
+            or invite["expires_at"] <= now
+        ):
+            return None
+        created = await self.user_create(user)
+        invite["used_by"] = created["id"]
+        invite["used_at"] = now
+        return created
+
+    async def password_reset_create(self, reset: dict) -> dict:
+        rid = uuid4()
+        row = {
+            "id": rid,
+            "token_hash": reset["token_hash"],
+            "user_id": reset["user_id"],
+            "created_at": datetime.now(UTC),
+            "expires_at": reset["expires_at"],
+            "used_at": None,
+        }
+        self.password_resets[rid] = row
+        return row
+
+    async def password_reset_consume(self, token_hash: str, password_hash: str) -> dict | None:
+        now = datetime.now(UTC)
+        row = next(
+            (r for r in self.password_resets.values() if r["token_hash"] == token_hash),
+            None,
+        )
+        if row is None or row["used_at"] is not None or row["expires_at"] <= now:
+            return None
+        row["used_at"] = now
+        user = self.users.get(_uid(row["user_id"]))
+        if user is None:
+            return None
+        user["password_hash"] = password_hash
+        user["updated_at"] = now
+        # Revoke ALL sessions of the user (the reset may be redeemed elsewhere).
+        await self.session_delete_all_for_user(user["id"])
+        return dict(user)
 
     # ------------------------------------------------------------------
     # Ownership registry (multiverses / worlds)

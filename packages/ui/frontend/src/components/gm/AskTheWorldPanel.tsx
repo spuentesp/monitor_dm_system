@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Globe2, Loader2, Send } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Globe2, Loader2, Send, X } from "lucide-react";
 import { searchApi } from "@/lib/api";
 import type { SearchResultItem } from "@/lib/types";
-import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
+import { gmErrorText } from "@/components/gm/gmErrors";
 
 type QA = { question: string; results: SearchResultItem[]; error?: string };
 
@@ -17,6 +17,10 @@ export function AskTheWorldPanel({ universeId }: { universeId: string | null }) 
   const [draft, setDraft] = useState("");
   const [asking, setAsking] = useState(false);
   const [history, setHistory] = useState<QA[]>([]);
+  // Cancellable ask: aborting is a user action, so no error entry is queued.
+  const askAbortRef = useRef<AbortController | null>(null);
+  const pendingQuestionRef = useRef("");
+  useEffect(() => () => askAbortRef.current?.abort(), []);
 
   if (!universeId) {
     return (
@@ -32,14 +36,34 @@ export function AskTheWorldPanel({ universeId }: { universeId: string | null }) 
     if (!q || asking || !universeId) return;
     setDraft("");
     setAsking(true);
+    pendingQuestionRef.current = q;
+    askAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    askAbortRef.current = ctrl;
     try {
-      const res = await searchApi.universeSearch(universeId, q, { limit: 5 });
+      const res = await searchApi.universeSearch(universeId, q, {
+        limit: 5,
+        signal: ctrl.signal,
+      });
+      if (ctrl.signal.aborted) return;
       setHistory((h) => [...h, { question: q, results: res.results }]);
     } catch (e) {
-      setHistory((h) => [...h, { question: q, results: [], error: errorMessage(e) }]);
+      if (ctrl.signal.aborted) return;
+      setHistory((h) => [...h, { question: q, results: [], error: gmErrorText(e) }]);
     } finally {
-      setAsking(false);
+      if (askAbortRef.current === ctrl) {
+        askAbortRef.current = null;
+        setAsking(false);
+      }
     }
+  }
+
+  function cancelAsk() {
+    askAbortRef.current?.abort();
+    askAbortRef.current = null;
+    setAsking(false);
+    // Give the question back so it isn't lost.
+    setDraft((d) => d || pendingQuestionRef.current);
   }
 
   return (
@@ -112,6 +136,17 @@ export function AskTheWorldPanel({ universeId }: { universeId: string | null }) 
           <Send className="h-3.5 w-3.5" />
           <span className="sr-only">Ask</span>
         </button>
+        {asking && (
+          <button
+            type="button"
+            onClick={cancelAsk}
+            className="btn-ghost px-3 py-2"
+            aria-label="Cancel question"
+            title="Cancel"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
     </div>
   );

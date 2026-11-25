@@ -23,6 +23,7 @@ the real ``resource_route_guard`` + ``_SCOPE_RESOLVERS`` code runs.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
@@ -438,12 +439,55 @@ class TestCrossTenantByKind:
             ("GET", f"/api/chat/{sid}/state", {}),
             ("GET", f"/api/chat/{sid}/messages", {}),
             ("PATCH", f"/api/chat/{sid}", {"json": {"name": "hijack"}}),
+            ("POST", f"/api/chat/{sid}/rewind", {}),
             ("DELETE", f"/api/chat/{sid}", {}),
         ]:
             r = users.b.request(method, path, headers=_csrf(users.b), **kwargs)
             assert r.status_code in (403, 404), (method, path, r.status_code)
         _assert_store_unchanged(before, [dict(d) for d in chat_sessions.docs])
         assert chat_sessions.find_one({"id": sid})["owner_id"] == str(users.a_id)
+
+    def test_chat_rewind_is_owner_predicated_and_leaves_transcript(self, users, seeded, monkeypatch) -> None:
+        """UX-6 rewind: B on A's session gets the generic 404 and A's
+        transcript is byte-for-byte unchanged (the guard fires before any
+        excision, proposal rejection, or cache mutation)."""
+        import monitor_ui.routers.chat as chat_mod
+
+        sid = seeded["session"]
+        now = datetime.now(UTC).isoformat()
+        transcript = [
+            {
+                "id": str(uuid4()),
+                "session_id": sid,
+                "role": "gm",
+                "content": "The gate swings open.",
+                "timestamp": now,
+                "metadata": {},
+            },
+            {
+                "id": str(uuid4()),
+                "session_id": sid,
+                "role": "player",
+                "content": "I step through.",
+                "timestamp": now,
+                "metadata": {},
+            },
+            {
+                "id": str(uuid4()),
+                "session_id": sid,
+                "role": "gm",
+                "content": "Sand and salt.",
+                "timestamp": now,
+                "metadata": {},
+            },
+        ]
+        monkeypatch.setitem(chat_mod._MESSAGES, sid, transcript)
+        before = [dict(m) for m in chat_mod._MESSAGES[sid]]
+
+        r = users.b.request("POST", f"/api/chat/{sid}/rewind", headers=_csrf(users.b), json={})
+        assert r.status_code == 404, (r.status_code, r.text)
+        assert r.json() == {"detail": "Not found"}  # same as a nonexistent session (plan D4)
+        assert [dict(m) for m in chat_mod._MESSAGES[sid]] == before
 
     def test_chat_list_is_scoped(self, users, seeded) -> None:
         sessions = users.b.get("/api/chat").json()
@@ -614,6 +658,36 @@ class TestCrossTenantByKind:
         # A's token is untouched and still listed.
         listed = users.a.get("/api/auth/tokens").json()
         assert any(t["id"] == str(token_id) for t in listed)
+
+    def test_admin_invite_and_reset_routes_reject_a_non_admin(self, users, fake_db: FakePostgres) -> None:
+        """UX-2/UX-3: invite + password-reset operator routes are admin-only.
+
+        These routes carry no ownership resolver (the operator surface is
+        gated by ``require_admin``, which the generated sweep exempts), so
+        this explicit case is their cross-tenant check: a non-admin B is
+        rejected with 403 on every route and no invite state moves.
+        """
+        invite = asyncio_run(
+            fake_db.invite_create(
+                {
+                    "token_hash": "hash-" + str(uuid4()),
+                    "email": "a-invite@example.com",
+                    "created_by": UUID(str(users.a_id)),
+                    "expires_at": datetime.now(UTC) + timedelta(hours=1),
+                }
+            )
+        )
+        before = asyncio_run(fake_db.invites_list())
+        for method, path, kwargs in [
+            ("GET", "/api/admin/invites", {}),
+            ("POST", "/api/admin/invites", {"json": {"email": "x@example.com"}}),
+            ("DELETE", f"/api/admin/invites/{invite['id']}", {}),
+            ("POST", f"/api/admin/users/{users.a_id}/password-reset", {}),
+            ("POST", f"/api/admin/users/{users.a_id}/revoke-sessions", {}),
+        ]:
+            r = users.b.request(method, path, headers=_csrf(users.b), **kwargs)
+            assert r.status_code == 403, (method, path, r.status_code, r.text)
+        assert asyncio_run(fake_db.invites_list()) == before
 
 
 def asyncio_run(coro):  # type: ignore[no-untyped-def]

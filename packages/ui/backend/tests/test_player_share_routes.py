@@ -282,6 +282,35 @@ class TestPublicShareRoutes:
         assert "attachment" in r.headers.get("content-disposition", "")
         assert "They opened the sealed door." in r.text
 
+    def test_recap_detail_exposes_only_player_safe_fields(self, client: Any, agent_state: SimpleNamespace) -> None:
+        """UX-1 share audit: the public detail body never carries GM-internal
+        fields (owner_id, universe_id, source_fact_ids, session_id,
+        published) — only the player-safe PlayerArtifact shape."""
+        c, _ = client
+        story_id = uuid4()
+        artifact_id = uuid4()
+        agent_state.share = _share_doc(story_id=str(story_id))
+        agent_state.artifact = _artifact_doc(
+            id=str(artifact_id),
+            story_id=str(story_id),
+            owner_id="gm-internal-user-id",
+        )
+        r = c.get(f"/api/share/tok/recap/{artifact_id}")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        # Present: what the share page renders.
+        assert body["id"] == str(artifact_id)
+        assert body["story_id"] == str(story_id)
+        assert body["artifact_type"] == "recap"
+        assert body["title"] == "Session 4 recap"
+        assert body["content"] == "They opened the sealed door."
+        assert body["spoiler_level"] == "party"
+        assert "updated_at" in body
+        # Absent: GM-internal identifiers and state.
+        for leaked in ("owner_id", "universe_id", "source_fact_ids", "session_id", "published"):
+            assert leaked not in body, f"{leaked} leaked to an unauthenticated player"
+        assert "gm-internal-user-id" not in r.text
+
     def test_rate_limit_returns_429(
         self, client: Any, agent_state: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
     ) -> None:

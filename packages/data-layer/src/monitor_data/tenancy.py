@@ -395,3 +395,177 @@ def assert_proposal_write(
         proposer=proposal.proposer,
         expected_owner_id=expected_owner_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# Additional resource resolvers and assertions (UX-1 write-tool gaps)
+# ---------------------------------------------------------------------------
+
+
+def universe_of_play_session(session_id: str | UUID) -> str | None:
+    """Resolve a PlaySession's ``universe_id`` from Mongo (``None`` if missing)."""
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    doc = (
+        get_mongodb_client()
+        .get_collection("play_sessions")
+        .find_one(
+            {"session_id": str(session_id)},
+            {"universe_id": 1},
+        )
+    )
+    if isinstance(doc, dict) and doc.get("universe_id"):
+        return str(doc["universe_id"])
+    return None
+
+
+def assert_play_session_write(
+    session_id: str | UUID,
+    *,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a write naming a play session: resolve its universe, then assert."""
+    if acting_owner(expected_owner_id) is None:
+        return
+    resolved = universe_of_play_session(session_id)
+    if resolved is None:
+        raise _refuse(resource, f"play session {session_id} resolves to no universe")
+    assert_owner_match(resource=resource, universe_id=resolved, expected_owner_id=expected_owner_id)
+
+
+def universe_of_combat(encounter_id: str | UUID) -> str | None:
+    """Resolve a combat encounter's universe through its scene (``None`` if missing)."""
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    doc = (
+        get_mongodb_client()
+        .get_collection("combat_encounters")
+        .find_one(
+            {"encounter_id": str(encounter_id)},
+            {"scene_id": 1},
+        )
+    )
+    if not isinstance(doc, dict) or not doc.get("scene_id"):
+        return None
+    return universe_of_scene(doc["scene_id"])
+
+
+def assert_combat_write(
+    encounter_id: str | UUID,
+    *,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a write naming a combat encounter: resolve scene → universe, then assert."""
+    if acting_owner(expected_owner_id) is None:
+        return
+    resolved = universe_of_combat(encounter_id)
+    if resolved is None:
+        raise _refuse(resource, f"combat encounter {encounter_id} resolves to no universe")
+    assert_owner_match(resource=resource, universe_id=resolved, expected_owner_id=expected_owner_id)
+
+
+def assert_character_scope_write(
+    character_id: str | UUID | None,
+    *,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a write scoped to a character, mirroring the HTTP
+    ``require_playable_character`` chain: ``universe:<id>`` pseudo-characters
+    resolve through the registry, standalone Mongo cards through their
+    recorded ``owner_id``, and world entities through their universe.
+    Anything else fails closed.
+    """
+    if acting_owner(expected_owner_id) is None:
+        return
+    if character_id is None or not str(character_id):
+        raise _refuse(resource, "write names no character scope to verify")
+    cid = str(character_id)
+    if cid.startswith("universe:"):
+        assert_universe_write(cid[len("universe:") :], resource=resource, expected_owner_id=expected_owner_id)
+        return
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    card = get_mongodb_client().get_collection("characters").find_one({"id": cid}, {"owner_id": 1})
+    if isinstance(card, dict):
+        card_owner = card.get("owner_id")
+        if not card_owner:
+            raise _refuse(resource, f"character card {cid} records no owner to verify")
+        assert_owner_match(resource=resource, direct_owner_id=card_owner, expected_owner_id=expected_owner_id)
+        return
+    resolved = universe_of_entity(cid)
+    if resolved is None:
+        raise _refuse(resource, f"character {cid} resolves to no owner")
+    assert_owner_match(resource=resource, universe_id=resolved, expected_owner_id=expected_owner_id)
+
+
+def assert_game_system_write(
+    system_id: str | UUID,
+    *,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a write naming a game system.
+
+    - Missing system → refused (fail closed).
+    - ``is_builtin`` seed systems → no assertion (shared, and the data layer
+      already refuses modify/delete of them).
+    - Systems stamped with ``owner_id`` (hand-authored via HTTP) → that owner
+      must be the acting owner.
+    - Ownerless systems (ingestion-created, pre-tenancy legacy) → no
+      assertion; they stay shared until an owner stamps them.
+    """
+    if acting_owner(expected_owner_id) is None:
+        return
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    doc = (
+        get_mongodb_client()
+        .get_collection("game_systems")
+        .find_one(
+            {"system_id": str(system_id)},
+            {"owner_id": 1, "is_builtin": 1},
+        )
+    )
+    if not isinstance(doc, dict):
+        raise _refuse(resource, f"game system {system_id} not found")
+    if doc.get("is_builtin"):
+        return
+    system_owner = doc.get("owner_id")
+    if not system_owner:
+        return
+    assert_owner_match(resource=resource, direct_owner_id=system_owner, expected_owner_id=expected_owner_id)
+
+
+def assert_rule_override_write(
+    override_id: str | UUID,
+    *,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a write naming a rule override: resolve its scope target, then assert."""
+    if acting_owner(expected_owner_id) is None:
+        return
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    doc = (
+        get_mongodb_client()
+        .get_collection("rule_overrides")
+        .find_one(
+            {"override_id": str(override_id)},
+            {"scope": 1, "scope_id": 1},
+        )
+    )
+    if not isinstance(doc, dict):
+        raise _refuse(resource, f"rule override {override_id} not found")
+    scope = str(doc.get("scope") or "")
+    scope_id = doc.get("scope_id")
+    if not scope_id:
+        raise _refuse(resource, f"rule override {override_id} names no scope target")
+    if scope == "scene":
+        assert_scene_write(scope_id, resource=resource, expected_owner_id=expected_owner_id)
+        return
+    # STORY scope (the default) and any unknown scope fall through to story.
+    assert_story_write(scope_id, resource=resource, expected_owner_id=expected_owner_id)

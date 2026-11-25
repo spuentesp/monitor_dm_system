@@ -167,6 +167,36 @@ def db_save_message(msg: dict[str, Any]) -> None:
         logger.debug("db_save_message failed: %s", exc)
 
 
+def db_delete_messages(session_id: str, message_ids: list[str]) -> int:
+    """Delete specific messages from MongoDB `chat_messages` (rewind / G03).
+
+    Also rewrites the shared Redis message cache so a cross-process read
+    cannot serve the excised copy, and publishes a coordination event for
+    other backend processes. Returns the number of documents deleted.
+    """
+    if not message_ids:
+        return 0
+    deleted = 0
+    try:
+        from monitor_data.db.mongodb import get_mongodb_client
+
+        mdb = get_mongodb_client()
+        col = mdb.get_collection("chat_messages")
+        result = col.delete_many({"id": {"$in": list(message_ids)}})
+        deleted = int(getattr(result, "deleted_count", 0) or 0)
+
+        rows = list(col.find({"session_id": session_id}, {"_id": 0}, sort=[("timestamp", 1)]))
+        _redis_set_json(_messages_cache_key(session_id), rows[-_CHAT_MESSAGES_LIMIT:])
+        _publish_chat_event(
+            session_id,
+            "messages_rewound",
+            {"removed": len(message_ids), "deleted": deleted},
+        )
+    except Exception as exc:  # noqa: BLE001  # reason: boundary logs and degrades gracefully (in db_delete_messages)
+        logger.debug("db_delete_messages failed: %s", exc)
+    return deleted
+
+
 def db_load_messages(session_id: str) -> list[dict[str, Any]]:
     """Load all messages for a session, preferring the shared Redis cache when warm."""
     cache_key = _messages_cache_key(session_id)

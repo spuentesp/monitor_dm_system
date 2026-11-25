@@ -19,7 +19,7 @@ import {
   type CombatSessionState,
   type ConditionExplanation,
 } from "@/lib/gm-combat-api";
-import { errorMessage } from "@/lib/errors";
+import { gmErrorText } from "@/components/gm/gmErrors";
 import { uuid } from "@/lib/uuid";
 import { cn } from "@/lib/utils";
 
@@ -135,7 +135,7 @@ export function CombatPanel({
       setNarration(null);
       qc.invalidateQueries({ queryKey: ["gm-combat"] });
     },
-    onError: (e) => setError(errorMessage(e)),
+    onError: (e) => setError(gmErrorText(e)),
   });
 
   const setInitiative = useMutation({
@@ -155,7 +155,7 @@ export function CombatPanel({
       setNarration(res.narration);
       qc.setQueryData(["gm-combat", universeId, sessionId], res.state);
     },
-    onError: (e) => setError(errorMessage(e)),
+    onError: (e) => setError(gmErrorText(e)),
   });
 
   const patchCombatant = useMutation({
@@ -168,7 +168,7 @@ export function CombatPanel({
       qc.setQueryData(["gm-combat", universeId, sessionId], updated);
       setError(null);
     },
-    onError: (e) => setError(errorMessage(e)),
+    onError: (e) => setError(gmErrorText(e)),
   });
 
   const nextRound = useMutation({
@@ -177,7 +177,7 @@ export function CombatPanel({
       qc.setQueryData(["gm-combat", universeId, sessionId], updated);
       setNarration(null);
     },
-    onError: (e) => setError(errorMessage(e)),
+    onError: (e) => setError(gmErrorText(e)),
   });
 
   const endEncounter = useMutation({
@@ -199,7 +199,7 @@ export function CombatPanel({
       });
       setWorldEffects("");
     },
-    onError: (e) => setError(errorMessage(e)),
+    onError: (e) => setError(gmErrorText(e)),
   });
 
   const explain = useMutation({
@@ -211,7 +211,7 @@ export function CombatPanel({
       }),
     onSuccess: (detail, vars) =>
       setExplanation({ combatantId: vars.combatantId, condition: vars.condition, detail }),
-    onError: (e) => setError(errorMessage(e)),
+    onError: (e) => setError(gmErrorText(e)),
   });
 
   const rollAndPatch = async (
@@ -668,7 +668,7 @@ export function CombatPanel({
       {patchCombatant.isError && (
         <div className="px-4 py-2 border-t border-white/5">
           <AlertTriangle className="h-3 w-3 text-amber-400 inline mr-1" />
-          <span className="text-[10px] text-amber-300">{errorMessage(patchCombatant.error)}</span>
+          <span className="text-[10px] text-amber-300">{gmErrorText(patchCombatant.error)}</span>
         </div>
       )}
       <div className="px-4 py-2 border-t border-white/5 flex items-center gap-2 text-[9px] text-slate-600">

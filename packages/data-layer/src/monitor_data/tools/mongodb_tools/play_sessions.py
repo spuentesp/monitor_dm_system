@@ -32,6 +32,7 @@ from monitor_data.schemas.play_sessions import (
     PlaySessionResponse,
     PlaySessionUpdate,
 )
+from monitor_data.tenancy import assert_play_session_write, assert_universe_write
 from monitor_data.tools._shared import utcnow as _utcnow
 
 COLLECTION = "play_sessions"
@@ -92,6 +93,7 @@ def mongodb_create_play_session(params: PlaySessionCreate) -> PlaySessionRespons
     Use case: P-15 (Start Play Session).
     Authority: anyone (the user owns their sessions).
     """
+    assert_universe_write(params.universe_id, resource="play_session")
     client = get_mongodb_client()
     _ensure_indexes()
     coll = client.get_collection(COLLECTION)
@@ -172,6 +174,7 @@ def mongodb_update_play_session(session_id: UUID, params: PlaySessionUpdate) -> 
 
     Returns the updated session, or ``None`` if the session does not exist.
     """
+    assert_play_session_write(session_id, resource="play_session")
     client = get_mongodb_client()
     coll = client.get_collection(COLLECTION)
 
@@ -210,6 +213,7 @@ def mongodb_update_play_session(session_id: UUID, params: PlaySessionUpdate) -> 
 
 def mongodb_add_scene_to_play_session(session_id: UUID, scene_id: UUID) -> PlaySessionResponse | None:
     """Append a scene to the session's ordered ``scene_ids`` list (idempotent)."""
+    assert_play_session_write(session_id, resource="play_session")
     client = get_mongodb_client()
     coll = client.get_collection(COLLECTION)
     res = coll.find_one_and_update(

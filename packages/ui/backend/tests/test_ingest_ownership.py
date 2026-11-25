@@ -233,3 +233,118 @@ class TestIngestAuthz:
             headers=_csrf(client),
         )
         assert r.status_code not in (401, 403, 404)
+
+
+# ---------------------------------------------------------------------------
+# UX-1: the job-owner rule is a strict creator match everywhere
+# ---------------------------------------------------------------------------
+
+
+class TestIngestJobOwnerRule:
+    @pytest.mark.asyncio
+    async def test_universe_owner_is_not_the_creator(self, fake_db: FakePostgres, monkeypatch: pytest.MonkeyPatch):
+        """Owning the job's universe grants NOTHING — creator match only.
+
+        This pins the divergence the old creator-or-universe resolver left
+        open: a foreign user who happens to own the job's universe must
+        still get the generic 404.
+        """
+        from fastapi import HTTPException
+
+        from monitor_ui.auth import Principal
+        from monitor_ui.ownership import require_ingestion_job_owner
+
+        creator = str(uuid4())
+        universe_owner = str(uuid4())
+        universe_id = uuid4()
+        job = _job(uuid4(), uuid4(), universe_id, creator)
+        # The foreign user owns the job's universe in the registry.
+        fake_db.world_upsert({"id": str(universe_id), "owner_id": UUID(universe_owner), "active": True})
+        monkeypatch.setattr(
+            "monitor_data.tools.mongodb_tools.mongodb_get_ingestion_job",
+            lambda jid: job,
+        )
+
+        foreign = Principal(user_id=universe_owner, is_admin=False, via="session")
+        with pytest.raises(HTTPException) as exc:
+            await require_ingestion_job_owner(fake_db, foreign, str(job.job_id))
+        assert exc.value.status_code == 404
+
+        # The creator passes.
+        principal = Principal(user_id=creator, is_admin=False, via="session")
+        await require_ingestion_job_owner(fake_db, principal, str(job.job_id))
+
+    @pytest.mark.asyncio
+    async def test_ownerless_job_fails_closed(self, fake_db: FakePostgres, monkeypatch: pytest.MonkeyPatch):
+        from fastapi import HTTPException
+
+        from monitor_ui.auth import Principal
+        from monitor_ui.ownership import require_ingestion_job_owner
+
+        universe_id = uuid4()
+        universe_owner = str(uuid4())
+        job = _job(uuid4(), uuid4(), universe_id, None)
+        fake_db.world_upsert({"id": str(universe_id), "owner_id": UUID(universe_owner), "active": True})
+        monkeypatch.setattr(
+            "monitor_data.tools.mongodb_tools.mongodb_get_ingestion_job",
+            lambda jid: job,
+        )
+
+        principal = Principal(user_id=universe_owner, is_admin=False, via="session")
+        with pytest.raises(HTTPException) as exc:
+            await require_ingestion_job_owner(fake_db, principal, str(job.job_id))
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_missing_job_fails_closed(self, fake_db: FakePostgres, monkeypatch: pytest.MonkeyPatch):
+        from fastapi import HTTPException
+
+        from monitor_ui.auth import Principal
+        from monitor_ui.ownership import require_ingestion_job_owner
+
+        monkeypatch.setattr(
+            "monitor_data.tools.mongodb_tools.mongodb_get_ingestion_job",
+            lambda jid: None,
+        )
+        principal = Principal(user_id=str(uuid4()), is_admin=False, via="session")
+        with pytest.raises(HTTPException) as exc:
+            await require_ingestion_job_owner(fake_db, principal, str(uuid4()))
+        assert exc.value.status_code == 404
+
+    def test_stamp_job_owner_writes_the_creator(self, monkeypatch: pytest.MonkeyPatch):
+        calls: list[tuple[object, object]] = []
+        monkeypatch.setattr(
+            ingest_mod,
+            "mongodb_set_ingestion_job_owner",
+            lambda job_id, owner_id: calls.append((job_id, owner_id)),
+        )
+        job_id = uuid4()
+        owner = str(uuid4())
+        ingest_mod._stamp_job_owner(job_id, owner)
+        assert calls == [(job_id, owner)]
+
+    def test_stamp_job_owner_noop_without_owner(self, monkeypatch: pytest.MonkeyPatch):
+        calls: list[tuple[object, object]] = []
+        monkeypatch.setattr(
+            ingest_mod,
+            "mongodb_set_ingestion_job_owner",
+            lambda job_id, owner_id: calls.append((job_id, owner_id)),
+        )
+        ingest_mod._stamp_job_owner(uuid4(), None)
+        assert calls == []
+
+    def test_job_route_creator_passes_with_foreign_universe(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        """The creator reads their job even though nobody owns its universe."""
+        user = _signup(client, "creator@example.com", "creator")
+        job = _job(uuid4(), uuid4(), uuid4(), user["id"])
+        monkeypatch.setattr(
+            ingest_mod, "mongodb_get_ingestion_job", lambda uid: job if str(uid) == str(job.job_id) else None
+        )
+        monkeypatch.setattr(
+            "monitor_data.tools.mongodb_tools.mongodb_get_ingestion_job",
+            lambda uid: job if str(uid) == str(job.job_id) else None,
+        )
+        monkeypatch.setattr(ingest_mod, "_job_to_dict", lambda j: {"id": str(j.job_id), "owner_id": j.owner_id})
+        res = client.get(f"/api/ingest/jobs/{job.job_id}")
+        assert res.status_code == 200, res.text
+        assert res.json()["owner_id"] == user["id"]

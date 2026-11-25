@@ -19,7 +19,7 @@ import httpx
 
 from monitor_data.db.postgres import PostgresClient
 from monitor_data.schemas.users import normalize_login
-from monitor_data.security import hash_password
+from monitor_data.security import hash_password, hash_token
 
 from monitor_ui.config import UISettings
 
@@ -28,6 +28,18 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 OAUTH_PROVIDER = "google"
 _HTTP_TIMEOUT = httpx.Timeout(15.0)
+
+
+class SignupRefused(ValueError):
+    """``MONITOR_SIGNUP_MODE`` refuses to create this account.
+
+    ``reason`` is the value for the frontend's ``/login?error=<reason>``
+    redirect: ``signup_closed``, ``invite_required`` or ``invite_invalid``.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -116,12 +128,20 @@ async def _unique_username(db: PostgresClient, base: str) -> str:
 async def find_or_create_oauth_user(
     db: PostgresClient,
     profile: GoogleProfile,
+    *,
+    invite_token: str | None,
+    signup_mode: str,
 ) -> dict[str, Any]:
     """Resolve a Google profile to a local user, linking or creating as needed.
 
     Existing OAuth link → that user. Else existing account with the same
     verified email → link it (and mark the email verified). Else create a new
-    account (never admin; random unusable password).
+    account (never admin; random unusable password) — but the create follows
+    the same ``MONITOR_SIGNUP_MODE`` rule as password signup: ``closed``
+    always refuses, ``invite`` consumes a valid invite atomically with the
+    account creation (raises :class:`SignupRefused` otherwise), ``open``
+    creates freely. Linking to an existing account is a login, not a signup,
+    so no invite is required for it.
     """
     email_normalized = normalize_login(profile.email)
     linked = await db.oauth_account_get(OAUTH_PROVIDER, profile.provider_account_id)
@@ -155,18 +175,26 @@ async def find_or_create_oauth_user(
         existing["email_verified"] = True
         return existing
 
+    if signup_mode == "closed":
+        raise SignupRefused("signup_closed")
     username = await _unique_username(db, email_normalized.partition("@")[0] or "user")
-    user = await db.user_create(
-        {
-            "email": profile.email,
-            "email_normalized": email_normalized,
-            "username": username,
-            "username_normalized": normalize_login(username),
-            "password_hash": hash_password(secrets.token_urlsafe(32)),
-            "display_name": profile.name,
-            "is_admin": False,
-        }
-    )
+    payload = {
+        "email": profile.email,
+        "email_normalized": email_normalized,
+        "username": username,
+        "username_normalized": normalize_login(username),
+        "password_hash": hash_password(secrets.token_urlsafe(32)),
+        "display_name": profile.name,
+        "is_admin": False,
+    }
+    if signup_mode == "invite":
+        if not invite_token:
+            raise SignupRefused("invite_required")
+        user = await db.user_create_with_invite(payload, hash_token(invite_token))
+        if user is None:
+            raise SignupRefused("invite_invalid")
+    else:
+        user = await db.user_create(payload)
     await db.user_set_email_verified(user["id"], True)
     user["email_verified"] = True
     await db.oauth_account_upsert(
