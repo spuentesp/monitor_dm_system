@@ -124,6 +124,10 @@ class FakeNeo4j:
         if "RETURN p.story_id AS sid" in query:
             sid = self.party_story_by_id.get(str(params.get("id")))
             return [{"sid": sid}] if sid else []
+        if "RETURN u.id AS uid" in query:
+            # Agenda → universe resolution (``universe_of_agenda``).
+            uid = self.universe_by_id.get(str(params.get("id")))
+            return [{"uid": uid}] if uid else []
         for label_return in (
             "RETURN s.universe_id AS uid",
             "RETURN e.universe_id AS uid",
@@ -141,16 +145,24 @@ class FakeNeo4j:
 
 
 class FakePostgres:
-    """Ownership-registry fake: records world_get_for_owner calls."""
+    """Ownership-registry fake: records world/multiverse registry calls."""
 
     def __init__(self) -> None:
         self.owned_universes: set[str] = set()
+        self.owned_multiverses: set[str] = set()
         self.world_get_for_owner_calls: list[tuple[str, str]] = []
+        self.multiverse_get_for_owner_calls: list[tuple[str, str]] = []
 
     async def world_get_for_owner(self, world_id: str, owner_id: Any) -> dict[str, Any] | None:
         self.world_get_for_owner_calls.append((str(world_id), str(owner_id)))
         if str(world_id) in self.owned_universes:
             return {"id": str(world_id), "owner_id": str(owner_id)}
+        return None
+
+    async def multiverse_get_for_owner(self, multiverse_id: str, owner_id: Any) -> dict[str, Any] | None:
+        self.multiverse_get_for_owner_calls.append((str(multiverse_id), str(owner_id)))
+        if str(multiverse_id) in self.owned_multiverses:
+            return {"id": str(multiverse_id), "owner_id": str(owner_id)}
         return None
 
 
@@ -159,9 +171,17 @@ _TOOL_MODULES = (
     "documents",
     "foreshadowing",
     "generated_assets",
+    "gm_prep",
     "merge_candidates",
     "profiles",
+    "prompt_collections",
+    "random_tables",
+    "scene_rewind",
     "transcripts",
+    "webhook_tools",
+    "working_state",
+    "world_clock",
+    "world_fork",
     "characters",
     "character_sheets",
     "character_templates",
@@ -187,7 +207,7 @@ _TOOL_MODULES = (
 )
 
 # Neo4j tool modules that bind ``get_neo4j_client`` at import time.
-_NEO4J_TOOL_MODULES = ("parties",)
+_NEO4J_TOOL_MODULES = ("agendas", "entities", "mechanics", "parties", "relationships")
 
 
 def install_fakes(monkeypatch: Any) -> tuple[FakeMongo, FakeNeo4j, FakePostgres]:
