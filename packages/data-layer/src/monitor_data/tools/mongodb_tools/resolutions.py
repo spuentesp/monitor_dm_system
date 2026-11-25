@@ -13,6 +13,7 @@ from monitor_data.schemas.resolutions import (
     ResolutionResponse,
     ResolutionUpdate,
 )
+from monitor_data.tenancy import assert_resolution_write, assert_scene_write
 
 # =============================================================================
 # RESOLUTION TOOLS (DL-24)
@@ -72,6 +73,7 @@ def mongodb_create_resolution(params: ResolutionCreate) -> ResolutionResponse:
     Raises:
         ValueError: If turn_id, scene_id, or story_id doesn't exist
     """
+    assert_scene_write(params.scene_id, resource="resolution")
     mongodb = get_mongodb_client()
     resolutions_collection = mongodb.get_collection("resolutions")
 
@@ -202,6 +204,7 @@ def mongodb_update_resolution(resolution_id: UUID, params: ResolutionUpdate) -> 
     Raises:
         ValueError: If resolution not found
     """
+    assert_resolution_write(resolution_id, resource="resolution")
     mongodb = get_mongodb_client()
     resolutions_collection = mongodb.get_collection("resolutions")
 
@@ -246,6 +249,7 @@ def mongodb_delete_resolution(resolution_id: UUID) -> bool:
     Returns:
         True if deleted, False if not found
     """
+    assert_resolution_write(resolution_id, resource="resolution")
     mongodb = get_mongodb_client()
     resolutions_collection = mongodb.get_collection("resolutions")
 

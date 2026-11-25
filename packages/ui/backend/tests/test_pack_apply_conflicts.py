@@ -290,10 +290,21 @@ async def test_apply_new_world_creates_setting_and_applies(
 
     monkeypatch.setattr(pack_library, "_create_setting", _fake_create_setting)
 
+    from fake_postgres import FakePostgres
+    from monitor_ui.auth import Principal
+
+    db = FakePostgres()
+    principal = Principal(user_id=uuid4(), is_admin=False, via="session")
     result = await pack_library.apply_pack_new_world(
         str(world.pack_id),
         pack_library.ApplyNewWorldRequest(world_name="New Realm"),
+        principal=principal,
+        db=db,
     )
+
+    # The new world is registered to the caller in the ownership registry.
+    assert db.multiverses[str(world.mv_id)]["owner_id"] == principal.user_id
+    assert await db.world_get_for_owner(str(world.universe_id), principal.user_id) is not None
 
     assert result["status"] == "review_pending"
     assert result["review_status"] == "pending"
@@ -324,9 +335,14 @@ async def test_apply_new_world_uses_explicit_system_name(
         lambda **_kw: (world.mv_id, world.universe_id),
     )
 
+    from fake_postgres import FakePostgres
+    from monitor_ui.auth import Principal
+
     await pack_library.apply_pack_new_world(
         str(world.pack_id),
         pack_library.ApplyNewWorldRequest(world_name="New Realm", system_name="D&D 5e"),
+        principal=Principal(user_id=uuid4(), is_admin=False, via="session"),
+        db=FakePostgres(),
     )
 
     assert world.keeper.calls[0]["auto_accept"] is False

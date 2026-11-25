@@ -34,6 +34,7 @@ from monitor_data.tools.neo4j_tools import (
     neo4j_ensure_omniverse,
     neo4j_get_multiverse,
     neo4j_get_source,
+    neo4j_get_universe,
     neo4j_list_universes,
 )
 
@@ -152,6 +153,51 @@ def _create_setting(name: str, system_name: str, game_system_id: UUID | None = N
         )
     )
     return mv.id, universe.id
+
+
+async def register_setting_owner(
+    db: Any,
+    principal: Any,
+    multiverse_id: UUID,
+    universe_id: UUID,
+    setting_name: str,
+) -> None:
+    """Register a setting made by ``_create_setting`` under the caller.
+
+    ``_create_setting`` only writes Neo4j; without this the new multiverse and
+    universe have no row in the Postgres ownership registry, so with auth on
+    the uploader could not see or write their own setting. No-op in local mode.
+    """
+    from .forge import _register_world_ownership
+
+    await _register_world_ownership(db, principal, multiverse_id, universe_id, setting_name, f"{setting_name} — Canon")
+
+
+async def register_universe_owner(db: Any, principal: Any, multiverse_id: UUID, universe_id: UUID) -> None:
+    """Register a universe ``_ensure_universe_for_multiverse`` returned, if it is new.
+
+    The caller already proved it owns ``multiverse_id``. An already-registered
+    universe is left alone so its bindings are never reset. No-op in local mode.
+    """
+    from monitor_ui.auth import is_local_mode
+
+    from .universes import _default_world_bindings
+
+    if is_local_mode(principal):
+        return
+    if await db.world_get_for_owner(str(universe_id), UUID(str(principal.user_id))) is not None:
+        return
+    universe = neo4j_get_universe(universe_id)
+    await db.world_upsert(
+        {
+            "id": str(universe_id),
+            "owner_id": principal.user_id,
+            "multiverse_id": str(multiverse_id),
+            "label": universe.name if universe else "Canon",
+            "active": True,
+        }
+    )
+    await db.world_bindings_upsert(_default_world_bindings(str(universe_id)))
 
 
 def _ensure_universe_for_multiverse(multiverse_id: UUID) -> UUID:

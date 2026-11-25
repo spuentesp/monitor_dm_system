@@ -539,6 +539,144 @@ def assert_game_system_write(
     assert_owner_match(resource=resource, direct_owner_id=system_owner, expected_owner_id=expected_owner_id)
 
 
+def universe_of_conversation(conversation_id: str | UUID) -> str | None:
+    """Resolve a conversation transcript's ``universe_id`` (``None`` if missing)."""
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    doc = (
+        get_mongodb_client()
+        .get_collection("conversations")
+        .find_one(
+            {"conversation_id": str(conversation_id)},
+            {"universe_id": 1},
+        )
+    )
+    if isinstance(doc, dict) and doc.get("universe_id"):
+        return str(doc["universe_id"])
+    return None
+
+
+def assert_conversation_write(
+    conversation_id: str | UUID,
+    *,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a write naming a conversation: resolve its universe, then assert."""
+    if acting_owner(expected_owner_id) is None:
+        return
+    resolved = universe_of_conversation(conversation_id)
+    if resolved is None:
+        raise _refuse(resource, f"conversation {conversation_id} resolves to no universe")
+    assert_owner_match(resource=resource, universe_id=resolved, expected_owner_id=expected_owner_id)
+
+
+def assert_session_entry_write(
+    entry_id: str | UUID,
+    *,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a Session Recorder entry write: the entry's chat session owner
+    must be the acting owner (mirror of the HTTP
+    ``require_session_log_entry_owner`` chain: entry → session → ``owner_id``).
+    Missing entry, missing session, or an ownerless legacy session fails
+    closed when an owner is bound.
+    """
+    if acting_owner(expected_owner_id) is None:
+        return
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    mongo = get_mongodb_client()
+    entry = mongo.get_collection("chat_messages").find_one({"id": str(entry_id)}, {"session_id": 1})
+    if not isinstance(entry, dict) or not entry.get("session_id"):
+        raise _refuse(resource, f"session entry {entry_id} records no session to verify")
+    session = mongo.get_collection("chat_sessions").find_one({"id": str(entry["session_id"])}, {"owner_id": 1})
+    if not isinstance(session, dict) or not session.get("owner_id"):
+        raise _refuse(resource, f"chat session {entry['session_id']} records no owner to verify")
+    assert_owner_match(
+        resource=resource,
+        direct_owner_id=session["owner_id"],
+        expected_owner_id=expected_owner_id,
+    )
+
+
+def assert_resolution_write(
+    resolution_id: str | UUID,
+    *,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a write naming a resolution: resolve its scene's universe, then assert."""
+    if acting_owner(expected_owner_id) is None:
+        return
+    from monitor_data.db.mongodb import get_mongodb_client
+
+    doc = (
+        get_mongodb_client()
+        .get_collection("resolutions")
+        .find_one(
+            {"resolution_id": str(resolution_id)},
+            {"scene_id": 1},
+        )
+    )
+    if not isinstance(doc, dict) or not doc.get("scene_id"):
+        raise _refuse(resource, f"resolution {resolution_id} resolves to no scene")
+    assert_scene_write(doc["scene_id"], resource=resource, expected_owner_id=expected_owner_id)
+
+
+def assert_visual_identity_target_write(
+    *,
+    universe_id: str | UUID | None = None,
+    entity_id: str | UUID | None = None,
+    character_id: str | None = None,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a visual-identity write against its anchor (first present wins:
+    universe → entity → character card/world entity); no anchor fails closed."""
+    if acting_owner(expected_owner_id) is None:
+        return
+    if universe_id is not None:
+        assert_universe_write(universe_id, resource=resource, expected_owner_id=expected_owner_id)
+        return
+    if entity_id is not None:
+        assert_entity_write(entity_id, resource=resource, expected_owner_id=expected_owner_id)
+        return
+    if character_id is not None:
+        assert_character_scope_write(character_id, resource=resource, expected_owner_id=expected_owner_id)
+        return
+    raise _refuse(resource, "write names no visual-identity anchor to verify")
+
+
+def universe_of_party(party_id: str | UUID) -> str | None:
+    """Resolve a Party node's universe through its story (``None`` if missing)."""
+    from monitor_data.db.neo4j import get_neo4j_client
+
+    rows = get_neo4j_client().execute_read(
+        "MATCH (p:Party {id: $id}) RETURN p.story_id AS sid",
+        {"id": str(party_id)},
+    )
+    if not rows or not rows[0].get("sid"):
+        return None
+    return universe_of_story(rows[0]["sid"])
+
+
+def assert_party_write(
+    party_id: str | UUID,
+    *,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a write naming a party: resolve party → story → universe, then assert."""
+    if acting_owner(expected_owner_id) is None:
+        return
+    resolved = universe_of_party(party_id)
+    if resolved is None:
+        raise _refuse(resource, f"party {party_id} resolves to no universe")
+    assert_owner_match(resource=resource, universe_id=resolved, expected_owner_id=expected_owner_id)
+
+
 def assert_rule_override_write(
     override_id: str | UUID,
     *,

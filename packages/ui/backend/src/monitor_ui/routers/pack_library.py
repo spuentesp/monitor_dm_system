@@ -63,13 +63,15 @@ from pydantic import BaseModel, Field
 
 from .ingest_shared import (
     _create_setting,
+    register_setting_owner,
     _pack_to_dict,
     db_op,
     validate_uuid,
 )
 
 
-from monitor_ui.auth import Principal, get_current_user, is_local_mode
+from monitor_data.db.postgres import PostgresClient
+from monitor_ui.auth import Principal, get_current_user, get_postgres, is_local_mode
 from monitor_ui.ownership import resource_route_guard
 
 
@@ -975,7 +977,12 @@ class ApplyNewWorldRequest(BaseModel):
 
 @router.post("/packs/{pack_id}/apply/new-world", status_code=201)
 # reason: new-world application route returns a dynamically shaped result dictionary
-async def apply_pack_new_world(pack_id: str, body: ApplyNewWorldRequest) -> dict:  # type: ignore[type-arg]
+async def apply_pack_new_world(
+    pack_id: str,
+    body: ApplyNewWorldRequest,
+    principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
+) -> dict:  # type: ignore[type-arg]
     """Create a new Multiverse+Universe and commit all pack items to canon."""
     pack_uid = validate_uuid(pack_id, "pack_id")
     with db_op("Database unavailable"):
@@ -992,6 +999,7 @@ async def apply_pack_new_world(pack_id: str, body: ApplyNewWorldRequest) -> dict
             system_name=body.system_name or body.world_name,
             game_system_id=pack.game_system_id,
         )
+        await register_setting_owner(db, principal, mv_id, universe_uid, body.world_name)
     except Exception as exc:
         raise HTTPException(500, f"Could not create world: {exc}") from exc
 

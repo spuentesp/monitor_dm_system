@@ -26,6 +26,7 @@ from monitor_data.schemas.world_snapshots import (
     WorldSnapshotResponse,
 )
 from monitor_data.tools.neo4j_tools.core import neo4j_get_universe_state
+from monitor_data.tenancy import acting_owner, assert_universe_write
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ def mongodb_create_world_snapshot(params: WorldSnapshotCreate) -> WorldSnapshotR
     """
     Capture the current state of a Universe from Neo4j and save it to MongoDB.
     """
+    assert_universe_write(params.universe_id, resource="world_snapshot")
     client = get_mongodb_client()
     collection = client.get_collection("world_snapshots")
 
@@ -124,6 +126,10 @@ def mongodb_list_world_snapshots(filters: WorldSnapshotFilter) -> WorldSnapshotL
 
 def mongodb_delete_world_snapshot(snapshot_id: UUID) -> bool:
     """Delete a snapshot."""
+    if acting_owner() is not None:
+        _existing = get_mongodb_client().get_collection("world_snapshots").find_one({"snapshot_id": str(snapshot_id)})
+        if _existing is not None:
+            assert_universe_write(_existing.get("universe_id"), resource="world_snapshot")
     client = get_mongodb_client()
     collection = client.get_collection("world_snapshots")
 

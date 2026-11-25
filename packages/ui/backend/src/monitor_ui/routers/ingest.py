@@ -65,6 +65,8 @@ from .ingest_shared import (
     _create_setting,
     _default_processing_checklist,
     _ensure_universe_for_multiverse,
+    register_setting_owner,
+    register_universe_owner,
     _job_to_dict,
     _source_from_doc,
     _source_from_job,
@@ -966,18 +968,21 @@ async def upload_source(
         universe_uid: UUID | None = None
         try:
             if requested_setting_name:
-                _, universe_uid = _create_setting(
+                mv_uid, universe_uid = _create_setting(
                     name=requested_setting_name,
                     system_name=requested_setting_system or requested_setting_name,
                 )
+                await register_setting_owner(db, principal, mv_uid, universe_uid, requested_setting_name)
             elif requested_multiverse_id:
                 universe_uid = _ensure_universe_for_multiverse(UUID(requested_multiverse_id))
+                await register_universe_owner(db, principal, UUID(requested_multiverse_id), universe_uid)
             else:
                 # Standalone upload — auto-create a setting from the source title
-                _, universe_uid = _create_setting(
+                mv_uid, universe_uid = _create_setting(
                     name=source_title,
                     system_name=source_title,
                 )
+                await register_setting_owner(db, principal, mv_uid, universe_uid, source_title)
         except Exception as exc:
             raise HTTPException(500, f"Could not resolve setting: {exc}") from exc
 
@@ -1160,6 +1165,7 @@ async def delete_source(source_id: str, principal: Principal = Depends(get_curre
 async def rescan_source(
     source_id: str,
     principal: Principal = Depends(get_current_user),
+    db: PostgresClient = Depends(get_postgres),
     scan_type: str = "setting_supplement",
     analysis_layers: list[str] | None = Query(default=None),
     # reason: FastAPI/Pydantic v2 returns Any for dynamic model attributes; mypy can't narrow without explicit Annotated[]
@@ -1223,19 +1229,21 @@ async def rescan_source(
                     source_title,
                 )
                 try:
-                    _, universe_uid = _create_setting(
+                    mv_uid, universe_uid = _create_setting(
                         name=source_title,
                         system_name=source_title,
                     )
+                    await register_setting_owner(db, principal, mv_uid, universe_uid, source_title)
                 except Exception as exc:
                     raise HTTPException(500, f"Could not re-create setting: {exc}") from exc
         else:
             # No universe at all — create one like a fresh upload
             try:
-                _, universe_uid = _create_setting(
+                mv_uid, universe_uid = _create_setting(
                     name=source_title,
                     system_name=source_title,
                 )
+                await register_setting_owner(db, principal, mv_uid, universe_uid, source_title)
             except Exception as exc:
                 raise HTTPException(500, f"Could not create setting: {exc}") from exc
 

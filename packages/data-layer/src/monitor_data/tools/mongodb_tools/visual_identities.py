@@ -25,6 +25,7 @@ from monitor_data.schemas.visual_identity import (
     VisualIdentityUpdate,
     transition_visual_identity_status,
 )
+from monitor_data.tenancy import assert_visual_identity_target_write
 
 _COLLECTION = "visual_identities"
 
@@ -128,9 +129,15 @@ def mongodb_upsert_visual_identity(
     params: VisualIdentityCreate | VisualIdentityUpdate,
 ) -> VisualIdentity:
     """Create an identity or replace one version using optimistic locking."""
-    collection = get_mongodb_client().get_collection(_COLLECTION)
-
     if isinstance(params, VisualIdentityCreate):
+        assert_visual_identity_target_write(
+            universe_id=params.universe_id,
+            entity_id=params.entity_id,
+            character_id=params.character_id,
+            resource="visual_identity",
+        )
+        collection = get_mongodb_client().get_collection(_COLLECTION)
+
         anchor = _anchor_query(
             character_id=params.character_id,
             entity_id=params.entity_id,
@@ -159,10 +166,17 @@ def mongodb_upsert_visual_identity(
     if params.expected_version is None:
         raise ValueError("VisualIdentityUpdate.expected_version is required")
 
+    collection = get_mongodb_client().get_collection(_COLLECTION)
     current_raw = collection.find_one({"identity_id": str(params.identity_id)})
     if current_raw is None:
         raise VisualIdentityNotFoundError(f"Visual identity {params.identity_id} not found")
     current = dict(current_raw)
+    assert_visual_identity_target_write(
+        universe_id=current.get("universe_id"),
+        entity_id=current.get("entity_id"),
+        character_id=current.get("character_id"),
+        resource="visual_identity",
+    )
 
     current_anchor = _anchor_query(
         character_id=current.get("character_id"),
@@ -278,6 +292,12 @@ def mongodb_update_visual_identity_status(
     raw = collection.find_one({"identity_id": str(identity_id)})
     if raw is None:
         raise VisualIdentityNotFoundError(f"Visual identity {identity_id} not found")
+    assert_visual_identity_target_write(
+        universe_id=raw.get("universe_id"),
+        entity_id=raw.get("entity_id"),
+        character_id=raw.get("character_id"),
+        resource="visual_identity_status",
+    )
 
     current = VisualIdentityStatus(raw["status"])
     if coerced_status != current and not transition_visual_identity_status(current, coerced_status):

@@ -27,6 +27,7 @@ from monitor_data.schemas.tone_libraries import (
     ToneLibraryResponse,
     ToneLibraryUpdate,
 )
+from monitor_data.tenancy import acting_owner, assert_universe_write
 
 # =============================================================================
 # INTERNAL HELPERS
@@ -66,6 +67,10 @@ def mongodb_create_tone_library(params: ToneLibraryCreate) -> ToneLibraryRespons
     Returns:
         ToneLibraryResponse with created library data.
     """
+    # Universe-bound libraries assert the acting owner; global/builtin rows
+    # (no universe) stay shared — HTTP writes for those are admin-gated.
+    if params.universe_id is not None:
+        assert_universe_write(params.universe_id, resource="tone_library")
     client = get_mongodb_client()
     library_id = uuid4()
 
@@ -197,6 +202,18 @@ def mongodb_update_tone_library(library_id: UUID, params: ToneLibraryUpdate) -> 
     """
     client = get_mongodb_client()
 
+    # Ownership gate: the existing doc's universe (and a re-home target)
+    # must belong to the acting owner; a global row stays shared (HTTP
+    # admin-gates global writes). A missing doc falls through to the
+    # tool's own not-found path below. The pre-load only runs when an
+    # owner is bound, so the no-owner path keeps its original call shape.
+    if acting_owner() is not None:
+        existing = client["tone_libraries"].find_one({"library_id": str(library_id)})
+        if existing is not None and existing.get("universe_id"):
+            assert_universe_write(existing["universe_id"], resource="tone_library")
+    if params.universe_id is not None:
+        assert_universe_write(params.universe_id, resource="tone_library")
+
     update_doc: dict[str, Any] = {"updated_at": datetime.now(UTC).isoformat()}
     if params.name:
         update_doc["name"] = params.name
@@ -244,6 +261,8 @@ def mongodb_delete_tone_library(library_id: UUID) -> bool:
     existing = client["tone_libraries"].find_one({"library_id": str(library_id)})
     if not existing:
         return False
+    if existing.get("universe_id"):
+        assert_universe_write(existing["universe_id"], resource="tone_library")
 
     if existing.get("is_default"):
         raise ValueError("Cannot delete default ToneLibrary")

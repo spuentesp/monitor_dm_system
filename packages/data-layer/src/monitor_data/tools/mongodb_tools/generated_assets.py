@@ -25,6 +25,41 @@ from monitor_data.schemas.generated_assets import (
     GeneratedAssetUpdate,
     ReferenceStatus,
 )
+from monitor_data.tenancy import (
+    OwnerViolationError,
+    acting_owner,
+    assert_character_scope_write,
+    assert_entity_write,
+    assert_universe_write,
+)
+
+
+def _assert_generated_asset_target(
+    universe_id: UUID | str | None, character_id: str | None, entity_id: UUID | str | None
+) -> None:
+    """Ownership gate (UX-1): the asset's universe, character or entity must
+    belong to the acting owner. No owner bound → unchanged. An asset naming no
+    target at all fails closed when an owner is bound."""
+    if acting_owner() is None:
+        return
+    if universe_id is not None:
+        assert_universe_write(universe_id, resource="generated_asset")
+    elif character_id:
+        assert_character_scope_write(character_id, resource="generated_asset")
+    elif entity_id is not None:
+        assert_entity_write(entity_id, resource="generated_asset")
+    else:
+        raise OwnerViolationError("refusing generated_asset write: asset names no universe, character or entity")
+
+
+def _assert_existing_generated_asset(asset_id: UUID) -> None:
+    """Gate a write to an existing asset on the target it was created for."""
+    if acting_owner() is None:
+        return
+    doc = get_mongodb_client().get_collection("generated_assets").find_one({"asset_id": str(asset_id)})
+    if doc is not None:
+        _assert_generated_asset_target(doc.get("universe_id"), doc.get("character_id"), doc.get("entity_id"))
+
 
 _COLLECTION = "generated_assets"
 _REFERENCE_ELIGIBLE = {ReferenceStatus.PRIMARY.value, ReferenceStatus.SUPPORTING.value}
@@ -88,6 +123,7 @@ def _demote_other_primaries(collection: Any, asset: Mapping[str, Any]) -> None:
 
 def mongodb_create_generated_asset(params: GeneratedAssetCreate) -> GeneratedAsset:
     """Persist a newly generated asset and return its typed record."""
+    _assert_generated_asset_target(params.universe_id, params.character_id, params.entity_id)
     _ensure_reference_eligible(params.approval_status, params.reference_status)
 
     now = datetime.now(UTC)
@@ -155,6 +191,7 @@ def mongodb_update_generated_asset(
     params: GeneratedAssetUpdate,
 ) -> GeneratedAsset:
     """Update mutable generated-asset fields while preserving reference safety."""
+    _assert_existing_generated_asset(asset_id)
     collection = get_mongodb_client().get_collection(_COLLECTION)
     existing = collection.find_one({"asset_id": str(asset_id)})
     if existing is None:
@@ -195,6 +232,7 @@ def mongodb_approve_generated_asset(
     reference_status: ReferenceStatus,
 ) -> GeneratedAsset:
     """Approve an asset and optionally make it a primary/supporting reference."""
+    _assert_existing_generated_asset(asset_id)
     collection = get_mongodb_client().get_collection(_COLLECTION)
     if collection.find_one({"asset_id": str(asset_id)}) is None:
         raise ValueError(f"Generated asset {asset_id} not found")
@@ -232,6 +270,7 @@ def mongodb_reject_generated_asset(
     rejected_by: str,
 ) -> GeneratedAsset:
     """Reject an asset, removing any reference role and recording the reviewer."""
+    _assert_existing_generated_asset(asset_id)
     collection = get_mongodb_client().get_collection(_COLLECTION)
     if collection.find_one({"asset_id": str(asset_id)}) is None:
         raise ValueError(f"Generated asset {asset_id} not found")

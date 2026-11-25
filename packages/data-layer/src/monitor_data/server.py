@@ -38,6 +38,7 @@ from monitor_data.middleware import (
     log_tool_call,
     validate_tool_input,
 )
+from monitor_data.tenancy import OwnerViolationError
 
 # Import all tool modules
 from monitor_data.tools import ingest_tools, mongodb_tools, neo4j_tools, qdrant_tools
@@ -346,6 +347,24 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 result_text = json.dumps(_jsonable(result), indent=2, default=str)
 
             return [TextContent(type="text", text=result_text)]
+
+        except OwnerViolationError as e:
+            # Ownership refusals propagate typed (OwnerViolationError) so
+            # agent code — BaseAgent.call_tool first — can distinguish a
+            # tenancy refusal from a generic tool failure. Every other tool
+            # error keeps the pre-existing "Error executing tool: ..." string
+            # contract below; the failure is still logged either way.
+            logger.error(f"Tool ownership refusal for '{name}': {e}", exc_info=True)
+            log_tool_call(
+                name,
+                agent_type,
+                agent_id,
+                arguments,
+                success=False,
+                error_message=str(e),
+                execution_time_ms=timer.elapsed_ms,
+            )
+            raise
 
         except Exception as e:
             # Log unexpected errors
