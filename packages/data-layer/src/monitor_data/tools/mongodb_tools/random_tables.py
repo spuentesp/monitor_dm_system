@@ -20,6 +20,7 @@ from monitor_data.schemas.random_tables import (
     RandomTableResponse,
     RandomTableUpdate,
 )
+from monitor_data.tenancy import acting_owner, assert_universe_write
 from monitor_data.utils.dice import roll_dice
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 def mongodb_create_random_table(params: RandomTableCreate) -> RandomTableResponse:
     """Create a new random table in MongoDB."""
+    # Universe-bound tables assert the acting owner; global tables (no
+    # universe) stay shared — HTTP writes for those are admin-gated.
+    if params.universe_id is not None:
+        assert_universe_write(params.universe_id, resource="random_table")
     client = get_mongodb_client()
     collection = client.get_collection("random_tables")
 
@@ -99,6 +104,13 @@ def mongodb_list_random_tables(filters: RandomTableFilter) -> RandomTableListRes
 
 def mongodb_update_random_table(table_id: UUID, params: RandomTableUpdate) -> RandomTableResponse:
     """Update an existing random table."""
+    # Ownership gate: the stored table's universe must belong to the acting
+    # owner; a global table stays shared (admin-gated over HTTP). The pre-load
+    # only runs when an owner is bound, so the no-owner path is unchanged.
+    if acting_owner() is not None:
+        _existing = get_mongodb_client().get_collection("random_tables").find_one({"table_id": str(table_id)})
+        if _existing is not None and _existing.get("universe_id"):
+            assert_universe_write(_existing["universe_id"], resource="random_table")
     client = get_mongodb_client()
     collection = client.get_collection("random_tables")
 
@@ -125,6 +137,12 @@ def mongodb_update_random_table(table_id: UUID, params: RandomTableUpdate) -> Ra
 
 def mongodb_delete_random_table(table_id: UUID) -> bool:
     """Delete a random table."""
+    # Ownership gate (only when an owner is bound): a universe-bound table's
+    # universe must belong to the acting owner; global tables stay shared.
+    if acting_owner() is not None:
+        _existing = get_mongodb_client().get_collection("random_tables").find_one({"table_id": str(table_id)})
+        if _existing is not None and _existing.get("universe_id"):
+            assert_universe_write(_existing["universe_id"], resource="random_table")
     client = get_mongodb_client()
     collection = client.get_collection("random_tables")
 

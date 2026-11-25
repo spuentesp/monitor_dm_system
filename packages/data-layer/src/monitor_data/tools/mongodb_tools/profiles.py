@@ -61,6 +61,7 @@ def mongodb_upsert_world_profile(
         universe_id: The universe this profile belongs to.
         profile:     The current EmbeddedWorldProfile to store.
     """
+    assert_universe_write(universe_id, resource="world_profile")
     client = get_mongodb_client()
     doc = {
         "universe_id": str(universe_id),

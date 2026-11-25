@@ -17,10 +17,23 @@ from monitor_data.schemas.webhooks import (
     WebhookDeliveryStatus,
     WebhookEventType,
 )
+from monitor_data.tenancy import acting_owner, assert_multiverse_write, assert_universe_write
 
 # =============================================================================
 # WEBHOOK REGISTRATION
 # =============================================================================
+
+
+def _assert_commit_webhook_target(multiverse_id: Any, universe_id: Any, *, resource: str = "commit_webhook") -> None:
+    """Ownership gate (UX-1): the webhook's universe (when scoped) and its
+    multiverse must belong to the acting owner — mirrors the HTTP guard,
+    which owner-checks both ``multiverse_id`` and ``universe_id``. No owner
+    bound → unchanged."""
+    if acting_owner() is None:
+        return
+    if universe_id is not None:
+        assert_universe_write(universe_id, resource=resource)
+    assert_multiverse_write(multiverse_id, resource=resource)
 
 
 def mongodb_create_commit_webhook(
@@ -39,6 +52,7 @@ def mongodb_create_commit_webhook(
     Returns:
         The created webhook record
     """
+    _assert_commit_webhook_target(params.multiverse_id, params.universe_id)
     mongodb = get_mongodb_client()
     coll = mongodb.get_collection("commit_webhooks")
 
@@ -140,6 +154,13 @@ def mongodb_update_commit_webhook(
     mongodb = get_mongodb_client()
     coll = mongodb.get_collection("commit_webhooks")
 
+    # Ownership gate (only when an owner is bound): assert against the stored
+    # target so a foreign webhook cannot be re-targeted or toggled.
+    if acting_owner() is not None:
+        existing = coll.find_one({"webhook_id": str(webhook_id)})
+        if existing is not None:
+            _assert_commit_webhook_target(existing.get("multiverse_id"), existing.get("universe_id"))
+
     update: dict[str, Any] = {}
     if params.callback_url is not None:
         update["callback_url"] = params.callback_url
@@ -174,6 +195,12 @@ def mongodb_delete_commit_webhook(webhook_id: UUID) -> bool:
     """
     mongodb = get_mongodb_client()
     coll = mongodb.get_collection("commit_webhooks")
+    # Ownership gate (only when an owner is bound): assert against the stored
+    # target before removing the registration.
+    if acting_owner() is not None:
+        existing = coll.find_one({"webhook_id": str(webhook_id)})
+        if existing is not None:
+            _assert_commit_webhook_target(existing.get("multiverse_id"), existing.get("universe_id"))
     result = coll.delete_one({"webhook_id": str(webhook_id)})
     return result.deleted_count > 0
 

@@ -15,6 +15,7 @@ from uuid import UUID
 
 from monitor_data.db._utils import run_sync
 from monitor_data.db.mongodb import get_mongodb_client
+from monitor_data.tenancy import assert_universe_write
 
 # Collections with a universe_id field that belong to a single world.
 FORK_UNIVERSE_COLLECTIONS: tuple[str, ...] = (
@@ -49,6 +50,10 @@ def mongodb_fork_universe_data(
     prefix = (prefix or "").strip()
     if not prefix:
         raise ValueError("prefix is required for a forked world")
+    # Ownership gate (UX-1): both ends of the copy must belong to the acting
+    # owner — the source universe is read, the destination is written.
+    assert_universe_write(src_universe_id, resource="universe_fork_source")
+    assert_universe_write(dst_universe_id, resource="universe_fork_target")
     src = str(UUID(str(src_universe_id)))
     dst = str(UUID(str(dst_universe_id)))
     client = get_mongodb_client()
