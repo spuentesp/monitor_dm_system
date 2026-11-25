@@ -112,6 +112,10 @@ def _patch_trim_tool(return_value: Any = None, side_effect: Exception | None = N
         yield agent
 
 
+def _calls_named(voice: MagicMock, name: str) -> int:
+    return sum(1 for c in voice.call_tool.await_args_list if c.args[0] == name)
+
+
 class TestTrimLastExchange:
     @pytest.mark.asyncio
     async def test_trim_restores_state_to_before_the_exchange(self):
@@ -137,7 +141,7 @@ class TestTrimLastExchange:
         # The conversation stays open — nothing closed or completed it.
         assert loop._closed is False
         assert loop.state.is_complete is False
-        voice.call_tool.assert_awaited_once()
+        assert _calls_named(voice, "mongodb_trim_conversation_turns") == 1
 
     @pytest.mark.asyncio
     async def test_trim_calls_persisted_history_tool_with_keep_turns(self):
@@ -148,8 +152,9 @@ class TestTrimLastExchange:
             await loop.step("Hello again.")
             await loop.trim_last_exchange()
 
-        name, args = voice.call_tool.await_args.args
-        assert name == "mongodb_trim_conversation_turns"
+        trims = [c.args for c in voice.call_tool.await_args_list if c.args[0] == "mongodb_trim_conversation_turns"]
+        assert len(trims) == 1
+        name, args = trims[0]
         assert args == {"conversation_id": str(loop.state.conversation_id), "keep_turns": 1}
 
     @pytest.mark.asyncio
@@ -168,7 +173,7 @@ class TestTrimLastExchange:
             # Nothing left to undo: the third call is a no-op.
             assert await loop.trim_last_exchange() == 0
 
-        assert voice.call_tool.await_count == 2
+        assert _calls_named(voice, "mongodb_trim_conversation_turns") == 2
 
     @pytest.mark.asyncio
     async def test_trim_on_fresh_loop_returns_zero_without_tool_call(self):
@@ -319,3 +324,59 @@ def test_snapshot_captures_npc_context_by_copy():
     snapshot = loop._snapshot_exchange()
     loop.state.npc_contexts[str(NPC_ID)]["profile"]["current_emotional_state"] = "enraged"
     assert snapshot["npc_contexts"][str(NPC_ID)]["profile"]["current_emotional_state"] == "calm"
+
+
+class TestTrimForgetsExchangeMemories:
+    """A rewound exchange's NPC memories are deleted; older ones are kept."""
+
+    @pytest.mark.asyncio
+    async def test_only_this_exchanges_memories_for_this_conversation_are_deleted(self):
+        from datetime import UTC, datetime, timedelta
+
+        loop = _loop()
+        _seed_exchangeable_state(loop)
+        conv = str(loop.state.conversation_id)
+        far_future = datetime.now(UTC) + timedelta(days=1)
+        long_ago = datetime.now(UTC) - timedelta(days=1)
+        memories = {
+            "memories": [
+                # Written by the rewound exchange: delete.
+                {"memory_id": "m-new", "metadata": {"conversation_id": conv}, "created_at": far_future.isoformat()},
+                # Same NPC + conversation but before the exchange: keep.
+                {"memory_id": "m-old", "metadata": {"conversation_id": conv}, "created_at": long_ago.isoformat()},
+                # Same NPC, another conversation: keep.
+                {"memory_id": "m-other", "metadata": {"conversation_id": str(uuid4())}, "created_at": far_future},
+            ]
+        }
+
+        async def call_tool(name: str, args: dict) -> Any:
+            return memories if name == "mongodb_list_memories" else {"ok": True}
+
+        with _patch_turn_nodes(), _patch_trim_tool() as voice:
+            voice.call_tool.side_effect = call_tool
+            await loop.step("I knock.")
+            await loop.trim_last_exchange()
+
+        listed = [c.args[1] for c in voice.call_tool.await_args_list if c.args[0] == "mongodb_list_memories"]
+        assert listed == [{"params": {"entity_id": str(NPC_ID), "limit": 1000}}]
+        deleted = [c.args[1] for c in voice.call_tool.await_args_list if c.args[0] == "mongodb_delete_memory"]
+        assert deleted == [{"memory_id": "m-new"}]
+
+    @pytest.mark.asyncio
+    async def test_memory_cleanup_failure_does_not_break_rewind(self):
+        loop = _loop()
+        expected = _seed_exchangeable_state(loop)
+
+        async def call_tool(name: str, args: dict) -> Any:
+            if name == "mongodb_list_memories":
+                raise RuntimeError("store down")
+            return {"ok": True}
+
+        with _patch_turn_nodes(), _patch_trim_tool() as voice:
+            voice.call_tool.side_effect = call_tool
+            await loop.step("I knock.")
+            removed = await loop.trim_last_exchange()
+
+        assert removed == 2
+        assert loop.state.turns == expected["turns"]
+        assert loop._closed is False

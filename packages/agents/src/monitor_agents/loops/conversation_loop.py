@@ -40,6 +40,7 @@ import structlog
 import asyncio
 import copy
 import logging
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
@@ -1160,6 +1161,9 @@ class ConversationLoop:
             "current_player_input": state.current_player_input,
             "current_npc_responses": list(state.current_npc_responses),
             "deferred_memory_writes": list(state.deferred_memory_writes),
+            # Memories the NPCs write for this exchange are created after this
+            # instant; rewind deletes exactly those (see _forget_exchange_memories).
+            "taken_at": datetime.now(UTC),
         }
 
     @owner_scoped
@@ -1183,6 +1187,11 @@ class ConversationLoop:
 
         snapshot = self._exchange_snapshots.pop()
         removed_turns = max(0, len(self.state.turns) - len(snapshot["turns"]))
+        rewound_npc_ids = {
+            str(t["entity_id"])
+            for t in self.state.turns[len(snapshot["turns"]) :]
+            if isinstance(t, dict) and t.get("speaker_role") == "npc" and t.get("entity_id")
+        }
         self.state.turns = list(snapshot["turns"])
         self.state.pending_proposals = list(snapshot["pending_proposals"])
         self.state.npc_contexts = snapshot["npc_contexts"]
@@ -1217,7 +1226,53 @@ class ConversationLoop:
                 conversation_id=str(self.state.conversation_id),
                 exc_info=True,
             )
+        taken_at = snapshot.get("taken_at")
+        if rewound_npc_ids and isinstance(taken_at, datetime):
+            await self._forget_exchange_memories(rewound_npc_ids, taken_at)
         return removed_turns
+
+    async def _forget_exchange_memories(self, npc_ids: set[str], since: datetime) -> int:
+        """Delete the CharacterMemories the rewound exchange wrote.
+
+        ``_write_npc_memory`` stamps ``metadata.conversation_id``; a memory of
+        one of the exchange's NPCs for THIS conversation created after the
+        exchange's snapshot belongs to the rewound exchange (snapshots are
+        popped newest-first, so earlier exchanges' memories predate it).
+        Best-effort like the turn trim: failures log and leave the loop usable.
+        """
+        from monitor_agents.npc_voice.agent import NPCVoice
+
+        agent = NPCVoice()
+        conversation_id = str(self.state.conversation_id)
+        deleted = 0
+        for npc_id in sorted(npc_ids):
+            try:
+                listed = await agent.call_tool(
+                    "mongodb_list_memories", {"params": {"entity_id": npc_id, "limit": 1000}}
+                )
+                memories = listed.get("memories", []) if isinstance(listed, dict) else []
+                for mem in memories:
+                    meta = mem.get("metadata") or {}
+                    created = mem.get("created_at")
+                    if isinstance(created, str):
+                        created = datetime.fromisoformat(created)
+                    if isinstance(created, datetime) and created.tzinfo is None:
+                        created = created.replace(tzinfo=UTC)
+                    if (
+                        str(meta.get("conversation_id")) == conversation_id
+                        and isinstance(created, datetime)
+                        and created >= since
+                    ):
+                        await agent.call_tool("mongodb_delete_memory", {"memory_id": str(mem["memory_id"])})
+                        deleted += 1
+            except Exception:  # noqa: BLE001  # reason: memory cleanup is best-effort; rewind already rolled back the transcript
+                log.warning(
+                    "conversation trim: rewound NPC memories not deleted",
+                    conversation_id=conversation_id,
+                    npc_id=npc_id,
+                    exc_info=True,
+                )
+        return deleted
 
     @owner_scoped
     async def flush_memory_writes(self) -> int:
