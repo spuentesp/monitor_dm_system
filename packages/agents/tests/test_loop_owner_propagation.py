@@ -282,9 +282,13 @@ class TestConversationLoopOwnerReachesTool:
                 "universe_id": UUID(universe),
             }
         ]
-        await loop.flush_memory_writes()
+        with pytest.raises(OwnerViolationError):
+            await loop.flush_memory_writes()
 
-        # The tool refused at the boundary: the MCP surface reports tool
-        # errors as text (BaseAgent.call_tool), but nothing is written.
+        # The tool refused at the boundary as a typed OwnerViolationError
+        # (server.call_tool re-raises it; BaseAgent.call_tool propagates it),
+        # nothing is written, and the flush failed before clearing the buffer
+        # so the writes stay queued for a retry.
         assert mongo.total_write_calls == 0
         assert (universe, owner) in pg.world_get_for_owner_calls
+        assert loop.state.deferred_memory_writes, "failed flush must keep the writes"

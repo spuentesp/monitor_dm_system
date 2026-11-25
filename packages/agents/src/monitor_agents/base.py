@@ -188,10 +188,14 @@ class BaseAgent(ABC):
                 model_output_problem = info.error_class is LLMErrorClass.VALIDATION and bool(
                     getattr(exc, "failed_attempts", None)
                 )
-                unanswerable = info.error_class in (
-                    LLMErrorClass.AUTH,
-                    LLMErrorClass.QUOTA,
-                ) or model_output_problem
+                unanswerable = (
+                    info.error_class
+                    in (
+                        LLMErrorClass.AUTH,
+                        LLMErrorClass.QUOTA,
+                    )
+                    or model_output_problem
+                )
                 if unanswerable:
                     fallback = await registry.default_client()
                     if fallback is not None and fallback.model != client.model:
@@ -228,6 +232,11 @@ class BaseAgent(ABC):
 
         Raises:
             PermissionError: If agent lacks authority for this tool.
+            OwnerViolationError: If a guarded write targets a resource the
+                acting owner does not own (typed tenancy refusal — the
+                data-layer server re-raises it instead of returning an
+                error string; every other tool failure still arrives as an
+                "Error executing tool: ..." string, unchanged).
         """
         # Surface MCP tool invocations to the client as tool_call /
         # tool_result WS events. Each call gets a fresh id so the result
