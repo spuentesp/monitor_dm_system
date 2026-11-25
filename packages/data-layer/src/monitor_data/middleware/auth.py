@@ -452,6 +452,7 @@ AUTHORITY_MATRIX = {
     "mongodb_create_conversation": ["NPCVoice", "Narrator"],
     "mongodb_get_conversation": ["*"],
     "mongodb_append_conversation_turn": ["NPCVoice", "Narrator"],
+    "mongodb_trim_conversation_turns": ["NPCVoice"],
     "mongodb_update_conversation": ["NPCVoice"],
     "mongodb_list_conversations": ["*"],
     # =========================================================================

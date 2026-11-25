@@ -5,6 +5,7 @@ Covers:
 - mongodb_create_conversation
 - mongodb_get_conversation
 - mongodb_append_conversation_turn
+- mongodb_trim_conversation_turns
 - mongodb_update_conversation
 - mongodb_list_conversations
 """
@@ -30,6 +31,7 @@ from monitor_data.tools.mongodb_tools import (
     mongodb_get_conversation,
     mongodb_get_recent_conversation_turns,
     mongodb_list_conversations,
+    mongodb_trim_conversation_turns,
     mongodb_update_conversation,
 )
 
@@ -840,3 +842,109 @@ def test_create_conversation_with_player_entity(mock_mongo: Mock) -> None:
     assert result.player_entity_id == player_entity_id
     insert_call = mock_col.insert_one.call_args[0][0]
     assert insert_call["player_entity_id"] == str(player_entity_id)
+
+
+# =============================================================================
+# TEST: mongodb_trim_conversation_turns (UX-6 rewind)
+# =============================================================================
+
+
+def _turns(n: int) -> list:
+    return [
+        {
+            "turn_index": i,
+            "speaker_role": "player" if i % 2 == 0 else "npc",
+            "entity_id": None,
+            "entity_name": "Speaker",
+            "text": f"Turn {i}",
+            "emotional_state": None,
+            "timestamp": _NOW,
+        }
+        for i in range(n)
+    ]
+
+
+@patch("monitor_data.tools.mongodb_tools.conversations.get_mongodb_client")
+def test_trim_conversation_turns_truncates_to_keep_count(mock_mongo: Mock) -> None:
+    """Trim keeps the first N turns and persists only the turn list."""
+    universe_id = uuid4()
+    conv_id = uuid4()
+    doc = _make_conv_doc(conv_id, universe_id, [uuid4()], turns=_turns(4))
+    trimmed = {**doc, "turns": _turns(2)}
+
+    mock_col = Mock()
+    mock_col.find_one.side_effect = [doc, trimmed]
+    mock_col.update_one.return_value = Mock(matched_count=1)
+    mock_mongo.return_value.__getitem__ = Mock(return_value=mock_col)
+
+    result = mongodb_trim_conversation_turns(conv_id, 2)
+
+    assert len(result.turns) == 2
+    assert [t.text for t in result.turns] == ["Turn 0", "Turn 1"]
+    mock_col.update_one.assert_called_once()
+    set_fields = mock_col.update_one.call_args[0][1]["$set"]
+    assert [t["text"] for t in set_fields["turns"]] == ["Turn 0", "Turn 1"]
+    assert set_fields["updated_at"] is not None
+
+
+@patch("monitor_data.tools.mongodb_tools.conversations.get_mongodb_client")
+def test_trim_conversation_turns_noop_when_history_is_shorter(mock_mongo: Mock) -> None:
+    """keep_turns >= current length writes nothing."""
+    universe_id = uuid4()
+    conv_id = uuid4()
+    doc = _make_conv_doc(conv_id, universe_id, [uuid4()], turns=_turns(2))
+
+    mock_col = Mock()
+    mock_col.find_one.return_value = doc
+    mock_mongo.return_value.__getitem__ = Mock(return_value=mock_col)
+
+    result = mongodb_trim_conversation_turns(conv_id, 5)
+
+    assert len(result.turns) == 2
+    mock_col.update_one.assert_not_called()
+
+
+@patch("monitor_data.tools.mongodb_tools.conversations.get_mongodb_client")
+def test_trim_conversation_turns_clamps_negative_keep(mock_mongo: Mock) -> None:
+    """A negative keep value removes every turn."""
+    universe_id = uuid4()
+    conv_id = uuid4()
+    doc = _make_conv_doc(conv_id, universe_id, [uuid4()], turns=_turns(3))
+    trimmed = {**doc, "turns": []}
+
+    mock_col = Mock()
+    mock_col.find_one.side_effect = [doc, trimmed]
+    mock_col.update_one.return_value = Mock(matched_count=1)
+    mock_mongo.return_value.__getitem__ = Mock(return_value=mock_col)
+
+    result = mongodb_trim_conversation_turns(conv_id, -3)
+
+    assert result.turns == []
+    set_fields = mock_col.update_one.call_args[0][1]["$set"]
+    assert set_fields["turns"] == []
+
+
+@patch("monitor_data.tools.mongodb_tools.conversations.get_mongodb_client")
+def test_trim_conversation_turns_completed_session_raises(mock_mongo: Mock) -> None:
+    """Trimming a completed session raises ValueError (history is final)."""
+    universe_id = uuid4()
+    conv_id = uuid4()
+    doc = _make_conv_doc(conv_id, universe_id, [uuid4()], status=ConversationStatus.COMPLETED)
+
+    mock_col = Mock()
+    mock_col.find_one.return_value = doc
+    mock_mongo.return_value.__getitem__ = Mock(return_value=mock_col)
+
+    with pytest.raises(ValueError, match="Cannot trim"):
+        mongodb_trim_conversation_turns(conv_id, 1)
+
+
+@patch("monitor_data.tools.mongodb_tools.conversations.get_mongodb_client")
+def test_trim_conversation_turns_nonexistent_session_raises(mock_mongo: Mock) -> None:
+    """Trimming a missing session raises ValueError."""
+    mock_col = Mock()
+    mock_col.find_one.return_value = None
+    mock_mongo.return_value.__getitem__ = Mock(return_value=mock_col)
+
+    with pytest.raises(ValueError, match="not found"):
+        mongodb_trim_conversation_turns(uuid4(), 1)

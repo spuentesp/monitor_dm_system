@@ -8,8 +8,13 @@ every persistence/canon boundary monkeypatched:
 - 409 when the exchange's canon is already accepted/committed,
 - rejects the exchange's still-pending proposals with reason "rewound"
   through the data-layer tool seam (never a direct Neo4j write),
+- rolls the scene's MongoDB checkpoint back before a scene-turn exchange
+  (SceneLoop.backtrack) and refuses (409/503) before any mutation,
+- trims an active NPC ConversationLoop's memory without ending it,
 - clears session/loop state keyed to the exchange and leaves the rest of
-  the transcript untouched.
+  the transcript untouched,
+- holds the in-flight mark across end-scene and wrap-up so rewind 409s
+  while they run.
 """
 
 from __future__ import annotations
@@ -476,8 +481,9 @@ class TestRewindSideState:
             preplay_mod._CHARACTER_INTERVIEW_LOOPS.pop(sid, None)
             preplay_mod._STORY_AGREEMENT_LOOPS.pop(sid, None)
 
-    def test_conversation_loop_is_left_alone(self, monkeypatch):
-        """No clean trim API exists for ConversationLoop — documented decision."""
+    def test_conversation_loop_is_left_alone_when_exchange_was_not_its_own(self, monkeypatch):
+        """Only conversation_turn exchanges are trimmed; anything else (here:
+        a plain exchange) leaves the cached loop untouched."""
         sid, _session = _seed(monkeypatch, [_msg("player", "Hi."), _msg("gm", "Hey.")])
         monkeypatch.setattr(chat_mod, "_rewind_list_proposals", _empty_list)
         chat_loops._CONVERSATION_LOOPS[sid] = object()
@@ -489,3 +495,351 @@ class TestRewindSideState:
 
 async def _empty_list(*, scene_uuid, story_uuid) -> list:
     return []
+
+
+# ---------------------------------------------------------------------------
+# Scene checkpoint rollback (Mongo LangGraph state, UX-6 limit 2)
+# ---------------------------------------------------------------------------
+
+
+def _patch_scene_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    result: dict | None = None,
+    on_backtrack=None,
+) -> list:
+    """Fake ``SceneLoop`` so the real checkpoint seam runs hermetically.
+
+    Returns the list of constructed instances; ``on_backtrack`` (if given)
+    is called with the instance when ``backtrack()`` runs.
+    """
+    created: list = []
+
+    class _FakeSceneLoop:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+            self.backtrack_calls = 0
+            created.append(self)
+
+        async def backtrack(self) -> dict:
+            self.backtrack_calls += 1
+            if on_backtrack is not None:
+                on_backtrack(self)
+            return dict(result or {})
+
+    monkeypatch.setattr("monitor_agents.loops.scene_loop.SceneLoop", _FakeSceneLoop)
+    return created
+
+
+def _scene_turn_messages(scene_id: str, story_id: str) -> list[dict]:
+    return [
+        _msg("player", "I strike."),
+        _msg(
+            "gm",
+            "Steel rings.",
+            metadata={
+                "type": "scene_turn",
+                "scene_id": scene_id,
+                "story_id": story_id,
+                "turn_id": str(uuid4()),
+            },
+        ),
+    ]
+
+
+class TestRewindSceneCheckpoint:
+    def test_scene_turn_exchange_rolls_back_before_transcript_mutation(self, monkeypatch):
+        scene_id, story_id = str(uuid4()), str(uuid4())
+        sid, _session = _seed(
+            monkeypatch,
+            _scene_turn_messages(scene_id, story_id),
+            story_id=story_id,
+            scene_id=scene_id,
+        )
+        _patch_proposals(monkeypatch, [])
+        seen: dict = {}
+
+        def _observe(loop) -> None:
+            seen["messages_during_backtrack"] = len(chat_mod._MESSAGES[sid])
+            seen["kwargs"] = loop.kwargs
+
+        created = _patch_scene_loop(monkeypatch, on_backtrack=_observe)
+
+        r = _rewind(sid)
+
+        assert r.status_code == 200, r.text
+        # The rollback ran while the transcript was still whole.
+        assert seen["messages_during_backtrack"] == 2
+        assert str(seen["kwargs"]["scene_id"]) == scene_id
+        assert str(seen["kwargs"]["story_id"]) == story_id
+        assert created[0].backtrack_calls == 1
+        assert len(_messages(sid)) == 0  # mutation only after the rollback
+
+    def test_non_scene_turn_exchange_leaves_the_checkpoint_alone(self, monkeypatch):
+        sid, _session = _seed(monkeypatch, [_msg("player", "Hi."), _msg("gm", "Hey.")])
+        monkeypatch.setattr(chat_mod, "_rewind_list_proposals", _empty_list)
+        created = _patch_scene_loop(monkeypatch, result={"error": "should never run"})
+
+        r = _rewind(sid)
+
+        assert r.status_code == 200, r.text
+        assert created == []
+        assert len(_messages(sid)) == 0
+
+    def test_checkpoint_canon_refusal_is_409_before_any_mutation(self, monkeypatch):
+        scene_id, story_id = str(uuid4()), str(uuid4())
+        sid, session = _seed(
+            monkeypatch,
+            _scene_turn_messages(scene_id, story_id),
+            story_id=story_id,
+            scene_id=scene_id,
+        )
+        _patch_proposals(monkeypatch, [])
+        _patch_scene_loop(
+            monkeypatch,
+            result={
+                "error": "2 change(s) from this turn were already accepted into canon, so the turn can't be undone."
+            },
+        )
+
+        r = _rewind(sid)
+
+        assert r.status_code == 409, r.text
+        assert "accepted into canon" in r.json()["detail"]
+        assert len(_messages(sid)) == 2  # fail closed: transcript untouched
+        assert session.get("scene_id") == scene_id
+
+    def test_checkpoint_storage_failure_is_503_before_any_mutation(self, monkeypatch):
+        scene_id, story_id = str(uuid4()), str(uuid4())
+        sid, _session = _seed(
+            monkeypatch,
+            _scene_turn_messages(scene_id, story_id),
+            story_id=story_id,
+            scene_id=scene_id,
+        )
+        _patch_proposals(monkeypatch, [])
+        _patch_scene_loop(
+            monkeypatch,
+            result={
+                "error": "The turn may be partly undone: the database stopped responding. "
+                "Run /backtrack again to finish; it picks up where this stopped."
+            },
+        )
+
+        r = _rewind(sid)
+
+        assert r.status_code == 503, r.text
+        assert r.json()["detail"] == chat_mod._REWIND_SCENE_CHECKPOINT_UNAVAILABLE
+        assert len(_messages(sid)) == 2  # fail closed: nothing removed
+
+    def test_nothing_to_roll_back_still_rewinds_the_transcript(self, monkeypatch):
+        scene_id, story_id = str(uuid4()), str(uuid4())
+        sid, _session = _seed(
+            monkeypatch,
+            _scene_turn_messages(scene_id, story_id),
+            story_id=story_id,
+            scene_id=scene_id,
+        )
+        _patch_proposals(monkeypatch, [])
+        _patch_scene_loop(monkeypatch, result={"error": "Cannot backtrack further."})
+
+        r = _rewind(sid)
+
+        assert r.status_code == 200, r.text
+        assert len(_messages(sid)) == 0
+
+
+class TestRewindSceneCheckpointSeam:
+    def test_skips_when_the_exchange_is_not_a_scene_turn(self, monkeypatch):
+        created = _patch_scene_loop(monkeypatch, result={"error": "must not run"})
+        asyncio.run(chat_mod._rewind_scene_checkpoint({"scene_id": None}, [_msg("gm", "Hey.")]))
+        assert created == []
+
+    def test_skips_when_the_scene_scope_is_missing(self, monkeypatch):
+        created = _patch_scene_loop(monkeypatch, result={"error": "must not run"})
+        removed = [_msg("gm", "Hit.", metadata={"type": "scene_turn"})]
+        asyncio.run(chat_mod._rewind_scene_checkpoint({}, removed))
+        assert created == []
+
+    def test_prefers_the_exchanges_scope_over_the_session(self, monkeypatch):
+        meta_scene, meta_story = str(uuid4()), str(uuid4())
+        created = _patch_scene_loop(monkeypatch, result={})
+        session = {"scene_id": str(uuid4()), "story_id": str(uuid4())}
+        removed = [
+            _msg(
+                "gm",
+                "Hit.",
+                metadata={"type": "scene_turn", "scene_id": meta_scene, "story_id": meta_story},
+            )
+        ]
+
+        asyncio.run(chat_mod._rewind_scene_checkpoint(session, removed))
+
+        assert len(created) == 1
+        assert str(created[0].kwargs["scene_id"]) == meta_scene
+        assert str(created[0].kwargs["story_id"]) == meta_story
+
+
+# ---------------------------------------------------------------------------
+# ConversationLoop memory trim (UX-6 limit 1)
+# ---------------------------------------------------------------------------
+
+
+class _FakeConversationLoop:
+    """Stands in for the cached ConversationLoop; records trim calls."""
+
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.trim_calls = 0
+
+    async def trim_last_exchange(self) -> int:
+        if self.fail:
+            raise RuntimeError("mongo down")
+        self.trim_calls += 1
+        return 2
+
+
+class TestRewindConversationLoop:
+    def test_conversation_turn_exchange_trims_the_cached_loop_in_place(self, monkeypatch):
+        sid, _session = _seed(
+            monkeypatch,
+            [
+                _msg("player", "Hello."),
+                _msg("gm", "Mira smiles.", metadata={"type": "conversation_turn"}),
+            ],
+        )
+        loop = _FakeConversationLoop()
+        chat_loops._CONVERSATION_LOOPS[sid] = loop
+        try:
+            r = _rewind(sid)
+            assert r.status_code == 200, r.text
+            assert loop.trim_calls == 1
+            # Trimmed, not popped: popping would end the conversation.
+            assert chat_loops.get_conversation_loop(sid) is loop
+        finally:
+            chat_loops._CONVERSATION_LOOPS.pop(sid, None)
+
+    def test_trim_failure_keeps_the_loop_and_still_rewinds(self, monkeypatch):
+        sid, _session = _seed(
+            monkeypatch,
+            [
+                _msg("player", "Hello."),
+                _msg("gm", "Mira smiles.", metadata={"type": "conversation_turn"}),
+            ],
+        )
+        loop = _FakeConversationLoop(fail=True)
+        chat_loops._CONVERSATION_LOOPS[sid] = loop
+        try:
+            r = _rewind(sid)
+            assert r.status_code == 200, r.text
+            assert len(_messages(sid)) == 0  # transcript still rewound
+            assert chat_loops.get_conversation_loop(sid) is loop  # kept alive
+        finally:
+            chat_loops._CONVERSATION_LOOPS.pop(sid, None)
+
+    def test_conversation_turn_without_a_cached_loop_is_a_noop(self, monkeypatch):
+        sid, _session = _seed(
+            monkeypatch,
+            [
+                _msg("player", "Hello."),
+                _msg("gm", "Mira smiles.", metadata={"type": "conversation_turn"}),
+            ],
+        )
+        assert chat_loops.get_conversation_loop(sid) is None
+        r = _rewind(sid)
+        assert r.status_code == 200, r.text
+        assert len(_messages(sid)) == 0
+
+
+# ---------------------------------------------------------------------------
+# End-scene / wrap-up hold the in-flight mark (UX-6 limit 3)
+# ---------------------------------------------------------------------------
+
+
+def _patch_rewind_during(observed: dict):
+    """Fake ``_run_end_scene`` that probes rewind while the mark is held."""
+
+    async def _fake_end_scene(session_id, session, **kwargs):
+        observed["in_flight"] = chat_mod.turn_in_flight(session_id)
+        with pytest.raises(HTTPException) as exc_info:
+            await chat_mod.rewind_last_exchange(session_id, principal=None)
+        observed["rewind_status"] = exc_info.value.status_code
+        observed["detail"] = exc_info.value.detail
+        return ("Scene ended.", {"type": "end_scene"})
+
+    return _fake_end_scene
+
+
+class TestEndSceneWrapUpInFlight:
+    def test_end_scene_marks_turn_and_rewind_answers_409_while_it_runs(self, monkeypatch):
+        sid, _session = _seed(
+            monkeypatch,
+            [_msg("gm", "Opening.")],
+            scene_id=str(uuid4()),
+            story_id=str(uuid4()),
+        )
+        observed: dict = {}
+        monkeypatch.setattr(chat_mod, "_run_end_scene", _patch_rewind_during(observed))
+        monkeypatch.setattr(chat_mod, "fanout_completed_gm_message", AsyncMock())
+
+        asyncio.run(chat_mod.end_scene(sid, principal=None))
+
+        assert observed["in_flight"] is True
+        assert observed["rewind_status"] == 409
+        assert observed["detail"] == chat_mod._REWIND_IN_FLIGHT_DETAIL
+        assert chat_mod.turn_in_flight(sid) is False  # cleared on the way out
+
+    def test_wrap_up_marks_turn_and_rewind_answers_409_while_it_runs(self, monkeypatch):
+        sid, session = _seed(
+            monkeypatch,
+            [_msg("gm", "Opening.")],
+            mode="gm_assistant",
+        )
+        observed: dict = {}
+        monkeypatch.setattr(chat_mod, "_run_end_scene", _patch_rewind_during(observed))
+        monkeypatch.setattr(chat_mod, "fanout_completed_gm_message", AsyncMock())
+
+        asyncio.run(chat_mod.wrap_up_session(sid, principal=None))
+
+        assert observed["in_flight"] is True
+        assert observed["rewind_status"] == 409
+        assert observed["detail"] == chat_mod._REWIND_IN_FLIGHT_DETAIL
+        assert chat_mod.turn_in_flight(sid) is False
+        assert session.get("wrapped_up_at")  # the wrap-up itself completed
+
+    def test_end_scene_clears_the_mark_when_the_scene_end_fails(self, monkeypatch):
+        sid, _session = _seed(
+            monkeypatch,
+            [_msg("gm", "Opening.")],
+            scene_id=str(uuid4()),
+            story_id=str(uuid4()),
+        )
+        held: dict = {}
+
+        async def _boom(session_id, session, **kwargs):
+            held["in_flight"] = chat_mod.turn_in_flight(session_id)
+            raise RuntimeError("scene end exploded")
+
+        monkeypatch.setattr(chat_mod, "_run_end_scene", _boom)
+
+        with pytest.raises(RuntimeError, match="scene end exploded"):
+            asyncio.run(chat_mod.end_scene(sid, principal=None))
+
+        assert held["in_flight"] is True
+        assert chat_mod.turn_in_flight(sid) is False
+
+    def test_wrap_up_clears_the_mark_when_the_operation_fails(self, monkeypatch):
+        sid, _session = _seed(monkeypatch, [_msg("gm", "Opening.")], mode="gm_assistant")
+        held: dict = {}
+
+        async def _boom(session_id, session, **kwargs):
+            held["in_flight"] = chat_mod.turn_in_flight(session_id)
+            raise RuntimeError("wrap-up exploded")
+
+        monkeypatch.setattr(chat_mod, "_run_end_scene", _boom)
+
+        with pytest.raises(RuntimeError, match="wrap-up exploded"):
+            asyncio.run(chat_mod.wrap_up_session(sid, principal=None))
+
+        assert held["in_flight"] is True
+        assert chat_mod.turn_in_flight(sid) is False

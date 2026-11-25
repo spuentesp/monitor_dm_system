@@ -67,6 +67,9 @@ from .chat_game_system import (
 )
 
 from .chat_loops import (
+    get_conversation_loop as _get_conversation_loop,
+)
+from .chat_loops import (
     pop_character_creation_loop as _pop_char_creation_loop,
 )
 from .chat_loops import (
@@ -810,6 +813,26 @@ async def wrap_up_session(session_id: str, principal: Principal = Depends(get_cu
     story_id = session.get("story_id")
     universe_id = session.get("universe_id") or session.get("world_id")
 
+    # Rewind guard (UX-6): wrap-up canonizes, recaps and rewrites the
+    # session doc — rewind answers 409 for the whole operation.
+    _begin_turn(session_id)
+    try:
+        return await _execute_wrap_up(session_id, session, story_id, universe_id)
+    finally:
+        _end_turn(session_id)
+
+
+async def _execute_wrap_up(
+    session_id: str,
+    session: dict[str, Any],
+    story_id: Any,
+    universe_id: Any,
+) -> WrapUpDigest:
+    """Run the wrap-up steps (P1.3) — the body of ``wrap_up_session``.
+
+    Split out so the endpoint can hold the turn in-flight mark (rewind
+    guard) around the whole operation.
+    """
     # 1. Canonize first so the digest reflects the final decision state.
     if session.get("phase") != "scene_ended":
         await _run_end_scene(
@@ -1389,6 +1412,97 @@ async def _rewind_exchange_proposals(
             raise HTTPException(status_code=409, detail=_REWIND_CANON_DETAIL) from exc
 
 
+_REWIND_SCENE_CHECKPOINT_UNAVAILABLE = "Couldn't roll back the scene checkpoint — rewind aborted."
+
+
+async def _rewind_scene_checkpoint(
+    session: dict[str, Any],
+    removed: list[dict[str, Any]],
+) -> None:
+    """Roll the scene's MongoDB LangGraph checkpoint back before the rewound turn.
+
+    Seam for tests. Runs only when the excised exchange contains a scene
+    turn (``metadata.type == "scene_turn"``), through ``SceneLoop.backtrack``
+    — the agents-layer API that restores the checkpoint from before the
+    last player turn and undoes that turn's scene writes (P-7). The router
+    never touches the store itself.
+
+    Refuses with 409 when the turn's writes can't be undone (its canon was
+    committed) and fails closed with 503 on storage errors — both BEFORE
+    any transcript mutation, so a refusal leaves the exchange intact.
+    """
+    turn_meta = next(
+        (meta for meta in (m.get("metadata") or {} for m in removed) if meta.get("type") == "scene_turn"),
+        None,
+    )
+    if turn_meta is None:
+        return
+
+    def _scope(value: Any) -> uuid.UUID | None:
+        return as_uuid(str(value)) if value else None
+
+    scene_uuid = _scope(turn_meta.get("scene_id")) or _scope(session.get("scene_id"))
+    story_uuid = _scope(turn_meta.get("story_id")) or _scope(session.get("story_id"))
+    if scene_uuid is None or story_uuid is None:
+        logger.warning("rewind: scene turn without scene/story scope; checkpoint rollback skipped")
+        return
+
+    try:
+        from monitor_agents.loops.scene_loop import SceneLoop
+    except Exception as exc:  # noqa: BLE001  # reason: optional dependency import: fail closed when agents are missing
+        logger.warning("rewind: SceneLoop unavailable for checkpoint rollback: %s", exc)
+        raise HTTPException(status_code=503, detail=_REWIND_SCENE_CHECKPOINT_UNAVAILABLE) from exc
+
+    raw_universe = session.get("universe_id") or session.get("world_id")
+    loop = SceneLoop(
+        scene_id=scene_uuid,
+        story_id=story_uuid,
+        universe_id=as_uuid(str(raw_universe)) if raw_universe else None,
+        owner_id=session.get("owner_id"),
+    )
+    try:
+        result = await loop.backtrack()
+    except Exception as exc:  # noqa: BLE001  # reason: fail closed — a failed rollback must not be reported as success
+        logger.warning("rewind: scene checkpoint rollback failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=503, detail=_REWIND_SCENE_CHECKPOINT_UNAVAILABLE) from exc
+
+    if not isinstance(result, dict) or not result.get("error"):
+        return
+    error = str(result["error"])
+    if "Cannot backtrack further" in error:
+        # No checkpoint thread (or no completed turn on it): nothing to roll back.
+        logger.info("rewind: no scene checkpoint to roll back for scene %s", scene_uuid)
+        return
+    if "accepted into canon" in error:
+        raise HTTPException(status_code=409, detail=error)
+    logger.warning("rewind: scene checkpoint rollback refused: %s", error)
+    raise HTTPException(status_code=503, detail=_REWIND_SCENE_CHECKPOINT_UNAVAILABLE)
+
+
+async def _rewind_conversation_loop(
+    session_id: str,
+    removed: list[dict[str, Any]],
+) -> None:
+    """Trim an active NPC ConversationLoop back to before the rewound exchange.
+
+    Seam for tests. Only exchanges the conversation loop produced
+    (``metadata.type == "conversation_turn"``) are trimmed — anything else
+    leaves the cached loop untouched. A failure is logged and the loop kept:
+    popping it instead would end the conversation outright.
+    """
+    if not any((m.get("metadata") or {}).get("type") == "conversation_turn" for m in removed):
+        return
+    loop = _get_conversation_loop(session_id)
+    if loop is None:
+        return
+    try:
+        removed_turns = await loop.trim_last_exchange()
+    except Exception as exc:  # noqa: BLE001  # reason: the transcript is already excised; a trim failure degrades, never aborts
+        logger.warning("rewind: conversation loop trim failed: %s", exc, exc_info=True)
+        return
+    logger.info("rewind: conversation loop trimmed %s turn entries", removed_turns)
+
+
 def _rewind_session_state(
     session: dict[str, Any],
     removed: list[dict[str, Any]],
@@ -1440,11 +1554,17 @@ async def rewind_last_exchange(
     Powers the play UI's Undo / Edit-last-turn / Regenerate controls (UX-6):
     the exchange is excised from the in-process cache and the persisted
     store, its still-pending proposals are rejected with reason "rewound",
+    the scene's MongoDB checkpoint is rolled back to before the exchange's
+    scene turn (``SceneLoop.backtrack`` — with that turn's scene writes),
+    an active NPC ConversationLoop has the exchange trimmed from its memory
+    (``ConversationLoop.trim_last_exchange`` — the conversation stays open),
     session/loop state keyed to it is cleared, and the remaining transcript
-    stays untouched everywhere else. Refuses with 409 while a turn is in
-    flight (never excise a half-written exchange) and with 409 when the
-    exchange's canon is already accepted/committed — proposals move only
-    through the data-layer tools, never a direct Neo4j write.
+    stays untouched everywhere else. Refuses with 409 while a turn — or an
+    end-scene / wrap-up operation — is in flight (never excise a
+    half-written exchange), with 409 when the exchange's canon is already
+    accepted/committed, and with 409/503 when the checkpoint can't be
+    rolled back; proposals move only through the data-layer tools, never a
+    direct Neo4j write.
     """
     await require_chat_session_owner(principal, session_id)
     if turn_in_flight(session_id):
@@ -1471,6 +1591,11 @@ async def rewind_last_exchange(
     # Canon gate BEFORE any mutation (raises 409 / 503 without touching state).
     await _rewind_exchange_proposals(session, removed_msgs)
 
+    # Scene checkpoint rollback runs under the same fail-closed rule: it can
+    # still refuse (canon committed / storage down) while the transcript is
+    # untouched, so a 409/503 here costs nothing.
+    await _rewind_scene_checkpoint(session, removed_msgs)
+
     # 1. In-process transcript.
     remaining = msgs[:player_idx]
     _MESSAGES[session_id] = remaining
@@ -1482,12 +1607,13 @@ async def rewind_last_exchange(
     _rewind_session_state(session, removed_msgs, remaining)
     _db_save_session(session)
 
-    # 4. Cached turn loops rebuild without the rewound exchange. ConversationLoop
-    #    has no history-trim API, so an active NPC conversation keeps its own
-    #    memory (documented in WORKSTREAM_REPORT.md).
+    # 4. Cached turn loops: preplay/scene caches rebuild without the rewound
+    #    exchange, while an active NPC ConversationLoop keeps running and has
+    #    the exchange trimmed out of its memory in place.
     _pop_scene_loop(session_id)
     _pop_session_zero_loop(session_id)
     _pop_char_creation_loop(session_id)
+    await _rewind_conversation_loop(session_id, removed_msgs)
 
     asyncio.create_task(fanout_event(session_id, {"type": "rewound", "removed": len(removed_msgs)}))
     return RewindResponse(removed=len(removed_msgs), last_player_text=last_player_text)
@@ -1635,37 +1761,43 @@ async def end_scene(session_id: str, principal: Principal = Depends(get_current_
             detail="No active scene to end. Start a scene first.",
         )
 
-    narrative, meta = await _run_end_scene(
-        session_id,
-        session,
-        sessions=_SESSIONS,
-        messages=_MESSAGES,
-        db_save_session=_db_save_session,
-        db_load_messages=_db_load_messages,
-        bootstrap_story_scene=_bootstrap_story_scene,
-    )
+    # Rewind guard (UX-6): from here the transcript and session phase are
+    # being rewritten, so POST .../rewind answers 409 until this finishes.
+    _begin_turn(session_id)
+    try:
+        narrative, meta = await _run_end_scene(
+            session_id,
+            session,
+            sessions=_SESSIONS,
+            messages=_MESSAGES,
+            db_save_session=_db_save_session,
+            db_load_messages=_db_load_messages,
+            bootstrap_story_scene=_bootstrap_story_scene,
+        )
 
-    now = _now()
-    gm_msg = _make_gm_msg(session_id, narrative, meta)
-    msgs = _MESSAGES.setdefault(session_id, [])
-    msgs.append(gm_msg)
-    _db_save_message(gm_msg)
+        now = _now()
+        gm_msg = _make_gm_msg(session_id, narrative, meta)
+        msgs = _MESSAGES.setdefault(session_id, [])
+        msgs.append(gm_msg)
+        _db_save_message(gm_msg)
 
-    # Persist updated session state
-    if session_id in _SESSIONS:
-        if meta.get("working_state"):
-            _SESSIONS[session_id]["latest_working_state"] = meta["working_state"]
-        if meta.get("scene_checkpoint"):
-            _SESSIONS[session_id]["latest_scene_checkpoint"] = meta["scene_checkpoint"]
-        if meta.get("social_read"):
-            _SESSIONS[session_id]["latest_social_read"] = meta["social_read"]
-        if meta.get("relationship_snapshot"):
-            _SESSIONS[session_id]["latest_relationship_snapshot"] = meta["relationship_snapshot"]
-        _SESSIONS[session_id]["updated_at"] = now
-        _db_save_session(_SESSIONS[session_id])
+        # Persist updated session state
+        if session_id in _SESSIONS:
+            if meta.get("working_state"):
+                _SESSIONS[session_id]["latest_working_state"] = meta["working_state"]
+            if meta.get("scene_checkpoint"):
+                _SESSIONS[session_id]["latest_scene_checkpoint"] = meta["scene_checkpoint"]
+            if meta.get("social_read"):
+                _SESSIONS[session_id]["latest_social_read"] = meta["social_read"]
+            if meta.get("relationship_snapshot"):
+                _SESSIONS[session_id]["latest_relationship_snapshot"] = meta["relationship_snapshot"]
+            _SESSIONS[session_id]["updated_at"] = now
+            _db_save_session(_SESSIONS[session_id])
 
-    asyncio.create_task(fanout_completed_gm_message(session_id, gm_msg))
-    return Message(**gm_msg)
+        asyncio.create_task(fanout_completed_gm_message(session_id, gm_msg))
+        return Message(**gm_msg)
+    finally:
+        _end_turn(session_id)
 
 
 # ---------------------------------------------------------------------------

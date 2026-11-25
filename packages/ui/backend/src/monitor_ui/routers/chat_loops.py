@@ -631,6 +631,11 @@ def pop_conversation_loop(session_id: str) -> None:
     _CONVERSATION_LOOPS.pop(session_id, None)
 
 
+def get_conversation_loop(session_id: str) -> Any:
+    """Return the session's cached ConversationLoop, if one is active."""
+    return _CONVERSATION_LOOPS.get(session_id)
+
+
 # ---------------------------------------------------------------------------
 # Meta-command handlers (GAP 4, GAP 3, GAP 2)
 # ---------------------------------------------------------------------------
