@@ -113,12 +113,6 @@ export function AdminUsersTab({ meId }: { meId: string }) {
   });
 
   const users = usersQuery.data?.users ?? [];
-  const pendingBusy =
-    banMutation.isPending ||
-    unbanMutation.isPending ||
-    roleMutation.isPending ||
-    revokeSessionsMutation.isPending;
-
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-4">

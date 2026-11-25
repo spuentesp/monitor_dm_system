@@ -2,18 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Plus,
-  Sparkles,
-  User,
-  MoreVertical,
-  Trash2,
-  Brain,
-  Import,
-  BookOpen,
-  Loader2,
-  Upload,
-} from "lucide-react";
+import { Plus, Sparkles, User, MoreVertical, Trash2, Brain, BookOpen, Loader2, Upload } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { entitiesApi } from "@/lib/api";

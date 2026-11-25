@@ -15,7 +15,7 @@ import {
   Save,
 } from "lucide-react";
 import { randomTablesApi } from "@/lib/api";
-import type { RandomTable, RandomTableEntry, RandomTableType, RollResult } from "@/lib/types";
+import type { RandomTable, RandomTableEntry, RollResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // ═══════════════════════════════════════════════════════════════

@@ -57,7 +57,7 @@ import type {
   RPGSystem,
   RuleInfo,
 } from "@/lib/types";
-import { cn, truncate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import type { SourceProfile } from "@/lib/types";
 import { FORGE_KEYS, ENTITY_KEYS } from "@/lib/query-keys";
 import { useSystems, useSystem } from "@/hooks/use-systems";

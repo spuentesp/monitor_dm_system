@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { Send, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChatStatus } from "./types";

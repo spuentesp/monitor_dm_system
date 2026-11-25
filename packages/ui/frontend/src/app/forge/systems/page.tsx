@@ -24,7 +24,7 @@ import { entitiesApi } from "@/lib/api";
 import type { Character, RPGSystem, RuleInfo, AttributeInfo, SkillInfo, ResourceInfo } from "@/lib/types";
 import { cn, truncate } from "@/lib/utils";
 import { ENTITY_KEYS } from "@/lib/query-keys";
-import { useSystems, useSystem } from "@/hooks/use-systems";
+import { useSystems } from "@/hooks/use-systems";
 
 // ─── Rule type badge colors ───────────────────────────────── 
 

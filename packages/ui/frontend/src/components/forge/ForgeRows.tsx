@@ -2,19 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Archive,
-  BookOpen,
-  Check,
-  Edit3,
-  FlaskConical,
-  Layers,
-  MoreVertical,
-  Pencil,
-  Sparkles,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Archive, BookOpen, Check, FlaskConical, Layers, MoreVertical, Pencil, Sparkles, Trash2, X } from "lucide-react";
 import {
   AXIOM_DOMAIN_OPTIONS,
   ENTITY_TYPE_CONFIG,
@@ -105,24 +93,6 @@ function InlineEdit({
         <X className="h-3.5 w-3.5" />
       </button>
     </span>
-  );
-}
-
-function RowDeleteButton({
-  onClick,
-  title = "Remove item",
-}: {
-  onClick: () => void;
-  title?: string;
-}) {
-  return (
-    <button
-      className="self-start p-1 text-red-400 opacity-0 btn-ghost group-hover/row:opacity-60 hover:!opacity-100"
-      onClick={onClick}
-      title={title}
-    >
-      <Trash2 className="h-3.5 w-3.5" />
-    </button>
   );
 }
 

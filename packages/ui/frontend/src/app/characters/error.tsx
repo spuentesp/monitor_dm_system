@@ -6,7 +6,6 @@ import { errorMessage } from "@/lib/errors";
 
 export default function CharactersError({
   error,
-  reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;

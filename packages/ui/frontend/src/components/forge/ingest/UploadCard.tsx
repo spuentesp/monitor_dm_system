@@ -1,20 +1,8 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  FileText,
-  Loader2,
-  Sparkles,
-  Archive,
-  ChevronDown,
-  Layers,
-  Scroll,
-  Swords,
-  Wand2,
-  CheckCircle2,
-  X,
-} from "lucide-react";
+import { FileText, Loader2, Sparkles, Archive, ChevronDown, CheckCircle2, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ingestApi } from "@/lib/api";
 import { cn, formatBytes } from "@/lib/utils";

@@ -6,7 +6,6 @@ import { errorMessage } from "@/lib/errors";
 
 export default function SearchError({
   error,
-  reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;

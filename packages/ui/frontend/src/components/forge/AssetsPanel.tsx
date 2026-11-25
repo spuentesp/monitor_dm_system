@@ -3,21 +3,9 @@
 import { useCallback, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  FileImage,
-  FileAudio,
-  FileText,
-  Upload,
-  Trash2,
-  Loader2,
-  ExternalLink,
-  X,
-  ImageIcon,
-  Music,
-  File,
-} from "lucide-react";
+import { FileImage, FileText, Upload, Trash2, Loader2, ExternalLink, ImageIcon, Music, File } from "lucide-react";
 import { ingestApi } from "@/lib/api";
-import type { BinaryAsset } from "@/lib/types";
+
 import { cn, formatBytes, formatRelativeTime } from "@/lib/utils";
 
 // ─── Asset type config ────────────────────────────────────────

@@ -21,39 +21,7 @@ import type {
 import { cn } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-    Activity,
-    AlertCircle,
-    AlertTriangle,
-    Bot,
-    Check,
-    CheckCircle2,
-    ChevronDown,
-    ChevronRight,
-    Code2,
-    Cpu,
-    Database,
-    EyeOff,
-    FlaskConical,
-    Layers,
-    Loader2,
-    Network,
-    Pencil,
-    Plus,
-    RefreshCw,
-    RotateCcw,
-    Server,
-    Settings,
-    ShieldCheck,
-    Sparkles,
-    Terminal,
-    WifiOff,
-    X,
-    Zap,
-    Gauge,
-    Palette,
-    ImagePlus,
-} from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, Bot, Check, CheckCircle2, ChevronDown, ChevronRight, Code2, Cpu, Database, FlaskConical, Layers, Loader2, Network, Pencil, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Sparkles, Terminal, WifiOff, X, Zap, Gauge, Palette, ImagePlus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";

@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { performanceApi } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 /**
  * Performance tab (T-038 — performance monitoring bridge). Live

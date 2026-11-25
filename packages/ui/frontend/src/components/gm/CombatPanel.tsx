@@ -1,16 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  Dices,
-  Loader2,
-  Skull,
-  Swords,
-  HelpCircle,
-} from "lucide-react";
+import { AlertTriangle, ChevronDown, Dices, Loader2, Skull, Swords, HelpCircle } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, gmApi, storiesApi } from "@/lib/api";
 import {
@@ -203,7 +194,7 @@ export function CombatPanel({
   });
 
   const explain = useMutation({
-    mutationFn: ({ combatantId, condition }: { combatantId: string; condition: string }) =>
+    mutationFn: ({ condition }: { combatantId: string; condition: string }) =>
       gmCombatApi.explainCondition({
         universe_id: universeId!,
         condition,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, BookOpen, Download, FileText, Loader2, Users } from "lucide-react";
@@ -49,11 +49,6 @@ export default function SharePage() {
   const characters = viewQuery.data?.characters ?? [];
   const artifacts = viewQuery.data?.artifacts ?? [];
 
-  const openArtifact = useMemo(
-    () => artifacts.find((a) => a.id === openId) ?? null,
-    [artifacts, openId],
-  );
-
   if (viewQuery.isPending && token) {
     return (
       <main className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -66,7 +61,6 @@ export default function SharePage() {
 
   if (viewQuery.isError) {
     const status = viewQuery.error instanceof ApiError ? viewQuery.error.status : 0;
-    const revoked = status === 404;
     const limited = status === 429;
     return (
       <main className="min-h-screen bg-slate-950 flex items-center justify-center px-4">

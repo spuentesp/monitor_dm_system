@@ -1,22 +1,8 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  BookOpen,
-  ChevronDown,
-  ChevronUp,
-  Download,
-  Edit2,
-  Loader2,
-  Tag,
-  Trash2,
-  Plus,
-  Upload,
-  X,
-  TrendingUp,
-  Filter,
-} from "lucide-react";
+import { BookOpen, ChevronDown, ChevronUp, Download, Edit2, Loader2, Tag, Trash2, Plus, Upload, X, TrendingUp } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { cn } from "@/lib/utils";
@@ -258,7 +244,7 @@ export function LorebookEditor({ characterId, universeId, onClose }: LorebookEdi
 
   // Ingest state (M3-G.2)
   const [isIngesting, setIsIngesting] = useState(false);
-  const [ingestProgress, setIngestProgress] = useState({ done: 0, total: 0 });
+  const [, setIngestProgress] = useState({ done: 0, total: 0 });
   const [ingestSource, setIngestSource] = useState("");
   const [ingestContent, setIngestContent] = useState("");
   // Stored as strings so an empty input shows an empty field instead of

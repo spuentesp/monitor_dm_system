@@ -86,7 +86,7 @@ export function SetupPanel({
   const [showTemplateEditor, setShowTemplateEditor] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<CharacterTemplate | undefined>();
   const queryClient = useQueryClient();
-  const [selectedBenchmarkId, setSelectedBenchmarkId] = useState<string>("");
+  const [selectedBenchmarkId] = useState<string>("");
 
   const { data: multiverses = [], isLoading: multiversesLoading } = useQuery({
     queryKey: UNIVERSE_KEYS.multiverses,
@@ -101,7 +101,7 @@ export function SetupPanel({
 
   const { data: systems = [], isLoading: systemsLoading } = useSystems();
 
-  const { data: benchmarks = [], isLoading: benchmarksLoading } = useQuery<PlaytestBenchmark[]>({
+  const { data: benchmarks = [] } = useQuery<PlaytestBenchmark[]>({
     queryKey: PLAY_KEYS.benchmarks,
     queryFn: chatApi.listBenchmarks,
   });

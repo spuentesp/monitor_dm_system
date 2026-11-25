@@ -18,35 +18,11 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import {
-  Compass,
-  Globe2,
-  Layers,
-  Loader2,
-  PanelRightClose,
-  PanelRightOpen,
-  Plus,
-  Send,
-  Sparkles,
-  User,
-  MapPin,
-  Users,
-  Shield,
-  Brain,
-  Zap,
-  Tag,
-  X,
-} from "lucide-react";
+import { Compass, Globe2, Layers, Loader2, PanelRightClose, PanelRightOpen, Plus, Sparkles, User, MapPin, Users, Shield, Brain, Zap, Tag, X } from "lucide-react";
 import { chatApi, graphApi, universesApi } from "@/lib/api";
 import { ARCHITECT_KEYS } from "@/lib/query-keys";
 import { ChatList, Composer, useChatSession, type QuickAction } from "@/features/chat";
-import type {
-  GraphNodeData,
-  GraphNodeKind,
-  Multiverse,
-  Session,
-  Universe,
-} from "@/lib/types";
+import type { GraphNodeData, GraphNodeKind, Session } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { ArchitectMessageBubble } from "./ArchitectMessageBubble";
 import { CoveragePanel } from "@/components/forge/architect/CoveragePanel";
@@ -94,12 +70,10 @@ const MINI_NODE_TYPES = { worldNode: WorldNodeMini };
 function MiniGraph({
   multiverseId,
   universeId,
-  selectedNodeId,
   onSelectNode,
 }: {
   multiverseId: string | null;
   universeId: string | null;
-  selectedNodeId: string | null;
   onSelectNode: (id: string, data: GraphNodeData) => void;
 }) {
   const { data: graph, isLoading } = useQuery({
@@ -308,7 +282,7 @@ export default function ArchitectPage() {
   const [multiverseId, setMultiverseId] = useState<string | null>(null);
   const [universeId, setUniverseId] = useState<string | null>(null);
   const [selectedNodeData, setSelectedNodeData] = useState<GraphNodeData | null>(null);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [, setSelectedNodeId] = useState<string | null>(null);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -529,7 +503,7 @@ export default function ArchitectPage() {
                   <span className="text-[10px] text-slate-700">click to inspect</span>
                 </div>
                 <div className="flex-1 min-h-0">
-                  <MiniGraph multiverseId={multiverseId} universeId={universeId} selectedNodeId={selectedNodeId} onSelectNode={handleNodeSelect} />
+                  <MiniGraph multiverseId={multiverseId} universeId={universeId} onSelectNode={handleNodeSelect} />
                 </div>
               </div>
 

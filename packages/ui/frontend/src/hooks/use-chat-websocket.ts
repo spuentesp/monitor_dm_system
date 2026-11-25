@@ -117,7 +117,7 @@ export function useChatWebSocket({
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
-    } catch (err) {
+    } catch {
       isConnectingRef.current = false;
       setStatus("disconnected");
       onErrorRef.current?.(new Event("ws-construct-failed"));
@@ -144,7 +144,7 @@ export function useChatWebSocket({
       }
     };
 
-    ws.onclose = (event) => {
+    ws.onclose = () => {
       isConnectingRef.current = false;
       clearTimers();
       if (intentionalCloseRef.current) {

@@ -4,36 +4,14 @@ import { Suspense, useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import {
-  BookOpen,
-  ChevronDown,
-  ChevronUp,
-  ClipboardList,
-  Dices,
-  FileText,
-  GitBranch,
-  Globe2,
-  Loader2,
-  Mic,
-  NotebookPen,
-  Search,
-  SlidersHorizontal,
-  Sparkles,
-  Swords,
-  Scroll,
-  AlertTriangle,
-} from "lucide-react";
-import { universesApi, entitiesApi } from "@/lib/api";
+import { BookOpen, ChevronDown, ChevronUp, ClipboardList, Dices, FileText, GitBranch, Globe2, Mic, NotebookPen, Search, SlidersHorizontal, Sparkles, Swords, Scroll, AlertTriangle } from "lucide-react";
+import { universesApi } from "@/lib/api";
 import { useDismissRef } from "@/lib/useDismissRef";
 import { SessionRecorder } from "@/components/gm/SessionRecorder";
 import { DiceRoller } from "@/components/gm/DiceRoller";
 import { RulesPanel } from "@/components/gm/RulesPanel";
 import { SessionNotebook } from "@/components/gm/SessionNotebook";
-import { PlotHooksPanel } from "@/components/gm/PlotHooksPanel";
-import { ContradictionsPanel } from "@/components/gm/ContradictionsPanel";
-import { SessionPrepPanel } from "@/components/gm/SessionPrepPanel";
-import { ThreadsPanel } from "@/components/gm/ThreadsPanel";
-import { HandoutsPanel } from "@/components/gm/HandoutsPanel";
+
 import { GMSelector } from "@/components/gm/GMSelector";
 import { ActiveToolPanel, type GmToolPanelId } from "@/components/gm/ActiveToolPanel";
 import {

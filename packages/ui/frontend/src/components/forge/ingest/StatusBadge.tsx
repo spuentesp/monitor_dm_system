@@ -2,7 +2,7 @@
 
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { LIVE_JOB_STATUSES, TERMINAL_JOB_STATUSES } from "./ingest-constants";
+import { LIVE_JOB_STATUSES } from "./ingest-constants";
 
 export function StatusBadge({ status }: { status: string }) {
   const base = "tag-dim text-[10px] flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-colors";

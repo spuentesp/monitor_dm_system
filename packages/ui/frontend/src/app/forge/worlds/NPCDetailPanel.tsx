@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Bot, Brain, Dices, Heart, Loader2, MapPin, Pencil, Sparkles, Swords, Tag, User, X } from "lucide-react";
+import { Brain, Loader2, Pencil, Sparkles, Tag, User, X } from "lucide-react";
 import { entitiesApi } from "@/lib/api";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { formatRelativeTime } from "@/lib/utils";
 import { NPCProfileEditor, isProfileMissing } from "./NPCProfileEditor";
 
 export function NPCDetailPanel({ npcId, onClose }: { npcId: string; onClose: () => void }) {
