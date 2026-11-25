@@ -378,7 +378,6 @@ def stage_cross_tenant(ctx: SmokeContext, state: SmokeState, report: Report) -> 
     eid = res.get("entry_id", "")
 
     probes: list[tuple[str, str, str, dict[str, Any]]] = [
-        ("multiverse read", "GET", f"/api/universes/multiverses/{mv_id}", {}),
         (
             "multiverse update",
             "PUT",
@@ -443,7 +442,7 @@ def stage_cross_tenant(ctx: SmokeContext, state: SmokeState, report: Report) -> 
     # Search and graph return none of A's data (owner-scoped predicates).
     needles = [mv_id, uid, res.get("multiverse_name", ""), res.get("universe_name", "")]
     search = b.get(
-        "/api/search",
+        "/api/search/search",
         params={"q": f"A multiverse {state.suffix}"},
         headers=csrf_headers(b),
     )
@@ -479,8 +478,12 @@ def stage_cross_tenant(ctx: SmokeContext, state: SmokeState, report: Report) -> 
 
     # A re-reads every resource: B's attempts changed nothing.
     diffs: list[str] = []
-    response = a.get(f"/api/universes/multiverses/{mv_id}", headers=csrf_headers(a))
-    if response.status_code != 200 or response.json().get("name") != res.get("multiverse_name"):
+    # No GET-by-id route for multiverses: read back through A's list.
+    response = a.get("/api/universes/multiverses", headers=csrf_headers(a))
+    mvs = response.json() if response.status_code == 200 else []
+    if response.status_code != 200 or not any(
+        str(m.get("id")) == str(mv_id) and m.get("name") == res.get("multiverse_name") for m in mvs
+    ):
         diffs.append(f"multiverse read-back: {_brief(response)}")
     response = a.get(f"/api/universes/universes/{uid}", headers=csrf_headers(a))
     if response.status_code != 200 or response.json().get("name") != res.get("universe_name"):
