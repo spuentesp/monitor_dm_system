@@ -147,6 +147,23 @@ PYTHONPATH=../../data-layer/src:../../agents/src:src \
 curl http://localhost:8000/api/health
 ```
 
+### First admin account
+
+With `MONITOR_AUTH_DISABLED=false` (the default in `env.example`), signup is
+invite-only and a new signup never becomes admin — so nothing creates the
+first operator. Bootstrap one from the repo root with Postgres up:
+
+```bash
+uv run python scripts/create_admin.py --email you@example.com --username you
+# prompts for a password (>=12 chars); or pass --password '…' non-interactively
+```
+
+The script validates like `POST /api/auth/signup`, stores an Argon2id hash
+through `PostgresClient`, and is idempotent: re-running against an
+already-admin account is a no-op, and `--promote-existing` grants admin to an
+account that already exists. It never prints the password. Log in as that
+account to reach `/admin`, where you can issue the invites new users need.
+
 ## 8. Seed a world and play
 
 Browser: open `http://localhost:3000`, sign up, use Quick World (Forge) to

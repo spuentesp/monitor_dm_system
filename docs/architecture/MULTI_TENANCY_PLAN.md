@@ -323,7 +323,14 @@ Per-user overrides (win over env): `user_usage_limits.daily_token_cap`,
    existing provider keys (requires `MONITOR_PROVIDER_KEY_ENCRYPTION_KEY`).
 2. `uv run python scripts/migrate_conversatory_per_user.py --apply` — move
    standalone-character incarnations into per-user Conversatory universes.
+3. `uv run python scripts/create_admin.py --email op@example.com --username operator`
+   — first-admin bootstrap: signup is invite-only by default and never grants
+   admin, so a fresh deployment has no operator until this runs. Reads the
+   password from `--password` or an interactive prompt (never printed);
+   idempotent (re-running against an admin is a no-op), and
+   `--promote-existing` grants admin to an account that already exists.
+   Uses the same validation and Argon2id hashing as `/api/auth/signup`.
 
-Both scripts are idempotent and dry-run by default. After (2), the legacy
-shared "Conversatory" universe is unreferenced and can be removed by the
-operator.
+Both migration scripts (1–2) are idempotent and dry-run by default. After
+(2), the legacy shared "Conversatory" universe is unreferenced and can be
+removed by the operator.
