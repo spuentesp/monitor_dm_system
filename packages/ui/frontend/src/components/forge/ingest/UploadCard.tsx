@@ -57,7 +57,7 @@ export function UploadCard() {
       setFiles([]);
       setTimeout(() => setUploadNotice(null), 5000);
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       setUploadNotice({ message: err.message || "Upload failed. Please try again.", isError: true });
     },
   });

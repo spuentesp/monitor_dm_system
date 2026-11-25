@@ -120,7 +120,7 @@ export function IngestionDashboard() {
               <div>
                 <p className="text-[11px] font-bold text-amber-200 uppercase tracking-wider">Ingestion Tip</p>
                 <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
-                  For best results with rulebooks, ensure "Core Math" is enabled in layers.
+                  For best results with rulebooks, ensure &quot;Core Math&quot; is enabled in layers.
                   MONITOR uses multiple LLM passes to extract structured mechanics from complex PDF layouts.
                 </p>
               </div>

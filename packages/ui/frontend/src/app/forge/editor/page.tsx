@@ -442,7 +442,8 @@ function PackEditorPageContent() {
                 selected={selectedEntities.has(i)}
                 onToggle={idx => setSelectedEntities(prev => {
                   const n = new Set(prev);
-                  n.has(idx) ? n.delete(idx) : n.add(idx);
+                  if (n.has(idx)) n.delete(idx);
+                  else n.add(idx);
                   return n;
                 })}
               />
@@ -459,7 +460,8 @@ function PackEditorPageContent() {
                 selected={selectedAxioms.has(i)}
                 onToggle={idx => setSelectedAxioms(prev => {
                   const n = new Set(prev);
-                  n.has(idx) ? n.delete(idx) : n.add(idx);
+                  if (n.has(idx)) n.delete(idx);
+                  else n.add(idx);
                   return n;
                 })}
               />
@@ -476,7 +478,8 @@ function PackEditorPageContent() {
                 selected={selectedLore.has(i)}
                 onToggle={idx => setSelectedLore(prev => {
                   const n = new Set(prev);
-                  n.has(idx) ? n.delete(idx) : n.add(idx);
+                  if (n.has(idx)) n.delete(idx);
+                  else n.add(idx);
                   return n;
                 })}
               />

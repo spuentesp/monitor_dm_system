@@ -397,7 +397,7 @@ function ProviderCard({ conn, models }: { conn: LLMConnection; models: string[] 
               autoFocus
               disabled={updateRole.isPending}
               onChange={(e) => {
-                const val = e.target.value as any;
+                const val = e.target.value as typeof selectedRole;
                 setSelectedRole(val);
                 updateRole.mutate(val);
               }}

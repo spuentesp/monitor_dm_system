@@ -15,7 +15,7 @@ import {
   Save,
 } from "lucide-react";
 import { randomTablesApi } from "@/lib/api";
-import type { RandomTable, RandomTableEntry, RandomTableType } from "@/lib/types";
+import type { RandomTable, RandomTableEntry, RandomTableType, RollResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // ═══════════════════════════════════════════════════════════════
@@ -104,7 +104,7 @@ function TableEditor({
   const queryClient = useQueryClient();
   const [entries, setEntries] = useState<RandomTableEntry[]>(table.entries);
   const [name, setName] = useState(table.name);
-  const [rollResult, setRollResult] = useState<any>(null);
+  const [rollResult, setRollResult] = useState<RollResult | null>(null);
 
   const updateMutation = useMutation({
     mutationFn: () =>
@@ -212,7 +212,7 @@ function TableEditor({
               <p className="text-sm text-slate-200 mt-1">{rollResult.entry?.value ?? "No result"}</p>
               {rollResult.sub_results && rollResult.sub_results.length > 0 && (
                 <div className="mt-2 space-y-1">
-                  {rollResult.sub_results.map((sr: any, i: number) => (
+                  {rollResult.sub_results.map((sr: RollResult, i: number) => (
                     <div key={i} className="text-xs text-slate-400 flex items-center gap-1.5">
                       <ChevronDown className="w-3 h-3" />
                       <span className="font-mono">{sr.roll}</span> → {sr.entry?.value}

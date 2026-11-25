@@ -66,7 +66,7 @@ export function SourceLibrary() {
       setRescanItem(null);
       setErrorNotice(null);
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       setErrorNotice(err.message || "Failed to start rescan.");
     },
   });

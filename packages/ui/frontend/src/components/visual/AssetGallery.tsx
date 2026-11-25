@@ -337,7 +337,7 @@ export function AssetGallery({
         </div>
       ) : assetsQ.isError ? (
         <div role="alert" className="text-xs text-red-300/80">
-          Couldn't load images — check the backend and retry.
+          Couldn&apos;t load images — check the backend and retry.
         </div>
       ) : assets.length === 0 ? (
         <div className="text-xs text-fg-muted">{emptyMessage}</div>

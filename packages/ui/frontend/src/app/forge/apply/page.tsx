@@ -262,7 +262,7 @@ function NewWorldStep({
   return (
     <div className="space-y-4">
       <p className="text-xs text-fg-muted">
-        A new Multiverse and Universe will be created from the pack's content.
+        A new Multiverse and Universe will be created from the pack&apos;s content.
       </p>
       <div className="space-y-3">
         <div>

@@ -175,7 +175,7 @@ export function CharacterCardGrid({
           <div className="glass w-full max-w-sm space-y-4 rounded-2xl border border-red-500/20 p-6">
             <h2 className="text-sm font-semibold text-slate-100">Delete {confirmDelete.name}?</h2>
             <p className="text-xs text-slate-400">
-              This permanently removes {confirmDelete.name} and their memories. This can't be
+              This permanently removes {confirmDelete.name} and their memories. This can&apos;t be
               undone.
             </p>
             <div className="flex justify-end gap-2">
