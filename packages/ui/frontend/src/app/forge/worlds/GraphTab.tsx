@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ReactFlow, Background, BackgroundVariant, Controls, useNodesState, useEdgesState, Handle, Position, type Node, type Edge, type NodeProps } from "@xyflow/react";
+import { type Node, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ChevronLeft, ChevronRight, Filter, Globe2, Layers, Link2, Loader2, MapPin, Network, RefreshCw, Search, Shield, Sparkles, User, WifiOff, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRouter, useSearchParams } from "next/navigation";
+
 import { cn } from "@/lib/utils";
 import { entitiesApi, graphApi, universesApi } from "@/lib/api";
 import { InspectorPanel } from "./InspectorPanel";

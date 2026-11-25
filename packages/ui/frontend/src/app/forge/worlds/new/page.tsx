@@ -453,7 +453,7 @@ function ConfirmStep({ info, onReset }: { info: DoneInfo; onReset: () => void })
       <CheckCircle2 className="w-10 h-10 text-emerald-400" />
       <div>
         <p className="text-sm text-slate-200">
-          <span className="font-semibold">"{info.name}"</span> is ready.
+          <span className="font-semibold">&quot;{info.name}&quot;</span> is ready.
         </p>
         {info.note && <p className="text-xs text-slate-500 mt-1">{info.note}</p>}
       </div>

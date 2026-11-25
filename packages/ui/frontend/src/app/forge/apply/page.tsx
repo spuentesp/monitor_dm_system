@@ -19,29 +19,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
-  Bot,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  Globe2,
-  Loader2,
-  Package,
-  Plus,
-  Sparkles,
-  XCircle,
-} from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Bot, Check, CheckCircle2, ChevronDown, Globe2, Loader2, Package, Plus, Sparkles } from "lucide-react";
 import { ingestApi, universesApi } from "@/lib/api";
-import type {
-  KnowledgePack,
-  Multiverse,
-  PackApplySession,
-  PackConflict,
-  Universe,
-} from "@/lib/types";
+import type { Multiverse, PackConflict, Universe } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { PrepareStartAction } from "@/components/forge/PrepareStartAction";
 
@@ -66,14 +46,12 @@ const RESOLUTIONS: Array<{
 
 function ConflictCard({
   conflict,
-  index,
   resolution,
   customValue,
   onChange,
   onCustomChange,
 }: {
   conflict: PackConflict;
-  index: number;
   resolution: PackConflict["resolution"] | null;
   customValue: string;
   onChange: (r: PackConflict["resolution"]) => void;
@@ -262,7 +240,7 @@ function NewWorldStep({
   return (
     <div className="space-y-4">
       <p className="text-xs text-fg-muted">
-        A new Multiverse and Universe will be created from the pack's content.
+        A new Multiverse and Universe will be created from the pack&apos;s content.
       </p>
       <div className="space-y-3">
         <div>
@@ -524,7 +502,6 @@ function ConflictsStep({
           <ConflictCard
             key={i}
             conflict={c}
-            index={i}
             resolution={resolutions[i]?.resolution ?? null}
             customValue={resolutions[i]?.customValue ?? ""}
             onChange={r => setResolutions(prev => ({ ...prev, [i]: { ...prev[i], resolution: r } }))}
@@ -576,7 +553,7 @@ function ApplyPackPageContent() {
   const [target, setTarget]     = useState<Target | null>(null);
   const [universeId, setUniverseId]   = useState("");
   const [conflicts, setConflicts]     = useState<PackConflict[]>([]);
-  const [autoCommitLlm, setAutoCommitLlm] = useState(false);
+  const [autoCommitLlm] = useState(false);
   const [doneInfo, setDoneInfo] = useState<{
     message: string;
     universe_id?: string;
@@ -594,7 +571,6 @@ function ApplyPackPageContent() {
     ? ["target", "new-confirm", "done"]
     : ["target", "existing-pick", ...(conflicts.length > 0 ? ["conflicts" as Step] : []), "done"];
 
-  const stepIndex = steps.indexOf(step);
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">

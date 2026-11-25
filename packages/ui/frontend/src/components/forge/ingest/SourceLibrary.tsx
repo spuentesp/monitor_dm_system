@@ -11,7 +11,7 @@ import {
   PackageCheck,
   AlertTriangle,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+
 import { ingestApi } from "@/lib/api";
 import type { Source, IngestJob } from "@/lib/types";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -66,7 +66,7 @@ export function SourceLibrary() {
       setRescanItem(null);
       setErrorNotice(null);
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       setErrorNotice(err.message || "Failed to start rescan.");
     },
   });

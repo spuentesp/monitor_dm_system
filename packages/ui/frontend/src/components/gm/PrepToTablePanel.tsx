@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Check,
   ClipboardList,
@@ -29,6 +29,13 @@ type ReviewNpc = PrepNpcItem & { included: boolean };
 type ReviewLocation = PrepLocationItem & { included: boolean };
 type ReviewThread = PrepThreadItem & { included: boolean };
 
+/** Strip the client-only `included` flag before committing a prep item. */
+function stripIncluded<T extends { included: boolean }>(item: T): Omit<T, "included"> {
+  const copy = { ...item } as Partial<T>;
+  delete copy.included;
+  return copy as Omit<T, "included">;
+}
+
 /**
  * Prep to table (Phase 7 Part B, CF-7): one flow —
  * ingest the GM's notes, review what was extracted, and open the /gm page
@@ -51,7 +58,7 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
     enabled: !!universeId,
     staleTime: 15_000,
   });
-  const stories = storiesData?.stories ?? [];
+  const stories = useMemo(() => storiesData?.stories ?? [], [storiesData]);
 
   // Default to the most recent story once loaded
   useEffect(() => {
@@ -166,9 +173,9 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
       gmTableApi.commitPrep({
         universe_id: universeId!,
         story_id: storyId,
-        npcs: npcs.filter((n) => n.included).map(({ included: _i, ...n }) => n),
-        locations: locations.filter((l) => l.included).map(({ included: _i, ...l }) => l),
-        threads: threads.filter((t) => t.included).map(({ included: _i, ...t }) => t),
+        npcs: npcs.filter((n) => n.included).map(stripIncluded),
+        locations: locations.filter((l) => l.included).map(stripIncluded),
+        threads: threads.filter((t) => t.included).map(stripIncluded),
       }),
     onSuccess: (data) => {
       setTonight(data.bundle);

@@ -21,39 +21,7 @@ import type {
 import { cn } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-    Activity,
-    AlertCircle,
-    AlertTriangle,
-    Bot,
-    Check,
-    CheckCircle2,
-    ChevronDown,
-    ChevronRight,
-    Code2,
-    Cpu,
-    Database,
-    EyeOff,
-    FlaskConical,
-    Layers,
-    Loader2,
-    Network,
-    Pencil,
-    Plus,
-    RefreshCw,
-    RotateCcw,
-    Server,
-    Settings,
-    ShieldCheck,
-    Sparkles,
-    Terminal,
-    WifiOff,
-    X,
-    Zap,
-    Gauge,
-    Palette,
-    ImagePlus,
-} from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, Bot, Check, CheckCircle2, ChevronDown, ChevronRight, Code2, Cpu, Database, FlaskConical, Layers, Loader2, Network, Pencil, Plus, RefreshCw, RotateCcw, Server, Settings, ShieldCheck, Sparkles, Terminal, WifiOff, X, Zap, Gauge, Palette, ImagePlus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -1498,9 +1466,9 @@ function ImageGenTab() {
                 <option value="lines_and_veils">Lines and veils — block violations</option>
               </select>
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                <strong>Provider default</strong> lets the provider's safety filter handle
+                <strong>Provider default</strong> lets the provider&apos;s safety filter handle
                 everything. <strong>Lines and veils</strong> blocks prompts that directly
-                violate the active campaign's <code className="font-mono">agreements_lines</code>{" "}
+                violate the active campaign&apos;s <code className="font-mono">agreements_lines</code>{" "}
                 or <code className="font-mono">agreements_veils</code> before the provider
                 is invoked. Light RP with no agreements uses the provider policy only.
               </p>
@@ -1572,7 +1540,7 @@ function ImageGenTab() {
               </span>
             </label>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              When this is on, the scene loop emits "location change / new NPC / climax"
+              When this is on, the scene loop emits &quot;location change / new NPC / climax&quot;
               chips after a deterministic cadence. The user still has to click to
               generate — chips never auto-generate.
             </p>
@@ -1599,7 +1567,7 @@ function ImageGenTab() {
               (MiniMax image, Google Gemini, etc.) runs its own safety filter
               on the prompt bytes MONITOR sends — selecting{" "}
               <strong>lines and veils</strong> here only adds a client-side
-              pre-filter for the table's agreements. The provider's safety
+              pre-filter for the table&apos;s agreements. The provider&apos;s safety
               classifier still wins on the final image.
             </p>
           </div>

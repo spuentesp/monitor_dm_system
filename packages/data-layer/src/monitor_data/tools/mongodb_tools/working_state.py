@@ -17,6 +17,7 @@ from monitor_data.schemas.working_state import (
     WorkingStateResponse,
     WorkingStateUpdate,
 )
+from monitor_data.tenancy import acting_owner, assert_entity_write
 
 # =============================================================================
 # CHARACTER WORKING STATE (DL-26)
@@ -69,6 +70,9 @@ def mongodb_create_working_state(
     Returns:
         WorkingStateResponse
     """
+    # Ownership gate (UX-1): the state's entity must live in a universe the
+    # acting owner owns. No owner bound → unchanged.
+    assert_entity_write(params.entity_id, resource="working_state")
     mongodb = get_mongodb_client()
     state_collection = mongodb.get_collection("character_working_state")
 
@@ -122,6 +126,12 @@ def mongodb_get_working_state(entity_id: UUID, scene_id: UUID) -> WorkingStateRe
 
 def mongodb_update_working_state(state_id: UUID, params: WorkingStateUpdate) -> WorkingStateResponse:
     """Update working state stats or resources."""
+    # Ownership gate (only when an owner is bound): the stored state's entity
+    # must live in a universe the acting owner owns.
+    if acting_owner() is not None:
+        _existing = get_mongodb_client().get_collection("character_working_state").find_one({"state_id": str(state_id)})
+        if _existing is not None:
+            assert_entity_write(_existing.get("entity_id"), resource="working_state")
     mongodb = get_mongodb_client()
     state_collection = mongodb.get_collection("character_working_state")
 
@@ -145,6 +155,14 @@ def mongodb_update_working_state(state_id: UUID, params: WorkingStateUpdate) -> 
 
 def mongodb_add_modification(params: AddStatModification) -> WorkingStateResponse:
     """Log a stat modification."""
+    # Ownership gate (only when an owner is bound): the stored state's entity
+    # must live in a universe the acting owner owns.
+    if acting_owner() is not None:
+        _existing = (
+            get_mongodb_client().get_collection("character_working_state").find_one({"state_id": str(params.state_id)})
+        )
+        if _existing is not None:
+            assert_entity_write(_existing.get("entity_id"), resource="working_state")
     mongodb = get_mongodb_client()
     state_collection = mongodb.get_collection("character_working_state")
 

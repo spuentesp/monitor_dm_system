@@ -309,7 +309,7 @@ export default function SnapshotsPage() {
           message={
             <span>
               This will replace the current state of the universe with the contents of{" "}
-              <span className="font-semibold">"{restoreTarget.name}"</span> created{" "}
+              <span className="font-semibold">&quot;{restoreTarget.name}&quot;</span> created{" "}
               {formatRelativeTime(restoreTarget.created_at)}. This action cannot be undone.
             </span>
           }
@@ -329,7 +329,7 @@ export default function SnapshotsPage() {
           message={
             <span>
               Permanently delete snapshot{" "}
-              <span className="font-semibold">"{deleteTarget.name}"</span>? You can&apos;t undo
+              <span className="font-semibold">&quot;{deleteTarget.name}&quot;</span>? You can&apos;t undo
               this.
             </span>
           }

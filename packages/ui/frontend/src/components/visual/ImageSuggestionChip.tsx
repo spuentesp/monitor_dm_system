@@ -8,7 +8,6 @@ import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { useNotify } from "@/components/NotificationProvider";
 import type { ImageSuggestionMeta } from "@/features/chat/types";
-import type { ApprovalStatus } from "@/lib/types";
 
 import { PendingAssetPreview } from "./AssetGallery";
 
@@ -100,7 +99,7 @@ export function ImageSuggestionChip({
         allowAvatar={suggestion.asset_type === "portrait" && !!characterId}
         warnings={pending.promptWarnings}
         referenceAssetIds={pending.referenceAssetIds}
-        onDecided={(_status: ApprovalStatus) => onSettled(suggestion.suggestion_id)}
+        onDecided={() => onSettled(suggestion.suggestion_id)}
         className={className}
       />
     );

@@ -32,7 +32,7 @@ export function SessionNotebook({
 
   useEffect(() => {
     if (notesQuery.data) setNotes(notesQuery.data.content);
-  }, [notesQuery.data?.updated_at, notesQuery.data?.content]);
+  }, [notesQuery.data]);
 
   // Debounced autosave: fire on every keystroke, but coalesce to one PUT
   // per 1.5s of idle. Skip when the field is empty (no row to write).
@@ -53,7 +53,10 @@ export function SessionNotebook({
       }
     }, 1500);
     return () => clearTimeout(handle);
-  }, [notes, universeId, notesQuery.data?.content]);
+    // `upsertNotes` (the mutation result) is a fresh object each render, so
+    // listing it would reset this debounce on every render; `.mutate` is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, universeId, notesQuery.data?.content, upsertNotes.mutate]);
 
   const ingestNotes = useMutation({
     mutationFn: async () => {

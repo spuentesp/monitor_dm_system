@@ -425,8 +425,8 @@ function ForgeDashboard() {
     refetchInterval: 20_000,
   });
 
-  const universes: Universe[] = universesQuery.data ?? [];
-  const packs: KnowledgePack[] = packsQuery.data ?? [];
+  const universes: Universe[] = useMemo(() => universesQuery.data ?? [], [universesQuery.data]);
+  const packs: KnowledgePack[] = useMemo(() => packsQuery.data ?? [], [packsQuery.data]);
   const jobs: IngestJob[] = jobsQuery.data ?? [];
 
   const liveCount = jobs.filter((j) => LIVE_JOB_STATUSES.has(j.status)).length;

@@ -28,6 +28,7 @@ from typing import Any
 import structlog
 
 from monitor_data.db.mongodb import get_mongodb_client
+from monitor_data.tenancy import assert_session_entry_write
 
 log = structlog.get_logger()
 
@@ -116,6 +117,7 @@ def mongodb_update_session_entry(entry_id: str, text: str) -> dict[str, Any]:
     doc = _find_doc(entry_id)
     if doc is None:
         raise ValueError(f"Session entry {entry_id} not found")
+    assert_session_entry_write(entry_id, resource="session_entry")
     if doc.get("struck"):
         raise ValueError(f"Session entry {entry_id} is struck; restore it before editing")
 
@@ -156,6 +158,7 @@ def mongodb_delete_session_entry(
     doc = _find_doc(entry_id)
     if doc is None:
         raise ValueError(f"Session entry {entry_id} not found")
+    assert_session_entry_write(entry_id, resource="session_entry")
 
     coll = get_mongodb_client().get_collection(_COLLECTION)
     now = datetime.now(UTC).isoformat()
@@ -196,6 +199,7 @@ def mongodb_restore_session_entry(entry_id: str) -> dict[str, Any]:
     doc = _find_doc(entry_id)
     if doc is None:
         raise ValueError(f"Session entry {entry_id} not found")
+    assert_session_entry_write(entry_id, resource="session_entry")
 
     restored_ids = [str(p) for p in (doc.get("struck_proposal_ids") or [])]
     coll = get_mongodb_client().get_collection(_COLLECTION)

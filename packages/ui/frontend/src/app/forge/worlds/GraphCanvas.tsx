@@ -16,7 +16,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Layers, Shield } from "lucide-react";
+
 import type { GraphNodeData, GraphNodeKind } from "@/lib/types";
 import { KIND_CONFIG } from "@/lib/kind-config";
 import { cn } from "@/lib/utils";

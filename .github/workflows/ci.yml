@@ -95,6 +95,8 @@ jobs:
         run: npm test
       - name: Type-check
         run: npx tsc --noEmit
+      - name: Lint
+        run: npx eslint src --max-warnings=2
       - name: Build
         run: npm run build
         env:

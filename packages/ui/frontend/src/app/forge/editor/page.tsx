@@ -14,30 +14,13 @@
 
 import { Suspense, useState, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  BookOpen,
-  Check,
-  FlaskConical,
-  GitBranch,
-  Globe2,
-  Loader2,
-  MapPin,
-  Package,
-  Save,
-  Scissors,
-  Scroll,
-  Search,
-  Sparkles,
-  Users,
-  X,
-} from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Loader2, Save, Scissors, Search, Sparkles, X } from "lucide-react";
 import { DialogFooter, DialogShell } from "@/components/DialogShell";
 import { ingestApi } from "@/lib/api";
 import { ENTITY_TYPE_CONFIG, FORGE_TABS } from "@/lib/forge";
-import type { ExtractedAxiom, ExtractedEntity, ExtractedLoreFact, KnowledgePack } from "@/lib/types";
+import type { ExtractedAxiom, ExtractedEntity, ExtractedLoreFact } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // ─── Selectable item row ──────────────────────────────────────
@@ -146,12 +129,10 @@ function SelectableLoreRow({
 // ─── Save modal ───────────────────────────────────────────────
 
 function SaveModal({
-  mode,
   onSave,
   onClose,
   saving,
 }: {
-  mode: string;
   onSave: (name: string, withLineage: boolean) => void;
   onClose: () => void;
   saving: boolean;
@@ -442,7 +423,8 @@ function PackEditorPageContent() {
                 selected={selectedEntities.has(i)}
                 onToggle={idx => setSelectedEntities(prev => {
                   const n = new Set(prev);
-                  n.has(idx) ? n.delete(idx) : n.add(idx);
+                  if (n.has(idx)) n.delete(idx);
+                  else n.add(idx);
                   return n;
                 })}
               />
@@ -459,7 +441,8 @@ function PackEditorPageContent() {
                 selected={selectedAxioms.has(i)}
                 onToggle={idx => setSelectedAxioms(prev => {
                   const n = new Set(prev);
-                  n.has(idx) ? n.delete(idx) : n.add(idx);
+                  if (n.has(idx)) n.delete(idx);
+                  else n.add(idx);
                   return n;
                 })}
               />
@@ -476,7 +459,8 @@ function PackEditorPageContent() {
                 selected={selectedLore.has(i)}
                 onToggle={idx => setSelectedLore(prev => {
                   const n = new Set(prev);
-                  n.has(idx) ? n.delete(idx) : n.add(idx);
+                  if (n.has(idx)) n.delete(idx);
+                  else n.add(idx);
                   return n;
                 })}
               />
@@ -488,7 +472,6 @@ function PackEditorPageContent() {
       <AnimatePresence>
         {showSave && (
           <SaveModal
-            mode={mode}
             onClose={() => setShowSave(false)}
             saving={sliceMutation.isPending}
             onSave={(name, withLineage) => sliceMutation.mutate({ name, withLineage })}

@@ -93,7 +93,7 @@ export default function LobbyPage() {
           role="alert"
           className="glass flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-xs text-red-300/80"
         >
-          Couldn't load recent sessions — check the backend and retry.
+          Couldn&apos;t load recent sessions — check the backend and retry.
           <button
             type="button"
             onClick={() => void sessionsQ.refetch()}
@@ -117,7 +117,7 @@ export default function LobbyPage() {
             role="alert"
             className="glass flex items-center justify-between gap-3 rounded-xl px-5 py-4 text-sm text-red-300/80"
           >
-            Couldn't load your worlds — check the backend and retry.
+            Couldn&apos;t load your worlds — check the backend and retry.
             <button
               type="button"
               onClick={() => void universesQ.refetch()}

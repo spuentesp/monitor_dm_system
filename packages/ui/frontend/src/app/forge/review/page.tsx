@@ -113,7 +113,7 @@ function PackReviewScope({ packId, filters, onFiltersChange }: ScopeProps & { pa
     staleTime: 10000,
   });
 
-  const proposals = proposalsQuery.data?.proposals ?? [];
+  const proposals = useMemo(() => proposalsQuery.data?.proposals ?? [], [proposalsQuery.data]);
   const summary = proposalsQuery.data?.summary ?? { total: 0, pending: 0, accepted: 0, rejected: 0 };
 
   const items = useMemo(

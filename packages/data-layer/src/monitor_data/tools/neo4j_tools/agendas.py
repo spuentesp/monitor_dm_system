@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from monitor_data.db.neo4j import get_neo4j_client
+from monitor_data.tenancy import acting_owner, assert_agenda_write, assert_universe_write
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ def neo4j_create_agenda(params: dict[str, Any]) -> dict[str, Any]:
     """
     Create a new Agenda node and link it to an owner (Faction/NPC).
     """
+    assert_universe_write(params.get("universe_id"), resource="agenda")
     client = get_neo4j_client()
     agenda_id = params.get("id") or str(uuid4())
     universe_id = params.get("universe_id")
@@ -85,6 +87,10 @@ def neo4j_update_agenda_clock(agenda_id: UUID, tick: int) -> dict[str, Any]:
     """
     Advance or retreat an agenda's clock.
     """
+    # Ownership gate (only when an owner is bound): the agenda's universe
+    # must belong to the acting owner.
+    if acting_owner() is not None:
+        assert_agenda_write(agenda_id, resource="agenda")
     client = get_neo4j_client()
     query = """
     MATCH (a:Agenda {id: $id})

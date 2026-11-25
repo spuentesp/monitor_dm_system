@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BookOpen, Brain, Dices, History, Loader2, Search, User, Users, Wand2 } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { entitiesApi, storiesApi } from "@/lib/api";
@@ -304,7 +304,7 @@ function LastSessionLookup({ universeId }: { universeId: string }) {
     enabled: !!universeId,
     staleTime: 15_000,
   });
-  const stories = storiesData?.stories ?? [];
+  const stories = useMemo(() => storiesData?.stories ?? [], [storiesData]);
 
   // Default to the most recent story once loaded
   useEffect(() => {

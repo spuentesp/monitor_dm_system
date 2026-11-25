@@ -25,6 +25,7 @@ from monitor_data.schemas.merge_candidates import (
     MergeProposalStatus,
 )
 from monitor_data.utils.entity_similarity import find_merge_candidates as _find_candidates
+from monitor_data.tenancy import acting_owner, assert_universe_write
 
 # =============================================================================
 # MERGE CANDIDATE OPERATIONS
@@ -130,6 +131,7 @@ def mongodb_save_merge_candidate(
     Returns:
         Saved EntityMergeCandidate
     """
+    assert_universe_write(candidate.universe_id, resource="merge_candidate")
     mongo_client = get_mongodb_client()
     collection = mongo_client.get_collection("entity_merge_candidates")
 
@@ -196,6 +198,12 @@ def mongodb_delete_merge_candidate(
     Returns:
         True if deleted, False if not found
     """
+    if acting_owner() is not None:
+        _existing = (
+            get_mongodb_client().get_collection("entity_merge_candidates").find_one({"candidate_id": str(candidate_id)})
+        )
+        if _existing is not None:
+            assert_universe_write(_existing.get("universe_id"), resource="merge_candidate")
     mongo_client = get_mongodb_client()
     collection = mongo_client.get_collection("entity_merge_candidates")
 
@@ -307,6 +315,7 @@ def mongodb_create_merge_proposal(
     Returns:
         MergeProposal ready for CanonKeeper
     """
+    assert_universe_write(universe_id, resource="merge_proposal")
     proposal_id = uuid4()
     created_at = datetime.now(UTC)
 
@@ -458,6 +467,10 @@ def mongodb_update_merge_proposal_status(
     Returns:
         True if updated, False if not found
     """
+    if acting_owner() is not None:
+        _existing = get_mongodb_client().get_collection("merge_proposals").find_one({"proposal_id": str(proposal_id)})
+        if _existing is not None:
+            assert_universe_write(_existing.get("universe_id"), resource="merge_proposal")
     mongo_client = get_mongodb_client()
     collection = mongo_client.get_collection("merge_proposals")
 

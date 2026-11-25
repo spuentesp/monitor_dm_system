@@ -183,7 +183,6 @@ export function RelationshipsTab({ universeId }: { universeId: string }) {
 
       {showCreate && (
         <RelationshipCreateModal
-          universeId={universeId}
           entityNames={entityNames}
           onClose={() => setShowCreate(false)}
           onSaved={() => {
@@ -208,12 +207,10 @@ export function RelationshipsTab({ universeId }: { universeId: string }) {
 }
 
 function RelationshipCreateModal({
-  universeId,
   entityNames,
   onClose,
   onSaved,
 }: {
-  universeId: string;
   entityNames: Map<string, string>;
   onClose: () => void;
   onSaved: () => void;

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { KeyRound, Loader2, MailCheck } from "lucide-react";
-import { ApiError, authApi } from "@/lib/api";
+import { authApi } from "@/lib/api";
 import { authErrorMessage } from "@/lib/auth-errors";
 
 export default function ForgotPasswordPage() {

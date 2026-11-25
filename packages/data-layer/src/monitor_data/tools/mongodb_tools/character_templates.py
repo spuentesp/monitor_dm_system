@@ -25,6 +25,7 @@ from monitor_data.schemas.character_templates import (
     CharacterTemplateResponse,
     CharacterTemplateUpdate,
 )
+from monitor_data.tenancy import acting_owner, assert_owner_match
 
 # Marker that distinguishes a template document from a character document.
 TEMPLATE_MARKER = {"is_template": True}
@@ -64,6 +65,10 @@ def mongodb_create_character_template(
     owner_id: str | None = None,
 ) -> CharacterTemplateResponse:
     """Create a portable character template, stamped with ``owner_id`` when given."""
+    # Ownership gate (UX-1): an owner-stamped create must target the acting
+    # owner (ownerless creates stay allowed — agent paths stamp afterwards).
+    if owner_id is not None:
+        assert_owner_match(resource="character_template", direct_owner_id=owner_id)
     now = datetime.now(UTC)
     template_id = str(uuid4())
     doc = params.model_dump()
@@ -119,6 +124,12 @@ def mongodb_update_character_template(
     owner_id: str | None = None,
 ) -> CharacterTemplateResponse | None:
     """Update a character template. Only the provided fields change."""
+    # Ownership gate (UX-1): the stored template's owner must be the acting
+    # owner. No owner bound (workers, scripts, local mode) → unchanged.
+    if acting_owner() is not None:
+        _doc = _collection().find_one({"id": str(template_id), **TEMPLATE_MARKER})
+        if _doc is not None:
+            assert_owner_match(resource="character_template", direct_owner_id=_doc.get("owner_id"))
     updates = params.model_dump(exclude_unset=True, exclude_none=True)
     if "portrait_url" in params.model_fields_set:
         updates["portrait_url"] = params.portrait_url
@@ -127,19 +138,19 @@ def mongodb_update_character_template(
     if "portrait_url" in updates:
         updates["avatar_url"] = updates["portrait_url"]
     updates["updated_at"] = datetime.now(UTC)
-    _collection().update_one(
-        _owned({"id": str(template_id), **TEMPLATE_MARKER}, owner_id), {"$set": updates}
-    )
+    _collection().update_one(_owned({"id": str(template_id), **TEMPLATE_MARKER}, owner_id), {"$set": updates})
     return mongodb_get_character_template(template_id, owner_id)
 
 
-def mongodb_delete_character_template(
-    template_id: UUID | str, owner_id: str | None = None
-) -> bool:
+def mongodb_delete_character_template(template_id: UUID | str, owner_id: str | None = None) -> bool:
     """Delete a character template. Returns True when a document was removed."""
-    result = _collection().delete_one(
-        _owned({"id": str(template_id), **TEMPLATE_MARKER}, owner_id)
-    )
+    # Ownership gate (UX-1): the stored template's owner must be the acting
+    # owner. No owner bound (workers, scripts, local mode) → unchanged.
+    if acting_owner() is not None:
+        _doc = _collection().find_one({"id": str(template_id), **TEMPLATE_MARKER})
+        if _doc is not None:
+            assert_owner_match(resource="character_template", direct_owner_id=_doc.get("owner_id"))
+    result = _collection().delete_one(_owned({"id": str(template_id), **TEMPLATE_MARKER}, owner_id))
     return bool(getattr(result, "deleted_count", 0))
 
 

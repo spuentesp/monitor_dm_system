@@ -23,6 +23,7 @@ from monitor_data.schemas.gm_prep import (
     GmPrepNpc,
     GmPrepThread,
 )
+from monitor_data.tenancy import assert_universe_write
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ def mongodb_upsert_gm_prep_bundle(params: GmPrepBundleUpsert) -> GmPrepBundleRes
     client = get_mongodb_client()
     collection = client.get_collection(GM_PREP_COLLECTION)
 
+    assert_universe_write(params.universe_id, resource="gm_prep_bundle")
     now = datetime.now(UTC)
     doc = {
         "universe_id": str(params.universe_id),

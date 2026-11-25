@@ -89,6 +89,7 @@ from monitor_data.tools.mongodb_tools.conversations import (
     mongodb_get_conversation,
     mongodb_get_recent_conversation_turns,
     mongodb_list_conversations,
+    mongodb_trim_conversation_turns,
     mongodb_update_conversation,
 )
 
@@ -679,6 +680,7 @@ __all__ = [
     "mongodb_get_conversation",
     "mongodb_get_recent_conversation_turns",
     "mongodb_append_conversation_turn",
+    "mongodb_trim_conversation_turns",
     "mongodb_update_conversation",
     "mongodb_list_conversations",
     # Profiles

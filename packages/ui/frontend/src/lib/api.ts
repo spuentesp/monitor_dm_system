@@ -1,119 +1,4 @@
-import type {
-  ActiveMode,
-  AlertConfig,
-  BatchVerdictResponse,
-  CanonQueue,
-  ChangeLogListResponse,
-  CharacterTemplate,
-  CharacterTemplateCreate,
-  CharacterTemplateListResponse,
-  DatabaseStatus,
-  HeldClaim,
-  IngestJob,
-  IngestJobReview,
-  JobsHealthResponse,
-  KnowledgePack,
-  LLMConnection,
-  LLMTaskAttempt,
-  Message,
-  ModeConfig,
-  Multiverse,
-  NPC,
-  NodeAssignment,
-  EntityDetail,
-  EntityRelationship,
-  NPCDetail,
-  NPCProfile,
-  NPCProfileUpsert,
-  OntologyAxiom,
-  OntologyEvent,
-  OntologyFact,
-  PaginatedNPCs,
-  PerformanceAlert,
-  PerformanceOverview,
-  PerformanceReport,
-  ProposalItem,
-  PromptModuleDetail,
-  PromptModuleSummary,
-  PromptTestResult,
-  RPGSystem,
-  RewindResult,
-  SceneReview,
-  Session,
-  SessionLogEntryPatchResponse,
-  SessionLogEntryRestoreResponse,
-  SessionLogEntryStrikeResponse,
-  SlowQuery,
-  Source,
-  Character,
-  StandaloneCharacter,
-  CharacterExpandResult,
-  CharacterCardDraft,
-  CharacterVersion,
-  ConversationStart,
-  CharacterReply,
-  CharacterConversation,
-  ChatSessionState,
-  PlaytestBenchmark,
-  TestResult,
-  Universe,
-  VerdictItem,
-  VerdictByFilterRequest,
-  VerdictByFilterResponse,
-  WorldGraph,
-  WorldGraphFilter,
-  SemanticSearchResponse,
-  ToneProfile,
-  ToneLibrary,
-  TagCategory,
-  PromptCollection,
-  PromptCollectionListResponse,
-  PromptCollectionVersion,
-  PromptCollectionVersionListResponse,
-  TagDefinition,
-  BinaryAsset,
-  StoryResponse,
-  StorySummary,
-  StoryThread,
-  SceneSummary,
-  SceneTurn,
-  ArcRecap,
-  ArcRecapDetail,
-  PlotHook,
-  Contradiction,
-  CaptureInsight,
-  SessionPrep,
-  WrapUpDigest,
-  Handout,
-  PlayerShareView,
-  ShareArtifactSummary,
-  ShareArtifactType,
-  ShareCharacter,
-  ShareLink,
-  SharePublishResult,
-  SharedArtifact,
-  EntityTemplate,
-  EntityTemplateListResponse,
-  InstantiateTemplateResponse,
-  RandomTable,
-  RandomTableListResponse,
-  RollResult,
-  WorldSnapshot,
-  SnapshotComparison,
-  WorldCoverage,
-  LorebookScanConfig,
-  GeneratedAsset,
-  GeneratedAssetListFilter,
-  AssetApprovalRequest,
-  AssetRejectRequest,
-  PortraitResponse,
-  SceneResponse,
-  TriggerSource,
-  VisualIdentity,
-  VisualIdentityStatus,
-  VisualIdentityUpdate,
-  ImageGenerationSettings,
-} from "./types";
+import type { ActiveMode, AlertConfig, BatchVerdictResponse, CanonQueue, ChangeLogListResponse, CharacterTemplate, CharacterTemplateCreate, CharacterTemplateListResponse, DatabaseStatus, HeldClaim, IngestJob, IngestJobReview, JobsHealthResponse, KnowledgePack, LLMConnection, LLMTaskAttempt, Message, ModeConfig, Multiverse, NodeAssignment, EntityDetail, EntityRelationship, NPCDetail, NPCProfile, NPCProfileUpsert, OntologyAxiom, OntologyEvent, OntologyFact, PaginatedNPCs, PerformanceAlert, PerformanceOverview, PerformanceReport, ProposalItem, PromptModuleDetail, PromptModuleSummary, PromptTestResult, RPGSystem, RewindResult, SceneReview, Session, SessionLogEntryPatchResponse, SessionLogEntryRestoreResponse, SessionLogEntryStrikeResponse, SlowQuery, Source, Character, StandaloneCharacter, CharacterExpandResult, CharacterCardDraft, CharacterVersion, ConversationStart, CharacterReply, CharacterConversation, ChatSessionState, PlaytestBenchmark, TestResult, Universe, VerdictItem, VerdictByFilterRequest, VerdictByFilterResponse, WorldGraph, WorldGraphFilter, SemanticSearchResponse, ToneProfile, ToneLibrary, TagCategory, PromptCollection, PromptCollectionListResponse, PromptCollectionVersion, PromptCollectionVersionListResponse, TagDefinition, BinaryAsset, StoryResponse, StorySummary, StoryThread, SceneSummary, SceneTurn, ArcRecap, ArcRecapDetail, PlotHook, Contradiction, CaptureInsight, SessionPrep, WrapUpDigest, Handout, PlayerShareView, ShareArtifactType, ShareLink, SharePublishResult, SharedArtifact, EntityTemplate, EntityTemplateListResponse, InstantiateTemplateResponse, RandomTable, RandomTableListResponse, RollResult, WorldSnapshot, SnapshotComparison, WorldCoverage, LorebookScanConfig, GeneratedAsset, GeneratedAssetListFilter, AssetApprovalRequest, AssetRejectRequest, PortraitResponse, SceneResponse, TriggerSource, VisualIdentity, VisualIdentityStatus, VisualIdentityUpdate, ImageGenerationSettings } from "./types";
 
 const RAW_API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 const BASE = RAW_API_BASE.replace(/\/$/, "");
@@ -146,7 +31,6 @@ export function websocketBase(): string {
   // to the backend. Surface a single console warning so deployers see it.
   if (typeof window !== "undefined" && !warnedAboutWsFallback) {
     warnedAboutWsFallback = true;
-    // eslint-disable-next-line no-console
     console.warn(
       "[MONITOR] NEXT_PUBLIC_WS_URL is unset and the page is not on localhost. " +
         "Assuming a reverse proxy upgrades /api/chat/ws/* to the backend. " +
@@ -185,7 +69,11 @@ export async function req<T>(
     const qs = params.toString();
     if (qs) url += `?${qs}`;
   }
-  const { query: _q, timeout = DEFAULT_TIMEOUT_MS, ...fetchOpts } = opts ?? {};
+  const allOpts = opts ?? {};
+  const timeout = allOpts.timeout ?? DEFAULT_TIMEOUT_MS;
+  const fetchOpts = { ...allOpts };
+  delete fetchOpts.query;
+  delete fetchOpts.timeout;
 
   // AbortController for timeout + caller-provided signal
   const controller = new AbortController();

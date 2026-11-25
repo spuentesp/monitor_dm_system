@@ -60,12 +60,13 @@ export function TemplateInstantiator({ template, open, onClose, onCreated }: Tem
       });
       return { resolved, generated };
     },
-    onSuccess: ({ generated }: any) => {
+    onSuccess: ({ generated }) => {
       setStep("done");
       // usage_count changed server-side
       queryClient.invalidateQueries({ queryKey: ["templates"] });
-      if (onCreated && generated?.saved?.entity_id) {
-        onCreated(generated.saved.entity_id);
+      const entityId = generated?.saved?.entity_id;
+      if (onCreated && typeof entityId === "string" && entityId) {
+        onCreated(entityId);
       } else {
         onCreated?.("");
       }

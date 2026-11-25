@@ -35,6 +35,7 @@ from monitor_data.schemas.world_clock import (
     parse_time_delta,
     view_deadline,
 )
+from monitor_data.tenancy import assert_universe_write
 
 log = structlog.get_logger()
 
@@ -111,6 +112,7 @@ def mongodb_advance_world_clock(params: WorldClockAdvance) -> WorldClockAdvanceR
     - A real advance appends an audit record and reports the deadlines that
       flipped from *upcoming* in this move (``crossed``).
     """
+    assert_universe_write(params.universe_id, resource="world_clock")
     client = get_mongodb_client()
     collection = client.get_collection(WORLD_CLOCKS_COLLECTION)
     key = {"universe_id": str(params.universe_id), "story_id": str(params.story_id)}
@@ -205,6 +207,7 @@ def mongodb_upsert_world_deadline(params: WorldClockDeadlineUpsert) -> WorldCloc
     Deadlines attach to the clock (not the plot threads), so the clock must
     exist first — set an absolute world time via ``mongodb_advance_world_clock``.
     """
+    assert_universe_write(params.universe_id, resource="world_clock")
     client = get_mongodb_client()
     collection = client.get_collection(WORLD_CLOCKS_COLLECTION)
     key = {"universe_id": str(params.universe_id), "story_id": str(params.story_id)}

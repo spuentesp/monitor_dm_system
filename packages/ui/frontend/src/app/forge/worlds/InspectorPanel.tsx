@@ -1,12 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import {
-  X, Edit2, Edit3, Save, Trash2, Plus,
-  MapPin, Users, Shield, Brain, Sparkles, Tag, Network,
-  Layers, Globe2, FlaskConical, Loader2, Link2,
-} from "lucide-react";
+
+import { X, Edit2, Save, Plus, MapPin, Users, Shield, Brain, Sparkles, Tag, Network, Layers, Globe2, FlaskConical, Loader2, Link2 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { entitiesApi } from "@/lib/api";
 import { cn } from "@/lib/utils";

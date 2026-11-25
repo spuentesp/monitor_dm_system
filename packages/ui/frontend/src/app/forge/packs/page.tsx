@@ -57,7 +57,7 @@ import type {
   RPGSystem,
   RuleInfo,
 } from "@/lib/types";
-import { cn, truncate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import type { SourceProfile } from "@/lib/types";
 import { FORGE_KEYS, ENTITY_KEYS } from "@/lib/query-keys";
 import { useSystems, useSystem } from "@/hooks/use-systems";
@@ -394,7 +394,8 @@ function MergeModal({
   const toggle = (id: string) => {
     setSelected(prev => {
       const n = new Set(prev);
-      n.has(id) ? n.delete(id) : n.add(id);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
       return n;
     });
   };

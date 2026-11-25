@@ -1,14 +1,4 @@
-import { 
-  Layers, 
-  Scroll, 
-  Swords, 
-  FileText, 
-  Wand2,
-  BookOpen,
-  Cpu,
-  BrainCircuit,
-  Settings2
-} from "lucide-react";
+import { Layers, Scroll, Swords, FileText, Wand2 } from "lucide-react";
 import type { IngestJob } from "@/lib/types";
 
 export const LIVE_JOB_STATUSES = new Set([

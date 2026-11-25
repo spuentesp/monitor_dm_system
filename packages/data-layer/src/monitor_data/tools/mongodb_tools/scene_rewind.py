@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.schemas.base import ProposalStatus
+from monitor_data.tenancy import assert_scene_write
 
 log = structlog.get_logger()
 
@@ -75,6 +76,7 @@ def mongodb_rewind_scene(
     Raises:
         SceneRewindRefused: If a proposal written since then was accepted into canon.
     """
+    assert_scene_write(scene_id, resource="scene_rewind")
     since = _aware(since) or since
     scene = str(scene_id)
     db = get_mongodb_client()

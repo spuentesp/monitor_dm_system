@@ -20,6 +20,7 @@ from monitor_data.schemas.conversations import (
     ConversationStatus,
     ConversationTurn,
 )
+from monitor_data.tenancy import assert_conversation_write, assert_universe_write
 
 
 def _conversation_doc_to_response(doc: dict[str, Any]) -> ConversationSessionResponse:
@@ -66,6 +67,7 @@ def mongodb_create_conversation(params: ConversationSessionCreate) -> Conversati
     Returns:
         ConversationSessionResponse with the new session.
     """
+    assert_universe_write(params.universe_id, resource="conversation")
     client = get_mongodb_client()
     conversation_id = uuid4()
     now = datetime.now(UTC)
@@ -170,6 +172,7 @@ def mongodb_append_conversation_turn(
     doc = client["conversations"].find_one({"conversation_id": str(conversation_id)})
     if not doc:
         raise ValueError(f"ConversationSession {conversation_id} not found")
+    assert_conversation_write(conversation_id, resource="conversation")
     if doc["status"] != ConversationStatus.ACTIVE.value:
         raise ValueError(f"Cannot append to conversation {conversation_id}: status={doc['status']}")
 
@@ -200,6 +203,56 @@ def mongodb_append_conversation_turn(
     return _conversation_doc_to_response(updated_doc)
 
 
+def mongodb_trim_conversation_turns(
+    conversation_id: UUID,
+    keep_turns: int,
+) -> ConversationSessionResponse:
+    """
+    Truncate a ConversationSession to its first ``keep_turns`` turns.
+
+    Used by rewind (UX-6): when the last chat exchange is excised, the
+    durable conversation history must lose the same exchange, or the next
+    context assembly would still surface the rewound line. Only the turn
+    list is touched — the session stays ACTIVE and every other field is
+    left alone.
+
+    Authority: NPCVoice
+    Use Case: DL-20, UX-6
+
+    Args:
+        conversation_id: Conversation session to truncate.
+        keep_turns: Number of leading turns to keep (clamped at 0).
+
+    Returns:
+        The updated ConversationSessionResponse.
+
+    Raises:
+        ValueError: If session not found or not active.
+    """
+    client = get_mongodb_client()
+    doc = client["conversations"].find_one({"conversation_id": str(conversation_id)})
+    if not doc:
+        raise ValueError(f"ConversationSession {conversation_id} not found")
+    if doc["status"] != ConversationStatus.ACTIVE.value:
+        raise ValueError(f"Cannot trim conversation {conversation_id}: status={doc['status']}")
+
+    turns = doc.get("turns") or []
+    keep = max(0, int(keep_turns))
+    if len(turns) <= keep:
+        return _conversation_doc_to_response(doc)
+
+    now = datetime.now(UTC)
+    client["conversations"].update_one(
+        {"conversation_id": str(conversation_id)},
+        {"$set": {"turns": turns[:keep], "updated_at": now}},
+    )
+
+    updated_doc = client["conversations"].find_one({"conversation_id": str(conversation_id)})
+    if updated_doc is None:
+        raise ValueError(f"ConversationSession {conversation_id} not found after trim")
+    return _conversation_doc_to_response(updated_doc)
+
+
 def mongodb_update_conversation(
     conversation_id: UUID,
     params: ConversationSessionUpdate,
@@ -224,6 +277,7 @@ def mongodb_update_conversation(
     doc = client["conversations"].find_one({"conversation_id": str(conversation_id)})
     if not doc:
         raise ValueError(f"ConversationSession {conversation_id} not found")
+    assert_conversation_write(conversation_id, resource="conversation")
 
     now = datetime.now(UTC)
     update_fields: dict[str, Any] = {"updated_at": now}

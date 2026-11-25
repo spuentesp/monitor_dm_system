@@ -1,13 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { 
-  Sparkles, 
-  PackageCheck, 
-  BrainCircuit, 
-  BookOpen,
-  Plus
-} from "lucide-react";
+import { Sparkles, PackageCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
 import { IngestionDashboard } from "./ingest/IngestionDashboard";

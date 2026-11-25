@@ -7,6 +7,7 @@ Full mechanic definitions live in MongoDB KnowledgePacks.
 """
 
 from monitor_data.db.neo4j import get_neo4j_client
+from monitor_data.tenancy import assert_entity_write
 
 
 def neo4j_create_ability_system(
@@ -81,6 +82,7 @@ def neo4j_link_entity_to_ability(
     ability_system_name: str,
 ) -> None:
     """Create HAS_ACCESS_TO relationship from an entity to an AbilitySystem node."""
+    assert_entity_write(entity_id, resource="entity_ability_link")
     client = get_neo4j_client()
     client.execute_write(
         """

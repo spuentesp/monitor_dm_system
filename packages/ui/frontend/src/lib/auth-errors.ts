@@ -27,7 +27,6 @@ export function sanitizeNextPath(next: unknown): string | null {
   if (typeof next !== "string" || next.length === 0) return null;
   if (!next.startsWith("/")) return null;
   if (next.startsWith("//") || next.startsWith("/\\")) return null;
-  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\\]/.test(next)) return null;
   return next;
 }

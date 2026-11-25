@@ -20,6 +20,7 @@ from monitor_data.schemas.relationships import (
     StateTagResponse,
     StateTagUpdate,
 )
+from monitor_data.tenancy import assert_entity_write
 from monitor_data.tools.neo4j_tools._helpers import verify_node_exists
 
 
@@ -413,6 +414,7 @@ def neo4j_update_state_tags(params: StateTagUpdate) -> StateTagResponse:
     Raises:
         ValueError: If entity not found or is an archetype
     """
+    assert_entity_write(params.entity_id, resource="entity_state_tags")
     client = get_neo4j_client()
 
     # Validate entity exists and is an instance

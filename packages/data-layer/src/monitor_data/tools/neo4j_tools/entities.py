@@ -24,6 +24,7 @@ from monitor_data.schemas.entity_subtypes import (
     coerce_group_subtype,
     coerce_place_subtype,
 )
+from monitor_data.tenancy import assert_entity_write, assert_universe_write
 from monitor_data.tools.neo4j_tools._helpers import verify_node_exists
 
 # =============================================================================
@@ -518,6 +519,7 @@ def neo4j_set_state_tags(entity_id: UUID, params: StateTagsUpdate) -> EntityResp
     Raises:
         ValueError: If entity doesn't exist or is an archetype
     """
+    assert_entity_write(entity_id, resource="entity_state_tags")
     client = get_neo4j_client()
 
     # Verify entity exists and is an instance
@@ -605,6 +607,7 @@ def neo4j_tick_agendas(universe_id: str) -> list[str]:
     This is a stub for v1.0 readiness; real logic will involve LLM agent ticking.
     For now, it just returns an empty list to satisfy the interface.
     """
+    assert_universe_write(universe_id, resource="agenda")
     return []
 
 
@@ -721,6 +724,9 @@ def neo4j_link_to_archetype(entity_id: UUID, archetype_id: UUID) -> dict[str, An
     Raises:
         ValueError: If either entity doesn't exist.
     """
+    # The instance being linked must belong to the acting owner; archetypes
+    # are shared reference nodes.
+    assert_entity_write(entity_id, resource="entity_archetype_link")
     client = get_neo4j_client()
 
     # Verify both entities exist
@@ -794,6 +800,9 @@ def neo4j_create_character_relationship(
     Raises:
         ValueError: If either character doesn't exist.
     """
+    # Both endpoints must belong to the acting owner (all-or-nothing).
+    assert_entity_write(from_id, resource="character_relationship")
+    assert_entity_write(to_id, resource="character_relationship")
     client = get_neo4j_client()
     props = properties or {}
 

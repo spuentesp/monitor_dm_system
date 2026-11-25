@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { gmApi, storiesApi } from "@/lib/api";
@@ -20,7 +20,7 @@ export function PlotHooksPanel({ universeId }: { universeId: string | null }) {
     enabled: !!universeId,
     staleTime: 15_000,
   });
-  const stories = storiesData?.stories ?? [];
+  const stories = useMemo(() => storiesData?.stories ?? [], [storiesData]);
 
   useEffect(() => {
     if (!storyId && stories.length > 0) setStoryId(stories[0].id);

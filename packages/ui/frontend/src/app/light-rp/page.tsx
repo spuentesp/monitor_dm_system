@@ -168,7 +168,7 @@ export default function LightRpPage() {
           role="alert"
           className="glass flex items-center justify-between gap-3 rounded-xl px-5 py-4 text-sm text-red-300/80"
         >
-          Couldn't load your characters — check the backend and retry.
+          Couldn&apos;t load your characters — check the backend and retry.
           <button
             type="button"
             onClick={() => void charactersQ.refetch()}

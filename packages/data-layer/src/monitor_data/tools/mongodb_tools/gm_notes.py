@@ -16,6 +16,7 @@ from uuid import UUID
 
 from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.schemas.gm_notes import GmNoteResponse, GmNoteUpsert
+from monitor_data.tenancy import assert_universe_write
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ def mongodb_upsert_gm_note(universe_id: UUID, params: GmNoteUpsert) -> GmNoteRes
 
     Returns the canonical post-write state (with refreshed ``updated_at``).
     """
+    assert_universe_write(universe_id, resource="gm_note")
     client = get_mongodb_client()
     collection = client.get_collection("gm_notes")
 

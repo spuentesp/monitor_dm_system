@@ -11,6 +11,7 @@ from monitor_data.schemas.foreshadowing import (
     ForeshadowingCreate,
     ForeshadowingResponse,
 )
+from monitor_data.tenancy import assert_scene_write
 
 
 def _doc_to_response(doc: dict[str, Any]) -> ForeshadowingResponse:
@@ -34,6 +35,7 @@ def _doc_to_response(doc: dict[str, Any]) -> ForeshadowingResponse:
 
 def mongodb_create_foreshadowing(params: ForeshadowingCreate) -> ForeshadowingResponse:
     """Insert a new plant/payoff item; returns the typed response."""
+    assert_scene_write(params.scene_id, resource="foreshadowing")
     mongo_client = get_mongodb_client()
     coll = mongo_client["scene_foreshadowing"]
     now = datetime.now(UTC)

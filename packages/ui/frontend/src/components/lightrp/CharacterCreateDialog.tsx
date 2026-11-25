@@ -67,7 +67,7 @@ export function CharacterCreateDialog({
             onChange={(e) => setIsPersona(e.target.checked)}
             className="h-3.5 w-3.5 accent-accent-primary"
           />
-          This is my persona — appears in the "You are" picker, not the roster
+          This is my persona — appears in the &quot;You are&quot; picker, not the roster
         </label>
         <label className="flex flex-col gap-1 text-xs text-fg-muted">
           Description / persona

@@ -18,23 +18,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import {
-  Activity,
-  AlertTriangle,
-  BookOpen,
-  CalendarClock,
-  Check,
-  CheckCircle2,
-  ChevronRight,
-  CircleDot,
-  Globe2,
-  Layers,
-  Loader2,
-  Scroll,
-  Users,
-  X,
-  XCircle,
-} from "lucide-react";
+import { Activity, AlertTriangle, BookOpen, CalendarClock, Check, CheckCircle2, ChevronRight, CircleDot, Globe2, Layers, Loader2, Scroll, X, XCircle } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { canonApi } from "@/lib/api";
 import type { BatchVerdictError, VerdictByFilterRequest, VerdictItem } from "@/lib/types";

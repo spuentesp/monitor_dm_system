@@ -14,6 +14,7 @@ from monitor_data.schemas.documents import (
     DocumentResponse,
     DocumentUpdate,
 )
+from monitor_data.tenancy import acting_owner, assert_owner_match
 
 # =============================================================================
 # DOCUMENT OPERATIONS  (tracks ingestion state, lives in MongoDB)
@@ -114,6 +115,9 @@ def mongodb_create_document(params: DocumentCreate) -> DocumentResponse:
     Returns:
         DocumentResponse with new doc_id
     """
+    # Ownership gate (UX-1): the uploader or the target universe must be the
+    # acting owner. No owner bound → unchanged.
+    assert_owner_match(resource="document", universe_id=params.universe_id, direct_owner_id=params.owner_id)
     client = get_mongodb_client()
     docs_collection = client["documents"]
 
@@ -231,6 +235,16 @@ def mongodb_update_document(doc_id: UUID, params: DocumentUpdate) -> bool:
     Returns:
         True if the document was found and updated, False otherwise
     """
+    # Ownership gate (UX-1): the document's owner or universe must belong to the
+    # acting owner. No owner bound (workers, scripts, local mode) → unchanged.
+    if acting_owner() is not None:
+        _doc = get_mongodb_client()["documents"].find_one({"doc_id": str(doc_id)})
+        if _doc is not None:
+            assert_owner_match(
+                resource="document",
+                universe_id=_doc.get("universe_id"),
+                direct_owner_id=_doc.get("owner_id"),
+            )
     client = get_mongodb_client()
     update_fields: dict[str, Any] = {}
 

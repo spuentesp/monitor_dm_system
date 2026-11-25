@@ -5,7 +5,7 @@ import { AnimatePresence } from "framer-motion";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { ThinkingTrace, ToolCall } from "./types";
 import { useRef } from "react";
-import { AlertCircle, ChevronDown, RotateCcw, X } from "lucide-react";
+import { AlertCircle, RotateCcw, X } from "lucide-react";
 import type { Message } from "@/lib/types";
 import type { DiceRequest, StreamingMessage, TurnFailure } from "./types";
 import { TypingIndicator } from "./TypingIndicator";

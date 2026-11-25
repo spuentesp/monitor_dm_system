@@ -96,6 +96,99 @@ jobs:
           cat /tmp/backend.log
           exit 1
 
+      - name: Live tenancy smoke (auth-enabled backend + SMTP sink)
+        # The two-user pass (UX-1/UX-2) must run with real authentication, so
+        # it gets its own backend on :8002 with MONITOR_AUTH_DISABLED=false,
+        # invite-only signup and SMTP pointed at a local sink. The first
+        # admin is bootstrapped with scripts/create_admin.py, then
+        # scripts/live_tenancy_smoke.py drives the API (invites, signup,
+        # cross-tenant denial, forgot-password + reset, admin controls).
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="packages/data-layer/src:packages/agents/src:packages/ui/backend/src"
+          rm -f /tmp/smtp_sink.jsonl /tmp/smtp_sink.log /tmp/backend8002.log
+
+          # Fresh Fernet key per run: the auth-enabled backend refuses to save
+          # provider keys without MONITOR_PROVIDER_KEY_ENCRYPTION_KEY (UX-4).
+          ENC_KEY="$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+
+          # 1) SMTP sink (scripts/smtp_sink.py, stdlib asyncio). No STARTTLS.
+          nohup uv run python scripts/smtp_sink.py --host 127.0.0.1 --port 2525 \
+            --out /tmp/smtp_sink.jsonl > /tmp/smtp_sink.log 2>&1 &
+          sink_up=0
+          for i in $(seq 1 30); do
+            if python3 -c "import socket; s=socket.create_connection(('127.0.0.1', 2525), 1); s.close()" 2>/dev/null; then
+              echo "smtp sink accepting connections after ${i}s"
+              sink_up=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$sink_up" -ne 1 ]; then
+            echo "::error::smtp_sink.py did not start"
+            cat /tmp/smtp_sink.log || true
+            exit 1
+          fi
+
+          # 2) Second backend with authentication ENABLED on :8002.
+          #    Env vars override .env (pydantic-settings precedence), so the
+          #    auth-disabled first backend and this one stay independent.
+          nohup env PYTHONPATH="$PYTHONPATH" \
+            MONITOR_AUTH_DISABLED=false \
+            MONITOR_SIGNUP_MODE=invite \
+            AUTH_COOKIE_SECURE=false \
+            MONITOR_PROVIDER_KEY_ENCRYPTION_KEY="$ENC_KEY" \
+            MONITOR_SMTP_HOST=127.0.0.1 \
+            MONITOR_SMTP_PORT=2525 \
+            MONITOR_SMTP_STARTTLS=false \
+            MONITOR_SMTP_FROM=monitor@localhost \
+            MONITOR_PUBLIC_URL=http://localhost:3000 \
+            uv run uvicorn monitor_ui.main:app --app-dir packages/ui/backend/src \
+              --host 0.0.0.0 --port 8002 \
+            > /tmp/backend8002.log 2>&1 &
+          for i in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:8002/api/health >/dev/null 2>&1; then
+              echo "auth-enabled backend healthy after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          if ! curl -fsS http://127.0.0.1:8002/api/health >/dev/null 2>&1; then
+            echo "::error::the auth-enabled backend :8002 did not become healthy within 120s"
+            cat /tmp/backend8002.log
+            exit 1
+          fi
+
+          # 3) First admin — signup is invite-only and never grants admin.
+          #    --promote-existing keeps the step idempotent if the shared
+          #    database already has this account from an earlier run.
+          if ! uv run python scripts/create_admin.py \
+            --email tenancy-admin@example.com --username tenancy_admin \
+            --password 'SmokeAdminPassw0rd!' --promote-existing; then
+            echo "::error::create_admin.py failed"
+            cat /tmp/backend8002.log || true
+            exit 1
+          fi
+
+          # 4) Two-user tenancy pass. Prints PASS/FAIL per step; non-zero on
+          #    any FAIL, with the backend log and sink file on failure.
+          rc=0
+          uv run python scripts/live_tenancy_smoke.py \
+            --base-url http://127.0.0.1:8002 \
+            --admin-login tenancy-admin@example.com \
+            --admin-password 'SmokeAdminPassw0rd!' \
+            --sink /tmp/smtp_sink.jsonl || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::live tenancy smoke failed (exit $rc)"
+            echo "--- backend :8002 log ---"
+            cat /tmp/backend8002.log || true
+            echo "--- smtp sink file (/tmp/smtp_sink.jsonl) ---"
+            cat /tmp/smtp_sink.jsonl 2>/dev/null || true
+            echo "--- smtp sink log ---"
+            cat /tmp/smtp_sink.log 2>/dev/null || true
+            exit "$rc"
+          fi
+
       - name: E2E smoke
         env:
           RUN_E2E: "1"
