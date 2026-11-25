@@ -165,7 +165,6 @@ export default function PlayConsole() {
       opts.character_id = castSpeaker.id;
     }
     return opts;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCharacter, chatMode, castSpeaker]);
 
   const handleComposerSubmit = (text: string) => {

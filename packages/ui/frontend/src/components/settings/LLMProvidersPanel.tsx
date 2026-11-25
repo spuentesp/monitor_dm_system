@@ -623,6 +623,9 @@ export function LLMProvidersPanel() {
   useEffect(() => {
     const activeProviders = Array.from(new Set(providers.map(p => p.provider)));
     activeProviders.forEach(p => fetchModels(p));
+    // fetchModels is recreated each render; listing it would refetch models on
+    // every render, so this effect intentionally depends on `providers` only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providers]);
 
   return (

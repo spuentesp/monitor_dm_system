@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ClipboardList, Loader2, Sparkles } from "lucide-react";
 import { gmApi, storiesApi } from "@/lib/api";
@@ -20,7 +20,7 @@ export function SessionPrepPanel({ universeId }: { universeId: string | null }) 
     enabled: !!universeId,
     staleTime: 15_000,
   });
-  const stories = storiesData?.stories ?? [];
+  const stories = useMemo(() => storiesData?.stories ?? [], [storiesData]);
 
   // Default to the most recent story once loaded
   useEffect(() => {

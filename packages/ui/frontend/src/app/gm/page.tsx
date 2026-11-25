@@ -139,7 +139,6 @@ function GMAssistantPageContent() {
   // Restore the persisted step whenever the active universe changes.
   useEffect(() => {
     setStepState(readStoredGmStep(universeId) ?? "run");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [universeId]);
 
   const setStep = (next: GmStep) => {

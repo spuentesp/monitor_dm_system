@@ -31,7 +31,6 @@ export function websocketBase(): string {
   // to the backend. Surface a single console warning so deployers see it.
   if (typeof window !== "undefined" && !warnedAboutWsFallback) {
     warnedAboutWsFallback = true;
-    // eslint-disable-next-line no-console
     console.warn(
       "[MONITOR] NEXT_PUBLIC_WS_URL is unset and the page is not on localhost. " +
         "Assuming a reverse proxy upgrades /api/chat/ws/* to the backend. " +

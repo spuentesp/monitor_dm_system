@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileImage, FileText, Upload, Trash2, Loader2, ExternalLink, ImageIcon, Music, File } from "lucide-react";
@@ -39,10 +39,13 @@ export function AssetsPanel({ sourceId, universeId }: AssetsPanelProps) {
   const [uploadType, setUploadType] = useState<string>("image");
   const [uploading, setUploading] = useState(false);
 
-  const filter = {
-    ...(sourceId ? { source_id: sourceId } : {}),
-    ...(universeId ? { universe_id: universeId } : {}),
-  };
+  const filter = useMemo(
+    () => ({
+      ...(sourceId ? { source_id: sourceId } : {}),
+      ...(universeId ? { universe_id: universeId } : {}),
+    }),
+    [sourceId, universeId],
+  );
 
   const assetsQuery = useQuery({
     queryKey: ["assets", filter],

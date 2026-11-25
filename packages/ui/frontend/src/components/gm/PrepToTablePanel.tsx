@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Check,
   ClipboardList,
@@ -58,7 +58,7 @@ export function PrepToTablePanel({ universeId }: { universeId: string | null }) 
     enabled: !!universeId,
     staleTime: 15_000,
   });
-  const stories = storiesData?.stories ?? [];
+  const stories = useMemo(() => storiesData?.stories ?? [], [storiesData]);
 
   // Default to the most recent story once loaded
   useEffect(() => {

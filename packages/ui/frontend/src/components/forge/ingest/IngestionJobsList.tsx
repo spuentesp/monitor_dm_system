@@ -90,7 +90,6 @@ export function IngestionJobsList() {
         // or poll pick it up. Don't surface to the user: this is a dashboard,
         // not a blocking surface, and the 5 s poll will retry naturally.
         retryRefs.current.set(id, (retryRefs.current.get(id) ?? 0) + 1);
-        // eslint-disable-next-line no-console
         console.warn(`[ingest] EventSource open failed for ${id}`, err);
         return;
       }
@@ -104,7 +103,6 @@ export function IngestionJobsList() {
         } catch (err) {
           // Don't swallow silently — leave a breadcrumb. A malformed message
           // usually means the server sent something other than an IngestJob.
-          // eslint-disable-next-line no-console
           console.warn(`[ingest] malformed SSE payload for ${id}`, err);
           return;
         }
@@ -178,10 +176,12 @@ export function IngestionJobsList() {
 
   // Clean up all on unmount
   useEffect(() => {
+    const sse = sseRefs.current;
+    const retry = retryRefs.current;
     return () => {
-      for (const es of sseRefs.current.values()) es.close();
-      sseRefs.current.clear();
-      retryRefs.current.clear();
+      for (const es of sse.values()) es.close();
+      sse.clear();
+      retry.clear();
     };
   }, []);
 
