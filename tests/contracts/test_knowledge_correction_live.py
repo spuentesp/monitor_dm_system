@@ -21,6 +21,16 @@ from monitor_data.db.mongodb import get_mongodb_client
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_live_fact_retraction_reaches_knowledge_consumers(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Embedding the memory needs default chat/embedding/light providers; a stack
+    # without seeded providers (the weekly CI job carries no credentials) cannot
+    # run this path, so report the missing precondition instead of failing.
+    from monitor_data.db.postgres import get_postgres_client
+    from monitor_data.retrieval.pair_sync import derive_active_pair_from_defaults
+
+    try:
+        await derive_active_pair_from_defaults(get_postgres_client())
+    except RuntimeError as exc:
+        pytest.skip(f"default LLM providers not seeded: {exc}")
     keeper = CanonKeeper()
     multiverses = await keeper.call_tool("neo4j_list_multiverses", {})
     if not isinstance(multiverses, list) or not multiverses:
