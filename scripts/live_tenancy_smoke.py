@@ -446,7 +446,16 @@ def stage_cross_tenant(ctx: SmokeContext, state: SmokeState, report: Report) -> 
         params={"q": f"A multiverse {state.suffix}"},
         headers=csrf_headers(b),
     )
-    search_leak = search.status_code != 200 or any(n and n in search.text for n in needles)
+    # The response echoes ``query`` (which names A's multiverse on purpose),
+    # so only the results are inspected for A's data.
+    if search.status_code == 200:
+        body = search.json()
+        results_text = json.dumps(body.get("results", []))
+        search_leak = body.get("total_results", 0) != 0 or any(
+            n and n in results_text for n in needles
+        )
+    else:
+        search_leak = True
     report.check(
         "/api/search returns none of A's data",
         not search_leak,
