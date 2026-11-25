@@ -707,3 +707,57 @@ def assert_rule_override_write(
         return
     # STORY scope (the default) and any unknown scope fall through to story.
     assert_story_write(scope_id, resource=resource, expected_owner_id=expected_owner_id)
+
+
+def assert_multiverse_write(
+    multiverse_id: str | UUID | None,
+    *,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a write naming a multiverse (``multiverses.owner_id`` registry).
+
+    Mirrors the HTTP ``require_multiverse_owner`` chain: the multiverse is a
+    Postgres registry root of its own (plan D3), not a Story node.
+    """
+    if acting_owner(expected_owner_id) is None:
+        return
+    if multiverse_id is None:
+        raise _refuse(resource, "write names no multiverse to verify")
+    owner = acting_owner(expected_owner_id)
+    try:
+        UUID(owner)
+    except ValueError:
+        raise _refuse(resource, "acting owner id is not a valid UUID") from None
+    from monitor_data.db._utils import run_sync
+    from monitor_data.db.postgres import get_postgres_client
+
+    row = run_sync(get_postgres_client().multiverse_get_for_owner(str(multiverse_id), UUID(owner)))
+    if row is None:
+        raise _refuse(resource, f"multiverse {multiverse_id} is not owned by the acting owner ({owner})")
+
+
+def universe_of_agenda(agenda_id: str | UUID) -> str | None:
+    """Resolve an Agenda node's universe through its ``IN_UNIVERSE`` link."""
+    from monitor_data.db.neo4j import get_neo4j_client
+
+    rows = get_neo4j_client().execute_read(
+        "MATCH (a:Agenda {id: $id})-[:IN_UNIVERSE]->(u) RETURN u.id AS uid",
+        {"id": str(agenda_id)},
+    )
+    return rows[0]["uid"] if rows else None
+
+
+def assert_agenda_write(
+    agenda_id: str | UUID,
+    *,
+    resource: str,
+    expected_owner_id: str | UUID | None = None,
+) -> None:
+    """Assert a write naming an agenda: resolve agenda → universe, then assert."""
+    if acting_owner(expected_owner_id) is None:
+        return
+    resolved = universe_of_agenda(agenda_id)
+    if resolved is None:
+        raise _refuse(resource, f"agenda {agenda_id} resolves to no universe")
+    assert_owner_match(resource=resource, universe_id=resolved, expected_owner_id=expected_owner_id)

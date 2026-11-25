@@ -174,6 +174,9 @@ def mongodb_restore_world_snapshot(snapshot_id: UUID) -> dict[str, Any]:
     doc = collection.find_one({"snapshot_id": str(snapshot_id)})
     if not doc:
         raise ValueError(f"Snapshot {snapshot_id} not found")
+    # Ownership gate: the snapshot's universe must belong to the acting owner
+    # (a snapshot naming no universe fails closed when an owner is bound).
+    assert_universe_write(doc.get("universe_id"), resource="world_snapshot")
 
     universe_id = UUID(doc["universe_id"])
     entities = doc.get("entities", [])

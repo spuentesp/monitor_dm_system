@@ -252,6 +252,18 @@ the last families this section had listed as HTTP-only:
   entity), and tone libraries (universe-bound rows; a re-home target is
   asserted too). Tests:
   `packages/data-layer/tests/test_tenancy_write_guards_remaining.py`.
+- **Closed by the FU-guards final batch (2026-11-25):** character templates
+  (direct `owner_id` match on create/update/delete), GM prep bundles, world
+  profiles, prompt collections and random tables (universe-bound rows —
+  global/builtin rows stay shared like tone libraries), scene rewind,
+  world-snapshot restore, commit webhooks (universe scope plus the
+  `multiverses` registry root, mirroring `require_multiverse_owner`),
+  working state (by entity), world clock and deadlines (by universe),
+  universe fork (both source and destination), and the Neo4j state-tag,
+  archetype-link, character-relationship, entity-ability, tick/create/update
+  agenda tools (entity or universe chain; an agenda that resolves to no
+  universe fails closed). Tests:
+  `packages/data-layer/tests/test_tenancy_write_guards_final_batch.py`.
 - **Documented exceptions (deliberate):** game systems with `is_builtin`
   or no `owner_id` (ingestion-created / pre-tenancy legacy) stay shared —
   HTTP system writes are admin-gated on one router and owner-stamped
@@ -263,19 +275,29 @@ the last families this section had listed as HTTP-only:
   builtin rows) stay shared the same way — HTTP gates global writes on
   admins (`require_tone_library_owner(..., write=True)`), which the tool
   boundary cannot see.
-- **Still HTTP-only (adopt `assert_*_write` incrementally):** the write
-  tools outside the families above — documents/ingest artifacts,
-  transcripts, foreshadowing, entity and character templates, generated
-  assets, image settings, tone profiles, GM prep bundles, working state,
-  world clock, snapshots, commit webhooks, prompt collections, tag
-  registry, random tables, merge candidates, change log, world/GM
-  profiles, scene rewind, player shares, and the Neo4j content tools
-  (entities, facts/axioms/events, relationships, stories/plot threads,
-  universes/multiverses/sources, agendas, mechanics, book trees), plus
-  Qdrant vector upserts/deletes. All of these are HTTP-guarded
-  (`resource_route_guard` + explicit owner checks); they are deferred
-  breadth, not a known hole in the covered families. The full per-tool
-  guard table lives in `WORKSTREAM_REPORT.md` of the FU-guards pass.
+- **Still HTTP-only (`resource_route_guard` + explicit owner checks; adopt
+  `assert_*_write` incrementally):**
+  - Neo4j content tools that got no owner chain in these passes: entity
+    create/update/delete, fact/axiom/event CRUD, story and plot-thread CRUD,
+    universe/multiverse/source CRUD, relationship edge CRUD (create/update/
+    delete — only the state-tag transition is guarded), book-tree delete,
+    and the shared mechanics reference nodes (`AbilitySystem`, `Track`,
+    `ResolutionMechanic` — system-scoped, they carry no universe field).
+  - Deferred Mongo writers: entity templates (universe-bound; HTTP
+    `require_template_owner` guards them today), image settings, change-log
+    appends, player shares, and the append-only roleplay-error / canon-
+    override audit records.
+  - Qdrant vector upserts/deletes (`qdrant_tools.py`): the tools take raw
+    collection names (per-universe prefixes are applied by callers), so the
+    boundary has no target to assert — HTTP-guarded only.
+  - Deliberately shared global registries: tone profiles and tag definitions
+    (admin-only over HTTP, written by CanonKeeper during pack apply) — the
+    same decision as global/builtin tone-library rows.
+  - Not data-layer tools: standalone character-card writes live in the UI
+    routers (`character_storage.py`, owner-predicated there; the data-layer
+    `characters.py` module is read-only), and ingestion jobs are covered by
+    the strict creator match (owner stamp + router check) rather than
+    `assert_*_write`.
 - Standalone character-card writes live in the UI routers
   (`character_storage.py`) and are owner-predicated there; no data-layer
   write tool exists to guard yet.

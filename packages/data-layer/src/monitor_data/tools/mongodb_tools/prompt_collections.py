@@ -27,6 +27,7 @@ from monitor_data.schemas.prompt_collections import (
     PromptCollectionVersionResponse,
     PromptEntry,
 )
+from monitor_data.tenancy import acting_owner, assert_universe_write
 
 _COLLECTION = "prompt_collections"
 _VERSIONS = "prompt_collection_versions"
@@ -90,6 +91,10 @@ def mongodb_create_prompt_collection(
     params: PromptCollectionCreate,
 ) -> PromptCollectionResponse:
     """Create a curated prompt/question collection."""
+    # Universe-bound collections assert the acting owner; global/builtin rows
+    # (no universe) stay shared — HTTP writes for those are admin-gated.
+    if params.universe_id is not None:
+        assert_universe_write(params.universe_id, resource="prompt_collection")
     mongo_client = get_mongodb_client()
     collections = mongo_client[_COLLECTION]
 
@@ -137,6 +142,13 @@ def mongodb_update_prompt_collection(
     existing = collections.find_one({"collection_id": str(collection_id)})
     if not existing:
         raise ValueError(f"Prompt collection {collection_id} not found")
+    # Ownership gate: a universe-bound row (and a re-home target) must belong
+    # to the acting owner; a global/builtin row stays shared (HTTP gates
+    # those writes on admins). No owner bound → the assert is a no-op.
+    if existing.get("universe_id"):
+        assert_universe_write(existing["universe_id"], resource="prompt_collection")
+    if params.universe_id is not None:
+        assert_universe_write(params.universe_id, resource="prompt_collection")
 
     update_fields: dict[str, Any] = {"updated_at": datetime.now(UTC)}
     if params.name is not None:
@@ -170,6 +182,12 @@ def mongodb_update_prompt_collection(
 def mongodb_delete_prompt_collection(collection_id: UUID) -> bool:
     """Delete a prompt collection. Returns True if a document was removed."""
     mongo_client = get_mongodb_client()
+    # Ownership gate: only when an owner is bound, so the no-owner path keeps
+    # its original call shape. A global row stays shared (admin-gated over HTTP).
+    if acting_owner() is not None:
+        existing = mongo_client[_COLLECTION].find_one({"collection_id": str(collection_id)})
+        if existing is not None and existing.get("universe_id"):
+            assert_universe_write(existing["universe_id"], resource="prompt_collection")
     result = mongo_client[_COLLECTION].delete_one({"collection_id": str(collection_id)})
     return result.deleted_count > 0
 
@@ -240,6 +258,8 @@ def mongodb_publish_prompt_collection(
     live = collections.find_one({"collection_id": str(collection_id)})
     if not live:
         raise ValueError(f"Prompt collection {collection_id} not found")
+    if live.get("universe_id"):
+        assert_universe_write(live["universe_id"], resource="prompt_collection")
 
     existing_count = versions.count_documents({"collection_id": str(collection_id)})
     version_label = (params.version or "").strip() or f"v{existing_count + 1}"
@@ -296,8 +316,11 @@ def mongodb_restore_prompt_collection_version(
         raise ValueError(f"Prompt collection version {version_id} not found")
 
     collection_id = snapshot["collection_id"]
-    if not collections.find_one({"collection_id": collection_id}):
+    live = collections.find_one({"collection_id": collection_id})
+    if not live:
         raise ValueError(f"Prompt collection {collection_id} no longer exists")
+    if live.get("universe_id"):
+        assert_universe_write(live["universe_id"], resource="prompt_collection")
 
     collections.update_one(
         {"collection_id": collection_id},
