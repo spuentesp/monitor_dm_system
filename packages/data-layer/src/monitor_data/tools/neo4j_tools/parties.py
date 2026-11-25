@@ -17,6 +17,7 @@ from monitor_data.schemas.parties import (
     RemovePartyMember,
     SetActivePC,
 )
+from monitor_data.tenancy import assert_party_write, assert_story_write
 from monitor_data.tools.neo4j_tools._helpers import verify_node_exists
 
 # PARTY OPERATIONS (DL-15)
@@ -39,6 +40,7 @@ def neo4j_create_party(params: PartyCreate) -> PartyResponse:
     Raises:
         ValueError: If story_id doesn't exist or initial_member_ids invalid
     """
+    assert_story_write(params.story_id, resource="party")
     client = get_neo4j_client()
 
     # Verify story exists
@@ -324,6 +326,7 @@ def neo4j_add_party_member(params: AddPartyMember) -> PartyResponse:
     Raises:
         ValueError: If party or entity not found, or entity not a character
     """
+    assert_party_write(params.party_id, resource="party")
     client = get_neo4j_client()
 
     # Verify party exists
@@ -388,6 +391,7 @@ def neo4j_remove_party_member(params: RemovePartyMember) -> PartyResponse:
     Raises:
         ValueError: If party not found
     """
+    assert_party_write(params.party_id, resource="party")
     client = get_neo4j_client()
 
     # Verify party exists
@@ -441,6 +445,7 @@ def neo4j_set_active_pc(params: SetActivePC) -> PartyResponse:
     Raises:
         ValueError: If party not found or entity not a member
     """
+    assert_party_write(params.party_id, resource="party")
     client = get_neo4j_client()
 
     # Verify party exists and entity is a member
@@ -493,6 +498,7 @@ def neo4j_update_party_status(party_id: UUID, status: PartyStatus) -> PartyRespo
     Raises:
         ValueError: If party not found
     """
+    assert_party_write(party_id, resource="party")
     client = get_neo4j_client()
 
     # Verify party exists
@@ -541,6 +547,7 @@ def neo4j_update_party_location(party_id: UUID, location_id: UUID | None) -> Par
     Raises:
         ValueError: If party not found
     """
+    assert_party_write(party_id, resource="party")
     client = get_neo4j_client()
 
     # Verify party exists
@@ -589,6 +596,7 @@ def neo4j_update_party_formation(party_id: UUID, formation: list[UUID]) -> Party
     Raises:
         ValueError: If party not found
     """
+    assert_party_write(party_id, resource="party")
     client = get_neo4j_client()
 
     # Verify party exists
@@ -643,6 +651,7 @@ def neo4j_delete_party(party_id: UUID) -> dict[str, Any]:
     Raises:
         ValueError: If party not found
     """
+    assert_party_write(party_id, resource="party")
     client = get_neo4j_client()
 
     # Verify party exists

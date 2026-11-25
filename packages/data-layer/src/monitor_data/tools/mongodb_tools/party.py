@@ -31,6 +31,7 @@ from monitor_data.schemas.party_inventory import (
     UpdateCharacterGoldRequest,
     UpdateGoldRequest,
 )
+from monitor_data.tenancy import assert_entity_write, assert_party_write
 
 # =============================================================================
 # INVENTORY OPERATIONS
@@ -55,6 +56,7 @@ def mongodb_create_party_inventory(
     Raises:
         ValueError: If party_id doesn't exist in Neo4j or inventory already exists
     """
+    assert_party_write(params.party_id, resource="party_inventory")
     mongo_client = get_mongodb_client()
     neo4j_client = get_neo4j_client()
 
@@ -163,6 +165,7 @@ def mongodb_add_inventory_item(
     Raises:
         ValueError: If inventory not found
     """
+    assert_party_write(params.party_id, resource="party_inventory")
     mongo_client = get_mongodb_client()
     inventories_collection = mongo_client.get_collection("party_inventories")
 
@@ -227,6 +230,7 @@ def mongodb_remove_inventory_item(
     Raises:
         ValueError: If inventory or item not found, or insufficient quantity
     """
+    assert_party_write(params.party_id, resource="party_inventory")
     mongo_client = get_mongodb_client()
     inventories_collection = mongo_client.get_collection("party_inventories")
 
@@ -286,6 +290,7 @@ def mongodb_update_party_gold(params: UpdateGoldRequest) -> PartyInventoryRespon
     Raises:
         ValueError: If inventory not found or gold would become negative
     """
+    assert_party_write(params.party_id, resource="party_inventory")
     mongo_client = get_mongodb_client()
     inventories_collection = mongo_client.get_collection("party_inventories")
 
@@ -330,6 +335,11 @@ def mongodb_transfer_item(params: TransferItemRequest) -> dict[str, str]:
     Raises:
         ValueError: If an inventory is missing, the item is missing, or quantity is insufficient
     """
+    for end_id, end_type in ((params.from_id, params.from_type), (params.to_id, params.to_type)):
+        if str(end_type.value) == "character":
+            assert_entity_write(end_id, resource="party_inventory")
+        else:
+            assert_party_write(end_id, resource="party_inventory")
     mongo_client = get_mongodb_client()
 
     if params.from_type == TransferSourceType.CHARACTER or params.to_type == TransferTargetType.CHARACTER:
@@ -419,6 +429,7 @@ def mongodb_create_party_split(params: PartySplitCreate) -> PartySplitResponse:
     Raises:
         ValueError: If party doesn't exist or validation fails
     """
+    assert_party_write(params.party_id, resource="party_inventory")
     mongo_client = get_mongodb_client()
     neo4j_client = get_neo4j_client()
 
@@ -555,6 +566,7 @@ def mongodb_resolve_party_split(
     split_doc = splits_collection.find_one({"split_id": str(params.split_id)})
     if not split_doc:
         raise ValueError(f"Split {params.split_id} not found")
+    assert_party_write(split_doc["party_id"], resource="party_inventory")
 
     if split_doc["status"] == SplitStatus.RESOLVED.value:
         raise ValueError(f"Split {params.split_id} is already resolved")
@@ -661,6 +673,7 @@ def mongodb_create_character_inventory(
     Raises:
         ValueError: If entity doesn't exist in Neo4j or inventory already exists
     """
+    assert_entity_write(params.entity_id, resource="character_inventory")
     mongo_client = get_mongodb_client()
     neo4j_client = get_neo4j_client()
 
@@ -772,6 +785,7 @@ def mongodb_add_character_item(
     Raises:
         ValueError: If inventory not found
     """
+    assert_entity_write(params.entity_id, resource="character_inventory")
     mongo_client = get_mongodb_client()
     inventories_collection = mongo_client.get_collection("character_inventories")
 
@@ -839,6 +853,7 @@ def mongodb_remove_character_item(
     Raises:
         ValueError: If inventory or item not found, or insufficient quantity
     """
+    assert_entity_write(params.entity_id, resource="character_inventory")
     mongo_client = get_mongodb_client()
     inventories_collection = mongo_client.get_collection("character_inventories")
 
@@ -903,6 +918,7 @@ def mongodb_update_character_gold(
     Raises:
         ValueError: If inventory not found or gold would become negative
     """
+    assert_entity_write(params.entity_id, resource="character_inventory")
     mongo_client = get_mongodb_client()
     inventories_collection = mongo_client.get_collection("character_inventories")
 
@@ -942,6 +958,7 @@ def mongodb_equip_item(params: EquipItemRequest) -> CharacterInventoryResponse:
     Raises:
         ValueError: If inventory or item not found
     """
+    assert_entity_write(params.entity_id, resource="character_inventory")
     mongo_client = get_mongodb_client()
     inventories_collection = mongo_client.get_collection("character_inventories")
 

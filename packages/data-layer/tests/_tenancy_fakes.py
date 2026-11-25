@@ -13,6 +13,24 @@ from typing import Any
 from unittest.mock import MagicMock
 
 
+class FakeCursor(list):
+    """List-backed cursor mimicking the Mongo cursor chaining API."""
+
+    def sort(self, *args: Any, **kwargs: Any) -> FakeCursor:
+        return self
+
+    def skip(self, *args: Any, **kwargs: Any) -> FakeCursor:
+        return self
+
+    def limit(self, *args: Any, **kwargs: Any) -> FakeCursor:
+        return self
+
+    def next(self) -> Any:
+        if not self:
+            raise StopIteration
+        return self[0]
+
+
 class FakeCollection:
     """In-memory stand-in for a MongoDB collection with call recording."""
 
@@ -23,11 +41,11 @@ class FakeCollection:
         self.delete_calls: int = 0
         self.find_one_result: Any = None
 
-    def find_one(self, query: Any, projection: Any = None) -> Any:
+    def find_one(self, query: Any, projection: Any = None, **kwargs: Any) -> Any:
         return self.find_one_result
 
-    def find(self, query: Any, projection: Any = None) -> list[dict[str, Any]]:
-        return list(self.docs)
+    def find(self, query: Any, projection: Any = None, **kwargs: Any) -> FakeCursor:
+        return FakeCursor(list(self.docs))
 
     def insert_one(self, doc: dict[str, Any]) -> Any:
         self.insert_calls.append(dict(doc))
@@ -98,9 +116,14 @@ class FakeNeo4j:
 
     def __init__(self) -> None:
         self.universe_by_id: dict[str, str] = {}
+        self.party_story_by_id: dict[str, str] = {}
+        self.write_calls: int = 0
 
     def execute_read(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         params = params or {}
+        if "RETURN p.story_id AS sid" in query:
+            sid = self.party_story_by_id.get(str(params.get("id")))
+            return [{"sid": sid}] if sid else []
         for label_return in (
             "RETURN s.universe_id AS uid",
             "RETURN e.universe_id AS uid",
@@ -113,6 +136,7 @@ class FakeNeo4j:
         return [{"id": str(params.get("story_id") or params.get("entity_id") or "ok"), "uid": None}]
 
     def execute_write(self, query: str, params: dict[str, Any] | None = None) -> Any:
+        self.write_calls += 1
         return MagicMock()
 
 
@@ -137,17 +161,26 @@ _TOOL_MODULES = (
     "combat",
     "conversations",
     "game_systems",
+    "gm_notes",
     "ingestion_jobs",
     "knowledge_packs",
     "lorebook_tools",
     "memories",
     "npc_profiles",
+    "party",
     "proposals",
+    "resolutions",
     "scenes",
+    "session_entries",
     "stories",
     "snapshots",
     "play_sessions",
+    "tone_libraries",
+    "visual_identities",
 )
+
+# Neo4j tool modules that bind ``get_neo4j_client`` at import time.
+_NEO4J_TOOL_MODULES = ("parties",)
 
 
 def install_fakes(monkeypatch: Any) -> tuple[FakeMongo, FakeNeo4j, FakePostgres]:
@@ -165,6 +198,17 @@ def install_fakes(monkeypatch: Any) -> tuple[FakeMongo, FakeNeo4j, FakePostgres]
         monkeypatch.setattr(
             f"monitor_data.tools.mongodb_tools.{mod}.get_neo4j_client",
             lambda: neo4j,
+            raising=False,
+        )
+    for mod in _NEO4J_TOOL_MODULES:
+        monkeypatch.setattr(
+            f"monitor_data.tools.neo4j_tools.{mod}.get_neo4j_client",
+            lambda: neo4j,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            f"monitor_data.tools.neo4j_tools.{mod}.get_mongodb_client",
+            lambda: mongo,
             raising=False,
         )
     # Memory writes fire a best-effort embedding thread; keep it offline.

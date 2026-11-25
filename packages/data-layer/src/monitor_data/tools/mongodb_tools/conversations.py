@@ -20,6 +20,7 @@ from monitor_data.schemas.conversations import (
     ConversationStatus,
     ConversationTurn,
 )
+from monitor_data.tenancy import assert_conversation_write, assert_universe_write
 
 
 def _conversation_doc_to_response(doc: dict[str, Any]) -> ConversationSessionResponse:
@@ -66,6 +67,7 @@ def mongodb_create_conversation(params: ConversationSessionCreate) -> Conversati
     Returns:
         ConversationSessionResponse with the new session.
     """
+    assert_universe_write(params.universe_id, resource="conversation")
     client = get_mongodb_client()
     conversation_id = uuid4()
     now = datetime.now(UTC)
@@ -170,6 +172,7 @@ def mongodb_append_conversation_turn(
     doc = client["conversations"].find_one({"conversation_id": str(conversation_id)})
     if not doc:
         raise ValueError(f"ConversationSession {conversation_id} not found")
+    assert_conversation_write(conversation_id, resource="conversation")
     if doc["status"] != ConversationStatus.ACTIVE.value:
         raise ValueError(f"Cannot append to conversation {conversation_id}: status={doc['status']}")
 
@@ -224,6 +227,7 @@ def mongodb_update_conversation(
     doc = client["conversations"].find_one({"conversation_id": str(conversation_id)})
     if not doc:
         raise ValueError(f"ConversationSession {conversation_id} not found")
+    assert_conversation_write(conversation_id, resource="conversation")
 
     now = datetime.now(UTC)
     update_fields: dict[str, Any] = {"updated_at": now}
