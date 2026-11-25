@@ -6,7 +6,11 @@
 > HTTP layer, per-model-call usage accounting and in-turn quota enforcement);
 > updated 2026-11-20 by the UX-1/UX-4 pass (write-tool breadth, blanket-5xx
 > re-raises, strict ingest-job creator match, share-link audit, provider-key
-> encryption gate — see §4 for what is still open).
+> encryption gate — see §4 for what is still open);
+> updated 2026-11-25 by the FU-guards pass (the last §4 HTTP-only write
+> families — visual identities, conversations, session-recorder entries,
+> resolutions, GM notes, parties, tone libraries — now assert at the tool
+> boundary, and `OwnerViolationError` crosses the MCP boundary typed — see §4).
 > The original design narrative lives in
 > [MULTI_TENANCY_IMPLEMENTATION.md](MULTI_TENANCY_IMPLEMENTATION.md).
 >
@@ -96,7 +100,10 @@ Ownership is no longer enforced at the HTTP layer only:
   (create/update/add-scene), combat (encounter CRUD, participants, log,
   outcome, and the session tracker), game systems (owner-stamped create;
   update/delete of owner-stamped docs; rule overrides by story/scene
-  scope). See §4 for the precise remaining breadth.
+  scope) — plus the FU-guards families: visual identities, conversation
+  sessions/turns, session-recorder entries, resolutions, GM notes,
+  parties (Neo4j nodes + Mongo inventory/splits), and tone libraries.
+  See §4 for the precise remaining breadth.
 - No owner in context (local mode, scripts, ingestion workers, tests) means
   no assertion — existing behavior there is unchanged. The HTTP layer maps
   `OwnerViolationError` to the same generic 404 the guards return (plan D4).
@@ -217,14 +224,14 @@ only exclusions live in `SWEEP_EXEMPT` with a stated reason.
 
 ## 4. What remains
 
-### Defense in depth beyond the covered write tools (Phase 6 task 8 — breadth largely closed by UX-1)
+### Defense in depth beyond the covered write tools (Phase 6 task 8 — breadth closed by UX-1 + FU-guards)
 
 The interface sketched for the follow-up phase is implemented: write tools
 assert the acting owner against the Postgres registry (via
 `monitor_data.tenancy`, `expected_owner_id` supported for explicit
 forwarding), and the loops pass the session owner (constructor `owner_id`,
-stored on state). UX-1 closed the previously named gaps; what remains is
-the last of the breadth, not mechanism:
+stored on state). UX-1 closed the first gaps and the FU-guards pass closed
+the last families this section had listed as HTTP-only:
 
 - **Closed by UX-1:** lorebook (create/bulk/update/delete/scan-config),
   knowledge packs (create/update/delete/apply/publish/owner-stamp; apply
@@ -233,6 +240,18 @@ the last of the breadth, not mechanism:
   session tracker via the request's `universe_id`), game systems, and
   rule overrides (story/scene scope). Tests:
   `packages/data-layer/tests/test_tenancy_write_guards_families.py`.
+- **Closed by FU-guards (2026-11-25):** visual identities (upsert and the
+  CanonKeeper status transition, anchored universe → entity → character
+  card), conversation sessions and turns (create/append/update against the
+  transcript's `universe_id`), session-recorder entries (entry → chat
+  session → `owner_id`, mirroring `require_session_log_entry_owner`;
+  ownerless legacy sessions fail closed), resolutions (create by scene,
+  update/delete by the stored scene), GM notes (direct universe), parties
+  (Neo4j party tools resolve party → story → universe; the Mongo
+  inventory/split tools assert the party, character inventories the
+  entity), and tone libraries (universe-bound rows; a re-home target is
+  asserted too). Tests:
+  `packages/data-layer/tests/test_tenancy_write_guards_remaining.py`.
 - **Documented exceptions (deliberate):** game systems with `is_builtin`
   or no `owner_id` (ingestion-created / pre-tenancy legacy) stay shared —
   HTTP system writes are admin-gated on one router and owner-stamped
@@ -240,18 +259,37 @@ the last of the breadth, not mechanism:
   by anyone who can reach it until someone stamps it. Knowledge-pack
   creates with no `owner_id` are also allowed (agent/ingestion paths
   create ownerless and the router stamps afterwards); every owner-stamped
-  pack is fully guarded.
-- **Still HTTP-only (adopt `assert_*_write` incrementally):** visual
-  identities, conversation turns, session-recorder entries, resolutions,
-  GM notes, parties, tone libraries.
+  pack is fully guarded. Tone libraries with no `universe_id` (global /
+  builtin rows) stay shared the same way — HTTP gates global writes on
+  admins (`require_tone_library_owner(..., write=True)`), which the tool
+  boundary cannot see.
+- **Still HTTP-only (adopt `assert_*_write` incrementally):** the write
+  tools outside the families above — documents/ingest artifacts,
+  transcripts, foreshadowing, entity and character templates, generated
+  assets, image settings, tone profiles, GM prep bundles, working state,
+  world clock, snapshots, commit webhooks, prompt collections, tag
+  registry, random tables, merge candidates, change log, world/GM
+  profiles, scene rewind, player shares, and the Neo4j content tools
+  (entities, facts/axioms/events, relationships, stories/plot threads,
+  universes/multiverses/sources, agendas, mechanics, book trees), plus
+  Qdrant vector upserts/deletes. All of these are HTTP-guarded
+  (`resource_route_guard` + explicit owner checks); they are deferred
+  breadth, not a known hole in the covered families. The full per-tool
+  guard table lives in `WORKSTREAM_REPORT.md` of the FU-guards pass.
 - Standalone character-card writes live in the UI routers
   (`character_storage.py`) and are owner-predicated there; no data-layer
   write tool exists to guard yet.
-- `BaseAgent.call_tool` surfaces a tool refusal at the MCP boundary as an
-  error string (pre-existing behavior for all tool errors): the write fails
-  closed, but agent code that ignores the returned text will not see an
-  exception. Loops that call tools directly (SceneLoop, StoryLoop) get the
-  typed `OwnerViolationError` propagating.
+- `BaseAgent.call_tool` now surfaces a tenancy refusal **typed**:
+  `monitor_data.server.call_tool` re-raises `OwnerViolationError` (it is
+  logged as a failed call first) while every other tool error keeps the
+  pre-existing `"Error executing tool: ..."` string, so no other tool
+  error changed shape. Agent code that ignores returned text still gets
+  the write refused at the boundary — and callers that catch
+  `PermissionError` (its base class) now see the refusal as an exception.
+  Tests: `packages/data-layer/tests/test_server/test_owner_violation_propagation.py`,
+  `packages/agents/tests/test_call_tool_owner_violation.py`. Loops that
+  call tools directly (SceneLoop, StoryLoop) get the typed
+  `OwnerViolationError` propagating the same way.
 
 ### Known gaps and limits
 
