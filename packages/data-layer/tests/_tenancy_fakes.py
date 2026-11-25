@@ -155,6 +155,13 @@ class FakePostgres:
 
 
 _TOOL_MODULES = (
+    "book_decomposition",
+    "documents",
+    "foreshadowing",
+    "generated_assets",
+    "merge_candidates",
+    "profiles",
+    "transcripts",
     "characters",
     "character_sheets",
     "character_templates",

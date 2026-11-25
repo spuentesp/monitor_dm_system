@@ -16,6 +16,7 @@ from monitor_data.db.mongodb import get_mongodb_client
 from monitor_data.schemas.book_graph import BookRecord, BookRecordType
 from pymongo import ReplaceOne
 from pymongo.errors import DuplicateKeyError
+from monitor_data.tenancy import acting_owner, assert_owner_match
 
 RECORDS_COLLECTION = "book_records"
 LEASES_COLLECTION = "book_leases"
@@ -28,6 +29,16 @@ def _record_id(doc_id: str, record_type: BookRecordType, key: str) -> str:
 
 def mongodb_upsert_book_records(doc_id: str, record_type: BookRecordType, records: Sequence[BookRecord]) -> int:
     """Write records in batches, replacing any with the same key. Returns how many were sent."""
+    # Ownership gate (UX-1): the document's owner or universe must belong to the
+    # acting owner. No owner bound (workers, scripts, local mode) → unchanged.
+    if acting_owner() is not None:
+        _doc = get_mongodb_client()["documents"].find_one({"doc_id": str(doc_id)})
+        if _doc is not None:
+            assert_owner_match(
+                resource="document",
+                universe_id=_doc.get("universe_id"),
+                direct_owner_id=_doc.get("owner_id"),
+            )
     collection = get_mongodb_client().get_collection(RECORDS_COLLECTION)
     now = datetime.now(UTC)
     for start in range(0, len(records), _WRITE_BATCH):
@@ -58,6 +69,16 @@ def mongodb_list_book_records(doc_id: str, record_type: BookRecordType) -> list[
 
 def mongodb_delete_book_records(doc_id: str) -> int:
     """Delete everything stored for a document, including any lease. Returns records deleted."""
+    # Ownership gate (UX-1): the document's owner or universe must belong to the
+    # acting owner. No owner bound (workers, scripts, local mode) → unchanged.
+    if acting_owner() is not None:
+        _doc = get_mongodb_client()["documents"].find_one({"doc_id": str(doc_id)})
+        if _doc is not None:
+            assert_owner_match(
+                resource="document",
+                universe_id=_doc.get("universe_id"),
+                direct_owner_id=_doc.get("owner_id"),
+            )
     client = get_mongodb_client()
     client.get_collection(LEASES_COLLECTION).delete_one({"_id": doc_id})
     return int(client.get_collection(RECORDS_COLLECTION).delete_many({"doc_id": doc_id}).deleted_count)

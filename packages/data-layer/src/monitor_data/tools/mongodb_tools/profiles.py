@@ -13,6 +13,31 @@ from monitor_data.schemas.gm_profiles import (
     GMProfileUpdate,
 )
 from monitor_data.schemas.knowledge_packs import EmbeddedWorldProfile
+from monitor_data.tenancy import OwnerViolationError, acting_owner, assert_universe_write
+
+
+def _assert_gm_profile_scope(universe_id: UUID | str | None) -> None:
+    """Ownership gate (UX-1) for GM profiles.
+
+    A universe-bound profile must be in a universe the acting owner owns. A
+    global (universe-less) profile is shared operator data: with a user bound
+    the write is refused (no user-facing route writes global profiles). No
+    owner bound → unchanged.
+    """
+    if acting_owner() is None:
+        return
+    if universe_id is None:
+        raise OwnerViolationError("refusing gm_profile write: global profiles are operator data")
+    assert_universe_write(universe_id, resource="gm_profile")
+
+
+def _assert_existing_gm_profile(profile_id: UUID) -> None:
+    if acting_owner() is None:
+        return
+    doc = get_mongodb_client().get_collection("gm_profiles").find_one({"profile_id": str(profile_id)})
+    if doc is not None:
+        _assert_gm_profile_scope(doc.get("universe_id"))
+
 
 # =============================================================================
 # WORLD PROFILE PERSISTENCE
@@ -115,6 +140,7 @@ def mongodb_create_gm_profile(params: GMProfileCreate) -> GMProfileResponse:
     Returns:
         GMProfileResponse with created profile data
     """
+    _assert_gm_profile_scope(params.universe_id)
     mongo_client = get_mongodb_client()
 
     profile_id = params.profile_id or uuid4()
@@ -205,6 +231,9 @@ def mongodb_update_gm_profile(profile_id: UUID, params: GMProfileUpdate) -> GMPr
     Raises:
         ValueError: If attempting to modify protected built-in profile fields
     """
+    _assert_existing_gm_profile(profile_id)
+    if params.universe_id is not None:
+        _assert_gm_profile_scope(params.universe_id)
     mongo_client = get_mongodb_client()
     collection = mongo_client.get_collection("gm_profiles")
 
@@ -321,6 +350,7 @@ def mongodb_delete_gm_profile(profile_id: UUID) -> bool:
     Raises:
         ValueError: If attempting to delete a built-in profile
     """
+    _assert_existing_gm_profile(profile_id)
     mongo_client = get_mongodb_client()
     collection = mongo_client.get_collection("gm_profiles")
 

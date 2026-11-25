@@ -26,6 +26,20 @@ from monitor_data.schemas.transcripts import (
     TranscriptSegment,
     TranscriptUpdate,
 )
+from monitor_data.tenancy import acting_owner, assert_owner_match
+
+
+def _assert_existing_transcript(transcript_id: UUID) -> None:
+    """Ownership gate (UX-1): the transcript's recorded owner or universe must
+    be the acting owner's. No owner bound → unchanged."""
+    if acting_owner() is None:
+        return
+    doc = get_mongodb_client().get_collection(COLLECTION).find_one({"transcript_id": str(transcript_id)})
+    if doc is not None:
+        assert_owner_match(
+            resource="transcript", universe_id=doc.get("universe_id"), direct_owner_id=doc.get("owner_id")
+        )
+
 
 COLLECTION = "transcripts"
 
@@ -70,6 +84,7 @@ def mongodb_create_transcript(params: TranscriptCreate) -> Transcript:
     Authority: AudioCaptureAgent / UI backend
     Collection: transcripts
     """
+    assert_owner_match(resource="transcript", universe_id=params.universe_id, direct_owner_id=params.owner_id)
     now = datetime.now(UTC)
     transcript_id = uuid4()
     segments = [
@@ -111,9 +126,7 @@ def mongodb_get_transcript(transcript_id: UUID) -> Transcript | None:
     Authority: * (read-only)
     Collection: transcripts
     """
-    doc = get_mongodb_client().get_collection(COLLECTION).find_one(
-        {"transcript_id": str(transcript_id)}
-    )
+    doc = get_mongodb_client().get_collection(COLLECTION).find_one({"transcript_id": str(transcript_id)})
     return _doc_to_transcript(doc) if doc else None
 
 
@@ -137,14 +150,13 @@ def mongodb_list_transcripts(
     return [_doc_to_transcript(dict(doc)) for doc in cursor]
 
 
-def mongodb_update_transcript(
-    transcript_id: UUID, params: TranscriptUpdate
-) -> Transcript | None:
+def mongodb_update_transcript(transcript_id: UUID, params: TranscriptUpdate) -> Transcript | None:
     """Apply the GM's edits to a transcript (edited text, reviewed segments).
 
     Authority: UI backend
     Collection: transcripts
     """
+    _assert_existing_transcript(transcript_id)
     collection = get_mongodb_client().get_collection(COLLECTION)
     doc = collection.find_one({"transcript_id": str(transcript_id)})
     if doc is None:
@@ -176,9 +188,8 @@ def mongodb_delete_transcript(transcript_id: UUID) -> bool:
     Authority: UI backend
     Collection: transcripts
     """
-    result = get_mongodb_client().get_collection(COLLECTION).delete_one(
-        {"transcript_id": str(transcript_id)}
-    )
+    _assert_existing_transcript(transcript_id)
+    result = get_mongodb_client().get_collection(COLLECTION).delete_one({"transcript_id": str(transcript_id)})
     return bool(getattr(result, "deleted_count", 0))
 
 
