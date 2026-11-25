@@ -38,6 +38,7 @@ from __future__ import annotations
 import structlog
 
 import asyncio
+import copy
 import logging
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -951,6 +952,7 @@ class ConversationLoop:
         loop = await ConversationLoop.start(...)      # opens session, loads context
         for player_input in player_inputs:
             responses = await loop.step(player_input) # one exchange
+            await loop.trim_last_exchange()           # undo it (UX-6 rewind)
         await loop.finish()                           # closes + stages proposals
 
     The loop is stateless between calls except for conversation_id and
@@ -994,6 +996,10 @@ class ConversationLoop:
         )
         self._graph = build_conversation_graph().compile()
         self._closed = False
+        # One snapshot per completed step(), newest last: trim_last_exchange
+        # pops them in order so repeated rewinds walk back exchange by
+        # exchange instead of only ever undoing the latest one.
+        self._exchange_snapshots: list[dict[str, Any]] = []
 
     def _apply(self, update: dict[str, Any]) -> None:
         """Merge a node's partial-state update back into self.state."""
@@ -1103,6 +1109,9 @@ class ConversationLoop:
         if self._closed or self.state.is_complete or self.state.turns_count >= self.state.max_turns:
             raise ConversationClosedError(f"Conversation {self.state.conversation_id} is already closed")
 
+        # Captured before this exchange mutates anything, so a later
+        # trim_last_exchange can put the loop back exactly here.
+        snapshot = self._snapshot_exchange()
         prior_turns = list(self.state.turns)
         self.state.current_player_input = player_input
         self.state.defer_memory_writes = defer_memory_writes
@@ -1130,7 +1139,85 @@ class ConversationLoop:
             self._apply(await close_session(self.state))
             self._closed = True
 
+        self._exchange_snapshots.append(snapshot)
         return self.state.current_npc_responses
+
+    def _snapshot_exchange(self) -> dict[str, Any]:
+        """Capture the loop state this exchange started from.
+
+        Everything an exchange can touch: the turn transcript, the
+        accumulated proposals, the per-NPC social context (emotions and
+        relationship snapshots are rewritten in place on every reply),
+        lorebook overrides, counters, and any buffered memory writes.
+        """
+        state = self.state
+        return {
+            "turns": list(state.turns),
+            "pending_proposals": list(state.pending_proposals),
+            "npc_contexts": copy.deepcopy(state.npc_contexts),
+            "lorebook_overrides": dict(state.lorebook_overrides),
+            "turns_count": state.turns_count,
+            "current_player_input": state.current_player_input,
+            "current_npc_responses": list(state.current_npc_responses),
+            "deferred_memory_writes": list(state.deferred_memory_writes),
+        }
+
+    @owner_scoped
+    async def trim_last_exchange(self) -> int:
+        """Remove the last exchange (player line + NPC replies) from memory.
+
+        The counterpart of one successful ``step()`` for chat rewind (UX-6):
+        the exchange leaves this loop's in-memory state AND the persisted
+        ConversationSession turn list (via the ``mongodb_trim_conversation_turns``
+        data-layer tool), while the conversation itself stays open — no
+        proposal staging, no status change, no ``is_complete``. Snapshots are
+        popped newest-first, so rewinding twice undoes two exchanges.
+
+        Returns:
+            The number of turn entries removed from the in-memory transcript
+            (0 when there is nothing to trim: closed loop, or no completed
+            step to undo).
+        """
+        if self._closed or self.state.is_complete or not self._exchange_snapshots:
+            return 0
+
+        snapshot = self._exchange_snapshots.pop()
+        removed_turns = max(0, len(self.state.turns) - len(snapshot["turns"]))
+        self.state.turns = list(snapshot["turns"])
+        self.state.pending_proposals = list(snapshot["pending_proposals"])
+        self.state.npc_contexts = snapshot["npc_contexts"]
+        self.state.lorebook_overrides = dict(snapshot["lorebook_overrides"])
+        self.state.turns_count = snapshot["turns_count"]
+        self.state.current_player_input = snapshot["current_player_input"]
+        self.state.current_npc_responses = list(snapshot["current_npc_responses"])
+        self.state.deferred_memory_writes = list(snapshot["deferred_memory_writes"])
+
+        # Durable history follows the in-memory trim. Best-effort: the loop
+        # must stay usable even when the store is unreachable, so a failed
+        # trim logs and continues with the state already rolled back.
+        try:
+            from monitor_agents.npc_voice.agent import NPCVoice
+
+            result = await NPCVoice().call_tool(
+                "mongodb_trim_conversation_turns",
+                {
+                    "conversation_id": str(self.state.conversation_id),
+                    "keep_turns": len(snapshot["turns"]),
+                },
+            )
+            if isinstance(result, str) and result.startswith("Error executing tool"):
+                log.warning(
+                    "conversation trim: persisted turn history not trimmed",
+                    conversation_id=str(self.state.conversation_id),
+                    result=result,
+                )
+        except Exception:  # noqa: BLE001  # reason: in-memory trim already done; a durable-trim failure must not break rewind
+            log.warning(
+                "conversation trim: persisted turn history not trimmed",
+                conversation_id=str(self.state.conversation_id),
+                exc_info=True,
+            )
+        return removed_turns
 
     @owner_scoped
     async def flush_memory_writes(self) -> int:
